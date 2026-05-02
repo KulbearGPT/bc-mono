@@ -1,0 +1,44 @@
+{
+  "name": "blackcat-companion-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "modules/*",
+    "database"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "db:migrate:deploy": "dotenv -e .env.example -- sh -c 'DATABASE_URL=${MIGRATION_DATABASE_URL:-$DATABASE_URL} prisma migrate deploy --schema database/prisma/schema.prisma'",
+    "db:validate": "dotenv -e .env.example -- prisma validate --schema database/prisma/schema.prisma",
+    "db:verify:migration": "bash scripts/verify-m0-us-02-migration.sh",
+    "dev": "dotenv -e .env.example -- concurrently -n api,bot,dashboard -c blue,magenta,green \"npm run dev -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",
+    "m0:verify": "vitest run tests/m0-us-01.spec.ts tests/m0-us-02.spec.ts tests/m0-us-03.spec.ts tests/m0-us-04.spec.ts tests/m0-us-05.spec.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -b tsconfig.build.json"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.20.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^7.4.4",
+    "prisma": "^6.3.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "@sapphire/framework": "^5.3.6",
+    "discord.js": "^14.17.3",
+    "fastify": "^5.2.1",
+    "pg": "^8.22.0",
+    "zod": "^3.24.1"
+  }
+}

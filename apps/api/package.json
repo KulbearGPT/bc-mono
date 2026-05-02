@@ -1,0 +1,27 @@
+{
+  "name": "@blackcat/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./security": "./src/security.ts",
+    "./payment-adapter": "./src/payment-adapter.ts",
+    "./outbox": "./src/outbox.ts",
+    "./catalog": "./src/catalog.ts",
+    "./accounts": "./src/accounts.ts",
+    "./funding": "./src/funding.ts",
+    "./players": "./src/players.ts",
+    "./dispatch": "./src/dispatch.ts",
+    "./service-lifecycle": "./src/service-lifecycle.ts",
+    "./staff-tasks": "./src/staff-tasks.ts",
+    "./risk-events": "./src/risk-events.ts",
+    "./admin-order-actions": "./src/admin-order-actions.ts",
+    "./orders": "./src/orders.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

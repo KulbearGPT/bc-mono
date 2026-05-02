@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    {"path": "./modules/platform"},
+    {"path": "./database"},
+    {"path": "./apps/api"},
+    {"path": "./apps/bot"},
+    {"path": "./apps/dashboard"}
+  ]
+}

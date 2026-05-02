@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@blackcat/platform/*": ["modules/platform/src/*"],
+      "@blackcat/api/*": ["apps/api/src/*"],
+      "@blackcat/bot/*": ["apps/bot/src/*"],
+      "@blackcat/database/*": ["database/src/*"]
+    }
+  }
+}

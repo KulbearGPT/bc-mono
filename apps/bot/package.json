@@ -1,0 +1,16 @@
+{
+  "name": "@blackcat/bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./piece-manifest": "./src/piece-manifest.ts",
+    "./service-center": "./src/service-center.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "pieces": "tsx src/piece-manifest.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
