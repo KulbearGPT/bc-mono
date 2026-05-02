@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${BLACKCAT_TEST_PG_PORT:-55432}"
+TMP_ROOT="$(mktemp -d /tmp/blackcat-pg-XXXXXX)"
+DATA_DIR="$TMP_ROOT/data"
+LOG_FILE="$TMP_ROOT/postgres.log"
+DB_NAME="blackcat_m0_us_02_verify"
+
+cleanup() {
+  pg_ctl -D "$DATA_DIR" stop -m fast >/dev/null 2>&1 || true
+  rm -rf "$TMP_ROOT"
+}
+trap cleanup EXIT
+
+initdb -D "$DATA_DIR" --no-locale --encoding=UTF8 >/tmp/blackcat-initdb.out
+pg_ctl -D "$DATA_DIR" -o "-p $PORT -k $TMP_ROOT" -l "$LOG_FILE" start >/tmp/blackcat-pgctl-start.out
+
+createdb -h "$TMP_ROOT" -p "$PORT" "$DB_NAME"
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000001_p0_baseline/migration.sql >/tmp/blackcat-migration-apply.out
+
+psql_db() {
+  psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
+}
+
+expect_sql_failure() {
+  local marker="$1"
+  local sql="$2"
+  if psql_db -qAtc "$sql" >/tmp/blackcat-expected-failure.out 2>/tmp/blackcat-expected-failure.err; then
+    echo "expected SQL failure for $marker" >&2
+    cat /tmp/blackcat-expected-failure.out >&2
+    exit 1
+  fi
+  echo "$marker"
+}
+
+table_count="$(psql_db -Atc "select count(*) from information_schema.tables where table_schema='public'")"
+constraint_count="$(psql_db -Atc "select count(*) from pg_constraint where conname in ('referral_attribution_not_self_chk','order_active_customer_slot_status_chk','fund_reservation_amounts_non_negative_chk')")"
+trigger_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
+  'trg_fund_reservation_event_guard',
+  'trg_order_readiness_guard',
+  'trg_order_readiness_event_guard',
+  'trg_referral_attribution_guard',
+  'trg_commission_attribution_guard',
+  'trg_external_transaction_reservation_guard',
+  'trg_guild_bot_config_event_immutable'
+)")"
+
+if [[ "$table_count" -lt 40 ]]; then
+  echo "expected at least 40 public tables, got $table_count" >&2
+  exit 1
+fi
+
+if [[ "$constraint_count" != "3" ]]; then
+  echo "expected 3 sampled supplemental constraints, got $constraint_count" >&2
+  exit 1
+fi
+
+if [[ "$trigger_count" != "7" ]]; then
+  echo "expected 7 sampled guard triggers, got $trigger_count" >&2
+  exit 1
+fi
+
+psql_db -qAtc "
+  INSERT INTO users (id, display_name, updated_at) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'Customer A', now()),
+    ('00000000-0000-0000-0000-000000000002', 'Customer B', now()),
+    ('00000000-0000-0000-0000-000000000003', 'Staff Owner', now()),
+    ('00000000-0000-0000-0000-000000000004', 'Customer C', now());
+
+  INSERT INTO staff_accounts (id, user_id, level, role_source, mfa_enrolled, updated_at)
+  VALUES (
+    '00000000-0000-0000-0000-000000000501',
+    '00000000-0000-0000-0000-000000000003',
+    'L4_ADMIN_OWNER',
+    'BOOTSTRAP',
+    true,
+    now()
+  );
+"
+
+expect_sql_failure "active-slot-mismatch-rejected" "
+  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, updated_at)
+  VALUES (
+    '00000000-0000-0000-0000-000000000100',
+    'P-BAD-SLOT',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000002',
+    'DRAFT',
+    now()
+  );
+"
+
+psql_db -qAtc "
+  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, updated_at)
+  VALUES (
+    '00000000-0000-0000-0000-000000000101',
+    'P-VALID',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000001',
+    'DRAFT',
+    now()
+  );
+"
+
+expect_sql_failure "source-less-reservation-rejected" "
+  INSERT INTO fund_reservations (
+    id, user_id, source_type, mode, amount_minor, currency, status, idempotency_key, updated_at
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000200',
+    '00000000-0000-0000-0000-000000000001',
+    'ORDER',
+    'LOCAL_RESERVATION_FALLBACK',
+    100,
+    'CNY',
+    'PENDING',
+    'bad-source',
+    now()
+  );
+"
+
+psql_db -qAtc "
+  INSERT INTO orders (
+    id, public_id, customer_id, player_id, active_customer_slot_id, active_player_slot_id,
+    status, customer_ready_at, player_ready_at, updated_at
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000102',
+    'P-READY',
+    '00000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000002',
+    '00000000-0000-0000-0000-000000000001',
+    'ACCEPTED',
+    now(),
+    now(),
+    now()
+  );
+"
+
+expect_sql_failure "readiness-event-required-rejected" "
+  UPDATE orders
+  SET status = 'IN_SERVICE', updated_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000102';
+"
+
+psql_db -qAtc "
+  INSERT INTO fund_reservations (
+    id, user_id, source_type, order_id, mode, amount_minor, currency, status, idempotency_key, updated_at
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000201',
+    '00000000-0000-0000-0000-000000000001',
+    'ORDER',
+    '00000000-0000-0000-0000-000000000101',
+    'LOCAL_RESERVATION_FALLBACK',
+    100,
+    'CNY',
+    'PENDING',
+    'valid-reservation',
+    now()
+  );
+
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000301',
+    '00000000-0000-0000-0000-000000000201',
+    1,
+    'CREATED',
+    'ACTIVE',
+    100,
+    1,
+    'created-1',
+    'SYSTEM_JOB'
+  );
+
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, from_status, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000302',
+    '00000000-0000-0000-0000-000000000201',
+    2,
+    'CAPTURED',
+    'ACTIVE',
+    'PARTIALLY_SETTLED',
+    60,
+    2,
+    'capture-1',
+    'SYSTEM_JOB'
+  );
+"
+
+expect_sql_failure "over-settlement-rejected" "
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000303',
+    '00000000-0000-0000-0000-000000000201',
+    3,
+    'RELEASED',
+    'PARTIALLY_SETTLED',
+    'RELEASED',
+    50,
+    3,
+    'release-too-much',
+    'SYSTEM_JOB'
+  );
+"
+
+expect_sql_failure "reservation-bad-transition-rejected" "
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, from_status, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000304',
+    '00000000-0000-0000-0000-000000000201',
+    3,
+    'DISPUTE_RESOLVED',
+    'PARTIALLY_SETTLED',
+    'ACTIVE',
+    0,
+    3,
+    'bad-transition',
+    'SYSTEM_JOB'
+  );
+"
+
+psql_db -qAtc "
+  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, updated_at)
+  VALUES (
+    '00000000-0000-0000-0000-000000000103',
+    'P-TERMINAL',
+    '00000000-0000-0000-0000-000000000004',
+    '00000000-0000-0000-0000-000000000004',
+    'DRAFT',
+    now()
+  );
+
+  INSERT INTO fund_reservations (
+    id, user_id, source_type, order_id, mode, amount_minor, currency, status, idempotency_key, updated_at
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000202',
+    '00000000-0000-0000-0000-000000000004',
+    'ORDER',
+    '00000000-0000-0000-0000-000000000103',
+    'LOCAL_RESERVATION_FALLBACK',
+    100,
+    'CNY',
+    'PENDING',
+    'terminal-reservation',
+    now()
+  );
+
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000305',
+    '00000000-0000-0000-0000-000000000202',
+    1,
+    'CREATED',
+    'ACTIVE',
+    100,
+    1,
+    'terminal-created',
+    'SYSTEM_JOB'
+  );
+"
+
+expect_sql_failure "reservation-partial-terminal-rejected" "
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, from_status, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000306',
+    '00000000-0000-0000-0000-000000000202',
+    2,
+    'CAPTURED',
+    'ACTIVE',
+    'CAPTURED',
+    1,
+    2,
+    'partial-terminal',
+    'SYSTEM_JOB'
+  );
+"
+
+expect_sql_failure "active-reservation-failed-terminal-rejected" "
+  INSERT INTO fund_reservation_events (
+    id, fund_reservation_id, sequence, event_type, from_status, to_status, amount_minor,
+    reservation_version, idempotency_key, actor_source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000307',
+    '00000000-0000-0000-0000-000000000202',
+    2,
+    'FAILED',
+    'ACTIVE',
+    'FAILED',
+    0,
+    2,
+    'failed-after-active',
+    'SYSTEM_JOB'
+  );
+"
+
+expect_sql_failure "audit-delete-rejected" "SET ROLE blackcat_app; DELETE FROM audit_logs;"
+expect_sql_failure "protected-amount-update-rejected" "SET ROLE blackcat_app; UPDATE fund_reservations SET amount_minor = 999 WHERE id = '00000000-0000-0000-0000-000000000201';"
+expect_sql_failure "order-amount-update-rejected" "SET ROLE blackcat_app; UPDATE orders SET amount_minor = 999 WHERE id = '00000000-0000-0000-0000-000000000101';"
+
+psql_db -qAtc "
+  INSERT INTO gift_catalog_items (id, code, updated_at)
+  VALUES ('00000000-0000-0000-0000-000000000601', 'rose', now());
+
+  INSERT INTO gift_catalog_versions (
+    id, gift_catalog_item_id, version, status, name, price_minor, currency,
+    broadcast_template, created_by_staff_id
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000602',
+    '00000000-0000-0000-0000-000000000601',
+    1,
+    'ACTIVE',
+    'Rose',
+    20,
+    'CNY',
+    '{sender} sent {gift}',
+    '00000000-0000-0000-0000-000000000501'
+  );
+
+  INSERT INTO gift_requests (
+    id, public_id, order_id, gift_catalog_version_id, sender_id, receiver_id,
+    gift_code_snapshot, gift_name_snapshot, price_minor, currency,
+    broadcast_template_snapshot, expires_at, updated_at
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000603',
+    'G-VERIFY',
+    '00000000-0000-0000-0000-000000000101',
+    '00000000-0000-0000-0000-000000000602',
+    '00000000-0000-0000-0000-000000000001',
+    '00000000-0000-0000-0000-000000000002',
+    'rose',
+    'Rose',
+    20,
+    'CNY',
+    '{sender} sent {gift}',
+    now() + interval '1 hour',
+    now()
+  );
+"
+
+expect_sql_failure "gift-price-update-rejected" "SET ROLE blackcat_app; UPDATE gift_requests SET price_minor = 999 WHERE id = '00000000-0000-0000-0000-000000000603';"
+
+psql_db -qAtc "
+  INSERT INTO guild_bot_configs (guild_id, config_json, updated_by_staff_id, updated_at)
+  VALUES ('guild-verify', '{}', '00000000-0000-0000-0000-000000000501', now());
+
+  INSERT INTO guild_bot_config_events (
+    id, guild_id, version, changes_json, previous_values_json, reason, actor_staff_id, source
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000604',
+    'guild-verify',
+    1,
+    '{}',
+    '{}',
+    'verify immutable config event',
+    '00000000-0000-0000-0000-000000000501',
+    'DASHBOARD'
+  );
+"
+
+expect_sql_failure "guild-config-event-update-privilege-rejected" "SET ROLE blackcat_app; UPDATE guild_bot_config_events SET reason = 'mutated' WHERE id = '00000000-0000-0000-0000-000000000604';"
+
+psql_db -qAtc "
+  INSERT INTO audit_logs (
+    id, actor_source, client_id, action, target_type, target_id, outcome, request_id
+  )
+  VALUES (
+    '00000000-0000-0000-0000-000000000401',
+    'SYSTEM_JOB',
+    'migration-verify',
+    'verify.audit',
+    'audit_logs',
+    '00000000-0000-0000-0000-000000000401',
+    'SUCCEEDED',
+    'req_migration_verify'
+  );
+"
+
+expect_sql_failure "append-only-update-rejected" "SET ROLE blackcat_app; UPDATE audit_logs SET reason = 'mutated' WHERE id = '00000000-0000-0000-0000-000000000401';"
+
+echo "migration-apply-ok"
+echo "table_count=$table_count"
+echo "constraint_count=$constraint_count"
+echo "trigger_count=$trigger_count"

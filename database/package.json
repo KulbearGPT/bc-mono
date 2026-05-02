@@ -1,0 +1,19 @@
+{
+  "name": "@blackcat/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./immutable-records": "./src/immutable-records.ts"
+  },
+  "scripts": {
+    "validate": "dotenv -e ../.env.example -- prisma validate --schema prisma/schema.prisma",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1"
+  },
+  "devDependencies": {
+    "prisma": "^6.3.1"
+  }
+}

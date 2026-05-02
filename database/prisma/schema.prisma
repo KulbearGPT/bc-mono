@@ -1,0 +1,1634 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ACTIVE, PAUSED, and SUSPENDED are API-writable; DISABLED is an internal L4 system state.
+enum UserStatus {
+  ACTIVE
+  PAUSED
+  SUSPENDED
+  DISABLED
+}
+
+enum ExternalAccountStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum PlayerReviewStatus {
+  PENDING_REVIEW
+  ACTIVE
+  PAUSED
+  SUSPENDED
+}
+
+enum PlayerAvailability {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
+enum DiscordPresenceStatus {
+  ONLINE
+  IDLE
+  DND
+  OFFLINE
+  UNKNOWN
+}
+
+enum SkillTagType {
+  GAME
+  SERVICE
+  REGION
+  LANGUAGE
+}
+
+enum StaffLevel {
+  L1_SUPPORT
+  L2_SUPERVISOR
+  L3_OPERATIONS
+  L4_ADMIN_OWNER
+}
+
+enum StaffAccountStatus {
+  ACTIVE
+  PENDING_ELEVATION
+  SUSPENDED
+  DISABLED
+}
+
+enum StaffRoleSource {
+  DISCORD_ROLE
+  MANUAL
+  BOOTSTRAP
+}
+
+enum RoleSyncStatus {
+  APPLIED
+  PENDING_ELEVATION
+  REJECTED
+  DOWNGRADED
+  FAILED
+}
+
+enum CatalogVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_DISPATCH
+  ACCEPTED
+  IN_SERVICE
+  PENDING_CONFIRMATION
+  COMPLETED
+  CANCELLED
+  EXCEPTION
+}
+
+enum OrderEventType {
+  CREATED
+  DETAILS_UPDATED
+  CHANNEL_LINKED
+  SUBMITTED
+  DISPATCH_STARTED
+  DISPATCH_TIMED_OUT
+  ACCEPTED
+  CUSTOMER_READY_CONFIRMED
+  PLAYER_READY_CONFIRMED
+  READINESS_RESET
+  READINESS_TIMED_OUT
+  SERVICE_STARTED
+  SERVICE_STARTED_OVERRIDE
+  COMPLETION_REQUESTED
+  COMPLETED
+  CANCELLED
+  EXCEPTION_ENTERED
+  EXCEPTION_RECOVERED
+  RESOLVED
+  PANEL_SYNC_REQUESTED
+}
+
+enum ResolutionReasonCode {
+  USER_REQUEST
+  DISPATCH_TIMEOUT
+  PLAYER_NO_SHOW
+  CUSTOMER_NO_SHOW
+  SERVICE_INTERRUPTED
+  COMPLETION_DISPUTE
+  PAYMENT_FAILURE
+  REFUND_FAILURE
+  ADMIN_CORRECTION
+}
+
+enum DispatchStatus {
+  PENDING
+  ACTIVE
+  ACCEPTED
+  TIMED_OUT
+  CANCELLED
+  FAILED
+}
+
+enum DispatchCandidateStatus {
+  NOTIFIED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  LOST_RACE
+}
+
+enum ExternalTransactionType {
+  ORDER_CHARGE
+  GIFT_CHARGE
+}
+
+/// Original debit mirror lifecycle plus its aggregate refund state.
+enum ExternalTransactionStatus {
+  UNKNOWN
+  PENDING
+  SUCCEEDED
+  FAILED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+/// Refund execution lifecycle only. Refund aggregation lives on the original ExternalTransaction.
+enum RefundStatus {
+  UNKNOWN
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum GiftRequestStatus {
+  PENDING_REVIEW
+  PENDING_APPROVAL
+  APPROVED
+  CAPTURED
+  ANNOUNCED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+  FAILED
+  REVERSED
+}
+
+enum FundReservationSourceType {
+  ORDER
+  GIFT
+}
+
+enum FundReservationMode {
+  PROVIDER_NATIVE_HOLD
+  LOCAL_RESERVATION_FALLBACK
+}
+
+enum FundReservationStatus {
+  PENDING
+  ACTIVE
+  DISPUTED
+  PARTIALLY_SETTLED
+  CAPTURED
+  RELEASED
+  EXPIRED
+  FAILED
+}
+
+enum FundReservationEventType {
+  CREATED
+  ACTIVATED
+  CAPTURED
+  RELEASED
+  DISPUTED
+  DISPUTE_RESOLVED
+  EXPIRED
+  FAILED
+}
+
+enum CancellationPreviewStatus {
+  ISSUED
+  APPLIED
+  EXPIRED
+  INVALIDATED
+}
+
+enum CancellationDisposition {
+  AUTO_RELEASE
+  AUTO_REFUND
+  STAFF_REVIEW_REQUIRED
+  BLOCKED
+}
+
+enum StaffTaskType {
+  ORDER_ASSIST
+  CANCELLATION_ASSIST
+  GIFT_REVIEW
+  PLAYER_START_LATE
+  PLAYER_NO_SHOW
+  CUSTOMER_NO_SHOW
+  SERVICE_INTERRUPTED
+  COMPLETION_REVIEW
+  DISPUTE
+  AUTOMATION_FAILURE
+}
+
+enum StaffTaskStatus {
+  OPEN
+  CLAIMED
+  VERIFIED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  RESOLVED
+  CANCELLED
+}
+
+enum ApprovalAction {
+  GIFT_APPROVE
+  REFUND_EXECUTE
+  ORDER_RESOLVE
+  ORDER_REASSIGN
+  PLAYER_EARNING_ADJUST
+  USER_SUSPEND
+  PLAYER_SUSPEND
+  CATALOG_CHANGE
+  GIFT_CATALOG_CHANGE
+  REFERRAL_RULE_CHANGE
+  ACCESS_CHANGE
+  INTEGRATION_CHANGE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ApprovalDecisionType {
+  APPROVE
+  REJECT
+  CANCEL
+}
+
+enum ConsumptionEntryType {
+  ORDER_CHARGE
+  GIFT_CHARGE
+  REFUND_REVERSAL
+  ADMIN_CORRECTION
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum PlayerEarningStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  REVERSED
+}
+
+enum EarningAdjustmentType {
+  REVERSAL_DEBIT
+  CORRECTION_DEBIT
+  CORRECTION_CREDIT
+}
+
+enum ReferralProgramType {
+  PROMOTER_FIRST_PURCHASE
+  PLAYER_LIFETIME
+}
+
+enum ReferralProgramVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum ReferralAwardMode {
+  FIXED_MINOR
+  NET_SPEND_BPS
+}
+
+enum ReferralAttributionStatus {
+  ACTIVE
+  FULFILLED
+  SUPERSEDED
+  REVOKED
+}
+
+enum ReferralAttributionSourceType {
+  INVITE_CODE
+  ADMIN_MANUAL
+  MIGRATED_LEGACY
+}
+
+enum CommissionStatus {
+  PENDING
+  CONFIRMED
+  PAID
+  REVERSED
+}
+
+enum CommissionAdjustmentType {
+  REVERSAL_DEBIT
+  CORRECTION_DEBIT
+  CORRECTION_CREDIT
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum ActorSource {
+  DISCORD_BOT
+  DASHBOARD
+  SYSTEM_JOB
+  THIRD_PARTY_WEBHOOK
+}
+
+enum BotConfigEventSource {
+  DISCORD_BOT
+  DASHBOARD
+}
+
+enum AuditOutcome {
+  SUCCEEDED
+  REJECTED
+  FAILED
+}
+
+enum RiskEventType {
+  PLAYER_NO_SHOW
+  CUSTOMER_NO_SHOW
+  DUPLICATE_ACCOUNT_SIGNAL
+  REFERRAL_ABUSE_SIGNAL
+  PAYMENT_ANOMALY
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model User {
+  id               String     @id @default(uuid()) @db.Uuid
+  displayName      String     @map("display_name") @db.VarChar(100)
+  status           UserStatus @default(ACTIVE)
+  rowVersion       Int        @default(1) @map("row_version")
+  suspendedAt      DateTime?  @map("suspended_at") @db.Timestamptz(3)
+  suspensionReason String?    @map("suspension_reason") @db.VarChar(500)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  discordAccounts      DiscordAccount[]
+  externalAccounts     ExternalAccount[]
+  playerProfile        PlayerProfile?
+  staffAccount         StaffAccount?
+  customerOrders       Order[]               @relation("OrderCustomer")
+  playerOrders         Order[]               @relation("OrderPlayer")
+  activeCustomerOrders Order[]               @relation("ActiveOrderCustomer")
+  activePlayerOrders   Order[]               @relation("ActiveOrderPlayer")
+  acceptedDispatches   DispatchAttempt[]     @relation("DispatchAcceptedPlayer")
+  dispatchCandidates   DispatchCandidate[]
+  sentGiftRequests     GiftRequest[]         @relation("GiftSender")
+  receivedGiftRequests GiftRequest[]         @relation("GiftReceiver")
+  externalTransactions ExternalTransaction[]
+  refundBeneficiaries  Refund[]              @relation("RefundBeneficiary")
+  requestedRefunds     Refund[]              @relation("RefundRequestedByUser")
+  consumptionEntries   ConsumptionEntry[]
+  fundReservations     FundReservation[]
+  fundReservationEvents FundReservationEvent[] @relation("FundReservationEventActorUser")
+  fundLocks            UserCurrencyLock[]
+  cancellationPreviews CancellationPreview[] @relation("CancellationPreviewRequestedByUser")
+  referralBenefits     ReferralAttribution[] @relation("ReferralBeneficiary")
+  referralAttributions ReferralAttribution[] @relation("ReferralReferredUser")
+  commissions          Commission[]          @relation("CommissionBeneficiary")
+  playerEarnings       PlayerEarning[]       @relation("EarningPlayer")
+  riskEvents           RiskEvent[]
+  idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
+  auditLogs            AuditLog[]            @relation("AuditActorUser")
+  orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
+
+  @@index([status])
+  @@map("users")
+}
+
+model DiscordAccount {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  guildId       String    @map("guild_id") @db.VarChar(32)
+  discordUserId String    @map("discord_user_id") @db.VarChar(32)
+  username      String?   @db.VarChar(100)
+  boundAt       DateTime  @default(now()) @map("bound_at") @db.Timestamptz(3)
+  lastSeenAt    DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([guildId, discordUserId])
+  @@unique([userId, guildId])
+  @@index([userId])
+  @@map("discord_accounts")
+}
+
+model ExternalAccount {
+  id                    String                @id @default(uuid()) @db.Uuid
+  userId                String                @map("user_id") @db.Uuid
+  provider              String                @db.VarChar(50)
+  externalUserId        String                @map("external_user_id") @db.VarChar(255)
+  status                ExternalAccountStatus @default(ACTIVE)
+  activeUserProviderKey String?               @unique @map("active_user_provider_key") @db.VarChar(350)
+  verifiedAt            DateTime              @map("verified_at") @db.Timestamptz(3)
+  revokedAt             DateTime?             @map("revoked_at") @db.Timestamptz(3)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([provider, externalUserId])
+  @@index([userId, status])
+  @@map("external_accounts")
+}
+
+model StaffAccount {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @unique @map("user_id") @db.Uuid
+  level              StaffLevel         @default(L1_SUPPORT)
+  requestedLevel     StaffLevel?        @map("requested_level")
+  status             StaffAccountStatus @default(ACTIVE)
+  roleSource         StaffRoleSource    @map("role_source")
+  roleSyncedAt       DateTime?          @map("role_synced_at") @db.Timestamptz(3)
+  confirmedByStaffId String?            @map("confirmed_by_staff_id") @db.Uuid
+  confirmedAt        DateTime?          @map("confirmed_at") @db.Timestamptz(3)
+  mfaEnrolled        Boolean            @default(false) @map("mfa_enrolled")
+  permissionsVersion Int                @default(1) @map("permissions_version")
+  lastLoginAt        DateTime?          @map("last_login_at") @db.Timestamptz(3)
+  disabledAt         DateTime?          @map("disabled_at") @db.Timestamptz(3)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                   User                      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  confirmedBy            StaffAccount?             @relation("StaffAccountConfirmation", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  confirmedStaffAccounts StaffAccount[]            @relation("StaffAccountConfirmation")
+  sessions               StaffSession[]
+  roleSyncEvents         StaffRoleSyncEvent[]
+  approvedPlayerProfiles PlayerProfile[]           @relation("PlayerApprovedBy")
+  createdCatalogVersions ServiceCatalogVersion[]   @relation("ServiceVersionCreatedBy")
+  createdGiftVersions    GiftCatalogVersion[]      @relation("GiftVersionCreatedBy")
+  resolvedOrders         OrderResolution[]         @relation("OrderResolvedBy")
+  createdStaffTasks      StaffTask[]               @relation("TaskCreatedBy")
+  claimedStaffTasks      StaffTask[]               @relation("TaskClaimedBy")
+  resolvedStaffTasks     StaffTask[]               @relation("TaskResolvedBy")
+  staffTaskNotes         StaffTaskNote[]
+  requestedApprovals     ApprovalRequest[]         @relation("ApprovalRequestedBy")
+  approvalDecisions      ApprovalDecision[]        @relation("ApprovalDecidedBy")
+  verifiedGiftRequests   GiftRequest[]             @relation("GiftVerifiedBy")
+  approvedGiftRequests   GiftRequest[]             @relation("GiftApprovedBy")
+  requestedRefunds       Refund[]                  @relation("RefundRequestedByStaff")
+  confirmedEarnings      PlayerEarning[]           @relation("EarningConfirmedBy")
+  earningAdjustments     PlayerEarningAdjustment[] @relation("EarningAdjustmentCreatedBy")
+  cancellationPreviews   CancellationPreview[]     @relation("CancellationPreviewRequestedByStaff")
+  fundReservationEvents  FundReservationEvent[]    @relation("FundReservationEventActorStaff")
+  referralPrograms       ReferralProgramVersion[]  @relation("ReferralProgramCreatedBy")
+  boundAttributions      ReferralAttribution[]     @relation("ReferralAttributionBoundBy")
+  commissionAdjustments  CommissionAdjustment[]    @relation("CommissionAdjustmentCreatedBy")
+  roleMappingsCreated    DiscordRoleMapping[]      @relation("RoleMappingCreatedBy")
+  policyVersionsCreated  PolicySettingVersion[]    @relation("PolicyVersionCreatedBy")
+  idempotencyRecords     IdempotencyRecord[]       @relation("IdempotencyActorStaff")
+  auditLogs              AuditLog[]                @relation("AuditActorStaff")
+  riskEventsCreated      RiskEvent[]               @relation("RiskCreatedBy")
+  orderEvents            OrderEvent[]              @relation("OrderEventActorStaff")
+  botConfigsUpdated      GuildBotConfig[]           @relation("BotConfigUpdatedBy")
+  botConfigEvents        GuildBotConfigEvent[]      @relation("BotConfigEventActor")
+
+  @@index([level, status])
+  @@map("staff_accounts")
+}
+
+/// One current, schema-validated Bot configuration row per Discord Guild.
+model GuildBotConfig {
+  guildId          String   @id @map("guild_id") @db.VarChar(32)
+  version          Int      @default(1)
+  configJson       Json     @map("config_json") @db.JsonB
+  updatedByStaffId String   @map("updated_by_staff_id") @db.Uuid
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy StaffAccount          @relation("BotConfigUpdatedBy", fields: [updatedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events    GuildBotConfigEvent[]
+
+  @@index([updatedByStaffId, updatedAt])
+  @@map("guild_bot_configs")
+}
+
+/// Append-only history; application and database roles must reject UPDATE and DELETE.
+model GuildBotConfigEvent {
+  id                 String               @id @default(uuid()) @db.Uuid
+  guildId            String               @map("guild_id") @db.VarChar(32)
+  version            Int
+  changesJson        Json                 @map("changes_json") @db.JsonB
+  previousValuesJson Json                 @map("previous_values_json") @db.JsonB
+  reason             String               @db.VarChar(1000)
+  actorStaffId       String               @map("actor_staff_id") @db.Uuid
+  source             BotConfigEventSource
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  config GuildBotConfig @relation(fields: [guildId], references: [guildId], onDelete: Restrict, onUpdate: Cascade)
+  actor  StaffAccount   @relation("BotConfigEventActor", fields: [actorStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([guildId, version])
+  @@index([actorStaffId, createdAt])
+  @@map("guild_bot_config_events")
+}
+
+model StaffSession {
+  id                 String    @id @default(uuid()) @db.Uuid
+  staffAccountId     String    @map("staff_account_id") @db.Uuid
+  sessionHash        String    @unique @map("session_hash") @db.VarChar(128)
+  permissionsVersion Int       @map("permissions_version")
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(3)
+  stepUpAt           DateTime? @map("step_up_at") @db.Timestamptz(3)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
+  ipHash             String?   @map("ip_hash") @db.VarChar(128)
+  userAgentHash      String?   @map("user_agent_hash") @db.VarChar(128)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([staffAccountId, revokedAt, expiresAt])
+  @@map("staff_sessions")
+}
+
+model DiscordRoleMapping {
+  id               String     @id @default(uuid()) @db.Uuid
+  guildId          String     @map("guild_id") @db.VarChar(32)
+  discordRoleId    String     @map("discord_role_id") @db.VarChar(32)
+  targetLevel      StaffLevel @map("target_level")
+  version          Int
+  enabled          Boolean    @default(true)
+  activeMappingKey String?    @unique @map("active_mapping_key") @db.VarChar(80)
+  activeLevelKey   String?    @unique @map("active_level_key") @db.VarChar(80)
+  createdByStaffId String     @map("created_by_staff_id") @db.Uuid
+  retiredAt        DateTime?  @map("retired_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy StaffAccount @relation("RoleMappingCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([guildId, discordRoleId, version])
+  @@index([guildId, targetLevel, enabled])
+  @@map("discord_role_mappings")
+}
+
+model StaffRoleSyncEvent {
+  id                     String         @id @default(uuid()) @db.Uuid
+  staffAccountId         String?        @map("staff_account_id") @db.Uuid
+  guildId                String         @map("guild_id") @db.VarChar(32)
+  discordUserId          String         @map("discord_user_id") @db.VarChar(32)
+  observedDiscordRoleIds String[]       @map("observed_discord_role_ids")
+  mappingVersionSnapshot Json           @map("mapping_version_snapshot") @db.JsonB
+  previousLevel          StaffLevel?    @map("previous_level")
+  requestedLevel         StaffLevel?    @map("requested_level")
+  appliedLevel           StaffLevel?    @map("applied_level")
+  status                 RoleSyncStatus
+  source                 String         @db.VarChar(50)
+  sourceEventId          String         @map("source_event_id") @db.VarChar(200)
+  errorCode              String?        @map("error_code") @db.VarChar(100)
+  createdAt              DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount? @relation(fields: [staffAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([source, sourceEventId])
+  @@index([guildId, discordUserId, createdAt])
+  @@index([status, createdAt])
+  @@map("staff_role_sync_events")
+}
+
+model RolePermission {
+  level          StaffLevel
+  permissionCode String     @map("permission_code") @db.VarChar(100)
+  scope          String     @db.VarChar(50)
+  policyVersion  Int        @default(1) @map("policy_version")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([level, permissionCode, scope])
+  @@map("role_permissions")
+}
+
+model PolicySettingVersion {
+  id               String   @id @default(uuid()) @db.Uuid
+  key              String   @db.VarChar(100)
+  version          Int
+  value            Json     @db.JsonB
+  currency         String?  @db.Char(3)
+  activeSettingKey String?  @unique @map("active_setting_key") @db.VarChar(100)
+  createdByStaffId String   @map("created_by_staff_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy StaffAccount @relation("PolicyVersionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([key, version])
+  @@index([key, createdAt])
+  @@map("policy_setting_versions")
+}
+
+model PlayerProfile {
+  id                 String                @id @default(uuid()) @db.Uuid
+  userId             String                @unique @map("user_id") @db.Uuid
+  reviewStatus       PlayerReviewStatus    @default(PENDING_REVIEW) @map("review_status")
+  rowVersion         Int                   @default(1) @map("row_version")
+  availability       PlayerAvailability    @default(OFFLINE)
+  discordPresence    DiscordPresenceStatus @default(UNKNOWN) @map("discord_presence")
+  presenceObservedAt DateTime?             @map("presence_observed_at") @db.Timestamptz(3)
+  approvedByStaffId  String?               @map("approved_by_staff_id") @db.Uuid
+  approvedAt         DateTime?             @map("approved_at") @db.Timestamptz(3)
+  pausedAt           DateTime?             @map("paused_at") @db.Timestamptz(3)
+  suspendedAt        DateTime?             @map("suspended_at") @db.Timestamptz(3)
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  approvedBy StaffAccount? @relation("PlayerApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  skills     PlayerSkill[]
+
+  @@index([reviewStatus, availability, discordPresence])
+  @@map("player_profiles")
+}
+
+model SkillTag {
+  id          String       @id @default(uuid()) @db.Uuid
+  type        SkillTagType
+  code        String       @db.VarChar(80)
+  displayName String       @map("display_name") @db.VarChar(100)
+  enabled     Boolean      @default(true)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  playerSkills        PlayerSkill[]
+  serviceRequirements ServiceVersionSkillRequirement[]
+
+  @@unique([type, code])
+  @@index([enabled, type])
+  @@map("skill_tags")
+}
+
+model PlayerSkill {
+  playerProfileId String   @map("player_profile_id") @db.Uuid
+  skillTagId      String   @map("skill_tag_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  playerProfile PlayerProfile @relation(fields: [playerProfileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skillTag      SkillTag      @relation(fields: [skillTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([playerProfileId, skillTagId])
+  @@index([skillTagId])
+  @@map("player_skills")
+}
+
+model ServiceOffering {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique @db.VarChar(100)
+  gameCode    String    @map("game_code") @db.VarChar(80)
+  gameName    String    @map("game_name") @db.VarChar(100)
+  serviceCode String    @map("service_code") @db.VarChar(80)
+  serviceName String    @map("service_name") @db.VarChar(100)
+  regionCode  String?   @map("region_code") @db.VarChar(80)
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  versions ServiceCatalogVersion[]
+
+  @@unique([gameCode, serviceCode, regionCode])
+  @@index([gameCode, archivedAt])
+  @@map("service_offerings")
+}
+
+model ServiceCatalogVersion {
+  id                     String               @id @default(uuid()) @db.Uuid
+  serviceOfferingId      String               @map("service_offering_id") @db.Uuid
+  version                Int
+  status                 CatalogVersionStatus @default(DRAFT)
+  activeOfferingKey      String?              @unique @map("active_offering_key") @db.Uuid
+  billingUnitMinutes     Int                  @map("billing_unit_minutes")
+  minimumUnits           Int                  @map("minimum_units")
+  customerUnitPriceMinor BigInt               @map("customer_unit_price_minor")
+  playerUnitPayoutMinor  BigInt               @map("player_unit_payout_minor")
+  currency               String               @db.Char(3)
+  createdByStaffId       String               @map("created_by_staff_id") @db.Uuid
+  activatedAt            DateTime?            @map("activated_at") @db.Timestamptz(3)
+  retiredAt              DateTime?            @map("retired_at") @db.Timestamptz(3)
+  createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  serviceOffering ServiceOffering                  @relation(fields: [serviceOfferingId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       StaffAccount                     @relation("ServiceVersionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requirements    ServiceVersionSkillRequirement[]
+  orders          Order[]
+
+  @@unique([serviceOfferingId, version])
+  @@index([status, serviceOfferingId])
+  @@map("service_catalog_versions")
+}
+
+model ServiceVersionSkillRequirement {
+  serviceCatalogVersionId String   @map("service_catalog_version_id") @db.Uuid
+  skillTagId              String   @map("skill_tag_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  serviceCatalogVersion ServiceCatalogVersion @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skillTag              SkillTag              @relation(fields: [skillTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([serviceCatalogVersionId, skillTagId])
+  @@index([skillTagId])
+  @@map("service_version_skill_requirements")
+}
+
+model Order {
+  id                         String      @id @default(uuid()) @db.Uuid
+  publicId                   String      @unique @map("public_id") @db.VarChar(30)
+  customerId                 String      @map("customer_id") @db.Uuid
+  playerId                   String?     @map("player_id") @db.Uuid
+  activeCustomerSlotId       String?     @unique @map("active_customer_slot_id") @db.Uuid
+  activePlayerSlotId         String?     @unique @map("active_player_slot_id") @db.Uuid
+  status                     OrderStatus @default(DRAFT)
+  rowVersion                 Int         @default(1) @map("row_version")
+  serviceCatalogVersionId    String?     @map("service_catalog_version_id") @db.Uuid
+  catalogVersion             Int?        @map("catalog_version")
+  gameCodeSnapshot           String?     @map("game_code_snapshot") @db.VarChar(80)
+  gameNameSnapshot           String?     @map("game_name_snapshot") @db.VarChar(100)
+  serviceCodeSnapshot        String?     @map("service_code_snapshot") @db.VarChar(80)
+  serviceNameSnapshot        String?     @map("service_name_snapshot") @db.VarChar(100)
+  regionCodeSnapshot         String?     @map("region_code_snapshot") @db.VarChar(80)
+  billingUnitMinutes         Int?        @map("billing_unit_minutes")
+  unitCount                  Int?        @map("unit_count")
+  customerUnitPriceMinor     BigInt?     @map("customer_unit_price_minor")
+  playerUnitPayoutMinor      BigInt?     @map("player_unit_payout_minor")
+  amountMinor                BigInt?     @map("amount_minor")
+  expectedPlayerEarningMinor BigInt?     @map("expected_player_earning_minor")
+  currency                   String?     @db.Char(3)
+  requirementSnapshot        Json?       @map("requirement_snapshot") @db.JsonB
+  customerNote               String?     @map("customer_note") @db.VarChar(1000)
+  guildId                    String?     @map("guild_id") @db.VarChar(32)
+  channelId                  String?     @unique @map("channel_id") @db.VarChar(32)
+  panelMessageId             String?     @unique @map("panel_message_id") @db.VarChar(32)
+  voiceChannelId             String?     @map("voice_channel_id") @db.VarChar(32)
+  dispatchRound              Int         @default(0) @map("dispatch_round")
+  submittedAt                DateTime?   @map("submitted_at") @db.Timestamptz(3)
+  acceptedAt                 DateTime?   @map("accepted_at") @db.Timestamptz(3)
+  readinessDueAt             DateTime?   @map("readiness_due_at") @db.Timestamptz(3)
+  customerReadyAt            DateTime?   @map("customer_ready_at") @db.Timestamptz(3)
+  playerReadyAt              DateTime?   @map("player_ready_at") @db.Timestamptz(3)
+  serviceStartedAt           DateTime?   @map("service_started_at") @db.Timestamptz(3)
+  completionRequestedAt      DateTime?   @map("completion_requested_at") @db.Timestamptz(3)
+  confirmationDueAt          DateTime?   @map("confirmation_due_at") @db.Timestamptz(3)
+  completedAt                DateTime?   @map("completed_at") @db.Timestamptz(3)
+  cancelledAt                DateTime?   @map("cancelled_at") @db.Timestamptz(3)
+  createdAt                  DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  customer            User                   @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player              User?                  @relation("OrderPlayer", fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  activeCustomer      User?                  @relation("ActiveOrderCustomer", fields: [activeCustomerSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  activePlayer        User?                  @relation("ActiveOrderPlayer", fields: [activePlayerSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceVersion      ServiceCatalogVersion? @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events              OrderEvent[]
+  resolutions         OrderResolution[]
+  dispatchAttempts    DispatchAttempt[]
+  giftRequests        GiftRequest[]
+  fundReservation     FundReservation?
+  cancellationPreviews CancellationPreview[]
+  staffTasks          StaffTask[]
+  externalTransaction ExternalTransaction?
+  refunds             Refund[]
+  consumptionEntries  ConsumptionEntry[]
+  playerEarning       PlayerEarning?
+  riskEvents          RiskEvent[]
+  outboxEvents        OutboxEvent[]
+
+  @@index([customerId, createdAt])
+  @@index([playerId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, readinessDueAt])
+  @@index([serviceCatalogVersionId])
+  @@map("orders")
+}
+
+model OrderEvent {
+  id            String         @id @default(uuid()) @db.Uuid
+  orderId       String         @map("order_id") @db.Uuid
+  sequence      Int
+  eventType     OrderEventType @map("event_type")
+  fromStatus    OrderStatus?   @map("from_status")
+  toStatus      OrderStatus?   @map("to_status")
+  actorUserId   String?        @map("actor_user_id") @db.Uuid
+  actorStaffId  String?        @map("actor_staff_id") @db.Uuid
+  actorSource   ActorSource    @map("actor_source")
+  interactionId String?        @map("interaction_id") @db.VarChar(32)
+  payload       Json?          @db.JsonB
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order      Order         @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorUser  User?         @relation("OrderEventActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorStaff StaffAccount? @relation("OrderEventActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([orderId, sequence])
+  @@index([orderId, createdAt])
+  @@index([interactionId])
+  @@map("order_events")
+}
+
+model OrderResolution {
+  id                   String               @id @default(uuid()) @db.Uuid
+  orderId              String               @map("order_id") @db.Uuid
+  targetStatus         OrderStatus          @map("target_status")
+  reasonCode           ResolutionReasonCode @map("reason_code")
+  refundAmountMinor    BigInt               @map("refund_amount_minor")
+  playerEarningMinor   BigInt               @map("player_earning_minor")
+  currency             String               @db.Char(3)
+  evidenceNote         String               @map("evidence_note") @db.VarChar(2000)
+  resolvedByStaffId    String               @map("resolved_by_staff_id") @db.Uuid
+  approvalRequestId    String?              @unique @map("approval_request_id") @db.Uuid
+  orderVersionSnapshot Int                  @map("order_version_snapshot")
+  idempotencyKey       String               @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  resolvedBy         StaffAccount              @relation("OrderResolvedBy", fields: [resolvedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  approvalRequest    ApprovalRequest?          @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refund             Refund?
+  earningAdjustments PlayerEarningAdjustment[]
+
+  @@index([orderId, createdAt])
+  @@map("order_resolutions")
+}
+
+model DispatchAttempt {
+  id                String         @id @default(uuid()) @db.Uuid
+  orderId           String         @map("order_id") @db.Uuid
+  round             Int
+  status            DispatchStatus @default(PENDING)
+  dispatchChannelId String         @map("dispatch_channel_id") @db.VarChar(32)
+  dispatchMessageId String?        @unique @map("dispatch_message_id") @db.VarChar(32)
+  candidateCriteria Json           @map("candidate_criteria") @db.JsonB
+  acceptedPlayerId  String?        @map("accepted_player_id") @db.Uuid
+  startedAt         DateTime?      @map("started_at") @db.Timestamptz(3)
+  expiresAt         DateTime       @map("expires_at") @db.Timestamptz(3)
+  acceptedAt        DateTime?      @map("accepted_at") @db.Timestamptz(3)
+  finishedAt        DateTime?      @map("finished_at") @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order          Order               @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  acceptedPlayer User?               @relation("DispatchAcceptedPlayer", fields: [acceptedPlayerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  candidates     DispatchCandidate[]
+  outboxEvents   OutboxEvent[]
+
+  @@unique([orderId, round])
+  @@index([status, expiresAt])
+  @@map("dispatch_attempts")
+}
+
+model DispatchCandidate {
+  dispatchAttemptId String                  @map("dispatch_attempt_id") @db.Uuid
+  playerUserId      String                  @map("player_user_id") @db.Uuid
+  status            DispatchCandidateStatus @default(NOTIFIED)
+  notifiedAt        DateTime?               @map("notified_at") @db.Timestamptz(3)
+  respondedAt       DateTime?               @map("responded_at") @db.Timestamptz(3)
+  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  dispatchAttempt DispatchAttempt @relation(fields: [dispatchAttemptId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player          User            @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([dispatchAttemptId, playerUserId])
+  @@index([playerUserId, status])
+  @@map("dispatch_candidates")
+}
+
+model StaffTask {
+  id                    String          @id @default(uuid()) @db.Uuid
+  publicId              String          @unique @map("public_id") @db.VarChar(30)
+  type                  StaffTaskType
+  reasonCode            String          @map("reason_code") @db.VarChar(100)
+  status                StaffTaskStatus @default(OPEN)
+  rowVersion            Int             @default(1) @map("row_version")
+  orderId               String?         @map("order_id") @db.Uuid
+  giftRequestId         String?         @unique @map("gift_request_id") @db.Uuid
+  createdByStaffId      String?         @map("created_by_staff_id") @db.Uuid
+  claimedByStaffId      String?         @map("claimed_by_staff_id") @db.Uuid
+  resolvedByStaffId     String?         @map("resolved_by_staff_id") @db.Uuid
+  voiceChannelId        String?         @map("voice_channel_id") @db.VarChar(32)
+  staffChannelMessageId String?         @unique @map("staff_channel_message_id") @db.VarChar(32)
+  contextSnapshot       Json            @map("context_snapshot") @db.JsonB
+  claimedAt             DateTime?       @map("claimed_at") @db.Timestamptz(3)
+  verifiedAt            DateTime?       @map("verified_at") @db.Timestamptz(3)
+  resolvedAt            DateTime?       @map("resolved_at") @db.Timestamptz(3)
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order            Order?            @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest      GiftRequest?      @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy        StaffAccount?     @relation("TaskCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  claimedBy        StaffAccount?     @relation("TaskClaimedBy", fields: [claimedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  resolvedBy       StaffAccount?     @relation("TaskResolvedBy", fields: [resolvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  notes            StaffTaskNote[]
+  approvalRequests ApprovalRequest[]
+
+  @@index([status, type, createdAt])
+  @@index([claimedByStaffId, status])
+  @@index([orderId, createdAt])
+  @@map("staff_tasks")
+}
+
+model StaffTaskNote {
+  id            String   @id @default(uuid()) @db.Uuid
+  staffTaskId   String   @map("staff_task_id") @db.Uuid
+  authorStaffId String   @map("author_staff_id") @db.Uuid
+  body          String   @db.VarChar(2000)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  staffTask StaffTask    @relation(fields: [staffTaskId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  author    StaffAccount @relation(fields: [authorStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([staffTaskId, createdAt])
+  @@map("staff_task_notes")
+}
+
+model ApprovalRequest {
+  id                 String         @id @default(uuid()) @db.Uuid
+  publicId           String         @unique @map("public_id") @db.VarChar(30)
+  action             ApprovalAction
+  targetType         String         @map("target_type") @db.VarChar(80)
+  targetId           String         @map("target_id") @db.Uuid
+  targetVersion      Int            @map("target_version")
+  payloadSnapshot    Json           @map("payload_snapshot") @db.JsonB
+  payloadHash        String         @map("payload_hash") @db.VarChar(128)
+  amountMinor        BigInt?        @map("amount_minor")
+  currency           String?        @db.Char(3)
+  requestedByStaffId String         @map("requested_by_staff_id") @db.Uuid
+  requiredLevel      StaffLevel     @map("required_level")
+  status             ApprovalStatus @default(PENDING)
+  rowVersion         Int            @default(1) @map("row_version")
+  staffTaskId        String?        @map("staff_task_id") @db.Uuid
+  reason             String         @db.VarChar(1000)
+  expiresAt          DateTime       @map("expires_at") @db.Timestamptz(3)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  requestedBy     StaffAccount      @relation("ApprovalRequestedBy", fields: [requestedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  staffTask       StaffTask?        @relation(fields: [staffTaskId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  decision        ApprovalDecision?
+  orderResolution OrderResolution?
+  refund          Refund?
+  auditLogs       AuditLog[]
+
+  @@index([status, requiredLevel, expiresAt])
+  @@index([targetType, targetId, createdAt])
+  @@map("approval_requests")
+}
+
+model ApprovalDecision {
+  id                   String               @id @default(uuid()) @db.Uuid
+  approvalRequestId    String               @unique @map("approval_request_id") @db.Uuid
+  decision             ApprovalDecisionType
+  /// Business approvals may be decided by the requester when their effective level meets requiredLevel.
+  decidedByStaffId     String               @map("decided_by_staff_id") @db.Uuid
+  reason               String               @db.VarChar(1000)
+  targetVersionChecked Int                  @map("target_version_checked")
+  payloadHashChecked   String               @map("payload_hash_checked") @db.VarChar(128)
+  decidedAt            DateTime             @default(now()) @map("decided_at") @db.Timestamptz(3)
+
+  approvalRequest ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  decidedBy       StaffAccount    @relation("ApprovalDecidedBy", fields: [decidedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([decidedByStaffId, decidedAt])
+  @@map("approval_decisions")
+}
+
+model GiftCatalogItem {
+  id         String    @id @default(uuid()) @db.Uuid
+  code       String    @unique @db.VarChar(80)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  versions GiftCatalogVersion[]
+
+  @@map("gift_catalog_items")
+}
+
+model GiftCatalogVersion {
+  id                String               @id @default(uuid()) @db.Uuid
+  giftCatalogItemId String               @map("gift_catalog_item_id") @db.Uuid
+  version           Int
+  status            CatalogVersionStatus @default(DRAFT)
+  activeGiftKey     String?              @unique @map("active_gift_key") @db.Uuid
+  name              String               @db.VarChar(100)
+  priceMinor        BigInt               @map("price_minor")
+  currency          String               @db.Char(3)
+  broadcastTemplate String               @map("broadcast_template") @db.VarChar(500)
+  createdByStaffId  String               @map("created_by_staff_id") @db.Uuid
+  activatedAt       DateTime?            @map("activated_at") @db.Timestamptz(3)
+  retiredAt         DateTime?            @map("retired_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  giftCatalogItem GiftCatalogItem @relation(fields: [giftCatalogItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       StaffAccount    @relation("GiftVersionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequests    GiftRequest[]
+
+  @@unique([giftCatalogItemId, version])
+  @@index([status, giftCatalogItemId])
+  @@map("gift_catalog_versions")
+}
+
+model GiftRequest {
+  id                        String            @id @default(uuid()) @db.Uuid
+  publicId                  String            @unique @map("public_id") @db.VarChar(30)
+  orderId                   String            @map("order_id") @db.Uuid
+  giftCatalogVersionId      String            @map("gift_catalog_version_id") @db.Uuid
+  senderId                  String            @map("sender_id") @db.Uuid
+  receiverId                String            @map("receiver_id") @db.Uuid
+  status                    GiftRequestStatus @default(PENDING_REVIEW)
+  rowVersion                Int               @default(1) @map("row_version")
+  giftCodeSnapshot          String            @map("gift_code_snapshot") @db.VarChar(80)
+  giftNameSnapshot          String            @map("gift_name_snapshot") @db.VarChar(100)
+  priceMinor                BigInt            @map("price_minor")
+  currency                  String            @db.Char(3)
+  broadcastTemplateSnapshot String            @map("broadcast_template_snapshot") @db.VarChar(500)
+  verifiedByStaffId         String?           @map("verified_by_staff_id") @db.Uuid
+  verifiedAt                DateTime?         @map("verified_at") @db.Timestamptz(3)
+  verificationNote          String?           @map("verification_note") @db.VarChar(1000)
+  approvedByStaffId         String?           @map("approved_by_staff_id") @db.Uuid
+  approvedAt                DateTime?         @map("approved_at") @db.Timestamptz(3)
+  capturedAt                DateTime?         @map("captured_at") @db.Timestamptz(3)
+  announcedAt               DateTime?         @map("announced_at") @db.Timestamptz(3)
+  broadcastChannelId        String?           @map("broadcast_channel_id") @db.VarChar(32)
+  broadcastMessageId        String?           @unique @map("broadcast_message_id") @db.VarChar(32)
+  rejectedReason            String?           @map("rejected_reason") @db.VarChar(1000)
+  failureCode               String?           @map("failure_code") @db.VarChar(100)
+  expiresAt                 DateTime           @map("expires_at") @db.Timestamptz(3)
+  withdrawnAt               DateTime?          @map("withdrawn_at") @db.Timestamptz(3)
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                 DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftCatalogVersion  GiftCatalogVersion   @relation(fields: [giftCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sender              User                 @relation("GiftSender", fields: [senderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  receiver            User                 @relation("GiftReceiver", fields: [receiverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  verifiedBy          StaffAccount?        @relation("GiftVerifiedBy", fields: [verifiedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  approvedBy          StaffAccount?        @relation("GiftApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  staffTask           StaffTask?
+  fundReservation     FundReservation?
+  externalTransaction ExternalTransaction?
+  refunds             Refund[]
+  consumptionEntries  ConsumptionEntry[]
+  outboxEvents        OutboxEvent[]
+
+  @@index([senderId, createdAt])
+  @@index([receiverId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, expiresAt])
+  @@index([orderId, createdAt])
+  @@map("gift_requests")
+}
+
+/// Serialization row only. It stores no provider, reserved, or available balance.
+model UserCurrencyLock {
+  userId      String   @map("user_id") @db.Uuid
+  currency    String   @db.Char(3)
+  lockVersion Int      @default(1) @map("lock_version")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([userId, currency])
+  @@map("user_currency_locks")
+}
+
+/// Original reservation amount and current lifecycle only; remaining reserved value is derived from events.
+model FundReservation {
+  id              String                    @id @default(uuid()) @db.Uuid
+  userId          String                    @map("user_id") @db.Uuid
+  sourceType      FundReservationSourceType @map("source_type")
+  orderId         String?                   @unique @map("order_id") @db.Uuid
+  giftRequestId   String?                   @unique @map("gift_request_id") @db.Uuid
+  mode            FundReservationMode
+  provider        String?                   @db.VarChar(50)
+  providerHoldRef String?                   @map("provider_hold_ref") @db.VarChar(255)
+  amountMinor     BigInt                    @map("amount_minor")
+  currency        String                    @db.Char(3)
+  status          FundReservationStatus     @default(PENDING)
+  rowVersion      Int                       @default(1) @map("row_version")
+  idempotencyKey  String                    @unique @map("idempotency_key") @db.VarChar(200)
+  expiresAt       DateTime?                 @map("expires_at") @db.Timestamptz(3)
+  activatedAt     DateTime?                 @map("activated_at") @db.Timestamptz(3)
+  settledAt       DateTime?                 @map("settled_at") @db.Timestamptz(3)
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order                Order?                     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest          GiftRequest?               @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events               FundReservationEvent[]
+  externalTransaction  ExternalTransaction?
+  cancellationPreviews CancellationPreview[]
+
+  @@unique([provider, providerHoldRef])
+  @@index([userId, currency, status])
+  @@index([status, expiresAt])
+  @@map("fund_reservations")
+}
+
+/// Append-only reservation lifecycle and amount deltas.
+model FundReservationEvent {
+  id                String                   @id @default(uuid()) @db.Uuid
+  fundReservationId String                   @map("fund_reservation_id") @db.Uuid
+  sequence          Int
+  eventType         FundReservationEventType @map("event_type")
+  fromStatus        FundReservationStatus?   @map("from_status")
+  toStatus          FundReservationStatus    @map("to_status")
+  amountMinor       BigInt                   @default(0) @map("amount_minor")
+  reservationVersion Int                    @map("reservation_version")
+  idempotencyKey    String                   @unique @map("idempotency_key") @db.VarChar(200)
+  actorUserId       String?                  @map("actor_user_id") @db.Uuid
+  actorStaffId      String?                  @map("actor_staff_id") @db.Uuid
+  actorSource       ActorSource              @map("actor_source")
+  reasonCode        String?                  @map("reason_code") @db.VarChar(100)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  fundReservation FundReservation @relation(fields: [fundReservationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorUser        User?           @relation("FundReservationEventActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorStaff       StaffAccount?   @relation("FundReservationEventActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([fundReservationId, sequence])
+  @@index([fundReservationId, createdAt])
+  @@map("fund_reservation_events")
+}
+
+model CancellationPreview {
+  id                         String                         @id @default(uuid()) @db.Uuid
+  orderId                    String                         @map("order_id") @db.Uuid
+  fundReservationId          String?                        @map("fund_reservation_id") @db.Uuid
+  orderVersionSnapshot       Int                            @map("order_version_snapshot")
+  reservationVersionSnapshot Int?                          @map("reservation_version_snapshot")
+  status                     CancellationPreviewStatus      @default(ISSUED)
+  disposition                CancellationDisposition
+  releaseAmountMinor         BigInt                         @map("release_amount_minor")
+  refundAmountMinor          BigInt                         @map("refund_amount_minor")
+  currency                   String                         @db.Char(3)
+  policyKey                  String                         @map("policy_key") @db.VarChar(100)
+  policyVersion              Int                            @map("policy_version")
+  reasonCode                 String                         @map("reason_code") @db.VarChar(100)
+  requestedByUserId          String?                        @map("requested_by_user_id") @db.Uuid
+  requestedByStaffId         String?                        @map("requested_by_staff_id") @db.Uuid
+  estimatedResolutionAt      DateTime?                      @map("estimated_resolution_at") @db.Timestamptz(3)
+  expiresAt                  DateTime                       @map("expires_at") @db.Timestamptz(3)
+  appliedAt                  DateTime?                      @map("applied_at") @db.Timestamptz(3)
+  invalidatedAt              DateTime?                      @map("invalidated_at") @db.Timestamptz(3)
+  createdAt                  DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order            Order            @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fundReservation  FundReservation? @relation(fields: [fundReservationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestedByUser  User?            @relation("CancellationPreviewRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  requestedByStaff StaffAccount?    @relation("CancellationPreviewRequestedByStaff", fields: [requestedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([orderId, createdAt])
+  @@index([status, expiresAt])
+  @@map("cancellation_previews")
+}
+
+model ExternalTransaction {
+  id               String                    @id @default(uuid()) @db.Uuid
+  provider         String                    @db.VarChar(50)
+  type             ExternalTransactionType
+  userId           String                    @map("user_id") @db.Uuid
+  orderId          String?                   @unique @map("order_id") @db.Uuid
+  giftRequestId    String?                   @unique @map("gift_request_id") @db.Uuid
+  fundReservationId String?                  @unique @map("fund_reservation_id") @db.Uuid
+  externalRef      String?                   @map("external_ref") @db.VarChar(255)
+  idempotencyKey   String                    @unique @map("idempotency_key") @db.VarChar(200)
+  amountMinor      BigInt                    @map("amount_minor")
+  currency         String                    @db.Char(3)
+  status           ExternalTransactionStatus @default(PENDING)
+  requestId        String?                   @map("request_id") @db.VarChar(128)
+  requestMetadata  Json?                     @map("request_metadata") @db.JsonB
+  responseMetadata Json?                     @map("response_metadata") @db.JsonB
+  failureCode      String?                   @map("failure_code") @db.VarChar(100)
+  initiatedAt      DateTime                  @default(now()) @map("initiated_at") @db.Timestamptz(3)
+  settledAt        DateTime?                 @map("settled_at") @db.Timestamptz(3)
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order            Order?            @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest      GiftRequest?      @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fundReservation  FundReservation?  @relation(fields: [fundReservationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refunds          Refund[]
+  consumptionEntry ConsumptionEntry?
+
+  @@unique([provider, externalRef])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("external_transactions")
+}
+
+model Refund {
+  id                          String               @id @default(uuid()) @db.Uuid
+  publicId                    String               @unique @map("public_id") @db.VarChar(30)
+  provider                    String               @db.VarChar(50)
+  sourceExternalTransactionId String               @map("source_external_transaction_id") @db.Uuid
+  beneficiaryUserId           String               @map("beneficiary_user_id") @db.Uuid
+  orderId                     String?              @map("order_id") @db.Uuid
+  giftRequestId               String?              @map("gift_request_id") @db.Uuid
+  orderResolutionId           String?              @unique @map("order_resolution_id") @db.Uuid
+  approvalRequestId           String?              @unique @map("approval_request_id") @db.Uuid
+  requestedByUserId           String?              @map("requested_by_user_id") @db.Uuid
+  requestedByStaffId          String?              @map("requested_by_staff_id") @db.Uuid
+  externalRefundRef           String?              @map("external_refund_ref") @db.VarChar(255)
+  idempotencyKey              String               @unique @map("idempotency_key") @db.VarChar(200)
+  amountMinor                 BigInt               @map("amount_minor")
+  currency                    String               @db.Char(3)
+  status                      RefundStatus         @default(PENDING)
+  reasonCode                  ResolutionReasonCode @map("reason_code")
+  reasonNote                  String               @map("reason_note") @db.VarChar(1000)
+  failureCode                 String?              @map("failure_code") @db.VarChar(100)
+  requestedAt                 DateTime             @default(now()) @map("requested_at") @db.Timestamptz(3)
+  settledAt                   DateTime?            @map("settled_at") @db.Timestamptz(3)
+  createdAt                   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sourceTransaction     ExternalTransaction       @relation(fields: [sourceExternalTransactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  beneficiary           User                      @relation("RefundBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order                 Order?                    @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest           GiftRequest?              @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orderResolution       OrderResolution?          @relation(fields: [orderResolutionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  approvalRequest       ApprovalRequest?          @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestedByUser       User?                     @relation("RefundRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  requestedByStaff      StaffAccount?             @relation("RefundRequestedByStaff", fields: [requestedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  consumptionEntry      ConsumptionEntry?
+  earningAdjustments    PlayerEarningAdjustment[]
+  commissionAdjustments CommissionAdjustment[]
+
+  @@unique([provider, externalRefundRef])
+  @@index([status, createdAt])
+  @@index([sourceExternalTransactionId, createdAt])
+  @@index([orderId, createdAt])
+  @@map("refunds")
+}
+
+model ConsumptionEntry {
+  id                    String               @id @default(uuid()) @db.Uuid
+  userId                String               @map("user_id") @db.Uuid
+  entryType             ConsumptionEntryType @map("entry_type")
+  direction             LedgerDirection
+  orderId               String?              @map("order_id") @db.Uuid
+  giftRequestId         String?              @map("gift_request_id") @db.Uuid
+  externalTransactionId String?              @unique @map("external_transaction_id") @db.Uuid
+  refundId              String?              @unique @map("refund_id") @db.Uuid
+  reversalOfEntryId     String?              @map("reversal_of_entry_id") @db.Uuid
+  amountMinor           BigInt               @map("amount_minor")
+  currency              String               @db.Char(3)
+  sourceType            String               @map("source_type") @db.VarChar(50)
+  sourceId              String               @map("source_id") @db.Uuid
+  idempotencyKey        String               @unique @map("idempotency_key") @db.VarChar(200)
+  occurredAt            DateTime             @map("occurred_at") @db.Timestamptz(3)
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order               Order?               @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest         GiftRequest?         @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  externalTransaction ExternalTransaction? @relation(fields: [externalTransactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refund              Refund?              @relation(fields: [refundId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversalOf          ConsumptionEntry?    @relation("ConsumptionReversal", fields: [reversalOfEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversals           ConsumptionEntry[]   @relation("ConsumptionReversal")
+  commission          Commission?
+
+  @@unique([sourceType, sourceId, entryType])
+  @@index([userId, occurredAt])
+  @@index([orderId, occurredAt])
+  @@index([giftRequestId, occurredAt])
+  @@index([reversalOfEntryId])
+  @@map("consumption_entries")
+}
+
+model PlayerEarning {
+  id                 String              @id @default(uuid()) @db.Uuid
+  orderId            String              @unique @map("order_id") @db.Uuid
+  playerUserId       String              @map("player_user_id") @db.Uuid
+  baseUnits          Int                 @map("base_units")
+  unitPayoutMinor    BigInt              @map("unit_payout_minor")
+  amountMinor        BigInt              @map("amount_minor")
+  currency           String              @db.Char(3)
+  status             PlayerEarningStatus @default(PENDING)
+  rowVersion         Int                 @default(1) @map("row_version")
+  confirmedByStaffId String?             @map("confirmed_by_staff_id") @db.Uuid
+  confirmedAt        DateTime?           @map("confirmed_at") @db.Timestamptz(3)
+  paidAt             DateTime?           @map("paid_at") @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order       Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player      User                      @relation("EarningPlayer", fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  confirmedBy StaffAccount?             @relation("EarningConfirmedBy", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  adjustments PlayerEarningAdjustment[]
+
+  @@index([playerUserId, status, createdAt])
+  @@map("player_earnings")
+}
+
+/// Canonical reversal/correction record for PlayerEarning; append-only and never represented as another PlayerEarning.
+model PlayerEarningAdjustment {
+  id                 String                @id @default(uuid()) @db.Uuid
+  playerEarningId    String                @map("player_earning_id") @db.Uuid
+  type               EarningAdjustmentType
+  sourceRefundId     String?               @map("source_refund_id") @db.Uuid
+  sourceResolutionId String?               @map("source_resolution_id") @db.Uuid
+  amountMinor        BigInt                @map("amount_minor")
+  currency           String                @db.Char(3)
+  reason             String                @db.VarChar(1000)
+  idempotencyKey     String                @unique @map("idempotency_key") @db.VarChar(200)
+  createdByStaffId   String?               @map("created_by_staff_id") @db.Uuid
+  createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  playerEarning    PlayerEarning    @relation(fields: [playerEarningId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceRefund     Refund?          @relation(fields: [sourceRefundId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceResolution OrderResolution? @relation(fields: [sourceResolutionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy        StaffAccount?    @relation("EarningAdjustmentCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([playerEarningId, createdAt])
+  @@index([sourceRefundId])
+  @@map("player_earning_adjustments")
+}
+
+model ReferralProgramVersion {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  programType          ReferralProgramType          @map("program_type")
+  version              Int
+  status               ReferralProgramVersionStatus @default(DRAFT)
+  activeProgramKey     ReferralProgramType?         @unique @map("active_program_key")
+  awardMode            ReferralAwardMode            @map("award_mode")
+  fixedAmountMinor     BigInt?                      @map("fixed_amount_minor")
+  rateBps              Int?                         @map("rate_bps")
+  currency             String                       @db.Char(3)
+  eligibleOrderSpend   Boolean                      @default(true) @map("eligible_order_spend")
+  eligibleGiftSpend    Boolean                      @default(false) @map("eligible_gift_spend")
+  createdByStaffId     String                       @map("created_by_staff_id") @db.Uuid
+  activatedAt          DateTime?                    @map("activated_at") @db.Timestamptz(3)
+  retiredAt            DateTime?                    @map("retired_at") @db.Timestamptz(3)
+  createdAt            DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy    StaffAccount          @relation("ReferralProgramCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attributions ReferralAttribution[]
+
+  @@unique([programType, version])
+  @@index([status, programType])
+  @@map("referral_program_versions")
+}
+
+/// Sensitive attribution. Generic snapshots and user-facing payloads must never include beneficiary or rule details.
+model ReferralAttribution {
+  id                       String                        @id @default(uuid()) @db.Uuid
+  programVersionId         String                        @map("program_version_id") @db.Uuid
+  beneficiaryUserId        String                        @map("beneficiary_user_id") @db.Uuid
+  referredUserId           String                        @map("referred_user_id") @db.Uuid
+  status                   ReferralAttributionStatus     @default(ACTIVE)
+  rowVersion               Int                           @default(1) @map("row_version")
+  activeAttributionKey     String?                       @unique @map("active_attribution_key") @db.Uuid
+  sourceType               ReferralAttributionSourceType @map("source_type")
+  sourceReferenceHash      String?                       @map("source_reference_hash") @db.VarChar(128)
+  boundByStaffId           String?                       @map("bound_by_staff_id") @db.Uuid
+  replacesAttributionId    String?                       @unique @map("replaces_attribution_id") @db.Uuid
+  eligibilityCheckedAt     DateTime                      @map("eligibility_checked_at") @db.Timestamptz(3)
+  boundAt                  DateTime                      @default(now()) @map("bound_at") @db.Timestamptz(3)
+  fulfilledAt              DateTime?                     @map("fulfilled_at") @db.Timestamptz(3)
+  supersededAt             DateTime?                     @map("superseded_at") @db.Timestamptz(3)
+  revokedAt                DateTime?                     @map("revoked_at") @db.Timestamptz(3)
+  createdAt                DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  programVersion ReferralProgramVersion @relation(fields: [programVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  beneficiary    User                   @relation("ReferralBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  referredUser   User                   @relation("ReferralReferredUser", fields: [referredUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  boundBy        StaffAccount?          @relation("ReferralAttributionBoundBy", fields: [boundByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replaces       ReferralAttribution?   @relation("ReferralAttributionReplacement", fields: [replacesAttributionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacedBy     ReferralAttribution?   @relation("ReferralAttributionReplacement")
+  commissions    Commission[]
+
+  @@index([beneficiaryUserId, status, boundAt])
+  @@index([referredUserId, status, boundAt])
+  @@index([programVersionId, status])
+  @@map("referral_attributions")
+}
+
+model Commission {
+  id                       String              @id @default(uuid()) @db.Uuid
+  referralAttributionId    String              @map("referral_attribution_id") @db.Uuid
+  beneficiaryUserId        String              @map("beneficiary_user_id") @db.Uuid
+  sourceConsumptionEntryId String              @unique @map("source_consumption_entry_id") @db.Uuid
+  programTypeSnapshot      ReferralProgramType @map("program_type_snapshot")
+  programVersionSnapshot   Int                 @map("program_version_snapshot")
+  awardModeSnapshot        ReferralAwardMode   @map("award_mode_snapshot")
+  baseAmountMinor          BigInt              @map("base_amount_minor")
+  fixedAmountMinor         BigInt?             @map("fixed_amount_minor")
+  rateBps                  Int?                @map("rate_bps")
+  amountMinor              BigInt              @map("amount_minor")
+  currency                 String              @db.Char(3)
+  status                   CommissionStatus    @default(PENDING)
+  rowVersion               Int                 @default(1) @map("row_version")
+  confirmedAt              DateTime?           @map("confirmed_at") @db.Timestamptz(3)
+  paidAt                   DateTime?           @map("paid_at") @db.Timestamptz(3)
+  createdAt                DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  referralAttribution ReferralAttribution    @relation(fields: [referralAttributionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  beneficiary        User                   @relation("CommissionBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceConsumption  ConsumptionEntry       @relation(fields: [sourceConsumptionEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  adjustments        CommissionAdjustment[]
+
+  @@index([beneficiaryUserId, status, createdAt])
+  @@index([referralAttributionId, createdAt])
+  @@map("commissions")
+}
+
+/// Canonical reversal/correction record for Commission; append-only and never represented as another Commission.
+model CommissionAdjustment {
+  id               String                   @id @default(uuid()) @db.Uuid
+  commissionId     String                   @map("commission_id") @db.Uuid
+  type             CommissionAdjustmentType
+  sourceRefundId   String?                  @map("source_refund_id") @db.Uuid
+  amountMinor      BigInt                   @map("amount_minor")
+  currency         String                   @db.Char(3)
+  reason           String                   @db.VarChar(1000)
+  idempotencyKey   String                   @unique @map("idempotency_key") @db.VarChar(200)
+  createdByStaffId String?                  @map("created_by_staff_id") @db.Uuid
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  commission   Commission    @relation(fields: [commissionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourceRefund Refund?       @relation(fields: [sourceRefundId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy    StaffAccount? @relation("CommissionAdjustmentCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([commissionId, createdAt])
+  @@index([sourceRefundId])
+  @@map("commission_adjustments")
+}
+
+model IdempotencyRecord {
+  id                 String            @id @default(uuid()) @db.Uuid
+  clientId           String            @map("client_id") @db.VarChar(80)
+  key                String            @db.VarChar(200)
+  operation          String            @db.VarChar(120)
+  actorKey           String            @map("actor_key") @db.VarChar(120)
+  actorUserId        String?           @map("actor_user_id") @db.Uuid
+  actorStaffId       String?           @map("actor_staff_id") @db.Uuid
+  interactionId      String?           @unique @map("interaction_id") @db.VarChar(32)
+  requestHash        String            @map("request_hash") @db.VarChar(128)
+  status             IdempotencyStatus @default(IN_PROGRESS)
+  responseStatusCode Int?              @map("response_status_code")
+  responseBody       Json?             @map("response_body") @db.JsonB
+  errorCode          String?           @map("error_code") @db.VarChar(100)
+  expiresAt          DateTime          @map("expires_at") @db.Timestamptz(3)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  actorUser  User?         @relation("IdempotencyActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorStaff StaffAccount? @relation("IdempotencyActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([clientId, operation, actorKey, key])
+  @@index([status, expiresAt])
+  @@map("idempotency_records")
+}
+
+model ExternalWebhookEvent {
+  id              String                  @id @default(uuid()) @db.Uuid
+  provider        String                  @db.VarChar(50)
+  externalEventId String                  @map("external_event_id") @db.VarChar(255)
+  eventType       String                  @map("event_type") @db.VarChar(100)
+  payloadHash     String                  @map("payload_hash") @db.VarChar(128)
+  signatureValid  Boolean                 @map("signature_valid")
+  status          WebhookProcessingStatus @default(RECEIVED)
+  attemptCount    Int                     @default(0) @map("attempt_count")
+  errorCode       String?                 @map("error_code") @db.VarChar(100)
+  receivedAt      DateTime                @default(now()) @map("received_at") @db.Timestamptz(3)
+  processedAt     DateTime?               @map("processed_at") @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([provider, externalEventId])
+  @@index([status, receivedAt])
+  @@map("external_webhook_events")
+}
+
+model OutboxEvent {
+  id                String       @id @default(uuid()) @db.Uuid
+  eventType         String       @map("event_type") @db.VarChar(100)
+  aggregateType     String       @map("aggregate_type") @db.VarChar(80)
+  aggregateId       String       @map("aggregate_id") @db.Uuid
+  orderId           String?      @map("order_id") @db.Uuid
+  giftRequestId     String?      @map("gift_request_id") @db.Uuid
+  dispatchAttemptId String?      @map("dispatch_attempt_id") @db.Uuid
+  dedupeKey         String       @unique @map("dedupe_key") @db.VarChar(200)
+  payload           Json         @db.JsonB
+  status            OutboxStatus @default(PENDING)
+  rowVersion        Int          @default(1) @map("row_version")
+  attemptCount      Int          @default(0) @map("attempt_count")
+  maxAttempts       Int          @default(8) @map("max_attempts")
+  availableAt       DateTime     @default(now()) @map("available_at") @db.Timestamptz(3)
+  lockedAt          DateTime?    @map("locked_at") @db.Timestamptz(3)
+  lockedBy          String?      @map("locked_by") @db.VarChar(100)
+  completedAt       DateTime?    @map("completed_at") @db.Timestamptz(3)
+  lastError         String?      @map("last_error") @db.VarChar(2000)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order           Order?           @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest     GiftRequest?     @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  dispatchAttempt DispatchAttempt? @relation(fields: [dispatchAttemptId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId, createdAt])
+  @@map("outbox_events")
+}
+
+model RiskEvent {
+  id               String        @id @default(uuid()) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  orderId          String?       @map("order_id") @db.Uuid
+  type             RiskEventType
+  severity         RiskSeverity
+  source           String        @db.VarChar(80)
+  notes            String        @db.VarChar(1000)
+  createdByStaffId String?       @map("created_by_staff_id") @db.Uuid
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order     Order?        @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy StaffAccount? @relation("RiskCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type, severity, createdAt])
+  @@map("risk_events")
+}
+
+model AuditLog {
+  id                String       @id @default(uuid()) @db.Uuid
+  actorUserId       String?      @map("actor_user_id") @db.Uuid
+  actorStaffId      String?      @map("actor_staff_id") @db.Uuid
+  actorLevel        StaffLevel?  @map("actor_level")
+  actorSource       ActorSource  @map("actor_source")
+  clientId          String       @map("client_id") @db.VarChar(80)
+  interactionId     String?      @map("interaction_id") @db.VarChar(32)
+  permissionCode    String?      @map("permission_code") @db.VarChar(100)
+  action            String       @db.VarChar(120)
+  targetType        String       @map("target_type") @db.VarChar(80)
+  targetId          String       @map("target_id") @db.VarChar(80)
+  outcome           AuditOutcome
+  beforeSnapshot    Json?        @map("before_snapshot") @db.JsonB
+  afterSnapshot     Json?        @map("after_snapshot") @db.JsonB
+  reason            String?      @db.VarChar(1000)
+  requestId         String       @map("request_id") @db.VarChar(128)
+  approvalRequestId String?      @map("approval_request_id") @db.Uuid
+  ipHash            String?      @map("ip_hash") @db.VarChar(128)
+  userAgentHash     String?      @map("user_agent_hash") @db.VarChar(128)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  actorUser       User?            @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorStaff      StaffAccount?    @relation("AuditActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([targetType, targetId, createdAt])
+  @@index([actorStaffId, createdAt])
+  @@index([requestId])
+  @@index([interactionId])
+  @@index([outcome, createdAt])
+  @@map("audit_logs")
+}
