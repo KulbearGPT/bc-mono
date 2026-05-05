@@ -2336,10 +2336,10 @@ BEGIN
 
   IF NEW.user_id <> reservation_record.user_id
     OR NEW.currency <> reservation_record.currency
-    OR NEW.amount_minor <> reservation_record.amount_minor
+    OR NEW.amount_minor > reservation_record.amount_minor
     OR COALESCE(NEW.order_id, '00000000-0000-0000-0000-000000000000'::uuid) IS DISTINCT FROM COALESCE(reservation_record.order_id, '00000000-0000-0000-0000-000000000000'::uuid)
     OR COALESCE(NEW.gift_request_id, '00000000-0000-0000-0000-000000000000'::uuid) IS DISTINCT FROM COALESCE(reservation_record.gift_request_id, '00000000-0000-0000-0000-000000000000'::uuid) THEN
-    RAISE EXCEPTION 'external transaction does not mirror fund reservation source, user, amount, and currency';
+    RAISE EXCEPTION 'external transaction does not match fund reservation source, user, currency, or amount limit';
   END IF;
 
   RETURN NEW;

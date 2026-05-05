@@ -1,0 +1,1887 @@
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import crypto from 'node:crypto';
+import type { Pool, PoolClient } from 'pg';
+import type { Currency, MockFundingAdapter, Transaction } from './payment-adapter.js';
+import type { ActorContext, AuditRecord } from './security.js';
+import {
+  PostgresOrderStore,
+  type ExternalTransactionMirrorRecord,
+  type OrderEventRecord,
+  type OrderQueryClient,
+  type OrderRecord,
+  type OrderStore
+} from './orders.js';
+import { registerSecureWriteRoute } from './security.js';
+
+type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
+export type RefundFundingAdapter = Pick<MockFundingAdapter, 'createRefund'> &
+  Partial<Pick<MockFundingAdapter, 'getTransaction' | 'createReservationDebit' | 'captureHold' | 'releaseHold' | 'getHold'>>;
+const resolutionReasonCodes = new Set([
+  'USER_REQUEST',
+  'DISPATCH_TIMEOUT',
+  'PLAYER_NO_SHOW',
+  'CUSTOMER_NO_SHOW',
+  'SERVICE_INTERRUPTED',
+  'COMPLETION_DISPUTE',
+  'PAYMENT_FAILURE',
+  'REFUND_FAILURE',
+  'ADMIN_CORRECTION'
+]);
+
+export interface RefundOrderResult {
+  orderId: string;
+  refundTransactionId: string;
+  amountMinor: number;
+  currency: Currency;
+  status: Transaction['status'];
+  orderStatus: OrderRecord['status'];
+}
+
+export interface ApprovalPendingResult {
+  approvalRequestId: string;
+  code: 'APPROVAL_PENDING';
+  requiredLevel: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
+  expiresAt: string;
+  actionExecuted: false;
+}
+
+export interface OrderResolutionResult {
+  resolutionId: string;
+  orderId: string;
+  targetStatus: 'COMPLETED' | 'CANCELLED';
+  refundAmountMinor: number;
+  playerEarningMinor: number;
+  currency: Currency;
+  approvalRequestId: string | null;
+  createdAt: string;
+}
+
+export interface AdminOrderErrorDetail {
+  statusCode: number;
+  code: string;
+  message: string;
+}
+
+export class AdminOrderActionError extends Error {
+  readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'BUSINESS_RULE_VIOLATION' | 'PROVIDER_UNAVAILABLE';
+
+  constructor(code: AdminOrderActionError['code'], message: string) {
+    super(message);
+    this.name = 'AdminOrderActionError';
+    this.code = code;
+  }
+}
+
+export interface AdminRefundOrderStore extends Pick<OrderStore, 'findById'> {
+  orders?: OrderRecord[];
+  events?: OrderEventRecord[];
+  externalTransactions?: ExternalTransactionMirrorRecord[];
+  resolutions?: Array<Record<string, unknown>>;
+  playerEarningAdjustments?: Array<Record<string, unknown>>;
+  commissionAdjustments?: Array<Record<string, unknown>>;
+  approvalRequests?: Array<Record<string, unknown>>;
+  findSucceededOrderCharge?(orderId: string): Promise<ExternalTransactionMirrorRecord | null>;
+  validateReassignmentPlayer?(input: { playerId: string; order: OrderRecord }): Promise<boolean>;
+  commitApproval?(input: ApprovalCommitInput): Promise<void> | void;
+  commitRefund?(input: RefundCommitInput): Promise<void> | void;
+  commitResolution?(input: ResolutionCommitInput): Promise<void> | void;
+  commitReassignment?(input: ReassignmentCommitInput): Promise<void> | void;
+}
+
+interface AdminStagedWrite<T> {
+  data: T;
+  statusCode?: number;
+  commit(auditRecord: AuditRecord): Promise<void> | void;
+}
+
+interface ApprovalRecord {
+  id: string;
+  action: 'REFUND_EXECUTE' | 'ORDER_RESOLVE';
+  targetId: string;
+  targetVersion: number;
+  amountMinor: number;
+  currency: Currency;
+  requestedByStaffId: string;
+  requiredLevel: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
+  reason: string;
+  payloadSnapshot: Record<string, unknown>;
+  expiresAt: string;
+  createdAt: string;
+}
+
+interface RefundPersistenceRecord {
+  id: string;
+  publicId: string;
+  provider: string;
+  sourceTransaction: ExternalTransactionMirrorRecord;
+  beneficiaryUserId: string;
+  orderId: string;
+  orderResolutionId: string | null;
+  requestedByStaffId: string;
+  externalRefundRef: string | null;
+  idempotencyKey: string;
+  amountMinor: number;
+  currency: Currency;
+  status: Transaction['status'];
+  reasonCode: string;
+  reasonNote: string;
+  createdAt: string;
+}
+
+interface ApprovalCommitInput {
+  approval: ApprovalRecord;
+  auditRecord: AuditRecord;
+}
+
+interface RefundCommitInput {
+  order: OrderRecord;
+  refund: RefundPersistenceRecord;
+  auditRecord: AuditRecord;
+}
+
+interface ResolutionCommitInput {
+  originalOrder: OrderRecord;
+  updatedOrder: OrderRecord;
+  resolution: OrderResolutionResult & {
+    reasonCode: string;
+    evidenceNote: string;
+    resolvedByStaffId: string;
+    orderVersionSnapshot: number;
+    idempotencyKey: string;
+  };
+  refund: RefundPersistenceRecord | null;
+  preChargeSettlement: {
+    fundingAdapter: RefundFundingAdapter;
+    providerKey: string;
+    captureMinor: number;
+    releaseMinor: number;
+  } | null;
+  event: OrderEventRecord;
+  auditRecord: AuditRecord;
+}
+
+interface ReassignmentCommitInput {
+  originalOrder: OrderRecord;
+  updatedOrder: OrderRecord;
+  event: OrderEventRecord;
+  auditRecord: AuditRecord;
+}
+
+export async function refundOrder(input: {
+  orderStore: AdminRefundOrderStore;
+  fundingAdapter: RefundFundingAdapter;
+  providerKey: string;
+  orderId: string;
+  expectedVersion: number;
+  amount: { amountMinor: number; currency: Currency };
+  reasonCode: string;
+  evidenceNote: string;
+  actor: ActorContext;
+  staffLevel: StaffLevel;
+  idempotencyKey: string;
+  now: Date;
+}): Promise<AdminStagedWrite<RefundOrderResult | ApprovalPendingResult>> {
+  if (input.staffLevel === 'L1_SUPPORT') {
+    throw new AdminOrderActionError('PERMISSION_DENIED', 'L1 support cannot execute refunds.');
+  }
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  if (order.status !== 'COMPLETED' && order.status !== 'EXCEPTION') {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Only completed or exception orders can be refunded by this endpoint.');
+  }
+  assertMoneyMatchesOrder(input.amount, order.currency, 'Refund');
+  assertAmountWithinSnapshot(input.amount.amountMinor, order.amountMinor, 'Refund');
+  const requiredLevel = requiredRefundLevel(input.amount.amountMinor);
+  if (requiredLevel !== 'L2_SUPERVISOR' && levelRank(input.staffLevel) < levelRank(requiredLevel)) {
+    if (!input.actor.actorStaffId || (!input.orderStore.commitApproval && !input.orderStore.approvalRequests)) {
+      throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot create an approval request.');
+    }
+    const approvalRequestId = crypto.randomUUID();
+    const expiresAt = new Date(input.now.getTime() + 60 * 60_000).toISOString();
+    const approval: ApprovalRecord = {
+      id: approvalRequestId,
+      action: 'REFUND_EXECUTE',
+      targetId: order.id,
+      targetVersion: order.version,
+      amountMinor: input.amount.amountMinor,
+      currency: input.amount.currency,
+      requestedByStaffId: input.actor.actorStaffId,
+      requiredLevel,
+      reason: input.evidenceNote,
+      payloadSnapshot: {
+        expectedVersion: input.expectedVersion,
+        amount: input.amount,
+        reasonCode: input.reasonCode,
+        evidenceNote: input.evidenceNote
+      },
+      expiresAt,
+      createdAt: input.now.toISOString()
+    };
+    const data: ApprovalPendingResult = {
+        approvalRequestId,
+        code: 'APPROVAL_PENDING',
+        requiredLevel,
+        expiresAt,
+        actionExecuted: false
+    };
+    return {
+      data,
+      statusCode: 202,
+      commit: (auditRecord) => commitApproval(input.orderStore, { approval, auditRecord })
+    };
+  }
+  const sourceTransaction = await findSucceededOrderCharge(input.orderStore, input.orderId);
+  if (!sourceTransaction?.externalRef) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge is required before refund.');
+  }
+
+  let refund: Transaction;
+  try {
+    refund = input.fundingAdapter.createRefund({
+      idempotencyKey: `${input.idempotencyKey}:provider`,
+      originalTransactionRef: sourceTransaction.externalRef,
+      amount: input.amount,
+      reasonCode: input.reasonCode,
+      businessReference: input.orderId,
+      metadata: {
+        evidenceNote: input.evidenceNote,
+        providerKey: input.providerKey
+      }
+    });
+    refund = recoverRefundTransaction(input.fundingAdapter, refund, `${input.idempotencyKey}:provider`);
+  } catch (error) {
+    throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
+  }
+
+  const refundId = crypto.randomUUID();
+  const data: RefundOrderResult = {
+    orderId: order.id,
+    refundTransactionId: refundId,
+    amountMinor: refund.amount.amountMinor,
+    currency: refund.amount.currency,
+    status: refund.status,
+    orderStatus: order.status
+  };
+  const refundRecord = buildRefundPersistenceRecord({
+    id: refundId,
+    provider: input.providerKey,
+    sourceTransaction,
+    order,
+    resolutionId: null,
+    actorStaffId: input.actor.actorStaffId,
+    providerRefund: refund,
+    idempotencyKey: input.idempotencyKey,
+    reasonCode: input.reasonCode,
+    evidenceNote: input.evidenceNote,
+    now: input.now
+  });
+  return {
+    data,
+    commit: (auditRecord) => commitRefund(input.orderStore, { order, refund: refundRecord, auditRecord })
+  };
+}
+
+export async function resolveOrder(input: {
+  orderStore: AdminRefundOrderStore;
+  fundingAdapter: RefundFundingAdapter;
+  providerKey: string;
+  orderId: string;
+  expectedVersion: number;
+  targetStatus: 'COMPLETED' | 'CANCELLED';
+  reasonCode: string;
+  refund: { amountMinor: number; currency: Currency };
+  playerEarning: { amountMinor: number; currency: Currency };
+  evidenceNote: string;
+  actor: ActorContext;
+  staffLevel: StaffLevel;
+  idempotencyKey: string;
+  now: Date;
+}): Promise<AdminStagedWrite<OrderResolutionResult | ApprovalPendingResult>> {
+  if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
+    throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to resolve orders.');
+  }
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  if (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'].includes(order.status)) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order cannot be resolved from its current status.');
+  }
+  assertMoneyMatchesOrder(input.refund, order.currency, 'Refund');
+  assertMoneyMatchesOrder(input.playerEarning, order.currency, 'Player earning');
+  assertAmountWithinSnapshot(input.refund.amountMinor, order.amountMinor, 'Refund');
+  assertAmountWithinSnapshot(input.playerEarning.amountMinor, order.playerEarningMinor, 'Player earning');
+  const requiredLevel = requiredRefundLevel(input.refund.amountMinor);
+  if (requiredLevel !== 'L2_SUPERVISOR' && levelRank(input.staffLevel) < levelRank(requiredLevel)) {
+    if (!input.orderStore.commitApproval && !input.orderStore.approvalRequests) {
+      throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot create an approval request.');
+    }
+    const approvalRequestId = crypto.randomUUID();
+    const expiresAt = new Date(input.now.getTime() + 60 * 60_000).toISOString();
+    const approval: ApprovalRecord = {
+      id: approvalRequestId,
+      action: 'ORDER_RESOLVE',
+      targetId: order.id,
+      targetVersion: order.version,
+      amountMinor: input.refund.amountMinor,
+      currency: input.refund.currency,
+      requestedByStaffId: input.actor.actorStaffId,
+      requiredLevel,
+      reason: input.evidenceNote,
+      payloadSnapshot: {
+        expectedVersion: input.expectedVersion,
+        targetStatus: input.targetStatus,
+        refund: input.refund,
+        playerEarning: input.playerEarning,
+        reasonCode: input.reasonCode,
+        evidenceNote: input.evidenceNote
+      },
+      expiresAt,
+      createdAt: input.now.toISOString()
+    };
+    return {
+      data: {
+        approvalRequestId,
+        code: 'APPROVAL_PENDING',
+        requiredLevel,
+        expiresAt,
+        actionExecuted: false
+      },
+      statusCode: 202,
+      commit: (auditRecord) => commitApproval(input.orderStore, { approval, auditRecord })
+    };
+  }
+  let providerRefund: Transaction | null = null;
+  const sourceTransaction = await findSucceededOrderCharge(input.orderStore, input.orderId);
+  if (input.refund.amountMinor > 0 && sourceTransaction) {
+    if (!sourceTransaction.externalRef) {
+      throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge must have an external reference.');
+    }
+    try {
+      providerRefund = input.fundingAdapter.createRefund({
+        idempotencyKey: `${input.idempotencyKey}:provider`,
+        originalTransactionRef: sourceTransaction.externalRef,
+        amount: input.refund,
+        reasonCode: input.reasonCode,
+        businessReference: input.orderId,
+        metadata: {
+          evidenceNote: input.evidenceNote,
+          providerKey: input.providerKey
+        }
+      });
+      providerRefund = recoverRefundTransaction(input.fundingAdapter, providerRefund, `${input.idempotencyKey}:provider`);
+    } catch (error) {
+      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
+    }
+  }
+
+  const resolution: OrderResolutionResult = {
+    resolutionId: crypto.randomUUID(),
+    orderId: order.id,
+    targetStatus: input.targetStatus,
+    refundAmountMinor: input.refund.amountMinor,
+    playerEarningMinor: input.playerEarning.amountMinor,
+    currency: order.currency,
+    approvalRequestId: null,
+    createdAt: input.now.toISOString()
+  };
+  const updatedOrder: OrderRecord = {
+    ...order,
+    status: input.targetStatus,
+    version: order.version + 1,
+    updatedAt: input.now.toISOString()
+  };
+  const persistedResolution: ResolutionCommitInput['resolution'] = {
+    ...resolution,
+    reasonCode: input.reasonCode,
+    evidenceNote: input.evidenceNote,
+    resolvedByStaffId: input.actor.actorStaffId,
+    orderVersionSnapshot: input.expectedVersion,
+    idempotencyKey: input.idempotencyKey
+  };
+  const event: OrderEventRecord = {
+    id: crypto.randomUUID(),
+    orderId: order.id,
+    sequence: nextEventSequence(input.orderStore, order.id),
+    eventType: 'RESOLVED',
+    fromStatus: order.status,
+    toStatus: input.targetStatus,
+    actorUserId: input.actor.actorUserId,
+    actorStaffId: input.actor.actorStaffId,
+    actorSource: input.actor.actorSource,
+    interactionId: input.actor.interactionId,
+    payload: {
+      reasonCode: input.reasonCode,
+      refundAmountMinor: input.refund.amountMinor,
+      playerEarningMinor: input.playerEarning.amountMinor,
+      resolutionId: resolution.resolutionId
+    },
+    createdAt: input.now.toISOString()
+  };
+  const refundRecord = providerRefund && sourceTransaction
+    ? buildRefundPersistenceRecord({
+        id: crypto.randomUUID(),
+        provider: input.providerKey,
+        sourceTransaction,
+        order,
+        resolutionId: resolution.resolutionId,
+        actorStaffId: input.actor.actorStaffId,
+        providerRefund,
+        idempotencyKey: input.idempotencyKey,
+        reasonCode: input.reasonCode,
+        evidenceNote: input.evidenceNote,
+        now: input.now
+      })
+    : null;
+  return {
+    data: resolution,
+    commit: (auditRecord) => commitResolution(input.orderStore, {
+      originalOrder: order,
+      updatedOrder,
+      resolution: persistedResolution,
+      refund: refundRecord,
+      preChargeSettlement: sourceTransaction
+        ? null
+        : {
+            fundingAdapter: input.fundingAdapter,
+            providerKey: input.providerKey,
+            captureMinor: order.amountMinor - input.refund.amountMinor,
+            releaseMinor: input.refund.amountMinor
+          },
+      event,
+      auditRecord
+    })
+  };
+}
+
+export async function reassignOrder(input: {
+  orderStore: AdminRefundOrderStore;
+  orderId: string;
+  expectedVersion: number;
+  playerId: string;
+  reasonCode: string;
+  note: string | null;
+  actor: ActorContext;
+  staffLevel: StaffLevel;
+  now: Date;
+}): Promise<AdminStagedWrite<OrderRecord>> {
+  if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
+    throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to reassign orders.');
+  }
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  if (!['ACCEPTED', 'EXCEPTION'].includes(order.status)) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order cannot be reassigned from its current status.');
+  }
+  if (input.orderStore.validateReassignmentPlayer) {
+    const eligible = await input.orderStore.validateReassignmentPlayer({ playerId: input.playerId, order });
+    if (!eligible) {
+      throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Replacement player is not active and available.');
+    }
+  }
+  const previousPlayerId = order.playerId;
+  const updatedOrder: OrderRecord = {
+    ...order,
+    playerId: input.playerId,
+    version: order.version + 1,
+    updatedAt: input.now.toISOString()
+  };
+  const event: OrderEventRecord = {
+    id: crypto.randomUUID(),
+    orderId: order.id,
+    sequence: nextEventSequence(input.orderStore, order.id),
+    eventType: 'DETAILS_UPDATED',
+    fromStatus: order.status,
+    toStatus: order.status,
+    actorUserId: input.actor.actorUserId,
+    actorStaffId: input.actor.actorStaffId,
+    actorSource: input.actor.actorSource,
+    interactionId: input.actor.interactionId,
+    payload: {
+      reasonCode: input.reasonCode,
+      note: input.note,
+      previousPlayerId,
+      nextPlayerId: input.playerId
+    },
+    createdAt: input.now.toISOString()
+  };
+  return {
+    data: updatedOrder,
+    commit: (auditRecord) => commitReassignment(input.orderStore, {
+      originalOrder: order,
+      updatedOrder,
+      event,
+      auditRecord
+    })
+  };
+}
+
+export function registerAdminOrderActionRoutes(
+  server: FastifyInstance,
+  options: {
+    orderStore: AdminRefundOrderStore;
+    fundingAdapter: RefundFundingAdapter;
+    providerKey: string;
+    now?: () => Date;
+  }
+): void {
+  const security = server.securityOptions;
+  if (!security) {
+    throw new Error('Admin order action routes require buildApiServer({ security })');
+  }
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/refund',
+    permission: 'refund.execute',
+    action: 'REFUND_ORDER',
+    targetType: 'order',
+    targetId: (request) => orderIdParam(request),
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    retryCommitFailures: true,
+    requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
+    handler: async (request, actor) => {
+      if (!actor.actorLevel) {
+        throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required.');
+      }
+      const body = parseRefundOrderBody(request.body);
+      return refundOrder({
+        orderStore: options.orderStore,
+        fundingAdapter: options.fundingAdapter,
+        providerKey: options.providerKey,
+        orderId: orderIdParam(request),
+        expectedVersion: body.expectedVersion,
+        amount: body.amount,
+        reasonCode: body.reasonCode,
+        evidenceNote: body.evidenceNote,
+        actor,
+        staffLevel: actor.actorLevel,
+        idempotencyKey: idempotencyKey(request),
+        now: options.now?.() ?? new Date()
+      });
+    },
+    mapError: mapAdminOrderActionError,
+    fingerprintBody: (request) => request.body
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/resolve',
+    permission: 'order.resolve',
+    action: 'RESOLVE_ORDER',
+    targetType: 'order',
+    targetId: (request) => orderIdParam(request),
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    retryCommitFailures: true,
+    requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
+    handler: async (request, actor) => {
+      if (!actor.actorLevel) {
+        throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required.');
+      }
+      const body = parseResolveOrderBody(request.body);
+      return resolveOrder({
+        orderStore: options.orderStore,
+        fundingAdapter: options.fundingAdapter,
+        providerKey: options.providerKey,
+        orderId: orderIdParam(request),
+        expectedVersion: body.expectedVersion,
+        targetStatus: body.targetStatus,
+        reasonCode: body.reasonCode,
+        refund: body.refund,
+        playerEarning: body.playerEarning,
+        evidenceNote: body.evidenceNote,
+        actor,
+        staffLevel: actor.actorLevel,
+        idempotencyKey: idempotencyKey(request),
+        now: options.now?.() ?? new Date()
+      });
+    },
+    mapError: mapAdminOrderActionError,
+    fingerprintBody: (request) => request.body
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/reassign',
+    permission: 'order.reassign',
+    action: 'REASSIGN_ORDER',
+    targetType: 'order',
+    targetId: (request) => orderIdParam(request),
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    retryCommitFailures: true,
+    handler: async (request, actor) => {
+      if (!actor.actorLevel) {
+        throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required.');
+      }
+      const body = parseReassignOrderBody(request.body);
+      return reassignOrder({
+        orderStore: options.orderStore,
+        orderId: orderIdParam(request),
+        expectedVersion: body.expectedVersion,
+        playerId: body.playerId,
+        reasonCode: body.reasonCode,
+        note: body.note,
+        actor,
+        staffLevel: actor.actorLevel,
+        now: options.now?.() ?? new Date()
+      });
+    },
+    mapError: mapAdminOrderActionError,
+    fingerprintBody: (request) => request.body
+  });
+}
+
+export class PostgresAdminOrderActionStore implements AdminRefundOrderStore {
+  private readonly pool: Pool;
+  private readonly orderStore: PostgresOrderStore;
+
+  constructor(options: { pool: Pool }) {
+    this.pool = options.pool;
+    this.orderStore = new PostgresOrderStore({ pool: options.pool });
+  }
+
+  findById(orderId: string): Promise<OrderRecord | null> {
+    return this.orderStore.findById(orderId);
+  }
+
+  async findSucceededOrderCharge(orderId: string): Promise<ExternalTransactionMirrorRecord | null> {
+    const result = await this.pool.query<{
+      id: string;
+      provider: string;
+      user_id: string;
+      order_id: string;
+      fund_reservation_id: string | null;
+      external_ref: string | null;
+      idempotency_key: string;
+      amount_minor: string | number;
+      currency: string;
+      status: ExternalTransactionMirrorRecord['status'];
+      created_at: Date | string;
+    }>(
+      `
+SELECT id, provider, user_id, order_id, fund_reservation_id, external_ref,
+       idempotency_key, amount_minor, currency, status, created_at
+FROM external_transactions
+WHERE order_id = $1
+  AND type = 'ORDER_CHARGE'
+  AND status = 'SUCCEEDED'
+ORDER BY created_at DESC
+LIMIT 1
+      `,
+      [orderId]
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          id: row.id,
+          provider: row.provider,
+          type: 'ORDER_CHARGE',
+          userId: row.user_id,
+          orderId: row.order_id,
+          fundReservationId: row.fund_reservation_id,
+          externalRef: row.external_ref,
+          idempotencyKey: row.idempotency_key,
+          amountMinor: Number(row.amount_minor),
+          currency: row.currency as ExternalTransactionMirrorRecord['currency'],
+          status: row.status,
+          createdAt: new Date(row.created_at).toISOString()
+        }
+      : null;
+  }
+
+  async validateReassignmentPlayer(input: { playerId: string; order: OrderRecord }): Promise<boolean> {
+    const result = await this.pool.query(
+      `
+SELECT 1
+FROM player_profiles pp
+WHERE pp.user_id = $1
+  AND pp.review_status = 'ACTIVE'
+  AND pp.availability = 'AVAILABLE'
+  AND pp.discord_presence IN ('ONLINE', 'IDLE', 'DND')
+  AND EXISTS (
+    SELECT 1
+    FROM player_skills ps
+    JOIN skill_tags st ON st.id = ps.skill_tag_id
+    WHERE ps.player_profile_id = pp.id
+      AND st.enabled = true
+      AND st.type = 'GAME'
+      AND st.code = $3
+  )
+  AND EXISTS (
+    SELECT 1
+    FROM player_skills ps
+    JOIN skill_tags st ON st.id = ps.skill_tag_id
+    WHERE ps.player_profile_id = pp.id
+      AND st.enabled = true
+      AND st.type = 'SERVICE'
+      AND st.code = $4
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM orders active_order
+    WHERE active_order.active_player_slot_id = $1
+      AND active_order.id <> $2
+      AND active_order.status IN ('ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION')
+  )
+LIMIT 1
+      `,
+      [input.playerId, input.order.id, input.order.game, input.order.service]
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  commitApproval(input: ApprovalCommitInput): Promise<void> {
+    return this.withTransaction(async (client) => {
+      await insertApprovalRequest(client, input.approval);
+      await insertAdminAuditRecord(client, { ...input.auditRecord, approvalRequestId: input.approval.id });
+    });
+  }
+
+  commitRefund(input: RefundCommitInput): Promise<void> {
+    return this.withTransaction(async (client) => {
+      await lockOrderVersion(client, input.order.id, input.order.version);
+      await insertRefundAndCorrections(client, {
+        order: input.order,
+        refund: input.refund,
+        desiredPlayerEarningMinor: null,
+        resolutionId: null
+      });
+      await insertAdminAuditRecord(client, input.auditRecord);
+    });
+  }
+
+  commitResolution(input: ResolutionCommitInput): Promise<void> {
+    return this.withTransaction(async (client) => {
+      if (input.preChargeSettlement) {
+        await settlePreChargeReservation(client, {
+          order: input.originalOrder,
+          resolution: input.resolution,
+          ...input.preChargeSettlement
+        });
+      }
+      const updated = await client.query(
+        `
+UPDATE orders
+SET status = $2::"OrderStatus",
+    row_version = $3,
+    active_customer_slot_id = NULL,
+    active_player_slot_id = NULL,
+    completed_at = CASE WHEN $2 = 'COMPLETED' THEN $4 ELSE completed_at END,
+    cancelled_at = CASE WHEN $2 = 'CANCELLED' THEN $4 ELSE cancelled_at END,
+    updated_at = $4
+WHERE id = $1
+  AND row_version = $5
+  AND status = $6::"OrderStatus"
+        `,
+        [
+          input.updatedOrder.id,
+          input.updatedOrder.status,
+          input.updatedOrder.version,
+          new Date(input.updatedOrder.updatedAt),
+          input.originalOrder.version,
+          input.originalOrder.status
+        ]
+      );
+      if ((updated.rowCount ?? 0) !== 1) {
+        throw new AdminOrderActionError('CONFLICT', 'Order version is stale.');
+      }
+      await client.query(
+        `
+INSERT INTO order_resolutions (
+  id, order_id, target_status, reason_code, refund_amount_minor,
+  player_earning_minor, currency, evidence_note, resolved_by_staff_id,
+  approval_request_id, order_version_snapshot, idempotency_key, created_at
+)
+VALUES (
+  $1, $2, $3::"OrderStatus", $4::"ResolutionReasonCode", $5,
+  $6, $7, $8, $9, NULL, $10, $11, $12
+)
+        `,
+        [
+          input.resolution.resolutionId,
+          input.resolution.orderId,
+          input.resolution.targetStatus,
+          input.resolution.reasonCode,
+          input.resolution.refundAmountMinor,
+          input.resolution.playerEarningMinor,
+          input.resolution.currency,
+          input.resolution.evidenceNote,
+          input.resolution.resolvedByStaffId,
+          input.resolution.orderVersionSnapshot,
+          input.resolution.idempotencyKey,
+          new Date(input.resolution.createdAt)
+        ]
+      );
+      if (input.refund) {
+        await insertRefundAndCorrections(client, {
+          order: input.originalOrder,
+          refund: input.refund,
+          desiredPlayerEarningMinor: input.resolution.playerEarningMinor,
+          resolutionId: input.resolution.resolutionId
+        });
+      } else {
+        await insertEarningResolutionAdjustment(client, {
+          order: input.originalOrder,
+          desiredPlayerEarningMinor: input.resolution.playerEarningMinor,
+          resolutionId: input.resolution.resolutionId,
+          refundId: null,
+          reason: input.resolution.reasonCode,
+          idempotencyKey: input.resolution.idempotencyKey,
+          actorStaffId: input.resolution.resolvedByStaffId,
+          createdAt: input.resolution.createdAt
+        });
+      }
+      await insertResolutionRiskEvent(client, {
+        order: input.originalOrder,
+        reasonCode: input.resolution.reasonCode,
+        evidenceNote: input.resolution.evidenceNote,
+        actorStaffId: input.resolution.resolvedByStaffId,
+        createdAt: input.resolution.createdAt
+      });
+      await insertAdminOrderEvent(client, input.event);
+      await insertAdminAuditRecord(client, input.auditRecord);
+    });
+  }
+
+  commitReassignment(input: ReassignmentCommitInput): Promise<void> {
+    return this.withTransaction(async (client) => {
+      const updated = await client.query(
+        `
+UPDATE orders
+SET player_id = $2,
+    active_player_slot_id = $2,
+    row_version = $3,
+    updated_at = $4
+WHERE id = $1
+  AND row_version = $5
+  AND status = $6::"OrderStatus"
+        `,
+        [
+          input.updatedOrder.id,
+          input.updatedOrder.playerId,
+          input.updatedOrder.version,
+          new Date(input.updatedOrder.updatedAt),
+          input.originalOrder.version,
+          input.originalOrder.status
+        ]
+      );
+      if ((updated.rowCount ?? 0) !== 1) {
+        throw new AdminOrderActionError('CONFLICT', 'Order version is stale.');
+      }
+      await insertAdminOrderEvent(client, input.event);
+      await insertAdminAuditRecord(client, input.auditRecord);
+    });
+  }
+
+  private async withTransaction(work: (client: PoolClient) => Promise<void>): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await work(client);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      if (error instanceof AdminOrderActionError) {
+        throw error;
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+function commitApproval(store: AdminRefundOrderStore, input: ApprovalCommitInput): Promise<void> | void {
+  if (store.commitApproval) {
+    return store.commitApproval(input);
+  }
+  if (!store.approvalRequests) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot create an approval request.');
+  }
+  store.approvalRequests.push({
+    ...input.approval,
+    targetType: 'ORDER',
+    status: 'PENDING',
+    rowVersion: 1
+  });
+}
+
+function commitRefund(store: AdminRefundOrderStore, input: RefundCommitInput): Promise<void> | void {
+  if (store.commitRefund) {
+    return store.commitRefund(input);
+  }
+}
+
+function commitResolution(store: AdminRefundOrderStore, input: ResolutionCommitInput): Promise<void> | void {
+  if (store.commitResolution) {
+    return store.commitResolution(input);
+  }
+  commitOrderReplacement(store, input.updatedOrder);
+  store.resolutions?.push({ ...input.resolution });
+  const earningReversalMinor = Math.max(0, input.originalOrder.playerEarningMinor - input.resolution.playerEarningMinor);
+  if (earningReversalMinor > 0) {
+    store.playerEarningAdjustments?.push({
+      id: crypto.randomUUID(),
+      orderId: input.originalOrder.id,
+      type: 'REVERSAL_DEBIT',
+      amountMinor: earningReversalMinor,
+      currency: input.originalOrder.currency,
+      reason: input.resolution.reasonCode,
+      sourceRefundId: input.refund?.id ?? null,
+      sourceResolutionId: input.resolution.resolutionId,
+      createdByStaffId: input.resolution.resolvedByStaffId
+    });
+  }
+  if (input.refund) {
+    store.commissionAdjustments?.push({
+      id: crypto.randomUUID(),
+      orderId: input.originalOrder.id,
+      type: 'REVERSAL_DEBIT',
+      amountMinor: input.refund.amountMinor,
+      currency: input.originalOrder.currency,
+      reason: input.resolution.reasonCode,
+      sourceRefundId: input.refund.id,
+      createdByStaffId: input.resolution.resolvedByStaffId
+    });
+  }
+  appendOrderEvent(store, input.event);
+}
+
+function commitReassignment(store: AdminRefundOrderStore, input: ReassignmentCommitInput): Promise<void> | void {
+  if (store.commitReassignment) {
+    return store.commitReassignment(input);
+  }
+  commitOrderReplacement(store, input.updatedOrder);
+  appendOrderEvent(store, input.event);
+}
+
+function buildRefundPersistenceRecord(input: {
+  id: string;
+  provider: string;
+  sourceTransaction: ExternalTransactionMirrorRecord;
+  order: OrderRecord;
+  resolutionId: string | null;
+  actorStaffId: string | null;
+  providerRefund: Transaction;
+  idempotencyKey: string;
+  reasonCode: string;
+  evidenceNote: string;
+  now: Date;
+}): RefundPersistenceRecord {
+  if (!input.actorStaffId) {
+    throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required to execute refunds.');
+  }
+  return {
+    id: input.id,
+    publicId: `RF-${input.id.replaceAll('-', '').slice(0, 20).toUpperCase()}`,
+    provider: input.provider,
+    sourceTransaction: input.sourceTransaction,
+    beneficiaryUserId: input.order.customerId,
+    orderId: input.order.id,
+    orderResolutionId: input.resolutionId,
+    requestedByStaffId: input.actorStaffId,
+    externalRefundRef: input.providerRefund.providerRef,
+    idempotencyKey: input.idempotencyKey,
+    amountMinor: input.providerRefund.amount.amountMinor,
+    currency: input.providerRefund.amount.currency,
+    status: input.providerRefund.status,
+    reasonCode: input.reasonCode,
+    reasonNote: input.evidenceNote.slice(0, 1_000),
+    createdAt: input.now.toISOString()
+  };
+}
+
+function recoverRefundTransaction(
+  adapter: RefundFundingAdapter,
+  transaction: Transaction,
+  providerIdempotencyKey: string
+): Transaction {
+  if (transaction.status === 'SUCCEEDED') {
+    return transaction;
+  }
+  if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
+    const recovered = adapter.getTransaction({
+      lookupType: 'IDEMPOTENCY_KEY',
+      lookupValue: providerIdempotencyKey
+    });
+    if (recovered.status === 'SUCCEEDED') {
+      return recovered;
+    }
+  }
+  throw new AdminOrderActionError(
+    'PROVIDER_UNAVAILABLE',
+    'Provider refund has not reached a confirmed successful state.'
+  );
+}
+
+async function lockOrderVersion(client: OrderQueryClient, orderId: string, version: number): Promise<void> {
+  const result = await client.query<{ row_version: number }>(
+    'SELECT row_version FROM orders WHERE id = $1 FOR UPDATE',
+    [orderId]
+  );
+  if (!result.rows[0]) {
+    throw new AdminOrderActionError('NOT_FOUND', 'Order was not found.');
+  }
+  if (result.rows[0].row_version !== version) {
+    throw new AdminOrderActionError('CONFLICT', 'Order version is stale.');
+  }
+}
+
+async function insertApprovalRequest(client: OrderQueryClient, approval: ApprovalRecord): Promise<void> {
+  const payloadJson = JSON.stringify(approval.payloadSnapshot);
+  const payloadHash = crypto.createHash('sha256').update(payloadJson).digest('hex');
+  await client.query(
+    `
+INSERT INTO approval_requests (
+  id, public_id, action, target_type, target_id, target_version,
+  payload_snapshot, payload_hash, amount_minor, currency,
+  requested_by_staff_id, required_level, status, row_version,
+  reason, expires_at, created_at, updated_at
+)
+VALUES (
+  $1, $2, $3::"ApprovalAction", 'ORDER', $4, $5,
+  $6::jsonb, $7, $8, $9,
+  $10, $11::"StaffLevel", 'PENDING', 1,
+  $12, $13, $14, $14
+)
+    `,
+    [
+      approval.id,
+      `APR-${approval.id.replaceAll('-', '').slice(0, 18).toUpperCase()}`,
+      approval.action,
+      approval.targetId,
+      approval.targetVersion,
+      payloadJson,
+      payloadHash,
+      approval.amountMinor,
+      approval.currency,
+      approval.requestedByStaffId,
+      approval.requiredLevel,
+      approval.reason.slice(0, 1_000),
+      new Date(approval.expiresAt),
+      new Date(approval.createdAt)
+    ]
+  );
+}
+
+async function settlePreChargeReservation(client: OrderQueryClient, input: {
+  order: OrderRecord;
+  resolution: ResolutionCommitInput['resolution'];
+  fundingAdapter: RefundFundingAdapter;
+  providerKey: string;
+  captureMinor: number;
+  releaseMinor: number;
+}): Promise<void> {
+  const reservationResult = await client.query<{
+    id: string;
+    user_id: string;
+    mode: 'PROVIDER_NATIVE_HOLD' | 'LOCAL_RESERVATION_FALLBACK';
+    provider: string | null;
+    provider_hold_ref: string | null;
+    amount_minor: string | number;
+    currency: Currency;
+    status: 'ACTIVE' | 'DISPUTED';
+    row_version: number;
+    external_user_id: string | null;
+  }>(
+    `
+SELECT fr.id, fr.user_id, fr.mode, fr.provider, fr.provider_hold_ref,
+       fr.amount_minor, fr.currency, fr.status, fr.row_version, ea.external_user_id
+FROM fund_reservations fr
+LEFT JOIN external_accounts ea
+  ON ea.user_id = fr.user_id
+ AND ea.provider = fr.provider
+ AND ea.status = 'ACTIVE'
+WHERE fr.order_id = $1
+  AND fr.source_type = 'ORDER'
+  AND fr.status IN ('ACTIVE', 'DISPUTED')
+FOR UPDATE OF fr
+    `,
+    [input.order.id]
+  );
+  const reservation = reservationResult.rows[0];
+  if (!reservation) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'An active or disputed order reservation is required before pre-charge resolution.');
+  }
+  const reservationAmount = Number(reservation.amount_minor);
+  if (input.captureMinor < 0 || input.releaseMinor < 0 || input.captureMinor + input.releaseMinor !== reservationAmount) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Resolution settlement must exactly match the order reservation amount.');
+  }
+  let providerCharge: Transaction | null = null;
+  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
+    if (!reservation.provider_hold_ref || !input.fundingAdapter.captureHold || !input.fundingAdapter.releaseHold) {
+      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Native hold settlement capability is unavailable.');
+    }
+    try {
+      if (input.captureMinor > 0) {
+        const captured = input.fundingAdapter.captureHold({
+          holdRef: reservation.provider_hold_ref,
+          idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
+          fundReservationId: reservation.id,
+          fundReservationVersion: reservation.row_version,
+          amount: { amountMinor: input.captureMinor, currency: reservation.currency },
+          businessReference: input.order.id,
+          reasonCode: input.resolution.reasonCode
+        });
+        if (!captured.captureTransactionRef || !input.fundingAdapter.getTransaction) {
+          throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Provider did not return a recoverable capture transaction.');
+        }
+        providerCharge = recoverReservationDebit(
+          input.fundingAdapter,
+          input.fundingAdapter.getTransaction({
+            lookupType: 'PROVIDER_REF',
+            lookupValue: captured.captureTransactionRef
+          }),
+          `${input.resolution.idempotencyKey}:provider-capture`
+        );
+      }
+      if (input.releaseMinor > 0) {
+        input.fundingAdapter.releaseHold({
+          holdRef: reservation.provider_hold_ref,
+          idempotencyKey: `${input.resolution.idempotencyKey}:provider-release`,
+          fundReservationId: reservation.id,
+          fundReservationVersion: reservation.row_version,
+          reasonCode: input.resolution.reasonCode,
+          amount: { amountMinor: input.releaseMinor, currency: reservation.currency }
+        });
+      }
+    } catch (error) {
+      if (error instanceof AdminOrderActionError) {
+        throw error;
+      }
+      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
+    }
+  } else if (input.captureMinor > 0) {
+    if (!reservation.external_user_id || !input.fundingAdapter.createReservationDebit) {
+      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Reservation debit capability or external account binding is unavailable.');
+    }
+    try {
+      providerCharge = input.fundingAdapter.createReservationDebit({
+        idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
+        fundReservationId: reservation.id,
+        fundReservationVersion: reservation.row_version,
+        externalUserId: reservation.external_user_id,
+        amount: { amountMinor: input.captureMinor, currency: reservation.currency },
+        businessSource: 'ORDER',
+        businessReference: input.order.id,
+        metadata: { resolutionId: input.resolution.resolutionId }
+      });
+      providerCharge = recoverReservationDebit(
+        input.fundingAdapter,
+        providerCharge,
+        `${input.resolution.idempotencyKey}:provider-capture`
+      );
+    } catch (error) {
+      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
+    }
+  }
+
+  let sequence = await nextFundReservationSequence(client, reservation.id);
+  let status: 'ACTIVE' | 'DISPUTED' | 'PARTIALLY_SETTLED' = reservation.status;
+  let version = reservation.row_version;
+  if (status === 'DISPUTED') {
+    version += 1;
+    await insertFundReservationSettlementEvent(client, {
+      reservationId: reservation.id,
+      sequence: sequence++,
+      eventType: 'DISPUTE_RESOLVED',
+      fromStatus: 'DISPUTED',
+      toStatus: 'ACTIVE',
+      amountMinor: 0,
+      version,
+      idempotencyKey: `${input.resolution.idempotencyKey}:reservation:dispute-resolved`,
+      actorStaffId: input.resolution.resolvedByStaffId,
+      reasonCode: input.resolution.reasonCode,
+      createdAt: input.resolution.createdAt
+    });
+    status = 'ACTIVE';
+  }
+  if (input.captureMinor > 0) {
+    version += 1;
+    const toStatus = input.releaseMinor > 0 ? 'PARTIALLY_SETTLED' : 'CAPTURED';
+    await insertFundReservationSettlementEvent(client, {
+      reservationId: reservation.id,
+      sequence: sequence++,
+      eventType: 'CAPTURED',
+      fromStatus: status,
+      toStatus,
+      amountMinor: input.captureMinor,
+      version,
+      idempotencyKey: `${input.resolution.idempotencyKey}:reservation:capture`,
+      actorStaffId: input.resolution.resolvedByStaffId,
+      reasonCode: input.resolution.reasonCode,
+      createdAt: input.resolution.createdAt
+    });
+    status = toStatus === 'PARTIALLY_SETTLED' ? 'PARTIALLY_SETTLED' : 'ACTIVE';
+  }
+  if (input.releaseMinor > 0) {
+    version += 1;
+    await insertFundReservationSettlementEvent(client, {
+      reservationId: reservation.id,
+      sequence,
+      eventType: 'RELEASED',
+      fromStatus: status,
+      toStatus: 'RELEASED',
+      amountMinor: input.releaseMinor,
+      version,
+      idempotencyKey: `${input.resolution.idempotencyKey}:reservation:release`,
+      actorStaffId: input.resolution.resolvedByStaffId,
+      reasonCode: input.resolution.reasonCode,
+      createdAt: input.resolution.createdAt
+    });
+  }
+  if (providerCharge) {
+    await insertResolutionOrderCharge(client, {
+      order: input.order,
+      reservationId: reservation.id,
+      provider: reservation.provider ?? input.providerKey,
+      providerCharge,
+      idempotencyKey: input.resolution.idempotencyKey,
+      createdAt: input.resolution.createdAt
+    });
+  }
+}
+
+function recoverReservationDebit(
+  adapter: RefundFundingAdapter,
+  transaction: Transaction,
+  providerIdempotencyKey: string
+): Transaction {
+  if (transaction.status === 'SUCCEEDED') {
+    return transaction;
+  }
+  if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
+    const recovered = adapter.getTransaction({ lookupType: 'IDEMPOTENCY_KEY', lookupValue: providerIdempotencyKey });
+    if (recovered.status === 'SUCCEEDED') {
+      return recovered;
+    }
+  }
+  throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Reservation debit has not reached a confirmed successful state.');
+}
+
+async function nextFundReservationSequence(client: OrderQueryClient, reservationId: string): Promise<number> {
+  const result = await client.query<{ next_sequence: string | number }>(
+    `SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM fund_reservation_events WHERE fund_reservation_id = $1`,
+    [reservationId]
+  );
+  return Number(result.rows[0]?.next_sequence ?? 1);
+}
+
+async function insertFundReservationSettlementEvent(client: OrderQueryClient, input: {
+  reservationId: string;
+  sequence: number;
+  eventType: 'DISPUTE_RESOLVED' | 'CAPTURED' | 'RELEASED';
+  fromStatus: 'ACTIVE' | 'DISPUTED' | 'PARTIALLY_SETTLED';
+  toStatus: 'ACTIVE' | 'PARTIALLY_SETTLED' | 'CAPTURED' | 'RELEASED';
+  amountMinor: number;
+  version: number;
+  idempotencyKey: string;
+  actorStaffId: string;
+  reasonCode: string;
+  createdAt: string;
+}): Promise<void> {
+  await client.query(
+    `
+INSERT INTO fund_reservation_events (
+  id, fund_reservation_id, sequence, event_type, from_status, to_status,
+  amount_minor, reservation_version, idempotency_key,
+  actor_user_id, actor_staff_id, actor_source, reason_code, created_at
+) VALUES (
+  gen_random_uuid(), $1, $2, $3::"FundReservationEventType", $4::"FundReservationStatus", $5::"FundReservationStatus",
+  $6, $7, $8, NULL, $9, 'DASHBOARD', $10, $11
+)
+    `,
+    [
+      input.reservationId,
+      input.sequence,
+      input.eventType,
+      input.fromStatus,
+      input.toStatus,
+      input.amountMinor,
+      input.version,
+      input.idempotencyKey,
+      input.actorStaffId,
+      input.reasonCode,
+      new Date(input.createdAt)
+    ]
+  );
+}
+
+async function insertResolutionOrderCharge(client: OrderQueryClient, input: {
+  order: OrderRecord;
+  reservationId: string;
+  provider: string;
+  providerCharge: Transaction;
+  idempotencyKey: string;
+  createdAt: string;
+}): Promise<void> {
+  const transactionId = crypto.randomUUID();
+  await client.query(
+    `
+INSERT INTO external_transactions (
+  id, provider, type, user_id, order_id, fund_reservation_id, external_ref,
+  idempotency_key, amount_minor, currency, status, initiated_at, settled_at, created_at, updated_at
+) VALUES (
+  $1, $2, 'ORDER_CHARGE', $3, $4, $5, $6,
+  $7, $8, $9, 'SUCCEEDED', $10, $10, $10, $10
+)
+    `,
+    [
+      transactionId,
+      input.provider,
+      input.order.customerId,
+      input.order.id,
+      input.reservationId,
+      input.providerCharge.providerRef,
+      `${input.idempotencyKey}:external`,
+      input.providerCharge.amount.amountMinor,
+      input.providerCharge.amount.currency,
+      new Date(input.createdAt)
+    ]
+  );
+  await client.query(
+    `
+INSERT INTO consumption_entries (
+  id, user_id, entry_type, direction, order_id, external_transaction_id,
+  amount_minor, currency, source_type, source_id, idempotency_key, occurred_at
+) VALUES (
+  gen_random_uuid(), $1, 'ORDER_CHARGE', 'DEBIT', $2, $3,
+  $4, $5, 'ORDER', $2, $6, $7
+)
+    `,
+    [
+      input.order.customerId,
+      input.order.id,
+      transactionId,
+      input.providerCharge.amount.amountMinor,
+      input.providerCharge.amount.currency,
+      `${input.idempotencyKey}:consumption`,
+      new Date(input.createdAt)
+    ]
+  );
+}
+
+async function insertRefundAndCorrections(client: OrderQueryClient, input: {
+  order: OrderRecord;
+  refund: RefundPersistenceRecord;
+  desiredPlayerEarningMinor: number | null;
+  resolutionId: string | null;
+}): Promise<void> {
+  const refund = input.refund;
+  await client.query(
+    `
+INSERT INTO refunds (
+  id, public_id, provider, source_external_transaction_id, beneficiary_user_id,
+  order_id, order_resolution_id, requested_by_staff_id, external_refund_ref,
+  idempotency_key, amount_minor, currency, status, reason_code, reason_note,
+  requested_at, settled_at, created_at, updated_at
+)
+VALUES (
+  $1, $2, $3, $4, $5,
+  $6, $7, $8, $9,
+  $10, $11, $12, $13::"RefundStatus", $14::"ResolutionReasonCode", $15,
+  $16::timestamptz,
+  CASE WHEN $13::"RefundStatus" = 'SUCCEEDED' THEN $16::timestamptz ELSE NULL END,
+  $16::timestamptz, $16::timestamptz
+)
+    `,
+    [
+      refund.id,
+      refund.publicId,
+      refund.provider,
+      refund.sourceTransaction.id,
+      refund.beneficiaryUserId,
+      refund.orderId,
+      refund.orderResolutionId,
+      refund.requestedByStaffId,
+      refund.externalRefundRef,
+      refund.idempotencyKey,
+      refund.amountMinor,
+      refund.currency,
+      refund.status,
+      refund.reasonCode,
+      refund.reasonNote,
+      new Date(refund.createdAt)
+    ]
+  );
+  const sourceConsumption = await client.query<{ id: string; amount_minor: string | number }>(
+    `
+SELECT id, amount_minor
+FROM consumption_entries
+WHERE external_transaction_id = $1
+  AND direction = 'DEBIT'
+ORDER BY occurred_at ASC
+LIMIT 1
+FOR UPDATE
+    `,
+    [refund.sourceTransaction.id]
+  );
+  const source = sourceConsumption.rows[0];
+  if (!source) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Original consumption entry is required for refund correction.');
+  }
+  await client.query(
+    `
+INSERT INTO consumption_entries (
+  id, user_id, entry_type, direction, order_id, refund_id,
+  reversal_of_entry_id, amount_minor, currency, source_type, source_id,
+  idempotency_key, occurred_at
+)
+VALUES ($1, $2, 'REFUND_REVERSAL', 'CREDIT', $3, $4, $5, $6, $7, 'REFUND', $4, $8, $9)
+    `,
+    [
+      crypto.randomUUID(),
+      refund.beneficiaryUserId,
+      refund.orderId,
+      refund.id,
+      source.id,
+      refund.amountMinor,
+      refund.currency,
+      `${refund.idempotencyKey}:consumption`,
+      new Date(refund.createdAt)
+    ]
+  );
+  const desiredPlayerEarningMinor = input.desiredPlayerEarningMinor ?? Math.max(
+    0,
+    input.order.playerEarningMinor - proportionalAmount(input.order.playerEarningMinor, refund.amountMinor, input.order.amountMinor)
+  );
+  await insertEarningResolutionAdjustment(client, {
+    order: input.order,
+    desiredPlayerEarningMinor,
+    resolutionId: input.resolutionId,
+    refundId: refund.id,
+    reason: refund.reasonCode,
+    idempotencyKey: refund.idempotencyKey,
+    actorStaffId: refund.requestedByStaffId,
+    createdAt: refund.createdAt
+  });
+  const commissions = await client.query<{ id: string; amount_minor: string | number }>(
+    'SELECT id, amount_minor FROM commissions WHERE source_consumption_entry_id = $1 FOR UPDATE',
+    [source.id]
+  );
+  for (const commission of commissions.rows) {
+    const reversalMinor = proportionalAmount(Number(commission.amount_minor), refund.amountMinor, Number(source.amount_minor));
+    if (reversalMinor === 0) {
+      continue;
+    }
+    await client.query(
+      `
+INSERT INTO commission_adjustments (
+  id, commission_id, type, source_refund_id, amount_minor, currency,
+  reason, idempotency_key, created_by_staff_id, created_at
+)
+VALUES ($1, $2, 'REVERSAL_DEBIT', $3, $4, $5, $6, $7, $8, $9)
+      `,
+      [
+        crypto.randomUUID(),
+        commission.id,
+        refund.id,
+        reversalMinor,
+        refund.currency,
+        refund.reasonCode,
+        `${refund.idempotencyKey}:commission:${commission.id}`,
+        refund.requestedByStaffId,
+        new Date(refund.createdAt)
+      ]
+    );
+  }
+}
+
+async function insertEarningResolutionAdjustment(client: OrderQueryClient, input: {
+  order: OrderRecord;
+  desiredPlayerEarningMinor: number;
+  resolutionId: string | null;
+  refundId: string | null;
+  reason: string;
+  idempotencyKey: string;
+  actorStaffId: string;
+  createdAt: string;
+}): Promise<void> {
+  const earningResult = await client.query<{ id: string; amount_minor: string | number }>(
+    'SELECT id, amount_minor FROM player_earnings WHERE order_id = $1 FOR UPDATE',
+    [input.order.id]
+  );
+  const earning = earningResult.rows[0];
+  if (!earning) {
+    if (input.desiredPlayerEarningMinor === 0) {
+      return;
+    }
+    await client.query(
+      `
+INSERT INTO player_earnings (
+  id, order_id, player_user_id, base_units, unit_payout_minor,
+  amount_minor, currency, status, row_version, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', 1, $8, $8)
+      `,
+      [
+        crypto.randomUUID(),
+        input.order.id,
+        input.order.playerId,
+        input.order.unitCount,
+        input.order.playerUnitPayoutMinor,
+        input.desiredPlayerEarningMinor,
+        input.order.currency,
+        new Date(input.createdAt)
+      ]
+    );
+    return;
+  }
+  const reversalMinor = Math.max(0, Number(earning.amount_minor) - input.desiredPlayerEarningMinor);
+  if (reversalMinor === 0) {
+    return;
+  }
+  await client.query(
+    `
+INSERT INTO player_earning_adjustments (
+  id, player_earning_id, type, source_refund_id, source_resolution_id,
+  amount_minor, currency, reason, idempotency_key, created_by_staff_id, created_at
+)
+VALUES ($1, $2, 'REVERSAL_DEBIT', $3, $4, $5, $6, $7, $8, $9, $10)
+    `,
+    [
+      crypto.randomUUID(),
+      earning.id,
+      input.refundId,
+      input.resolutionId,
+      reversalMinor,
+      input.order.currency,
+      input.reason,
+      `${input.idempotencyKey}:earning:${earning.id}`,
+      input.actorStaffId,
+      new Date(input.createdAt)
+    ]
+  );
+}
+
+async function insertAdminOrderEvent(client: OrderQueryClient, event: OrderEventRecord): Promise<void> {
+  await client.query(
+    `
+INSERT INTO order_events (
+  id, order_id, sequence, event_type, from_status, to_status,
+  actor_user_id, actor_staff_id, actor_source, interaction_id, payload, created_at
+)
+SELECT $1, $2, COALESCE(MAX(sequence), 0) + 1, $3::"OrderEventType", $4::"OrderStatus", $5::"OrderStatus",
+       $6, $7, $8::"ActorSource", $9, $10::jsonb, $11
+FROM order_events
+WHERE order_id = $2
+    `,
+    [
+      event.id,
+      event.orderId,
+      event.eventType,
+      event.fromStatus,
+      event.toStatus,
+      event.actorUserId,
+      event.actorStaffId,
+      event.actorSource,
+      event.interactionId,
+      JSON.stringify(event.payload),
+      new Date(event.createdAt)
+    ]
+  );
+}
+
+async function insertResolutionRiskEvent(client: OrderQueryClient, input: {
+  order: OrderRecord;
+  reasonCode: string;
+  evidenceNote: string;
+  actorStaffId: string;
+  createdAt: string;
+}): Promise<void> {
+  const userId = input.reasonCode === 'PLAYER_NO_SHOW'
+    ? input.order.playerId
+    : input.reasonCode === 'CUSTOMER_NO_SHOW'
+      ? input.order.customerId
+      : null;
+  if (!userId) {
+    return;
+  }
+  await client.query(
+    `
+INSERT INTO risk_events (
+  id, user_id, order_id, type, severity, source, notes, created_by_staff_id, created_at
+)
+VALUES ($1, $2, $3, $4::"RiskEventType", 'MEDIUM', 'ORDER_RESOLUTION', $5, $6, $7)
+    `,
+    [
+      crypto.randomUUID(),
+      userId,
+      input.order.id,
+      input.reasonCode,
+      input.evidenceNote.slice(0, 1_000),
+      input.actorStaffId,
+      new Date(input.createdAt)
+    ]
+  );
+}
+
+async function insertAdminAuditRecord(client: OrderQueryClient, record: AuditRecord): Promise<void> {
+  await client.query(
+    `
+INSERT INTO audit_logs (
+  id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
+  interaction_id, permission_code, action, target_type, target_id, outcome,
+  before_snapshot, after_snapshot, reason, request_id, approval_request_id, created_at
+)
+VALUES (
+  $1, $2, $3, $4::"StaffLevel", $5::"ActorSource", $6,
+  $7, $8, $9, $10, $11, $12::"AuditOutcome",
+  $13::jsonb, $14::jsonb, $15, $16, $17, $18
+)
+    `,
+    [
+      record.id,
+      isUuid(record.actorId) ? record.actorId : null,
+      record.actorStaffId,
+      record.actorLevel,
+      record.actorSource,
+      record.clientId,
+      record.interactionId,
+      record.permissionCode,
+      record.action,
+      record.targetType,
+      record.targetId,
+      record.outcome,
+      record.beforeSnapshot ? JSON.stringify(record.beforeSnapshot) : null,
+      record.afterSnapshot ? JSON.stringify(record.afterSnapshot) : null,
+      record.reason,
+      record.requestId,
+      record.approvalRequestId,
+      new Date(record.occurredAt)
+    ]
+  );
+}
+
+function proportionalAmount(baseMinor: number, portionMinor: number, totalMinor: number): number {
+  if (baseMinor <= 0 || portionMinor <= 0 || totalMinor <= 0) {
+    return 0;
+  }
+  return Number((BigInt(baseMinor) * BigInt(portionMinor)) / BigInt(totalMinor));
+}
+
+function isUuid(value: string | null): value is string {
+  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value));
+}
+
+
+function requiredRefundLevel(amountMinor: number): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
+  if (amountMinor >= 500_000) {
+    return 'L4_ADMIN_OWNER';
+  }
+  if (amountMinor > 50_000) {
+    return 'L3_OPERATIONS';
+  }
+  return 'L2_SUPERVISOR';
+}
+
+function levelRank(level: StaffLevel): number {
+  return {
+    L1_SUPPORT: 1,
+    L2_SUPERVISOR: 2,
+    L3_OPERATIONS: 3,
+    L4_ADMIN_OWNER: 4
+  }[level];
+}
+
+function assertAmountWithinSnapshot(amountMinor: number, snapshotMinor: number, label: string): void {
+  if (amountMinor > snapshotMinor) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', `${label} amount exceeds the immutable order snapshot.`);
+  }
+}
+
+async function requireOrder(store: AdminRefundOrderStore, orderId: string, expectedVersion: number): Promise<OrderRecord> {
+  const order = await store.findById(orderId);
+  if (!order) {
+    throw new AdminOrderActionError('NOT_FOUND', 'Order was not found.');
+  }
+  if (order.version !== expectedVersion) {
+    throw new AdminOrderActionError('CONFLICT', 'Order version is stale.');
+  }
+  return order;
+}
+
+function assertMoneyMatchesOrder(amount: { amountMinor: number; currency: Currency }, currency: string, label: string): void {
+  if (amount.currency !== currency) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', `${label} currency must match the order currency.`);
+  }
+}
+
+async function findSucceededOrderCharge(store: AdminRefundOrderStore, orderId: string): Promise<ExternalTransactionMirrorRecord | null> {
+  if (store.findSucceededOrderCharge) {
+    return store.findSucceededOrderCharge(orderId);
+  }
+  return store.externalTransactions?.find((transaction) => {
+    return transaction.orderId === orderId && transaction.type === 'ORDER_CHARGE' && transaction.status === 'SUCCEEDED';
+  }) ?? null;
+}
+
+function parseRefundOrderBody(body: unknown): {
+  expectedVersion: number;
+  amount: { amountMinor: number; currency: Currency };
+  reasonCode: string;
+  evidenceNote: string;
+} {
+  const input = objectBody(body);
+  const amount = parseMoney(input.amount, 'amount', true);
+  const expectedVersion = positiveVersion(input.expectedVersion);
+  const reasonCode = validReasonCode(input.reasonCode);
+  const evidenceNote = evidenceNoteField(input.evidenceNote);
+  if (input.confirmation !== 'EXECUTE_OR_REQUEST_APPROVAL') {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'confirmation is invalid.');
+  }
+  return { expectedVersion, amount, reasonCode, evidenceNote };
+}
+
+function parseResolveOrderBody(body: unknown): {
+  expectedVersion: number;
+  targetStatus: 'COMPLETED' | 'CANCELLED';
+  reasonCode: string;
+  refund: { amountMinor: number; currency: Currency };
+  playerEarning: { amountMinor: number; currency: Currency };
+  evidenceNote: string;
+} {
+  const input = objectBody(body);
+  const targetStatus = input.targetStatus;
+  if (targetStatus !== 'COMPLETED' && targetStatus !== 'CANCELLED') {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'targetStatus is invalid.');
+  }
+  if (input.confirmation !== 'EXECUTE_OR_REQUEST_APPROVAL') {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'confirmation is invalid.');
+  }
+  return {
+    expectedVersion: positiveVersion(input.expectedVersion),
+    targetStatus,
+    reasonCode: validReasonCode(input.reasonCode),
+    refund: parseMoney(input.refund, 'refund', false),
+    playerEarning: parseMoney(input.playerEarning, 'playerEarning', false),
+    evidenceNote: evidenceNoteField(input.evidenceNote)
+  };
+}
+
+function parseReassignOrderBody(body: unknown): {
+  expectedVersion: number;
+  playerId: string;
+  reasonCode: string;
+  note: string | null;
+} {
+  const input = objectBody(body);
+  const playerId = stringField(input.playerId, 'playerId');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(playerId)) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'playerId is invalid.');
+  }
+  const note = input.note === undefined || input.note === null ? null : stringField(input.note, 'note');
+  if (note && note.length > 1_000) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'note is too long.');
+  }
+  return {
+    expectedVersion: positiveVersion(input.expectedVersion),
+    playerId,
+    reasonCode: validReasonCode(input.reasonCode),
+    note
+  };
+}
+
+function parseMoney(value: unknown, field: string, positive: boolean): { amountMinor: number; currency: Currency } {
+  const input = objectBody(value);
+  const amountMinor = input.amountMinor;
+  const currency = input.currency;
+  if (!Number.isInteger(amountMinor) || (amountMinor as number) < (positive ? 1 : 0)) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.amountMinor is invalid.`);
+  }
+  if (currency !== 'CNY' && currency !== 'USD') {
+    throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.currency is invalid.`);
+  }
+  return { amountMinor: amountMinor as number, currency: currency as Currency };
+}
+
+function positiveVersion(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+  }
+  return value as number;
+}
+
+function validReasonCode(value: unknown): string {
+  const reasonCode = stringField(value, 'reasonCode');
+  if (!resolutionReasonCodes.has(reasonCode)) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'reasonCode is invalid.');
+  }
+  return reasonCode;
+}
+
+function evidenceNoteField(value: unknown): string {
+  const evidenceNote = stringField(value, 'evidenceNote');
+  if (evidenceNote.length > 2_000) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'evidenceNote is too long.');
+  }
+  return evidenceNote;
+}
+
+function objectBody(body: unknown): Record<string, unknown> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', 'Request body must be an object.');
+  }
+  return body as Record<string, unknown>;
+}
+
+function stringField(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new AdminOrderActionError('VALIDATION_ERROR', `${field} is required.`);
+  }
+  return value.trim();
+}
+
+function commitOrderReplacement(store: AdminRefundOrderStore, order: OrderRecord): void {
+  if (!store.orders) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot commit admin order action.');
+  }
+  const index = store.orders.findIndex((candidate) => candidate.id === order.id);
+  if (index === -1) {
+    throw new AdminOrderActionError('NOT_FOUND', 'Order was not found.');
+  }
+  store.orders[index] = order;
+}
+
+function appendOrderEvent(store: AdminRefundOrderStore, event: OrderEventRecord): void {
+  if (!store.events) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot append admin order event.');
+  }
+  store.events.push(event);
+}
+
+function nextEventSequence(store: AdminRefundOrderStore, orderId: string): number {
+  return (store.events?.filter((event) => event.orderId === orderId).length ?? 0) + 1;
+}
+
+function orderIdParam(request: FastifyRequest): string {
+  return (request.params as { orderId?: string }).orderId ?? '';
+}
+
+function idempotencyKey(request: FastifyRequest): string {
+  return String(request.headers['idempotency-key'] ?? '');
+}
+
+function mapAdminOrderActionError(error: unknown): AdminOrderErrorDetail | null {
+  if (!(error instanceof AdminOrderActionError)) {
+    return null;
+  }
+  if (error.code === 'NOT_FOUND') {
+    return { statusCode: 404, code: error.code, message: error.message };
+  }
+  if (error.code === 'CONFLICT') {
+    return { statusCode: 409, code: error.code, message: error.message };
+  }
+  if (error.code === 'PERMISSION_DENIED') {
+    return { statusCode: 403, code: error.code, message: error.message };
+  }
+  if (error.code === 'PROVIDER_UNAVAILABLE') {
+    return { statusCode: 503, code: error.code, message: error.message };
+  }
+  if (error.code === 'VALIDATION_ERROR') {
+    return { statusCode: 400, code: error.code, message: error.message };
+  }
+  return { statusCode: 422, code: error.code, message: error.message };
+}
+
+function safeProviderMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return 'Provider refund failed.';
+}

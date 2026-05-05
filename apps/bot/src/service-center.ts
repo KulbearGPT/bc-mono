@@ -1,0 +1,1616 @@
+export type ClientSource = 'DISCORD_BOT';
+
+export interface BotActorContext {
+  guildId: string;
+  discordUserId: string;
+  interactionId: string;
+  clientSource: ClientSource;
+}
+
+export interface OrderChannelSpec {
+  channelId: string;
+  panelMessageId: string;
+  voiceChannelId: string | null;
+}
+
+export interface OrderSummary {
+  id: string;
+  publicId: string;
+  status: string;
+  version: number;
+  game: string | null;
+  service: string | null;
+  region: string | null;
+  billingUnitMinutes: number | null;
+  unitCount: number | null;
+  amountMinor: number;
+  currency: string;
+  notes: string | null;
+  channelSpec: OrderChannelSpec;
+}
+
+export interface CurrentUserSummary {
+  user: {
+    id: string;
+    displayName: string;
+    status: string;
+    externalAccountDisplay: string | null;
+    activeOrderId: string | null;
+    riskFlags: string[];
+    version: number;
+  };
+  activeOrderId: string | null;
+  consumptionSummary: { totalMinor: number; currency: string };
+  commissionSummary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
+}
+
+export interface BalanceSummary {
+  providerBalanceMinor: number;
+  reservedMinor: number;
+  availableMinor: number;
+  currency: string;
+  fetchedAt: string;
+}
+
+export interface ConsumptionPage {
+  items: [];
+  nextCursor: null;
+}
+
+export interface CurrentCommissionPage {
+  summary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
+  items: [];
+  nextCursor: null;
+}
+
+export interface OrderEstimateSummary {
+  serviceCatalogId: string;
+  catalogVersion: number;
+  unitCount: number;
+  billingUnitMinutes: number;
+  amountMinor: number;
+  currency: string;
+  validUntil: string;
+}
+
+export interface OrderReservationSummary {
+  reservationId: string;
+  amountMinor: number;
+  capturedMinor: number;
+  releasedMinor: number;
+  currency: string;
+  status: string;
+  version: number;
+  expiresAt: string;
+}
+
+export interface OrderReservationSummaryResult {
+  orderId: string;
+  status: string;
+  version: number;
+  reservation: OrderReservationSummary;
+  balance: BalanceSummary;
+}
+
+export interface CancelOrderRequest {
+  expectedVersion: number;
+  previewId: string;
+  reasonCode: string;
+  note?: string | null;
+}
+
+export interface CancellationResultSummary {
+  orderId: string;
+  status: string;
+  version: number;
+  fundAction: string;
+  releasedReservation?: OrderReservationSummary | null;
+  refundTransaction?: unknown;
+  staffTaskId?: string | null;
+  balance?: BalanceSummary;
+}
+
+export type DiscordPresenceSummary = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE' | 'UNKNOWN';
+
+export interface SyncDiscordPresenceRequest {
+  guildId: string;
+  discordUserId: string;
+  presence: DiscordPresenceSummary;
+  observedAt: string;
+  sourceEventId: string;
+}
+
+export interface PresenceSyncResult {
+  discordUserId: string;
+  presence: DiscordPresenceSummary;
+  observedAt: string;
+  dispatchEligible: boolean;
+}
+
+export interface DispatchOfferSummary {
+  dispatchAttemptId: string;
+  orderId: string;
+  orderPublicId: string;
+  orderVersion: number;
+  game: string;
+  service: string;
+  region: string;
+  durationLabel: string;
+  playerEarningMinor: number;
+  currency: string;
+  notes: string | null;
+  expiresAt: string;
+  voiceChannelId: string | null;
+}
+
+export interface OrderLifecyclePanelSummary {
+  orderId: string;
+  publicId: string;
+  status: 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
+  version: number;
+  actorRole: 'CUSTOMER' | 'PLAYER';
+  readiness: {
+    customer: 'READY' | 'NOT_READY';
+    player: 'READY' | 'NOT_READY';
+    bothReady: boolean;
+    readyDeadlineAt: string | null;
+    startedAt: string | null;
+    staffTaskId: string | null;
+  };
+}
+
+export interface CompletionRequestSummary {
+  orderId: string;
+  publicId?: string;
+  status: 'PENDING_CONFIRMATION';
+  version: number;
+  actorRole: 'PLAYER';
+  confirmationDueAt: string;
+}
+
+export interface OrderCompletionSummary {
+  orderId: string;
+  publicId?: string;
+  status: 'COMPLETED';
+  version: number;
+  capturedMinor: number;
+  playerEarningMinor: number;
+  currency: string;
+}
+
+export interface BotApiClient {
+  createBinding(
+    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown>;
+  createOrder(
+    input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<{ statusCode: number; order: OrderSummary }>;
+  getOrder(orderId: string, actor: BotActorContext): Promise<OrderSummary>;
+  updateOrder(
+    orderId: string,
+    input: Record<string, unknown>,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary>;
+  getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary>;
+  getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary>;
+  listCurrentUserConsumptions(actor: BotActorContext): Promise<ConsumptionPage>;
+  listCurrentUserCommissions(actor: BotActorContext): Promise<CurrentCommissionPage>;
+  estimateOrder(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderEstimateSummary>;
+  submitOrder(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderReservationSummaryResult>;
+  cancelOrder(
+    orderId: string,
+    input: CancelOrderRequest,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CancellationResultSummary>;
+  acceptOrder(
+    orderId: string,
+    input: { expectedVersion: number; dispatchAttemptId: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary>;
+  declineOrderOffer(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary>;
+  setOrderReadiness(
+    orderId: string,
+    input: { expectedVersion: number; readiness: 'READY' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderLifecyclePanelSummary>;
+  requestOrderCompletion(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CompletionRequestSummary>;
+  confirmOrder(
+    orderId: string,
+    input: { expectedVersion: number; confirmation: 'CONFIRM_COMPLETED' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderCompletionSummary>;
+  syncDiscordPresence(
+    input: SyncDiscordPresenceRequest,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<PresenceSyncResult>;
+}
+
+export class BotApiError extends Error {
+  public readonly code: string;
+  public readonly requestId: string;
+  public readonly statusCode: number;
+
+  public constructor(input: { code: string; message: string; requestId: string; statusCode: number }) {
+    super(input.message);
+    this.name = 'BotApiError';
+    this.code = input.code;
+    this.requestId = input.requestId;
+    this.statusCode = input.statusCode;
+  }
+}
+
+export class HttpBotApiClient implements BotApiClient {
+  private readonly apiBaseUrl: string;
+  private readonly botServiceToken: string;
+
+  public constructor(input: { apiBaseUrl: string; botServiceToken: string }) {
+    this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
+    this.botServiceToken = input.botServiceToken;
+  }
+
+  public async createBinding(
+    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown> {
+    return this.request('/api/v1/bindings', {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async createOrder(
+    input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<{ statusCode: number; order: OrderSummary }> {
+    const response = await this.request<OrderSummary>('/api/v1/orders', {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input,
+      includeStatus: true
+    });
+    return { statusCode: response.statusCode, order: response.data };
+  }
+
+  public async getOrder(orderId: string, actor: BotActorContext): Promise<OrderSummary> {
+    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}`, {
+      method: 'GET',
+      actor
+    });
+  }
+
+  public async updateOrder(
+    orderId: string,
+    input: Record<string, unknown>,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary> {
+    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary> {
+    return this.request<CurrentUserSummary>('/api/v1/me', {
+      method: 'GET',
+      actor
+    });
+  }
+
+  public async getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary> {
+    return this.request<BalanceSummary>('/api/v1/me/balance', {
+      method: 'GET',
+      actor
+    });
+  }
+
+  public async listCurrentUserConsumptions(actor: BotActorContext): Promise<ConsumptionPage> {
+    return this.request<ConsumptionPage>('/api/v1/me/consumptions', {
+      method: 'GET',
+      actor
+    });
+  }
+
+  public async listCurrentUserCommissions(actor: BotActorContext): Promise<CurrentCommissionPage> {
+    return this.request<CurrentCommissionPage>('/api/v1/me/commissions', {
+      method: 'GET',
+      actor
+    });
+  }
+
+  public async estimateOrder(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderEstimateSummary> {
+    return this.request<OrderEstimateSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/estimate`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async submitOrder(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderReservationSummaryResult> {
+    return this.request<OrderReservationSummaryResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/submit`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async cancelOrder(
+    orderId: string,
+    input: CancelOrderRequest,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CancellationResultSummary> {
+    return this.request<CancellationResultSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancel`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async acceptOrder(
+    orderId: string,
+    input: { expectedVersion: number; dispatchAttemptId: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary> {
+    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/accept`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async declineOrderOffer(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary> {
+    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/decline`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async setOrderReadiness(
+    orderId: string,
+    input: { expectedVersion: number; readiness: 'READY' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderLifecyclePanelSummary> {
+    return this.request<OrderLifecyclePanelSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/readiness`, {
+      method: 'PUT',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async requestOrderCompletion(
+    orderId: string,
+    input: { expectedVersion: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CompletionRequestSummary> {
+    return this.request<CompletionRequestSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/request-completion`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async confirmOrder(
+    orderId: string,
+    input: { expectedVersion: number; confirmation: 'CONFIRM_COMPLETED' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderCompletionSummary> {
+    return this.request<OrderCompletionSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/confirm`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  public async syncDiscordPresence(
+    input: SyncDiscordPresenceRequest,
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<PresenceSyncResult> {
+    return this.request<PresenceSyncResult>('/api/v1/internal/discord/presence', {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+
+  private async request<T>(
+    path: string,
+    input: {
+      method: 'GET' | 'POST' | 'PATCH' | 'PUT';
+      actor: BotActorContext;
+      idempotencyKey?: string;
+      body?: unknown;
+      includeStatus?: false;
+    }
+  ): Promise<T>;
+  private async request<T>(
+    path: string,
+    input: {
+      method: 'GET' | 'POST' | 'PATCH' | 'PUT';
+      actor: BotActorContext;
+      idempotencyKey?: string;
+      body?: unknown;
+      includeStatus: true;
+    }
+  ): Promise<{ statusCode: number; data: T }>;
+  private async request<T>(
+    path: string,
+    input: {
+      method: 'GET' | 'POST' | 'PATCH' | 'PUT';
+      actor: BotActorContext;
+      idempotencyKey?: string;
+      body?: unknown;
+      includeStatus?: boolean;
+    }
+  ): Promise<T | { statusCode: number; data: T }> {
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.botServiceToken}`,
+      'x-client-source': input.actor.clientSource,
+      'x-actor-discord-user-id': input.actor.discordUserId,
+      'x-actor-guild-id': input.actor.guildId,
+      'x-discord-interaction-id': input.actor.interactionId
+    };
+    if (input.body !== undefined) {
+      headers['content-type'] = 'application/json';
+    }
+    if (input.idempotencyKey) {
+      headers['idempotency-key'] = input.idempotencyKey;
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}${path}`, {
+      method: input.method,
+      headers,
+      body: input.body === undefined ? undefined : JSON.stringify(input.body)
+    });
+    const envelope = await response.json() as ApiEnvelope<T>;
+
+    if (!response.ok) {
+      throw new BotApiError({
+        code: envelope.error?.code ?? 'SERVICE_UNAVAILABLE',
+        message: envelope.error?.message ?? 'Unified API request failed.',
+        requestId: envelope.requestId ?? 'unknown',
+        statusCode: response.status
+      });
+    }
+
+    if (input.includeStatus) {
+      return { statusCode: response.status, data: envelope.data as T };
+    }
+    return envelope.data as T;
+  }
+}
+
+interface ApiEnvelope<T> {
+  requestId?: string;
+  data?: T;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+}
+
+export interface ActionRowSpec {
+  type: 'ACTION_ROW';
+  components: ComponentSpec[];
+}
+
+export type ComponentSpec =
+  | {
+      type: 'BUTTON';
+      style: 'PRIMARY' | 'SECONDARY' | 'DANGER';
+      customId: string;
+      label: string;
+      disabled?: boolean;
+    }
+  | {
+      type: 'STRING_SELECT';
+      customId: string;
+      placeholder: string;
+      options: Array<{ label: string; value: string }>;
+      disabled?: boolean;
+    };
+
+export interface MessageSpec {
+  title: string;
+  body: string;
+  visibility: 'PUBLIC' | 'EPHEMERAL' | 'PRIVATE_CHANNEL';
+  components: ActionRowSpec[];
+}
+
+export interface ModalSpec {
+  title: string;
+  customId: string;
+  components: TextInputSpec[];
+}
+
+export interface TextInputSpec {
+  type: 'TEXT_INPUT';
+  customId: string;
+  label: string;
+  style: 'SHORT' | 'PARAGRAPH';
+  required: boolean;
+  maxLength: number;
+}
+
+export type PermissionName = 'VIEW_CHANNEL' | 'SEND_MESSAGES' | 'MANAGE_CHANNELS';
+
+export interface PermissionOverwriteSpec {
+  id: string;
+  kind: 'ROLE' | 'MEMBER';
+  allow: PermissionName[];
+  deny: PermissionName[];
+}
+
+export interface PrivateOrderChannelPlan {
+  name: string;
+  pinPanel: boolean;
+  permissionOverwrites: PermissionOverwriteSpec[];
+}
+
+export interface AcceptedPlayerChannelPermissionPlan {
+  channelId: string;
+  permissionOverwrites: PermissionOverwriteSpec[];
+}
+
+export type BotFlowResult =
+  | { kind: 'SHOW_MODAL'; modal: ModalSpec }
+  | { kind: 'SHOW_SERVICE_CENTER'; message: MessageSpec }
+  | { kind: 'OPEN_EXISTING_CHANNEL'; channelId: string; orderId: string }
+  | { kind: 'CREATE_PRIVATE_CHANNEL'; order: OrderSummary; message: MessageSpec }
+  | { kind: 'CHANNEL_CREATION_FAILED'; message: string }
+  | { kind: 'EDIT_ORIGINAL_MESSAGE'; message: MessageSpec; notice?: string }
+  | { kind: 'EPHEMERAL_MESSAGE'; message: string };
+
+export type ServiceCenterRoute =
+  | { area: 'entry'; action: 'create-order' | 'service-center' }
+  | { area: 'order-select'; orderId: string; field: 'game' | 'service' | 'region' | 'duration'; expectedVersion: number }
+  | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
+  | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
+  | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
+  | { area: 'binding-modal'; sessionId: string }
+  | { area: 'unknown' };
+
+export function buildPublicServiceEntryMessage(): MessageSpec {
+  return {
+    title: '陪玩服务中心',
+    body: '每位用户同一时间只能有一个进行中的订单。已有订单会自动回到原频道。',
+    visibility: 'PUBLIC',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '创建订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '我的服务中心' }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildBindingModal(input: { sessionId: string }): ModalSpec {
+  return {
+    title: '绑定业务账户',
+    customId: `bc:modal:binding:${input.sessionId}`,
+    components: [
+      {
+        type: 'TEXT_INPUT',
+        customId: 'bindingCode',
+        label: '一次性绑定码',
+        style: 'SHORT',
+        required: true,
+        maxLength: 64
+      }
+    ]
+  };
+}
+
+export function buildOrderNotesModal(input: { orderId: string; expectedVersion: number }): ModalSpec {
+  return {
+    title: '补充订单备注',
+    customId: `bc:modal:order-notes:${input.orderId}:v${input.expectedVersion}`,
+    components: [
+      {
+        type: 'TEXT_INPUT',
+        customId: 'notes',
+        label: '补充备注（可选）',
+        style: 'PARAGRAPH',
+        required: false,
+        maxLength: 500
+      }
+    ]
+  };
+}
+
+export function buildPrivateOrderChannelPlan(input: {
+  guildId: string;
+  orderPublicId: string;
+  customerDiscordUserId: string;
+  botUserId: string;
+  staffRoleIds: string[];
+  playerRoleId?: string | null;
+}): PrivateOrderChannelPlan {
+  const overwrites: PermissionOverwriteSpec[] = [
+    { id: input.guildId, kind: 'ROLE', allow: [], deny: ['VIEW_CHANNEL'] },
+    {
+      id: input.customerDiscordUserId,
+      kind: 'MEMBER',
+      allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
+      deny: []
+    },
+    {
+      id: input.botUserId,
+      kind: 'MEMBER',
+      allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'MANAGE_CHANNELS'],
+      deny: []
+    },
+    ...input.staffRoleIds.map((roleId) => ({
+      id: roleId,
+      kind: 'ROLE' as const,
+      allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'] as PermissionName[],
+      deny: []
+    }))
+  ];
+
+  if (input.playerRoleId) {
+    overwrites.push({ id: input.playerRoleId, kind: 'ROLE', allow: [], deny: ['VIEW_CHANNEL'] });
+  }
+
+  return {
+    name: `订单-${input.orderPublicId.toLowerCase()}`,
+    pinPanel: true,
+    permissionOverwrites: overwrites
+  };
+}
+
+export function buildAcceptedPlayerChannelPermissionPlan(input: {
+  channelId: string;
+  acceptedPlayerDiscordUserId: string;
+  rejectedCandidateDiscordUserIds: string[];
+}): AcceptedPlayerChannelPermissionPlan {
+  return {
+    channelId: input.channelId,
+    permissionOverwrites: [
+      {
+        id: input.acceptedPlayerDiscordUserId,
+        kind: 'MEMBER',
+        allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
+        deny: []
+      }
+    ]
+  };
+}
+
+export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
+  const title = `订单 #${order.publicId}`;
+  const body = [
+    `${formatGame(order.game)} · ${formatService(order.service)}`,
+    `${formatRegion(order.region)} · ${formatDuration(order)}`,
+    `预计价格：${formatMoney(order.amountMinor, order.currency)}`,
+    order.notes ? `备注：${order.notes}` : '备注：未填写'
+  ].join('\n');
+
+  return {
+    title,
+    body,
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          select(`bc:select:order:${order.id}:game:v${order.version}`, '选择游戏', [
+            { label: '无畏契约', value: 'VALORANT' },
+            { label: '英雄联盟', value: 'LEAGUE_OF_LEGENDS' }
+          ]),
+          select(`bc:select:order:${order.id}:service:v${order.version}`, '选择服务', [
+            { label: '娱乐陪玩', value: 'ENTERTAINMENT' },
+            { label: '上分陪玩', value: 'RANKED' }
+          ])
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          select(`bc:select:order:${order.id}:region:v${order.version}`, '选择区服', [
+            { label: '北美', value: 'NA' },
+            { label: '国服', value: 'CN' }
+          ]),
+          select(`bc:select:order:${order.id}:duration:v${order.version}`, '选择时长', [
+            { label: '1 小时', value: '1' },
+            { label: '2 小时', value: '2' },
+            { label: '3 小时', value: '3' }
+          ])
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:modal-open:order-notes:${order.id}:v${order.version}`, label: '补充备注' },
+          { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${order.version}`, label: '确认订单' },
+          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '取消订单' }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildServiceCenterMessage(input: {
+  currentUser: CurrentUserSummary;
+  balance: BalanceSummary;
+  activeOrder: OrderSummary | null;
+  consumptions: ConsumptionPage;
+  commissions: CurrentCommissionPage;
+}): MessageSpec {
+  const activeOrderLine = input.activeOrder
+    ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.status}`
+    : '当前订单：暂无进行中订单';
+  const consumptionLine = input.consumptions.items.length === 0 ? '消费记录：暂无记录' : '消费记录：已有记录';
+  const commissionLine = input.commissions.items.length === 0
+    ? '我的收益：暂无可领取记录'
+    : `我的收益：待确认 ${formatMoney(input.commissions.summary.pendingMinor, input.commissions.summary.currency)}`;
+
+  return {
+    title: '我的服务中心',
+    body: [
+      `账户：${input.currentUser.user.displayName}`,
+      `总余额：${formatMoney(input.balance.providerBalanceMinor, input.balance.currency)}`,
+      `预留中：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      activeOrderLine,
+      consumptionLine,
+      commissionLine,
+      `更新时间：${input.balance.fetchedAt}`
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '刷新' },
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: input.activeOrder ? `bc:order:${input.activeOrder.id}:open` : 'bc:service-center:no-active-order',
+            label: '当前订单',
+            disabled: !input.activeOrder
+          },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:consumptions', label: '消费记录' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:commissions', label: '我的收益' }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageSpec {
+  return {
+    title: `新订单 #${input.orderPublicId}`,
+    body: [
+      `${input.game} · ${input.service}`,
+      `区服：${input.region}`,
+      `时长：${input.durationLabel}`,
+      `预计收益：${formatMoney(input.playerEarningMinor, input.currency)}`,
+      input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
+      input.notes ? `备注：${input.notes}` : '备注：未填写',
+      `接单截止：${input.expiresAt}`
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: `bc:dispatch:${input.dispatchAttemptId}:accept:${input.orderId}:v${input.orderVersion}`,
+            label: '确认接单'
+          },
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:dispatch:${input.dispatchAttemptId}:decline:${input.orderId}:v${input.orderVersion}`,
+            label: '暂不接单'
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildAcceptedDispatchMessage(input: {
+  offer: DispatchOfferSummary;
+  acceptedPlayerDisplayName: string;
+}): MessageSpec {
+  return {
+    title: `订单 #${input.offer.orderPublicId} 已被接取`,
+    body: [
+      `接单陪玩：${input.acceptedPlayerDisplayName}`,
+      `${input.offer.game} · ${input.offer.service}`,
+      `区服：${input.offer.region}`,
+      `时长：${input.offer.durationLabel}`,
+      '本轮派单已结束，其他候选按钮已失效。'
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:dispatch:${input.offer.dispatchAttemptId}:accepted:${input.offer.orderId}:v${input.offer.orderVersion}`,
+            label: '已接单',
+            disabled: true
+          },
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:dispatch:${input.offer.dispatchAttemptId}:closed:${input.offer.orderId}:v${input.offer.orderVersion}`,
+            label: '本轮已结束',
+            disabled: true
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSummary): MessageSpec {
+  if (order.status === 'ACCEPTED') {
+    return {
+      title: `订单 #${order.publicId} · 等待双方就绪`,
+      body: [
+        `用户：${readinessLabel(order.readiness.customer)}`,
+        `陪玩：${readinessLabel(order.readiness.player)}`,
+        order.readiness.readyDeadlineAt ? `就绪截止：${order.readiness.readyDeadlineAt}` : null
+      ].filter(Boolean).join('\n'),
+      visibility: 'PRIVATE_CHANNEL',
+      components: [
+        {
+          type: 'ACTION_ROW',
+          components: [
+            {
+              type: 'BUTTON',
+              style: 'PRIMARY',
+              customId: `bc:service:ready:${order.orderId}:v${order.version}`,
+              label: '我已就绪'
+            },
+            {
+              type: 'BUTTON',
+              style: 'SECONDARY',
+              customId: `bc:service:support:${order.orderId}:v${order.version}`,
+              label: '联系客服'
+            }
+          ]
+        }
+      ]
+    };
+  }
+  if (order.status === 'IN_SERVICE') {
+    const components: ComponentSpec[] = [
+      {
+        type: 'BUTTON',
+        style: 'SECONDARY',
+        customId: `bc:service:support:${order.orderId}:v${order.version}`,
+        label: '联系客服'
+      }
+    ];
+    if (order.actorRole === 'PLAYER') {
+      components.unshift({
+        type: 'BUTTON',
+        style: 'PRIMARY',
+        customId: `bc:service:request-completion:${order.orderId}:v${order.version}`,
+        label: '申请完成'
+      });
+    }
+    return {
+      title: `订单 #${order.publicId} · 服务中`,
+      body: order.readiness.startedAt ? `开始时间：${order.readiness.startedAt}` : '服务已开始。',
+      visibility: 'PRIVATE_CHANNEL',
+      components: [{ type: 'ACTION_ROW', components }]
+    };
+  }
+  if (order.status === 'PENDING_CONFIRMATION') {
+    const components: ComponentSpec[] = [
+      {
+        type: 'BUTTON',
+        style: 'SECONDARY',
+        customId: `bc:service:support:${order.orderId}:v${order.version}`,
+        label: '联系客服'
+      }
+    ];
+    if (order.actorRole === 'CUSTOMER') {
+      components.unshift({
+        type: 'BUTTON',
+        style: 'PRIMARY',
+        customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
+        label: '确认完成'
+      });
+    }
+    return {
+      title: `订单 #${order.publicId} · 等待用户确认`,
+      body: '陪玩已申请完成，等待用户确认或联系客服处理。',
+      visibility: 'PRIVATE_CHANNEL',
+      components: [{ type: 'ACTION_ROW', components }]
+    };
+  }
+  if (order.status === 'EXCEPTION' || order.readiness.staffTaskId) {
+    return {
+      title: `订单 #${order.publicId} · 客服处理中`,
+      body: [
+        order.readiness.staffTaskId
+          ? `客服任务已创建：${order.readiness.staffTaskId}`
+          : '客服任务已创建，等待客服核对。',
+        '客服会核对订单、语音频道和双方说明；不会自动取消、退款或扣罚。'
+      ].join('\n'),
+      visibility: 'PRIVATE_CHANNEL',
+      components: [
+        {
+          type: 'ACTION_ROW',
+          components: [
+            {
+              type: 'BUTTON',
+              style: 'SECONDARY',
+              customId: `bc:service:support:${order.orderId}:v${order.version}`,
+              label: '联系客服'
+            }
+          ]
+        }
+      ]
+    };
+  }
+  return {
+    title: `订单 #${order.publicId}`,
+    body: `当前状态：${order.status}`,
+    visibility: 'PRIVATE_CHANNEL',
+    components: []
+  };
+}
+
+export function buildOrderConfirmationMessage(input: {
+  order: OrderSummary;
+  estimate: OrderEstimateSummary;
+  balance: BalanceSummary;
+}): MessageSpec {
+  const missing = missingConfirmationFields(input.order);
+  const currencyMismatch = input.estimate.currency !== input.balance.currency;
+  const deficitMinor = Math.max(0, input.estimate.amountMinor - input.balance.availableMinor);
+  const canSubmit = missing.length === 0 && deficitMinor === 0 && !currencyMismatch;
+  const statusLine = canSubmit
+    ? '状态：可以提交。提交时 API 会再次复核价格、余额、版本和服务目录。'
+    : confirmationBlockedReason({ missing, deficitMinor, estimateCurrency: input.estimate.currency, currencyMismatch });
+
+  return {
+    title: `订单 #${input.order.publicId} · 最后确认`,
+    body: [
+      `游戏：${formatGame(input.order.game)}`,
+      `服务：${formatService(input.order.service)}`,
+      `区服：${formatRegion(input.order.region)}`,
+      `时长：${formatEstimateDuration(input.estimate)}`,
+      '标签：P0 默认匹配',
+      input.order.notes ? `备注：${input.order.notes}` : '备注：未填写',
+      `预计价格：${formatMoney(input.estimate.amountMinor, input.estimate.currency)}`,
+      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      '取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。',
+      statusLine,
+      `价格有效期：${input.estimate.validUntil}`
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: `bc:order:${input.order.id}:submit-final:v${input.order.version}`,
+            label: '确认提交并预留',
+            disabled: !canSubmit
+          },
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.order.id}:refresh:v${input.order.version}`, label: '刷新确认' },
+          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.order.id}:cancel:v${input.order.version}`, label: '取消订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '前往充值', disabled: deficitMinor === 0 }
+        ]
+      }
+    ]
+  };
+}
+
+function readinessLabel(value: 'READY' | 'NOT_READY'): string {
+  return value === 'READY' ? '已就绪' : '未就绪';
+}
+
+export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult): MessageSpec {
+  return {
+    title: '订单已提交 · 正在匹配陪玩',
+    body: [
+      `订单状态：${input.status}`,
+      `本单预留：${formatMoney(input.reservation.amountMinor, input.reservation.currency)}`,
+      `预留状态：${input.reservation.status}`,
+      `提交后可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `当前预留总额：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      '当前只预留金额，不产生正式消费。',
+      '系统正在通知符合条件且在线可接单的陪玩；服务开始前取消会释放预留。'
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.orderId}:submit:v${input.version}`, label: '刷新订单' },
+          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.orderId}:cancel:v${input.version}`, label: '取消订单' }
+        ]
+      }
+    ]
+  };
+}
+
+export function buildCancellationResultMessage(input: CancellationResultSummary): MessageSpec {
+  if (input.staffTaskId && input.status !== 'CANCELLED') {
+    return {
+      title: '取消申请已转客服',
+      body: [
+        `客服任务已创建：${input.staffTaskId}`,
+        `订单仍保持：${input.status}`,
+        '客服会核对订单、语音频道、服务进度和资金状态；不会自动退款或释放预留。'
+      ].join('\n'),
+      visibility: 'PRIVATE_CHANNEL',
+      components: [
+        {
+          type: 'ACTION_ROW',
+          components: [
+            {
+              type: 'BUTTON',
+              style: 'SECONDARY',
+              customId: `bc:service:support:${input.orderId}:v${input.version}`,
+              label: '联系客服'
+            }
+          ]
+        }
+      ]
+    };
+  }
+  return {
+    title: '订单已取消',
+    body: [
+      `订单状态：${input.status}`,
+      `资金处理：${input.fundAction}`,
+      input.releasedReservation ? `释放金额：${formatMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}` : null
+    ].filter(Boolean).join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: []
+  };
+}
+
+export async function handleOpenOrderConfirmation(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  const order = await input.api.getOrder(input.orderId, input.actor);
+  try {
+    const [estimate, balance] = await Promise.all([
+      input.api.estimateOrder(
+        input.orderId,
+        { expectedVersion: input.expectedVersion },
+        input.actor,
+        input.idempotencyKey
+      ),
+      input.api.getCurrentBalance(input.actor)
+    ]);
+    return {
+      kind: 'EDIT_ORIGINAL_MESSAGE',
+      message: buildOrderConfirmationMessage({ order, estimate, balance })
+    };
+  } catch (error) {
+    if (isApiError(error, 'CONFLICT')) {
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildOrderPanelMessage(order),
+        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+      };
+    }
+    if (isApiError(error, 'BUSINESS_RULE_VIOLATION')) {
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildIncompleteConfirmationMessage(order),
+        notice: `订单信息还不完整，请补齐后再确认。request_id: ${requestId(error)}`
+      };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开确认面板失败') };
+  }
+}
+
+export async function handleSubmitFinalOrder(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    const result = await input.api.submitOrder(
+      input.orderId,
+      { expectedVersion: input.expectedVersion },
+      input.actor,
+      input.idempotencyKey
+    );
+    return {
+      kind: 'EDIT_ORIGINAL_MESSAGE',
+      message: buildSubmittedOrderMessage(result)
+    };
+  } catch (error) {
+    if (isApiError(error, 'CONFLICT')) {
+      const refreshed = await input.api.getOrder(input.orderId, input.actor);
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildOrderPanelMessage(refreshed),
+        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+      };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '提交订单失败') };
+  }
+}
+
+export async function handleServiceLifecycleAction(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  action: 'ready' | 'request-completion' | 'confirm' | 'support';
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    if (input.action === 'ready') {
+      const result = await input.api.setOrderReadiness(
+        input.orderId,
+        { expectedVersion: input.expectedVersion, readiness: 'READY' },
+        input.actor,
+        input.idempotencyKey
+      );
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildServiceLifecyclePanelMessage(result)
+      };
+    }
+    if (input.action === 'request-completion') {
+      await input.api.requestOrderCompletion(
+        input.orderId,
+        { expectedVersion: input.expectedVersion },
+        input.actor,
+        input.idempotencyKey
+      );
+      return { kind: 'EPHEMERAL_MESSAGE', message: '已申请完成，等待用户确认。' };
+    }
+    if (input.action === 'confirm') {
+      const result = await input.api.confirmOrder(
+        input.orderId,
+        { expectedVersion: input.expectedVersion, confirmation: 'CONFIRM_COMPLETED' },
+        input.actor,
+        input.idempotencyKey
+      );
+      return {
+        kind: 'EPHEMERAL_MESSAGE',
+        message: `订单已确认完成。扣款 ${formatMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
+      };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: '客服协助请求将在后续步骤处理。request_id: local-support-pending' };
+  } catch (error) {
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '订单状态操作失败') };
+  }
+}
+
+export async function handleOpenServiceCenterFromPublicEntry(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+}): Promise<BotFlowResult> {
+  try {
+    const currentUser = await input.api.getCurrentUser(input.actor);
+    const [balance, consumptions, commissions, activeOrder] = await Promise.all([
+      input.api.getCurrentBalance(input.actor),
+      input.api.listCurrentUserConsumptions(input.actor),
+      input.api.listCurrentUserCommissions(input.actor),
+      currentUser.activeOrderId ? input.api.getOrder(currentUser.activeOrderId, input.actor) : Promise.resolve(null)
+    ]);
+
+    return {
+      kind: 'SHOW_SERVICE_CENTER',
+      message: buildServiceCenterMessage({
+        currentUser,
+        balance,
+        activeOrder,
+        consumptions,
+        commissions
+      })
+    };
+  } catch (error) {
+    if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
+      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开服务中心失败') };
+  }
+}
+
+export async function handleCreateOrderFromPublicEntry(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  provisionalChannel: OrderChannelSpec | null;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  if (!input.provisionalChannel) {
+    return {
+      kind: 'CHANNEL_CREATION_FAILED',
+      message: '订单频道创建失败，请稍后重试或联系客户。request_id: local-channel-create'
+    };
+  }
+
+  try {
+    const response = await input.api.createOrder(
+      { orderType: 'IMMEDIATE', channelSpec: input.provisionalChannel },
+      input.actor,
+      input.idempotencyKey
+    );
+
+    if (response.statusCode === 200) {
+      return {
+        kind: 'OPEN_EXISTING_CHANNEL',
+        channelId: response.order.channelSpec.channelId,
+        orderId: response.order.id
+      };
+    }
+
+    return {
+      kind: 'CREATE_PRIVATE_CHANNEL',
+      order: response.order,
+      message: buildOrderPanelMessage(response.order)
+    };
+  } catch (error) {
+    if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
+      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '创建订单失败') };
+  }
+}
+
+export async function handleBindingSubmit(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  bindingCode: string;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    await input.api.createBinding(
+      {
+        credentialType: 'ONE_TIME_CODE',
+        credentialValue: input.bindingCode,
+        expectedCurrency: 'CNY'
+      },
+      input.actor,
+      input.idempotencyKey
+    );
+    return { kind: 'EPHEMERAL_MESSAGE', message: '绑定完成，可以继续创建订单。' };
+  } catch (error) {
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '绑定失败') };
+  }
+}
+
+export async function handleOrderSelectSubmit(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  field: 'game' | 'service' | 'region' | 'duration';
+  value: string;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  const payload = orderSelectionPatch(input.field, input.value, input.expectedVersion);
+  const updated = await input.api.updateOrder(input.orderId, payload, input.actor, input.idempotencyKey);
+  return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated) };
+}
+
+export async function handleOrderNotesSubmit(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  notes: string;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    const updated = await input.api.updateOrder(
+      input.orderId,
+      { expectedVersion: input.expectedVersion, notes: input.notes },
+      input.actor,
+      input.idempotencyKey
+    );
+    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated) };
+  } catch (error) {
+    if (isApiError(error, 'CONFLICT')) {
+      const refreshed = await input.api.getOrder(input.orderId, input.actor);
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildOrderPanelMessage(refreshed),
+        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+      };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '保存备注失败') };
+  }
+}
+
+export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute {
+  if (customId === 'bc:entry:create-order') {
+    return { area: 'entry', action: 'create-order' };
+  }
+  if (customId === 'bc:entry:service-center') {
+    return { area: 'entry', action: 'service-center' };
+  }
+
+  const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(game|service|region|duration):v([1-9][0-9]*)$/u.exec(customId);
+  if (orderSelect) {
+    return {
+      area: 'order-select',
+      orderId: orderSelect[1],
+      field: orderSelect[2] as 'game' | 'service' | 'region' | 'duration',
+      expectedVersion: Number.parseInt(orderSelect[3], 10)
+    };
+  }
+
+  const notesModal = /^bc:modal:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
+  if (notesModal) {
+    return {
+      area: 'order-notes-modal',
+      orderId: notesModal[1],
+      expectedVersion: Number.parseInt(notesModal[2], 10)
+    };
+  }
+
+  const bindingModal = /^bc:modal:binding:([A-Za-z0-9_-]{4,80})$/u.exec(customId);
+  if (bindingModal) {
+    return { area: 'binding-modal', sessionId: bindingModal[1] };
+  }
+
+  const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
+  if (orderAction) {
+    return {
+      area: 'order-action',
+      orderId: orderAction[1],
+      action: orderAction[2] as 'submit' | 'submit-final' | 'cancel',
+      expectedVersion: Number.parseInt(orderAction[3], 10)
+    };
+  }
+
+  const serviceAction = /^bc:service:(ready|request-completion|confirm|support):([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
+  if (serviceAction) {
+    return {
+      area: 'service-action',
+      orderId: serviceAction[2],
+      action: serviceAction[1] as 'ready' | 'request-completion' | 'confirm' | 'support',
+      expectedVersion: Number.parseInt(serviceAction[3], 10)
+    };
+  }
+
+  return { area: 'unknown' };
+}
+
+export function buildDiscordIdempotencyKey(action: string, interactionId: string): string {
+  return `discord:${action}:${interactionId}`.replaceAll(/[^A-Za-z0-9:_-]/gu, '_').slice(0, 200);
+}
+
+function select(
+  customId: string,
+  placeholder: string,
+  options: Array<{ label: string; value: string }>
+): ComponentSpec {
+  return { type: 'STRING_SELECT', customId, placeholder, options };
+}
+
+function orderSelectionPatch(field: string, value: string, expectedVersion: number): Record<string, unknown> {
+  if (field === 'duration') {
+    return { expectedVersion, unitCount: Number.parseInt(value, 10) };
+  }
+  if (field === 'game') {
+    return { expectedVersion, game: value };
+  }
+  if (field === 'service') {
+    return { expectedVersion, service: value };
+  }
+  return { expectedVersion, region: value };
+}
+
+function isApiError(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === code;
+}
+
+function requestId(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'requestId' in error) {
+    const value = (error as { requestId?: unknown }).requestId;
+    if (typeof value === 'string' && value) {
+      return value;
+    }
+  }
+  return 'unknown';
+}
+
+function formatApiError(error: unknown, fallback: string): string {
+  const id = requestId(error);
+  return `${fallback}。request_id: ${id}`;
+}
+
+function formatGame(value: string | null): string {
+  const labels: Record<string, string> = {
+    VALORANT: '无畏契约',
+    LEAGUE_OF_LEGENDS: '英雄联盟'
+  };
+  return value ? labels[value] ?? value : '未选择游戏';
+}
+
+function formatService(value: string | null): string {
+  const labels: Record<string, string> = {
+    ENTERTAINMENT: '娱乐陪玩',
+    RANKED: '上分陪玩'
+  };
+  return value ? labels[value] ?? value : '未选择服务';
+}
+
+function formatRegion(value: string | null): string {
+  const labels: Record<string, string> = {
+    NA: '北美',
+    CN: '国服'
+  };
+  return value ? labels[value] ?? value : '未选择区服';
+}
+
+function formatDuration(order: OrderSummary): string {
+  if (!order.billingUnitMinutes || !order.unitCount) {
+    return '未选择时长';
+  }
+  const totalMinutes = order.billingUnitMinutes * order.unitCount;
+  if (totalMinutes % 60 === 0) {
+    return `${totalMinutes / 60} 小时`;
+  }
+  return `${totalMinutes} 分钟`;
+}
+
+function formatEstimateDuration(estimate: OrderEstimateSummary): string {
+  const totalMinutes = estimate.billingUnitMinutes * estimate.unitCount;
+  if (totalMinutes % 60 === 0) {
+    return `${totalMinutes / 60} 小时`;
+  }
+  return `${totalMinutes} 分钟`;
+}
+
+function formatMoney(amountMinor: number, currency: string): string {
+  const prefix = currency === 'CNY' ? '¥' : `${currency} `;
+  return `${prefix}${(amountMinor / 100).toFixed(2)}`;
+}
+
+function missingConfirmationFields(order: OrderSummary): string[] {
+  const missing: string[] = [];
+  if (!order.game) {
+    missing.push('游戏');
+  }
+  if (!order.service) {
+    missing.push('服务');
+  }
+  if (!order.region) {
+    missing.push('区服');
+  }
+  if (!order.billingUnitMinutes || !order.unitCount) {
+    missing.push('时长');
+  }
+  return missing;
+}
+
+function confirmationBlockedReason(input: {
+  missing: string[];
+  deficitMinor: number;
+  estimateCurrency: string;
+  currencyMismatch: boolean;
+}): string {
+  if (input.missing.length > 0) {
+    return `信息不完整：请补齐${input.missing.join('、')}后再确认。`;
+  }
+  if (input.currencyMismatch) {
+    return '币种不一致：请联系客服处理后再确认。';
+  }
+  return `余额不足：还差 ${formatMoney(input.deficitMinor, input.estimateCurrency)}，请充值后刷新确认。`;
+}
+
+function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {
+  const missing = missingConfirmationFields(order);
+  return {
+    title: `订单 #${order.publicId} · 最后确认`,
+    body: [
+      `游戏：${formatGame(order.game)}`,
+      `服务：${formatService(order.service)}`,
+      `区服：${formatRegion(order.region)}`,
+      `时长：${formatDuration(order)}`,
+      order.notes ? `备注：${order.notes}` : '备注：未填写',
+      `信息不完整：请补齐${missing.join('、')}后再确认。`
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: `bc:order:${order.id}:submit-final:v${order.version}`,
+            label: '确认提交并预留',
+            disabled: true
+          },
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${order.id}:refresh:v${order.version}`, label: '返回修改' }
+        ]
+      }
+    ]
+  };
+}

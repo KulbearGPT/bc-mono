@@ -1,0 +1,291 @@
+import Fastify, { type FastifyInstance } from 'fastify';
+import { Client } from 'pg';
+import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
+import type { SecurityOptions } from './security.js';
+import { registerCatalogRoutes, type ServiceCatalogStore } from './catalog.js';
+import {
+  registerAccountRoutes,
+  type AccountStore
+} from './accounts.js';
+import { registerOrderRoutes, type OrderFundingAdapter, type OrderStore } from './orders.js';
+import { registerPlayerRoutes, type PlayerStore } from './players.js';
+import {
+  registerDispatchRoutes,
+  type DispatchPlayerPool,
+  type DispatchStore
+} from './dispatch.js';
+import { registerServiceLifecycleRoutes, type ServiceLifecycleStore } from './service-lifecycle.js';
+import { registerStaffTaskRoutes, type StaffTaskStore } from './staff-tasks.js';
+import { registerRiskEventRoutes, type RiskEventStore } from './risk-events.js';
+import {
+  registerAdminOrderActionRoutes,
+  type AdminRefundOrderStore,
+  type RefundFundingAdapter
+} from './admin-order-actions.js';
+import type { MockFundingAdapter } from './payment-adapter.js';
+import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
+
+export interface ApiServerOptions {
+  env?: RuntimeEnvInput;
+  dependencyTimeoutMs?: number;
+  security?: SecurityOptions;
+  catalog?: {
+    store: ServiceCatalogStore;
+    now?: () => Date;
+  };
+  account?: {
+    store: AccountStore;
+    fundingAdapter: Pick<MockFundingAdapter, 'resolveUser' | 'getProviderBalance'>;
+    providerKey: string;
+    now?: () => Date;
+  };
+  order?: {
+    orderStore: OrderStore;
+    accountStore: AccountStore;
+    catalogStore: ServiceCatalogStore;
+    fundingAdapter?: OrderFundingAdapter;
+    providerKey?: string;
+    staffTaskStore?: StaffTaskStore;
+    now?: () => Date;
+  };
+  player?: {
+    store: PlayerStore;
+    now?: () => Date;
+  };
+  dispatch?: {
+    orderStore: OrderStore;
+    dispatchStore: DispatchStore;
+    playerPool: DispatchPlayerPool;
+    dispatchChannelId: string;
+    now?: () => Date;
+  };
+  serviceLifecycle?: {
+    store: ServiceLifecycleStore;
+    now?: () => Date;
+  };
+  staffTasks?: {
+    store: StaffTaskStore;
+    orderStore: OrderStore;
+    now?: () => Date;
+  };
+  riskEvents?: {
+    store: RiskEventStore;
+    now?: () => Date;
+  };
+  adminOrders?: {
+    orderStore: AdminRefundOrderStore;
+    fundingAdapter: RefundFundingAdapter;
+    providerKey: string;
+    now?: () => Date;
+  };
+  paymentWebhook?: {
+    fundingAdapter: PaymentWebhookFundingAdapter;
+    providerKey: string;
+    now?: () => Date;
+  };
+}
+
+export interface HealthPayload {
+  requestId: string;
+  data: {
+    status: 'OK';
+    checkedAt: string;
+  };
+}
+
+export interface ReadinessPayload {
+  requestId: string;
+  data: {
+    status: 'READY' | 'NOT_READY';
+    checkedAt: string;
+    dependencies: Array<{
+      name: 'database' | 'discord' | 'config';
+      status: 'READY' | 'MISSING_CONFIG' | 'TOKEN_NOT_CONFIGURED' | 'UNREACHABLE';
+      required: boolean;
+    }>;
+  };
+}
+
+export function getHealthPayload(requestId = createRequestId()): HealthPayload {
+  return {
+    requestId,
+    data: {
+      status: 'OK',
+      checkedAt: new Date().toISOString()
+    }
+  };
+}
+
+export async function getReadinessPayload(
+  env: RuntimeEnvInput = process.env,
+  options: { discordTokenPresent?: boolean; dependencyTimeoutMs?: number } = {}
+): Promise<ReadinessPayload> {
+  const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
+  const databaseStatus = await getDatabaseDependencyStatus(
+    validation.values.databaseUrl,
+    options.dependencyTimeoutMs
+  );
+  const dependencies: ReadinessPayload['data']['dependencies'] = [
+    {
+      name: 'database',
+      status: databaseStatus,
+      required: true
+    },
+    {
+      name: 'config',
+      status: validation.ok ? 'READY' : 'MISSING_CONFIG',
+      required: true
+    },
+    {
+      name: 'discord',
+      status:
+        options.discordTokenPresent ?? Boolean(env.DISCORD_BOT_TOKEN?.trim())
+          ? 'READY'
+          : 'TOKEN_NOT_CONFIGURED',
+      required: false
+    }
+  ];
+  const blockingDependencies = dependencies.filter((dependency) => {
+    return dependency.required && dependency.status !== 'READY';
+  });
+
+  return {
+    requestId: createRequestId(),
+    data: {
+      status: blockingDependencies.length === 0 ? 'READY' : 'NOT_READY',
+      checkedAt: new Date().toISOString(),
+      dependencies
+    }
+  };
+}
+
+export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance {
+  const env = options.env ?? process.env;
+  const server = Fastify({ logger: false });
+  server.securityOptions = options.security ? { env, ...options.security } : undefined;
+
+  server.get('/health', async (request) => {
+    return getHealthPayload(getRequestId(request.headers['x-request-id']));
+  });
+
+  server.get('/ready', async (_request, reply) => {
+    const payload = await getReadinessPayload(env, {
+      dependencyTimeoutMs: options.dependencyTimeoutMs
+    });
+    if (payload.data.status !== 'READY') {
+      reply.code(503);
+    }
+    return payload;
+  });
+
+  if (options.catalog) {
+    if (!server.securityOptions) {
+      throw new Error('Catalog routes require buildApiServer({ security, catalog })');
+    }
+    registerCatalogRoutes(server, options.catalog);
+  }
+
+  if (options.account) {
+    if (!server.securityOptions) {
+      throw new Error('Account routes require buildApiServer({ security, account })');
+    }
+    registerAccountRoutes(server, options.account);
+  }
+
+  if (options.order) {
+    if (!server.securityOptions) {
+      throw new Error('Order routes require buildApiServer({ security, order })');
+    }
+    registerOrderRoutes(server, options.order);
+  }
+
+  if (options.player) {
+    if (!server.securityOptions) {
+      throw new Error('Player routes require buildApiServer({ security, player })');
+    }
+    registerPlayerRoutes(server, options.player);
+  }
+
+  if (options.dispatch) {
+    if (!server.securityOptions) {
+      throw new Error('Dispatch routes require buildApiServer({ security, dispatch })');
+    }
+    registerDispatchRoutes(server, options.dispatch);
+  }
+
+  if (options.serviceLifecycle) {
+    if (!server.securityOptions) {
+      throw new Error('Service lifecycle routes require buildApiServer({ security, serviceLifecycle })');
+    }
+    registerServiceLifecycleRoutes(server, options.serviceLifecycle);
+  }
+
+  if (options.staffTasks) {
+    if (!server.securityOptions) {
+      throw new Error('Staff task routes require buildApiServer({ security, staffTasks })');
+    }
+    registerStaffTaskRoutes(server, options.staffTasks);
+  }
+
+  if (options.riskEvents) {
+    if (!server.securityOptions) {
+      throw new Error('Risk event routes require buildApiServer({ security, riskEvents })');
+    }
+    registerRiskEventRoutes(server, options.riskEvents);
+  }
+
+  if (options.adminOrders) {
+    if (!server.securityOptions) {
+      throw new Error('Admin order action routes require buildApiServer({ security, adminOrders })');
+    }
+    registerAdminOrderActionRoutes(server, options.adminOrders);
+  }
+
+  if (options.paymentWebhook) {
+    registerPaymentWebhookRoutes(server, options.paymentWebhook);
+  }
+
+  return server;
+}
+
+function createRequestId(): string {
+  return `req_${crypto.randomUUID()}`;
+}
+
+function getRequestId(headerValue: string | string[] | undefined): string {
+  if (Array.isArray(headerValue)) {
+    return headerValue[0] ?? createRequestId();
+  }
+  return headerValue ?? createRequestId();
+}
+
+async function getDatabaseDependencyStatus(
+  databaseUrl: string,
+  timeoutMs = 1_000
+): Promise<'READY' | 'MISSING_CONFIG' | 'UNREACHABLE'> {
+  if (!databaseUrl) {
+    return 'MISSING_CONFIG';
+  }
+
+  return (await canReachPostgresBaselineSchema(databaseUrl, timeoutMs)) ? 'READY' : 'UNREACHABLE';
+}
+
+async function canReachPostgresBaselineSchema(databaseUrl: string, timeoutMs: number): Promise<boolean> {
+  const client = new Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: timeoutMs,
+    application_name: 'blackcat_ready_probe'
+  });
+
+  try {
+    await client.connect();
+    const result = await client.query<{ users_table: string | null }>(
+      "SELECT to_regclass('public.users')::text AS users_table"
+    );
+    return result.rows[0]?.users_table === 'users';
+  } catch {
+    return false;
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}

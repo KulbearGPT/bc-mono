@@ -1,0 +1,109 @@
+import { buildApiServer } from './server.js';
+import { validateRuntimeEnv } from '@blackcat/platform/env';
+import { Pool } from 'pg';
+import { PostgresServiceCatalogStore } from './catalog.js';
+import { PostgresAccountStore } from './accounts.js';
+import { PostgresOrderStore } from './orders.js';
+import { PostgresPlayerStore } from './players.js';
+import { PostgresDispatchPlayerPool, PostgresDispatchStore } from './dispatch.js';
+import { PostgresServiceLifecycleStore } from './service-lifecycle.js';
+import { PostgresStaffTaskStore } from './staff-tasks.js';
+import { PostgresRiskEventStore } from './risk-events.js';
+import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
+import { MockFundingAdapter } from './payment-adapter.js';
+import { InMemoryAuditSink, InMemoryIdempotencyStore, PostgresStaffDirectory } from './security.js';
+
+const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
+
+if (!validation.ok) {
+  console.error(
+    JSON.stringify(
+      {
+        level: 'error',
+        event: 'api.config.invalid',
+        errors: validation.errors
+      },
+      null,
+      2
+    )
+  );
+  process.exit(1);
+}
+
+const databasePool = new Pool({
+  connectionString: validation.values.databaseUrl,
+  application_name: 'blackcat_api'
+});
+const catalogStore = new PostgresServiceCatalogStore({ pool: databasePool });
+const accountStore = new PostgresAccountStore({ pool: databasePool });
+const orderStore = new PostgresOrderStore({ pool: databasePool });
+const playerStore = new PostgresPlayerStore({ pool: databasePool });
+const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
+const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
+const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
+const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
+const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
+const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
+const fundingAdapter = new MockFundingAdapter();
+const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
+
+const server = buildApiServer({
+  env: process.env,
+  security: {
+    auditSink: new InMemoryAuditSink(),
+    idempotencyStore: new InMemoryIdempotencyStore(),
+    staffDirectory: new PostgresStaffDirectory({ client: databasePool })
+  },
+  catalog: {
+    store: catalogStore
+  },
+  account: {
+    store: accountStore,
+    fundingAdapter,
+    providerKey: 'mock-provider'
+  },
+  order: {
+    orderStore,
+    accountStore,
+    catalogStore,
+    fundingAdapter,
+    providerKey: 'mock-provider',
+    staffTaskStore
+  },
+  player: {
+    store: playerStore
+  },
+  dispatch: {
+    orderStore,
+    dispatchStore,
+    playerPool: dispatchPlayerPool,
+    dispatchChannelId
+  },
+  serviceLifecycle: {
+    store: serviceLifecycleStore
+  },
+  staffTasks: {
+    store: staffTaskStore,
+    orderStore
+  },
+  riskEvents: {
+    store: riskEventStore
+  },
+  adminOrders: {
+    orderStore: adminOrderActionStore,
+    fundingAdapter,
+    providerKey: 'mock-provider'
+  },
+  paymentWebhook: {
+    fundingAdapter,
+    providerKey: 'mock-provider'
+  }
+});
+await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
+console.log(
+  JSON.stringify({
+    level: 'info',
+    event: 'api.started',
+    port: validation.values.apiPort
+  })
+);
