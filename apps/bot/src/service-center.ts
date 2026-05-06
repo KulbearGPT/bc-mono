@@ -134,6 +134,55 @@ export interface PresenceSyncResult {
   dispatchEligible: boolean;
 }
 
+export interface PlayerWorkbenchSummary {
+  profile: {
+    playerId: string;
+    reviewStatus: string;
+    availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE';
+    discordPresence: DiscordPresenceSummary;
+    gameTags: string[];
+    serviceTags: string[];
+    activeOrderId: string | null;
+    version: number;
+  };
+  eligibility: {
+    eligible: boolean;
+    evaluatedAt: string;
+    checks: Array<{ code: string; passed: boolean; reason: string | null }>;
+  };
+  currentOrder: PlayerWorkbenchOrderSummary | null;
+  matchingOrders: Array<{
+    dispatchAttemptId: string;
+    acceptBy: string;
+    secondsRemaining: number;
+    nextAction: 'ACCEPT_OR_DECLINE';
+    order: PlayerWorkbenchOrderSummary;
+  }>;
+  earningsSummary: {
+    pendingMinor: number;
+    confirmedMinor: number;
+    paidMinor: number;
+    currency: string;
+    calculatedAt: string;
+  };
+  nextActions: Array<'SET_AVAILABLE' | 'REVIEW_MATCH' | 'ACCEPT_ORDER' | 'SET_READINESS' | 'REQUEST_COMPLETION' | 'WAIT_FOR_CUSTOMER' | 'CONTACT_SUPPORT'>;
+}
+
+export interface PlayerWorkbenchOrderSummary {
+  id: string;
+  publicId: string;
+  status: string;
+  version: number;
+  game: string | null;
+  service: string | null;
+  region: string | null;
+  durationMinutes: number | null;
+  playerEarningMinor: number;
+  currency: string;
+  requirements: string[];
+  voiceChannelId: string | null;
+}
+
 export interface DispatchOfferSummary {
   dispatchAttemptId: string;
   orderId: string;
@@ -260,6 +309,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<PresenceSyncResult>;
+  getPlayerWorkbench(actor: BotActorContext): Promise<PlayerWorkbenchSummary>;
+  setPlayerAvailability(
+    input: { expectedVersion: number; availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown>;
 }
 
 export class BotApiError extends Error {
@@ -487,6 +542,18 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
+  public async getPlayerWorkbench(actor: BotActorContext): Promise<PlayerWorkbenchSummary> {
+    return this.request<PlayerWorkbenchSummary>('/api/v1/players/me/workbench', { method: 'GET', actor });
+  }
+
+  public async setPlayerAvailability(
+    input: { expectedVersion: number; availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown> {
+    return this.request('/api/v1/players/me/availability', { method: 'PUT', actor, idempotencyKey, body: input });
+  }
+
   private async request<T>(
     path: string,
     input: {
@@ -629,6 +696,7 @@ export interface AcceptedPlayerChannelPermissionPlan {
 export type BotFlowResult =
   | { kind: 'SHOW_MODAL'; modal: ModalSpec }
   | { kind: 'SHOW_SERVICE_CENTER'; message: MessageSpec }
+  | { kind: 'SHOW_PLAYER_WORKBENCH'; message: MessageSpec }
   | { kind: 'OPEN_EXISTING_CHANNEL'; channelId: string; orderId: string }
   | { kind: 'CREATE_PRIVATE_CHANNEL'; order: OrderSummary; message: MessageSpec }
   | { kind: 'CHANNEL_CREATION_FAILED'; message: string }
@@ -636,7 +704,8 @@ export type BotFlowResult =
   | { kind: 'EPHEMERAL_MESSAGE'; message: string };
 
 export type ServiceCenterRoute =
-  | { area: 'entry'; action: 'create-order' | 'service-center' }
+  | { area: 'entry'; action: 'create-order' | 'service-center' | 'player-workbench' }
+  | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
   | { area: 'order-select'; orderId: string; field: 'game' | 'service' | 'region' | 'duration'; expectedVersion: number }
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
@@ -891,6 +960,60 @@ export function buildServiceCenterMessage(input: {
         ]
       }
     ]
+  };
+}
+
+export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): MessageSpec {
+  const currentOrder = workbench.currentOrder
+    ? `当前订单：#${workbench.currentOrder.publicId} · ${workbench.currentOrder.status}`
+    : '当前订单：暂无';
+  const matchingLines = workbench.matchingOrders.length > 0
+    ? workbench.matchingOrders.map((match) => [
+      `待接订单：#${match.order.publicId} · ${formatGame(match.order.game)} / ${formatService(match.order.service)}`,
+      `需求：${match.order.requirements.join('、') || '无额外要求'} · 剩余 ${match.secondsRemaining} 秒`,
+      `预计收益：${formatMoney(match.order.playerEarningMinor, match.order.currency)}`
+    ].join('\n')).join('\n')
+    : '待接订单：暂无';
+  const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
+  const components: MessageSpec['components'] = [{
+    type: 'ACTION_ROW',
+    components: [{ type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:player-workbench', label: '刷新' }]
+  }];
+  const firstMatch = workbench.matchingOrders[0];
+  if (firstMatch && workbench.nextActions.includes('ACCEPT_ORDER')) {
+    components[0]!.components.push(
+      {
+        type: 'BUTTON', style: 'PRIMARY',
+        customId: `bc:dispatch:${firstMatch.dispatchAttemptId}:accept:${firstMatch.order.id}:v${firstMatch.order.version}`,
+        label: '接单'
+      },
+      {
+        type: 'BUTTON', style: 'SECONDARY',
+        customId: `bc:dispatch:${firstMatch.dispatchAttemptId}:decline:${firstMatch.order.id}:v${firstMatch.order.version}`,
+        label: '暂不接单'
+      }
+    );
+  } else if (workbench.nextActions.includes('SET_AVAILABLE')) {
+    components[0]!.components.push({
+      type: 'BUTTON', style: 'PRIMARY', customId: `bc:player:availability:AVAILABLE:v${workbench.profile.version}`, label: '设为可接单'
+    });
+  }
+  return {
+    title: '陪玩工作台',
+    body: [
+      `准入状态：${workbench.eligibility.eligible ? '可接单' : '暂不可接单'}`,
+      `Discord 在线状态：${workbench.profile.discordPresence}`,
+      `业务可接单开关：${workbench.profile.availability}`,
+      failedChecks.length > 0 ? `未满足条件：${failedChecks.map((check) => check.reason ?? check.code).join('；')}` : null,
+      currentOrder,
+      matchingLines,
+      `待确认收益：${formatMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
+      `已确认收益：${formatMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
+      `已支付收益：${formatMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
+      `更新时间：${workbench.earningsSummary.calculatedAt}`
+    ].filter(Boolean).join('\n'),
+    visibility: 'EPHEMERAL',
+    components
   };
 }
 
@@ -1345,6 +1468,18 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
   }
 }
 
+export async function handleOpenPlayerWorkbench(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+}): Promise<BotFlowResult> {
+  try {
+    const workbench = await input.api.getPlayerWorkbench(input.actor);
+    return { kind: 'SHOW_PLAYER_WORKBENCH', message: buildPlayerWorkbenchMessage(workbench) };
+  } catch (error) {
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开陪玩工作台失败') };
+  }
+}
+
 export async function handleCreateOrderFromPublicEntry(input: {
   api: BotApiClient;
   actor: BotActorContext;
@@ -1457,6 +1592,14 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   }
   if (customId === 'bc:entry:service-center') {
     return { area: 'entry', action: 'service-center' };
+  }
+  if (customId === 'bc:entry:player-workbench') {
+    return { area: 'entry', action: 'player-workbench' };
+  }
+
+  const availabilityAction = /^bc:player:availability:AVAILABLE:v([1-9][0-9]*)$/u.exec(customId);
+  if (availabilityAction) {
+    return { area: 'player-action', action: 'set-available', expectedVersion: Number.parseInt(availabilityAction[1], 10) };
   }
 
   const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(game|service|region|duration):v([1-9][0-9]*)$/u.exec(customId);

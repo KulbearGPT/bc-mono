@@ -40,6 +40,38 @@ export interface PlayerProfileApi {
   version: number;
 }
 
+export interface PlayerWorkbenchOrder {
+  id: string;
+  publicId: string;
+  status: string;
+  version: number;
+  game: string | null;
+  service: string | null;
+  region: string | null;
+  durationMinutes: number | null;
+  playerEarningMinor: number;
+  currency: string;
+  requirements: string[];
+  voiceChannelId: string | null;
+}
+
+export interface PlayerWorkbenchData {
+  currentOrder: PlayerWorkbenchOrder | null;
+  matchingOrders: Array<{
+    dispatchAttemptId: string;
+    acceptBy: string;
+    secondsRemaining: number;
+    order: PlayerWorkbenchOrder;
+  }>;
+  earningsSummary: {
+    pendingMinor: number;
+    confirmedMinor: number;
+    paidMinor: number;
+    currency: string;
+    calculatedAt: string;
+  };
+}
+
 export interface PlayerStore {
   findByDiscord(input: { guildId: string; discordUserId: string }): Promise<PlayerProfileRecord | null> | PlayerProfileRecord | null;
   findById(playerId: string): Promise<PlayerProfileRecord | null> | PlayerProfileRecord | null;
@@ -72,6 +104,7 @@ export interface PlayerStore {
     serviceTags: string[];
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  getWorkbenchData(input: { profile: PlayerProfileRecord; now: Date }): Promise<PlayerWorkbenchData> | PlayerWorkbenchData;
 }
 
 export class PlayerError extends Error {
@@ -88,9 +121,11 @@ const activePlayerOrderStatuses = ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATI
 
 export class InMemoryPlayerStore implements PlayerStore {
   readonly profiles: PlayerProfileRecord[];
+  readonly workbenches: Record<string, PlayerWorkbenchData>;
 
-  constructor(input: { profiles?: PlayerProfileRecord[] } = {}) {
+  constructor(input: { profiles?: PlayerProfileRecord[]; workbenches?: Record<string, PlayerWorkbenchData> } = {}) {
     this.profiles = input.profiles ?? [];
+    this.workbenches = input.workbenches ?? {};
   }
 
   findByDiscord(input: { guildId: string; discordUserId: string }): PlayerProfileRecord | null {
@@ -195,6 +230,10 @@ export class InMemoryPlayerStore implements PlayerStore {
       version: profile.version + 1,
       updatedAt: input.now.toISOString()
     });
+  }
+
+  getWorkbenchData(input: { profile: PlayerProfileRecord; now: Date }): PlayerWorkbenchData {
+    return this.workbenches[input.profile.userId] ?? emptyWorkbenchData(input.now);
   }
 
   private requireProfile(playerId: string): PlayerProfileRecord {
@@ -371,6 +410,66 @@ WHERE id = $1
     return this.requireProfile(input.playerId);
   }
 
+  async getWorkbenchData(input: { profile: PlayerProfileRecord; now: Date }): Promise<PlayerWorkbenchData> {
+    const currentResult = await this.client.query<PlayerWorkbenchOrderRow>(
+      `${playerWorkbenchOrderSelectSql}
+WHERE orders.active_player_slot_id = $1
+  AND orders.status = ANY(ARRAY['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION']::"OrderStatus"[])
+ORDER BY orders.created_at DESC
+LIMIT 1`,
+      [input.profile.userId]
+    );
+    const matchingResult = await this.client.query<PlayerWorkbenchMatchRow>(
+      `${playerWorkbenchMatchSelectSql}
+WHERE candidate.player_user_id = $1
+  AND candidate.status = 'NOTIFIED'
+  AND attempt.status = 'ACTIVE'
+  AND attempt.expires_at > $2
+  AND orders.status = 'PENDING_DISPATCH'
+ORDER BY attempt.expires_at ASC`,
+      [input.profile.userId, input.now.toISOString()]
+    );
+    const earningsResult = await this.client.query<PlayerEarningsSummaryRow>(
+      `
+SELECT
+  COALESCE(SUM(net_amount) FILTER (WHERE status = 'PENDING'), 0)::text AS pending_minor,
+  COALESCE(SUM(net_amount) FILTER (WHERE status = 'CONFIRMED'), 0)::text AS confirmed_minor,
+  COALESCE(SUM(net_amount) FILTER (WHERE status = 'PAID'), 0)::text AS paid_minor,
+  COALESCE(MAX(currency), 'CNY') AS currency
+FROM (
+  SELECT earning.status,
+         earning.currency,
+         GREATEST(0, earning.amount_minor
+           + COALESCE(SUM(CASE WHEN adjustment.type = 'CORRECTION_CREDIT' THEN adjustment.amount_minor ELSE -adjustment.amount_minor END), 0)
+         ) AS net_amount
+  FROM player_earnings AS earning
+  LEFT JOIN player_earning_adjustments AS adjustment ON adjustment.player_earning_id = earning.id
+  WHERE earning.player_user_id = $1
+    AND earning.status <> 'REVERSED'
+  GROUP BY earning.id
+) AS own_earnings
+      `,
+      [input.profile.userId]
+    );
+    const summary = earningsResult.rows[0];
+    return {
+      currentOrder: currentResult.rows[0] ? mapWorkbenchOrder(currentResult.rows[0]) : null,
+      matchingOrders: matchingResult.rows.map((row) => ({
+        dispatchAttemptId: row.dispatch_attempt_id,
+        acceptBy: new Date(row.expires_at).toISOString(),
+        secondsRemaining: Math.max(0, Math.floor((new Date(row.expires_at).getTime() - input.now.getTime()) / 1000)),
+        order: mapWorkbenchOrder(row)
+      })),
+      earningsSummary: {
+        pendingMinor: Number(summary?.pending_minor ?? 0),
+        confirmedMinor: Number(summary?.confirmed_minor ?? 0),
+        paidMinor: Number(summary?.paid_minor ?? 0),
+        currency: summary?.currency ?? 'CNY',
+        calculatedAt: input.now.toISOString()
+      }
+    };
+  }
+
   private async replaceSkills(playerId: string, gameTags: string[], serviceTags: string[], now: Date): Promise<void> {
     await this.client.query('DELETE FROM player_skills WHERE player_profile_id = $1', [playerId]);
     for (const [type, values] of [['GAME', gameTags], ['SERVICE', serviceTags]] as const) {
@@ -459,13 +558,17 @@ export function registerPlayerRoutes(
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
     handler: async (_request, actor) => {
       const profile = await currentPlayer(options.store, actor);
+      const evaluatedAt = now();
+      const workbench = await options.store.getWorkbenchData({ profile, now: evaluatedAt });
+      const generallyEligible = isGenerallyDispatchEligible(profile);
+      const matchingOrders = generallyEligible && !workbench.currentOrder ? workbench.matchingOrders : [];
       return {
         profile: toApiProfile(profile),
-        eligibility: buildEligibility(profile, now(), null),
-        currentOrder: null,
-        matchingOrders: [],
-        earningsSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY', calculatedAt: now().toISOString() },
-        nextActions: profile.reviewStatus === 'ACTIVE' ? ['SET_AVAILABILITY'] : []
+        eligibility: buildEligibility(profile, evaluatedAt, null),
+        currentOrder: workbench.currentOrder,
+        matchingOrders: matchingOrders.map((match) => ({ ...match, nextAction: 'ACCEPT_OR_DECLINE' as const })),
+        earningsSummary: workbench.earningsSummary,
+        nextActions: buildWorkbenchActions(profile, workbench.currentOrder, matchingOrders.length > 0)
       };
     },
     mapError: mapPlayerError
@@ -658,6 +761,45 @@ function isGenerallyDispatchEligible(profile: PlayerProfileRecord): boolean {
     && profile.availability === 'AVAILABLE'
     && profile.discordPresence === 'ONLINE'
     && !profile.activeOrderId;
+}
+
+function buildWorkbenchActions(
+  profile: PlayerProfileRecord,
+  currentOrder: PlayerWorkbenchOrder | null,
+  hasMatchingOrders: boolean
+): string[] {
+  if (profile.reviewStatus !== 'ACTIVE') {
+    return [];
+  }
+  if (currentOrder) {
+    if (currentOrder.status === 'ACCEPTED') {
+      return ['SET_READINESS', 'CONTACT_SUPPORT'];
+    }
+    if (currentOrder.status === 'IN_SERVICE') {
+      return ['REQUEST_COMPLETION', 'CONTACT_SUPPORT'];
+    }
+    if (currentOrder.status === 'PENDING_CONFIRMATION') {
+      return ['WAIT_FOR_CUSTOMER', 'CONTACT_SUPPORT'];
+    }
+  }
+  if (hasMatchingOrders) {
+    return ['REVIEW_MATCH', 'ACCEPT_ORDER'];
+  }
+  return profile.availability === 'AVAILABLE' ? [] : ['SET_AVAILABLE'];
+}
+
+function emptyWorkbenchData(now: Date): PlayerWorkbenchData {
+  return {
+    currentOrder: null,
+    matchingOrders: [],
+    earningsSummary: {
+      pendingMinor: 0,
+      confirmedMinor: 0,
+      paidMinor: 0,
+      currency: 'CNY',
+      calculatedAt: now.toISOString()
+    }
+  };
 }
 
 function parseAvailabilityBody(body: unknown): { expectedVersion: number; availability: PlayerAvailability } {
@@ -884,4 +1026,102 @@ interface PlayerProfileRow {
   active_order_id: string | null;
   game_tags: string[];
   service_tags: string[];
+}
+
+interface PlayerWorkbenchOrderRow {
+  order_id: string;
+  public_id: string;
+  status: string;
+  row_version: number;
+  game_code: string | null;
+  service_code: string | null;
+  region_code: string | null;
+  billing_unit_minutes: number | null;
+  unit_count: number | null;
+  player_earning_minor: string | number | null;
+  currency: string | null;
+  requirement_snapshot: unknown;
+  voice_channel_id: string | null;
+}
+
+interface PlayerWorkbenchMatchRow extends PlayerWorkbenchOrderRow {
+  dispatch_attempt_id: string;
+  expires_at: Date | string;
+}
+
+interface PlayerEarningsSummaryRow {
+  pending_minor: string | number;
+  confirmed_minor: string | number;
+  paid_minor: string | number;
+  currency: string;
+}
+
+const playerWorkbenchOrderSelectSql = `
+SELECT orders.id AS order_id,
+       orders.public_id,
+       orders.status,
+       orders.row_version,
+       orders.game_code_snapshot AS game_code,
+       orders.service_code_snapshot AS service_code,
+       orders.region_code_snapshot AS region_code,
+       orders.billing_unit_minutes,
+       orders.unit_count,
+       orders.expected_player_earning_minor AS player_earning_minor,
+       orders.currency,
+       orders.requirement_snapshot,
+       orders.voice_channel_id
+FROM orders
+`;
+
+const playerWorkbenchMatchSelectSql = `
+SELECT attempt.id AS dispatch_attempt_id,
+       attempt.expires_at,
+       orders.id AS order_id,
+       orders.public_id,
+       orders.status,
+       orders.row_version,
+       orders.game_code_snapshot AS game_code,
+       orders.service_code_snapshot AS service_code,
+       orders.region_code_snapshot AS region_code,
+       orders.billing_unit_minutes,
+       orders.unit_count,
+       orders.expected_player_earning_minor AS player_earning_minor,
+       orders.currency,
+       orders.requirement_snapshot,
+       orders.voice_channel_id
+FROM dispatch_candidates AS candidate
+JOIN dispatch_attempts AS attempt ON attempt.id = candidate.dispatch_attempt_id
+JOIN orders ON orders.id = attempt.order_id
+`;
+
+function mapWorkbenchOrder(row: PlayerWorkbenchOrderRow): PlayerWorkbenchOrder {
+  return {
+    id: row.order_id,
+    publicId: row.public_id,
+    status: row.status,
+    version: row.row_version,
+    game: row.game_code,
+    service: row.service_code,
+    region: row.region_code,
+    durationMinutes: row.billing_unit_minutes && row.unit_count ? row.billing_unit_minutes * row.unit_count : null,
+    playerEarningMinor: Number(row.player_earning_minor ?? 0),
+    currency: row.currency ?? 'CNY',
+    requirements: requirementLabels(row.requirement_snapshot),
+    voiceChannelId: row.voice_channel_id
+  };
+}
+
+function requirementLabels(snapshot: unknown): string[] {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    return [];
+  }
+  return Object.values(snapshot).flatMap((value) => {
+    if (typeof value === 'string' && value.trim()) {
+      return [value.trim()];
+    }
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+    }
+    return [];
+  }).slice(0, 8);
 }

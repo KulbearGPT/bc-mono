@@ -5,6 +5,7 @@ import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
+  handleOpenPlayerWorkbench,
   handleOpenServiceCenterFromPublicEntry,
   handleServiceLifecycleAction,
   handleSubmitFinalOrder,
@@ -23,7 +24,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action'
       ? this.some(route)
       : this.none();
   }
@@ -38,11 +39,20 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         await this.openPrivateServiceCenter(interaction);
         return;
       }
+      if (parsedData.action === 'player-workbench') {
+        await this.openPlayerWorkbench(interaction);
+        return;
+      }
 
       await interaction.reply({
         content: '正在准备私密订单频道。',
         ephemeral: true
       });
+      return;
+    }
+
+    if (parsedData.area === 'player-action') {
+      await this.setPlayerAvailable(interaction, parsedData.expectedVersion);
       return;
     }
 
@@ -119,6 +129,48 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.reply({ content: '暂时无法打开服务中心。request_id: local-unhandled-result', ephemeral: true });
+  }
+
+  private async openPlayerWorkbench(interaction: ButtonInteraction): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) {
+      await interaction.reply({ content: '请在服务器内打开陪玩工作台。request_id: local-guild-required', ephemeral: true });
+      return;
+    }
+    const result = await handleOpenPlayerWorkbench({ api: createBotApiClient(), actor });
+    if (result.kind === 'SHOW_PLAYER_WORKBENCH') {
+      await interaction.reply(toDiscordReply(result.message));
+      return;
+    }
+    await interaction.reply({
+      content: result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '暂时无法打开陪玩工作台。request_id: local-unhandled-result',
+      ephemeral: true
+    });
+  }
+
+  private async setPlayerAvailable(interaction: ButtonInteraction, expectedVersion: number): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) {
+      await interaction.reply({ content: '请在服务器内修改可接单状态。request_id: local-guild-required', ephemeral: true });
+      return;
+    }
+    const api = createBotApiClient();
+    try {
+      await api.setPlayerAvailability(
+        { expectedVersion, availability: 'AVAILABLE' },
+        actor,
+        buildDiscordIdempotencyKey('player:set-available', interaction.id)
+      );
+      const result = await handleOpenPlayerWorkbench({ api, actor });
+      if (result.kind === 'SHOW_PLAYER_WORKBENCH') {
+        const reply = toDiscordReply(result.message);
+        await interaction.update({ content: reply.content, components: reply.components });
+        return;
+      }
+      await interaction.reply({ content: '可接单状态已更新，请刷新工作台。', ephemeral: true });
+    } catch {
+      await interaction.reply({ content: '更新可接单状态失败，请刷新后重试。request_id: local-player-availability', ephemeral: true });
+    }
   }
 
   private async openOrderConfirmation(
