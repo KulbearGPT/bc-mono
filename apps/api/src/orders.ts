@@ -282,6 +282,7 @@ export interface OrderStore {
   findActiveByCustomer(customerId: string): Promise<OrderRecord | null>;
   findById(orderId: string): Promise<OrderRecord | null>;
   findActiveReservationByOrder?(orderId: string): Promise<FundReservationRecord | null>;
+  getMatchingProgress?(orderId: string): Promise<OrderMatchingProgress | null>;
   nextEventSequence(orderId: string): Promise<number>;
   commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
   commitUpdate(input: {
@@ -313,6 +314,14 @@ export interface OrderStore {
   }): Promise<void>;
 }
 
+export interface OrderMatchingProgress {
+  stage: 'SEARCHING' | 'WAITING_FOR_ACCEPTANCE' | 'TIMED_OUT' | 'ACCEPTED';
+  notifiedCandidateCount: number;
+  timeoutAt: string | null;
+  nextStep: 'WAIT_FOR_PLAYER' | 'CHOOSE_CONTINUE_OR_CANCEL' | 'CONFIRM_READINESS';
+  playerSummary: { playerId: string; displayName: string } | null;
+}
+
 export interface OrderQueryClient {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[]; rowCount?: number | null }>;
 }
@@ -327,6 +336,7 @@ export interface OrderPool extends OrderQueryClient {
 
 export interface OrderApiRecord {
   id: string;
+  publicId: string;
   status: OrderStatus;
   version: number;
   orderType: 'IMMEDIATE';
@@ -339,6 +349,9 @@ export interface OrderApiRecord {
   currency: Currency;
   amountMinor: number;
   playerEarningMinor: number;
+  game: string | null;
+  service: string | null;
+  matching: OrderMatchingProgress | null;
   fundReservation: FundReservationSummary | null;
   readiness: {
     customer: 'NOT_READY';
@@ -585,6 +598,70 @@ LIMIT 1
       [orderId, activeFundReservationStatuses]
     );
     return result.rows[0] ? mapFundReservationRow(result.rows[0]) : null;
+  }
+
+  async getMatchingProgress(orderId: string): Promise<OrderMatchingProgress | null> {
+    const result = await this.client.query<{
+      order_status: OrderStatus;
+      player_id: string | null;
+      player_display_name: string | null;
+      attempt_status: string | null;
+      expires_at: Date | string | null;
+      notified_count: string | number;
+    }>(
+      `
+SELECT o.status AS order_status,
+       o.player_id,
+       player.display_name AS player_display_name,
+       latest.status AS attempt_status,
+       latest.expires_at,
+       COALESCE(latest.notified_count, 0) AS notified_count
+FROM orders o
+LEFT JOIN users player ON player.id = o.player_id
+LEFT JOIN LATERAL (
+  SELECT da.status, da.expires_at,
+         (SELECT count(*) FROM dispatch_candidates dc WHERE dc.dispatch_attempt_id = da.id) AS notified_count
+  FROM dispatch_attempts da
+  WHERE da.order_id = o.id
+  ORDER BY da.round DESC, da.created_at DESC
+  LIMIT 1
+) latest ON true
+WHERE o.id = $1
+      `,
+      [orderId]
+    );
+    const row = result.rows[0];
+    if (!row || !['PENDING_DISPATCH', 'ACCEPTED'].includes(row.order_status)) {
+      return null;
+    }
+    if (row.order_status === 'ACCEPTED' && row.player_id) {
+      return {
+        stage: 'ACCEPTED',
+        notifiedCandidateCount: Number(row.notified_count),
+        timeoutAt: null,
+        nextStep: 'CONFIRM_READINESS',
+        playerSummary: {
+          playerId: row.player_id,
+          displayName: row.player_display_name ?? '已接单陪玩'
+        }
+      };
+    }
+    if (row.attempt_status === 'TIMED_OUT') {
+      return {
+        stage: 'TIMED_OUT',
+        notifiedCandidateCount: Number(row.notified_count),
+        timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        nextStep: 'CHOOSE_CONTINUE_OR_CANCEL',
+        playerSummary: null
+      };
+    }
+    return {
+      stage: row.attempt_status === 'ACTIVE' ? 'WAITING_FOR_ACCEPTANCE' : 'SEARCHING',
+      notifiedCandidateCount: Number(row.notified_count),
+      timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+      nextStep: 'WAIT_FOR_PLAYER',
+      playerSummary: null
+    };
   }
 
   async nextEventSequence(orderId: string): Promise<number> {
@@ -853,7 +930,8 @@ export async function getOrder(input: {
 }): Promise<OrderApiRecord> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
   const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
-  return toApiOrder(order);
+  const matching = await input.orderStore.getMatchingProgress?.(order.id) ?? null;
+  return toApiOrder(order, null, matching);
 }
 
 export async function prepareUpdateOrder(input: {
@@ -1604,9 +1682,14 @@ function assertAvailableService(record: ServiceCatalogRecord | null): asserts re
   }
 }
 
-function toApiOrder(order: OrderRecord, reservation: FundReservationRecord | null = null): OrderApiRecord {
+function toApiOrder(
+  order: OrderRecord,
+  reservation: FundReservationRecord | null = null,
+  matching: OrderMatchingProgress | null = null
+): OrderApiRecord {
   return {
     id: order.id,
+    publicId: order.publicId,
     status: order.status,
     version: order.version,
     orderType: 'IMMEDIATE',
@@ -1619,6 +1702,9 @@ function toApiOrder(order: OrderRecord, reservation: FundReservationRecord | nul
     currency: order.currency,
     amountMinor: order.amountMinor,
     playerEarningMinor: order.playerEarningMinor,
+    game: order.game,
+    service: order.service,
+    matching,
     fundReservation: reservation ? toApiReservationSummary(reservation) : null,
     readiness: {
       customer: 'NOT_READY',
