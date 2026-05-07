@@ -40,6 +40,12 @@ CREATE TYPE "CatalogVersionStatus" AS ENUM ('DRAFT', 'ACTIVE', 'RETIRED');
 CREATE TYPE "OrderStatus" AS ENUM ('DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION');
 
 -- CreateEnum
+CREATE TYPE "AutomationState" AS ENUM ('RUNNING', 'PAUSED');
+
+-- CreateEnum
+CREATE TYPE "AutomationScope" AS ENUM ('ALL', 'DISPATCH', 'LIFECYCLE', 'CANCELLATION');
+
+-- CreateEnum
 CREATE TYPE "OrderEventType" AS ENUM ('CREATED', 'DETAILS_UPDATED', 'CHANNEL_LINKED', 'SUBMITTED', 'DISPATCH_STARTED', 'DISPATCH_TIMED_OUT', 'ACCEPTED', 'CUSTOMER_READY_CONFIRMED', 'PLAYER_READY_CONFIRMED', 'READINESS_RESET', 'READINESS_TIMED_OUT', 'SERVICE_STARTED', 'SERVICE_STARTED_OVERRIDE', 'COMPLETION_REQUESTED', 'COMPLETED', 'CANCELLED', 'EXCEPTION_ENTERED', 'EXCEPTION_RECOVERED', 'RESOLVED', 'PANEL_SYNC_REQUESTED');
 
 -- CreateEnum
@@ -420,6 +426,15 @@ CREATE TABLE "orders" (
     "active_player_slot_id" UUID,
     "status" "OrderStatus" NOT NULL DEFAULT 'DRAFT',
     "row_version" INTEGER NOT NULL DEFAULT 1,
+    "automation_state" "AutomationState" NOT NULL DEFAULT 'RUNNING',
+    "automation_version" INTEGER NOT NULL DEFAULT 1,
+    "automation_paused_by_staff_id" UUID,
+    "automation_staff_task_id" UUID,
+    "automation_reason_code" VARCHAR(64),
+    "automation_scope" "AutomationScope",
+    "automation_paused_at" TIMESTAMPTZ(3),
+    "automation_resumed_at" TIMESTAMPTZ(3),
+    "automation_expires_at" TIMESTAMPTZ(3),
     "service_catalog_version_id" UUID,
     "catalog_version" INTEGER,
     "game_code_snapshot" VARCHAR(80),

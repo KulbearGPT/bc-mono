@@ -28,6 +28,8 @@ export interface ServiceLifecycleOrderRecord {
   serviceStartedAt: string | null;
   completionRequestedAt: string | null;
   confirmationDueAt: string | null;
+  automationState?: 'RUNNING' | 'PAUSED';
+  automationScope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
   updatedAt: string;
 }
 
@@ -360,6 +362,9 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     if (!order) {
       throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
     }
+    if (isLifecycleAutomationPaused(order)) {
+      throw new ServiceLifecycleError('CONFLICT', 'Order automation is paused for staff takeover.');
+    }
     if (order.status !== 'PENDING_CONFIRMATION') {
       throw new ServiceLifecycleError('CONFLICT', 'Order is not waiting for completion confirmation.');
     }
@@ -392,6 +397,9 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     const order = index === -1 ? null : this.orders[index];
     if (!order) {
       throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
+    }
+    if (isLifecycleAutomationPaused(order)) {
+      return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
     }
     if (order.status !== 'ACCEPTED') {
       return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
@@ -484,6 +492,9 @@ LIMIT 1
       if (!current) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
+      if (isLifecycleAutomationPaused(current)) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order automation is paused for staff takeover.');
+      }
       if (current.status !== 'ACCEPTED') {
         throw new ServiceLifecycleError('CONFLICT', 'Readiness can only be changed before service starts.');
       }
@@ -572,6 +583,9 @@ RETURNING *
       const current = await lockOrder(transactionClient, input.orderId);
       if (!current) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
+      }
+      if (isLifecycleAutomationPaused(current)) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order automation is paused for staff takeover.');
       }
       if (current.status !== 'IN_SERVICE') {
         throw new ServiceLifecycleError('CONFLICT', 'Completion can only be requested while service is in progress.');
@@ -748,6 +762,9 @@ RETURNING *
       if (!current) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
+      if (isLifecycleAutomationPaused(current)) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order automation is paused for staff takeover.');
+      }
       if (current.status !== 'PENDING_CONFIRMATION') {
         throw new ServiceLifecycleError('CONFLICT', 'Order is not waiting for completion confirmation.');
       }
@@ -779,6 +796,10 @@ RETURNING *
       const current = await lockOrder(transactionClient, input.orderId);
       if (!current) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
+      }
+      if (isLifecycleAutomationPaused(current)) {
+        await transactionClient.query('COMMIT');
+        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
       }
       if (current.status !== 'ACCEPTED') {
         await transactionClient.query('COMMIT');
@@ -1175,6 +1196,11 @@ FOR UPDATE
 
 function readinessTimestamp(readiness: ReadinessValue, now: Date): string | null {
   return readiness === 'READY' ? now.toISOString() : null;
+}
+
+function isLifecycleAutomationPaused(order: ServiceLifecycleOrderRecord): boolean {
+  return order.automationState === 'PAUSED'
+    && (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === 'LIFECYCLE');
 }
 
 function mapPostgresLifecycleError(error: unknown): unknown {
@@ -1615,6 +1641,8 @@ function mapOrderRow(row: ServiceLifecycleOrderRow): ServiceLifecycleOrderRecord
     serviceStartedAt: toIsoOrNull(row.service_started_at),
     completionRequestedAt: toIsoOrNull(row.completion_requested_at),
     confirmationDueAt: toIsoOrNull(row.confirmation_due_at),
+    automationState: row.automation_state,
+    automationScope: row.automation_scope,
     updatedAt: toIso(row.updated_at)
   };
 }
@@ -1654,6 +1682,8 @@ interface ServiceLifecycleOrderRow {
   player_id: string | null;
   status: LifecycleOrderStatus;
   row_version: number;
+  automation_state: 'RUNNING' | 'PAUSED';
+  automation_scope: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
   amount_minor: number | string | bigint | null;
   expected_player_earning_minor: number | string | bigint | null;
   unit_count: number | null;

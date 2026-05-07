@@ -60,7 +60,7 @@ export interface DispatchResult {
 export interface DispatchTimeoutResult {
   dispatchAttemptId: string;
   orderId: string;
-  status: 'DISPATCH_TIMEOUT';
+  status: 'DISPATCH_TIMEOUT' | 'AUTOMATION_PAUSED';
   orderStatus: OrderStatus;
 }
 
@@ -116,7 +116,7 @@ export interface DispatchPool extends DispatchQueryClient {
 }
 
 export class DispatchError extends Error {
-  public readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PLAYER_NOT_ELIGIBLE' | 'VALIDATION_ERROR';
+  public readonly code: 'AUTOMATION_PAUSED' | 'CONFLICT' | 'NOT_FOUND' | 'PLAYER_NOT_ELIGIBLE' | 'VALIDATION_ERROR';
 
   constructor(code: DispatchError['code'], message: string) {
     super(message);
@@ -771,6 +771,14 @@ export async function expireDispatchAttempt(input: {
   if (!order) {
     throw new DispatchError('NOT_FOUND', 'Order was not found.');
   }
+  if (isDispatchAutomationPaused(order)) {
+    return {
+      dispatchAttemptId: current.id,
+      orderId: order.id,
+      status: 'AUTOMATION_PAUSED',
+      orderStatus: order.status
+    };
+  }
   const timedOut = await input.dispatchStore.markTimedOut({
     dispatchAttemptId: input.dispatchAttemptId,
     now: input.now
@@ -1092,7 +1100,15 @@ async function requireDispatchableOrder(
   if (order.status !== 'PENDING_DISPATCH' || order.version !== expectedVersion || order.playerId) {
     throw new DispatchError('CONFLICT', 'Order cannot be dispatched from its current state.');
   }
+  if (isDispatchAutomationPaused(order)) {
+    throw new DispatchError('AUTOMATION_PAUSED', 'Order automation is paused for staff takeover.');
+  }
   return order;
+}
+
+function isDispatchAutomationPaused(order: OrderRecord): boolean {
+  return order.automationState === 'PAUSED'
+    && (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === 'DISPATCH');
 }
 
 function requireOrderRequirement(order: OrderRecord): { game: string; service: string } {

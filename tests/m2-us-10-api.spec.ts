@@ -177,4 +177,27 @@ describe('M2-US-10 cancellation preview and execution', () => {
     expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });
     expect(staffTaskStore.tasks).toEqual([expect.objectContaining({ type: 'AUTOMATION_FAILURE', reasonCode: 'PROVIDER_RELEASE_UNKNOWN' })]);
   });
+
+  test('routes a paused pending-dispatch cancellation to staff without releasing funds', async () => {
+    const { server, orderStore, staffTaskStore } = fixture(order({
+      automationState: 'PAUSED', automationVersion: 2, automationPausedByStaffId: '00000000-0000-0000-0000-000000000611',
+      automationStaffTaskId: '00000000-0000-0000-0000-00000000c611', automationReasonCode: 'STAFF_TAKEOVER',
+      automationScope: 'ALL', automationPausedAt: now.toISOString()
+    }));
+    const preview = await server.inject({
+      method: 'POST', url: `/api/v1/orders/${orderId}/cancellation-preview`, headers: headers('preview:P-A10:paused'),
+      payload: { expectedVersion: 3, reasonCode: 'CUSTOMER_REQUEST' }
+    });
+    const cancelled = await server.inject({
+      method: 'POST', url: `/api/v1/orders/${orderId}/cancel`, headers: headers('cancel:P-A10:paused'),
+      payload: { expectedVersion: 3, previewId: preview.json().data.previewId, reasonCode: 'CUSTOMER_REQUEST' }
+    });
+
+    expect(preview.json()).toMatchObject({ data: { automaticallyProcessable: false, staffTaskRequired: true, fundAction: 'NONE' } });
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json()).toMatchObject({ data: { status: 'PENDING_DISPATCH', fundAction: 'NONE', staffTaskId: expect.any(String) } });
+    expect(orderStore.orders[0]).toMatchObject({ status: 'PENDING_DISPATCH', automationState: 'PAUSED' });
+    expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });
+    expect(staffTaskStore.tasks).toEqual([expect.objectContaining({ type: 'CANCELLATION_ASSIST', reasonCode: 'AUTOMATION_PAUSED' })]);
+  });
 });

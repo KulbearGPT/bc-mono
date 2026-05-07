@@ -93,6 +93,18 @@ enum OrderStatus {
   EXCEPTION
 }
 
+enum AutomationState {
+  RUNNING
+  PAUSED
+}
+
+enum AutomationScope {
+  ALL
+  DISPATCH
+  LIFECYCLE
+  CANCELLATION
+}
+
 enum OrderEventType {
   CREATED
   DETAILS_UPDATED
@@ -783,6 +795,15 @@ model Order {
   activePlayerSlotId         String?     @unique @map("active_player_slot_id") @db.Uuid
   status                     OrderStatus @default(DRAFT)
   rowVersion                 Int         @default(1) @map("row_version")
+  automationState            AutomationState @default(RUNNING) @map("automation_state")
+  automationVersion          Int         @default(1) @map("automation_version")
+  automationPausedByStaffId  String?     @map("automation_paused_by_staff_id") @db.Uuid
+  automationStaffTaskId      String?     @map("automation_staff_task_id") @db.Uuid
+  automationReasonCode       String?     @map("automation_reason_code") @db.VarChar(64)
+  automationScope            AutomationScope? @map("automation_scope")
+  automationPausedAt         DateTime?   @map("automation_paused_at") @db.Timestamptz(3)
+  automationResumedAt        DateTime?   @map("automation_resumed_at") @db.Timestamptz(3)
+  automationExpiresAt        DateTime?   @map("automation_expires_at") @db.Timestamptz(3)
   serviceCatalogVersionId    String?     @map("service_catalog_version_id") @db.Uuid
   catalogVersion             Int?        @map("catalog_version")
   gameCodeSnapshot           String?     @map("game_code_snapshot") @db.VarChar(80)

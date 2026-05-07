@@ -85,6 +85,15 @@ export interface OrderRecord {
   currency: Currency;
   notes: string | null;
   channelSpec: ChannelSpec;
+  automationState?: 'RUNNING' | 'PAUSED';
+  automationVersion?: number;
+  automationPausedByStaffId?: string | null;
+  automationStaffTaskId?: string | null;
+  automationReasonCode?: string | null;
+  automationScope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
+  automationPausedAt?: string | null;
+  automationResumedAt?: string | null;
+  automationExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -131,6 +140,32 @@ export interface CancelOrderInput {
   previewId: string;
   reasonCode: string;
   note?: string | null;
+}
+
+export interface AutomationControlInput {
+  expectedVersion: number;
+  reasonCode: string;
+  note?: string | null;
+  scope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION';
+  expiresAt?: string | null;
+  resumeAction?: 'REDISPATCH' | 'RESTART_READINESS_TIMEOUT' | 'NONE';
+}
+
+export interface AutomationControlResult {
+  orderId: string;
+  orderVersion: number;
+  resumeAction: AutomationControlInput['resumeAction'] | null;
+  automation: {
+    state: 'RUNNING' | 'PAUSED';
+    version: number;
+    pausedByStaffId: string | null;
+    staffTaskId: string | null;
+    reasonCode: string | null;
+    scope: OrderRecord['automationScope'];
+    pausedAt: string | null;
+    resumedAt: string | null;
+    expiresAt: string | null;
+  };
 }
 
 export interface CancellationPreviewRequest {
@@ -330,6 +365,12 @@ export interface OrderStore {
   issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
   findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
   applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
+  commitAutomationControl(input: {
+    order: OrderRecord;
+    expectedVersion: number;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void> | void;
   nextEventSequence(orderId: string): Promise<number>;
   commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
   commitUpdate(input: {
@@ -411,11 +452,15 @@ export interface OrderApiRecord {
     staffTaskId: null;
   };
   automation: {
-    state: 'RUNNING';
-    pausedByStaffId: null;
-    reasonCode: null;
-    pausedAt: null;
-    resumedAt: null;
+    state: 'RUNNING' | 'PAUSED';
+    version: number;
+    pausedByStaffId: string | null;
+    staffTaskId: string | null;
+    reasonCode: string | null;
+    scope: OrderRecord['automationScope'];
+    pausedAt: string | null;
+    resumedAt: string | null;
+    expiresAt: string | null;
   };
   playerId: string | null;
   region: string | null;
@@ -539,6 +584,24 @@ export class InMemoryOrderStore implements OrderStore {
     }
     this.orders[index] = clone(input.order);
     this.events.push(clone(input.event));
+    await input.auditSink.append(input.auditRecord);
+  }
+
+  async commitAutomationControl(input: {
+    order: OrderRecord;
+    expectedVersion: number;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void> {
+    const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
+    const existing = index === -1 ? null : this.orders[index];
+    if (!existing) {
+      throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+    }
+    if (existing.version !== input.expectedVersion) {
+      throw new OrderError('CONFLICT', 'Order version is stale.');
+    }
+    this.orders[index] = clone(input.order);
     await input.auditSink.append(input.auditRecord);
   }
 
@@ -825,6 +888,54 @@ WHERE order_id = $1
         throw new OrderError('CONFLICT', 'Order version is stale.');
       }
       await insertOrderEvent(transactionClient, input.event);
+      await insertAuditRecord(transactionClient, input.auditRecord);
+      await transactionClient.query('COMMIT');
+    } catch (error) {
+      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      throw mapPostgresOrderError(error);
+    } finally {
+      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+        transactionClient.release();
+      }
+    }
+  }
+
+  async commitAutomationControl(input: {
+    order: OrderRecord;
+    expectedVersion: number;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void> {
+    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    try {
+      await transactionClient.query('BEGIN');
+      const updated = await transactionClient.query(
+        `UPDATE orders
+         SET row_version = $3,
+             automation_state = $4,
+             automation_version = $5,
+             automation_paused_by_staff_id = $6,
+             automation_staff_task_id = $7,
+             automation_reason_code = $8,
+             automation_scope = $9,
+             automation_paused_at = $10,
+             automation_resumed_at = $11,
+             automation_expires_at = $12,
+             updated_at = $13
+         WHERE id = $1 AND row_version = $2`,
+        [
+          input.order.id, input.expectedVersion, input.order.version, input.order.automationState ?? 'RUNNING',
+          input.order.automationVersion ?? 1, input.order.automationPausedByStaffId ?? null,
+          input.order.automationStaffTaskId ?? null, input.order.automationReasonCode ?? null,
+          input.order.automationScope ?? null, input.order.automationPausedAt ? new Date(input.order.automationPausedAt) : null,
+          input.order.automationResumedAt ? new Date(input.order.automationResumedAt) : null,
+          input.order.automationExpiresAt ? new Date(input.order.automationExpiresAt) : null,
+          new Date(input.order.updatedAt)
+        ]
+      );
+      if ((updated.rowCount ?? 0) !== 1) {
+        throw new OrderError('CONFLICT', 'Order version is stale.');
+      }
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -1274,7 +1385,7 @@ export async function prepareCancelOrder(input: {
   if (order.version !== input.input.expectedVersion) {
     throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
   }
-  if (['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status)) {
+  if (preview.disposition === 'STAFF_REVIEW_REQUIRED') {
     if (!input.staffTaskStore) {
       throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is not configured.');
     }
@@ -1282,7 +1393,7 @@ export async function prepareCancelOrder(input: {
       store: input.staffTaskStore,
       order,
       type: 'CANCELLATION_ASSIST',
-      reasonCode: 'CUSTOMER_CANCEL_AFTER_ACCEPT',
+      reasonCode: isOrderAutomationPausedFor(order, 'CANCELLATION') ? 'AUTOMATION_PAUSED' : 'CUSTOMER_CANCEL_AFTER_ACCEPT',
       note: input.input.note ?? null,
       voiceChannelId: order.channelSpec.voiceChannelId,
       actor: input.actor,
@@ -1450,9 +1561,10 @@ export async function previewOrderCancellation(input: {
     throw new OrderError('CONFLICT', 'Order version is stale.');
   }
   const reservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
-  const automaticallyProcessable = order.status === 'DRAFT' || (order.status === 'PENDING_DISPATCH' && Boolean(reservation));
-  const releaseAmountMinor = order.status === 'PENDING_DISPATCH' && reservation ? reservation.amountMinor : 0;
-  const staffTaskRequired = ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status);
+  const automationPaused = isOrderAutomationPausedFor(order, 'CANCELLATION');
+  const automaticallyProcessable = !automationPaused && (order.status === 'DRAFT' || (order.status === 'PENDING_DISPATCH' && Boolean(reservation)));
+  const releaseAmountMinor = automaticallyProcessable && order.status === 'PENDING_DISPATCH' && reservation ? reservation.amountMinor : 0;
+  const staffTaskRequired = automationPaused || ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status);
   if (!automaticallyProcessable && !staffTaskRequired) {
     throw new OrderError('CONFLICT', 'Order cannot be cancelled from its current state.');
   }
@@ -1496,6 +1608,150 @@ export async function previewOrderCancellation(input: {
   };
 }
 
+export async function preparePauseOrderAutomation(input: {
+  orderStore: OrderStore;
+  staffTaskStore: StaffTaskStore;
+  actor: ActorContext;
+  orderId: string;
+  control: AutomationControlInput;
+  now: Date;
+}): Promise<{ order: OrderRecord; expectedVersion: number; data: AutomationControlResult }> {
+  validateAutomationControlInput(input.control, false, input.now);
+  if (!input.actor.actorStaffId || !input.actor.actorLevel) {
+    throw new OrderError('PERMISSION_DENIED', 'A staff actor is required to pause automation.');
+  }
+  const order = await input.orderStore.findById(input.orderId);
+  if (!order) {
+    throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+  }
+  if (order.version !== input.control.expectedVersion) {
+    throw new OrderError('CONFLICT', 'Order version is stale.');
+  }
+  if (!activeOrderStatuses.has(order.status) || order.status === 'DRAFT') {
+    throw new OrderError('CONFLICT', 'Automation cannot be paused for this order state.');
+  }
+  const claimedTask = await input.staffTaskStore.findClaimedOrderTask?.(order.id, input.actor.actorStaffId) ?? null;
+  if (input.actor.actorLevel === 'L1_SUPPORT' && !claimedTask) {
+    throw new OrderError('PERMISSION_DENIED', 'L1 support may pause only an order task they claimed.');
+  }
+  if ((order.automationState ?? 'RUNNING') === 'PAUSED') {
+    if (order.automationPausedByStaffId !== input.actor.actorStaffId) {
+      throw new OrderError('CONFLICT', 'Order automation is already paused by another staff member.');
+    }
+    return { order, expectedVersion: order.version, data: toAutomationControlResult(order, null) };
+  }
+  const paused: OrderRecord = {
+    ...order,
+    version: order.version + 1,
+    automationState: 'PAUSED',
+    automationVersion: (order.automationVersion ?? 1) + 1,
+    automationPausedByStaffId: input.actor.actorStaffId,
+    automationStaffTaskId: claimedTask?.id ?? null,
+    automationReasonCode: input.control.reasonCode,
+    automationScope: input.control.scope ?? 'ALL',
+    automationPausedAt: input.now.toISOString(),
+    automationResumedAt: null,
+    automationExpiresAt: input.control.expiresAt ?? null,
+    updatedAt: input.now.toISOString()
+  };
+  return { order: paused, expectedVersion: order.version, data: toAutomationControlResult(paused, null) };
+}
+
+export async function prepareResumeOrderAutomation(input: {
+  orderStore: OrderStore;
+  actor: ActorContext;
+  orderId: string;
+  control: AutomationControlInput;
+  now: Date;
+}): Promise<{ order: OrderRecord; expectedVersion: number; data: AutomationControlResult }> {
+  validateAutomationControlInput(input.control, true, input.now);
+  if (!input.actor.actorStaffId) {
+    throw new OrderError('PERMISSION_DENIED', 'A staff actor is required to resume automation.');
+  }
+  const order = await input.orderStore.findById(input.orderId);
+  if (!order) {
+    throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+  }
+  if (order.version !== input.control.expectedVersion) {
+    throw new OrderError('CONFLICT', 'Order version is stale.');
+  }
+  if ((order.automationState ?? 'RUNNING') !== 'PAUSED') {
+    return { order, expectedVersion: order.version, data: toAutomationControlResult(order, input.control.resumeAction ?? null) };
+  }
+  validateResumeAction(order, input.control.resumeAction!);
+  if (['PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status)) {
+    const reservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
+    if (!reservation) {
+      throw new OrderError('CONFLICT', 'Active reservation must be restored before automation can resume.');
+    }
+  }
+  const resumed: OrderRecord = {
+    ...order,
+    version: order.version + 1,
+    automationState: 'RUNNING',
+    automationVersion: (order.automationVersion ?? 1) + 1,
+    automationPausedByStaffId: null,
+    automationStaffTaskId: null,
+    automationReasonCode: null,
+    automationScope: null,
+    automationPausedAt: null,
+    automationResumedAt: input.now.toISOString(),
+    automationExpiresAt: null,
+    updatedAt: input.now.toISOString()
+  };
+  return { order: resumed, expectedVersion: order.version, data: toAutomationControlResult(resumed, input.control.resumeAction!) };
+}
+
+function validateAutomationControlInput(control: AutomationControlInput, resume: boolean, now: Date): void {
+  if (!control || !Number.isInteger(control.expectedVersion) || control.expectedVersion < 1) {
+    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+  }
+  if (!control.reasonCode || !/^[A-Z][A-Z0-9_]{2,63}$/.test(control.reasonCode)) {
+    throw new OrderError('VALIDATION_ERROR', 'reasonCode is invalid.');
+  }
+  if (control.expiresAt && new Date(control.expiresAt).getTime() <= now.getTime()) {
+    throw new OrderError('VALIDATION_ERROR', 'expiresAt must be in the future.');
+  }
+  if (resume && !control.resumeAction) {
+    throw new OrderError('VALIDATION_ERROR', 'resumeAction is required when resuming automation.');
+  }
+}
+
+function validateResumeAction(order: OrderRecord, action: NonNullable<AutomationControlInput['resumeAction']>): void {
+  const permitted = order.status === 'PENDING_DISPATCH'
+    ? ['REDISPATCH', 'NONE']
+    : order.status === 'ACCEPTED'
+      ? ['RESTART_READINESS_TIMEOUT', 'NONE']
+      : ['NONE'];
+  if (!permitted.includes(action)) {
+    throw new OrderError('CONFLICT', 'resumeAction is not valid for the current order state.');
+  }
+}
+
+function toAutomationControlResult(order: OrderRecord, resumeAction: AutomationControlResult['resumeAction']): AutomationControlResult {
+  return {
+    orderId: order.id,
+    orderVersion: order.version,
+    resumeAction,
+    automation: {
+      state: order.automationState ?? 'RUNNING',
+      version: order.automationVersion ?? 1,
+      pausedByStaffId: order.automationPausedByStaffId ?? null,
+      staffTaskId: order.automationStaffTaskId ?? null,
+      reasonCode: order.automationReasonCode ?? null,
+      scope: order.automationScope ?? null,
+      pausedAt: order.automationPausedAt ?? null,
+      resumedAt: order.automationResumedAt ?? null,
+      expiresAt: order.automationExpiresAt ?? null
+    }
+  };
+}
+
+function isOrderAutomationPausedFor(order: OrderRecord, scope: NonNullable<OrderRecord['automationScope']>): boolean {
+  return order.automationState === 'PAUSED'
+    && (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === scope);
+}
+
 export function registerOrderRoutes(
   server: FastifyInstance,
   options: {
@@ -1515,6 +1771,78 @@ export function registerOrderRoutes(
   }
   const now = options.now ?? (() => new Date());
   const auditSink = options.auditSink ?? security.auditSink ?? new InMemoryAuditSink();
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/automation/pause',
+    permission: 'order.pause',
+    action: 'PAUSE_ORDER_AUTOMATION',
+    targetType: 'order',
+    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    handler: async (request, actor) => {
+      if (!options.staffTaskStore) {
+        throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for automation takeover.');
+      }
+      const prepared = await preparePauseOrderAutomation({
+        orderStore: options.orderStore,
+        staffTaskStore: options.staffTaskStore,
+        actor,
+        orderId: readParams(request).orderId ?? '',
+        control: request.body as AutomationControlInput,
+        now: now()
+      });
+      return {
+        data: prepared.data,
+        commit: (auditRecord: AuditRecord) => options.orderStore.commitAutomationControl({
+          order: prepared.order,
+          expectedVersion: prepared.expectedVersion,
+          auditRecord: {
+            ...auditRecord,
+            beforeSnapshot: { orderVersion: prepared.expectedVersion, automationState: 'RUNNING' },
+            afterSnapshot: prepared.data
+          },
+          auditSink
+        })
+      };
+    },
+    mapError: mapOrderError,
+    fingerprintBody: (request) => request.body
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/automation/resume',
+    permission: 'order.resume',
+    action: 'RESUME_ORDER_AUTOMATION',
+    targetType: 'order',
+    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    handler: async (request, actor) => {
+      const prepared = await prepareResumeOrderAutomation({
+        orderStore: options.orderStore,
+        actor,
+        orderId: readParams(request).orderId ?? '',
+        control: request.body as AutomationControlInput,
+        now: now()
+      });
+      return {
+        data: prepared.data,
+        commit: (auditRecord: AuditRecord) => options.orderStore.commitAutomationControl({
+          order: prepared.order,
+          expectedVersion: prepared.expectedVersion,
+          auditRecord: {
+            ...auditRecord,
+            beforeSnapshot: { orderVersion: prepared.expectedVersion, automationState: 'PAUSED' },
+            afterSnapshot: prepared.data
+          },
+          auditSink
+        })
+      };
+    },
+    mapError: mapOrderError,
+    fingerprintBody: (request) => request.body
+  });
 
   registerSecureWriteRoute(server, security, {
     method: 'POST',
@@ -1995,11 +2323,15 @@ function toApiOrder(
       staffTaskId: null
     },
     automation: {
-      state: 'RUNNING',
-      pausedByStaffId: null,
-      reasonCode: null,
-      pausedAt: null,
-      resumedAt: null
+      state: order.automationState ?? 'RUNNING',
+      version: order.automationVersion ?? 1,
+      pausedByStaffId: order.automationPausedByStaffId ?? null,
+      staffTaskId: order.automationStaffTaskId ?? null,
+      reasonCode: order.automationReasonCode ?? null,
+      scope: order.automationScope ?? null,
+      pausedAt: order.automationPausedAt ?? null,
+      resumedAt: order.automationResumedAt ?? null,
+      expiresAt: order.automationExpiresAt ?? null
     },
     playerId: order.playerId,
     region: order.region,
@@ -2886,6 +3218,15 @@ function mapOrderRow(row: OrderRow): OrderRecord {
       panelMessageId: row.panel_message_id ?? '',
       voiceChannelId: row.voice_channel_id
     },
+    automationState: row.automation_state,
+    automationVersion: row.automation_version,
+    automationPausedByStaffId: row.automation_paused_by_staff_id,
+    automationStaffTaskId: row.automation_staff_task_id,
+    automationReasonCode: row.automation_reason_code,
+    automationScope: row.automation_scope,
+    automationPausedAt: row.automation_paused_at ? toIsoString(row.automation_paused_at) : null,
+    automationResumedAt: row.automation_resumed_at ? toIsoString(row.automation_resumed_at) : null,
+    automationExpiresAt: row.automation_expires_at ? toIsoString(row.automation_expires_at) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
   };
@@ -2959,6 +3300,15 @@ interface OrderRow {
   player_id: string | null;
   status: OrderStatus;
   row_version: number;
+  automation_state: 'RUNNING' | 'PAUSED';
+  automation_version: number;
+  automation_paused_by_staff_id: string | null;
+  automation_staff_task_id: string | null;
+  automation_reason_code: string | null;
+  automation_scope: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
+  automation_paused_at: Date | string | null;
+  automation_resumed_at: Date | string | null;
+  automation_expires_at: Date | string | null;
   service_catalog_version_id: string | null;
   catalog_version: number | null;
   game_code_snapshot: string | null;

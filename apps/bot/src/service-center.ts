@@ -34,6 +34,11 @@ export interface OrderSummary {
     nextStep: 'WAIT_FOR_PLAYER' | 'CHOOSE_CONTINUE_OR_CANCEL' | 'CONFIRM_READINESS';
     playerSummary: { playerId: string; displayName: string } | null;
   } | null;
+  automation?: {
+    state: 'RUNNING' | 'PAUSED';
+    reasonCode: string | null;
+    expiresAt: string | null;
+  };
 }
 
 export interface CurrentUserSummary {
@@ -857,6 +862,9 @@ export function buildAcceptedPlayerChannelPermissionPlan(input: {
 }
 
 export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
+  if (order.automation?.state === 'PAUSED') {
+    return buildPausedAutomationMessage(order);
+  }
   if ((order.status === 'PENDING_DISPATCH' || order.status === 'ACCEPTED') && order.matching) {
     return buildMatchingProgressMessage(order);
   }
@@ -912,6 +920,25 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
   };
 }
 
+function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
+  return {
+    title: `订单 #${order.publicId} · 客服处理中`,
+    body: [
+      '自动派单和超时处理已暂停。',
+      '客服正在核对订单，请等待处理结果。',
+      order.automation?.expiresAt ? `预计复核时间：${order.automation.expiresAt}` : null
+    ].filter(Boolean).join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [{
+      type: 'ACTION_ROW',
+      components: [
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:support', label: '联系客服' },
+        { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '查看取消影响' }
+      ]
+    }]
+  };
+}
+
 export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
   const matching = order.matching;
   if (!matching) {
@@ -956,7 +983,7 @@ export function buildServiceCenterMessage(input: {
   commissions: CurrentCommissionPage;
 }): MessageSpec {
   const activeOrderLine = input.activeOrder
-    ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.status}`
+    ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.automation?.state === 'PAUSED' ? '客服处理中' : input.activeOrder.status}`
     : '当前订单：暂无进行中订单';
   const consumptionLine = input.consumptions.items.length === 0 ? '消费记录：暂无记录' : '消费记录：已有记录';
   const commissionLine = input.commissions.items.length === 0

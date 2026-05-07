@@ -30,6 +30,7 @@ export interface StaffTaskRecord {
   orderId: string | null;
   giftRequestId: string | null;
   claimedBy: string | null;
+  resolvedBy?: string | null;
   requiredLevel: 'L1_SUPPORT';
   voiceChannelId: string | null;
   contextSnapshot: unknown;
@@ -39,6 +40,7 @@ export interface StaffTaskRecord {
 
 export interface StaffTaskStore {
   listCurrentUserTasks(userId: string): Promise<StaffTaskRecord[]> | StaffTaskRecord[];
+  findClaimedOrderTask?(orderId: string, staffId: string): Promise<StaffTaskRecord | null> | StaffTaskRecord | null;
   createOrderTask(input: {
     order: OrderRecord;
     type: StaffTaskType;
@@ -52,6 +54,14 @@ export interface StaffTaskStore {
     staffTaskId: string;
     expectedVersion: number;
     actorStaffId: string;
+    now: Date;
+  }): Promise<StaffTaskRecord> | StaffTaskRecord;
+  resolveTask(input: {
+    staffTaskId: string;
+    expectedVersion: number;
+    actorStaffId: string;
+    resolutionCode: string;
+    note: string | null;
     now: Date;
   }): Promise<StaffTaskRecord> | StaffTaskRecord;
 }
@@ -82,6 +92,13 @@ export class InMemoryStaffTaskStore implements StaffTaskStore {
       const context = task.contextSnapshot as { customerId?: unknown };
       return context?.customerId === userId;
     }).map(clone);
+  }
+
+  findClaimedOrderTask(orderId: string, staffId: string): StaffTaskRecord | null {
+    const task = this.tasks.find((candidate) => {
+      return candidate.orderId === orderId && candidate.claimedBy === staffId && candidate.status === 'CLAIMED';
+    });
+    return task ? clone(task) : null;
   }
 
   createOrderTask(input: {
@@ -158,6 +175,29 @@ export class InMemoryStaffTaskStore implements StaffTaskStore {
     this.tasks[index] = claimed;
     return clone(claimed);
   }
+
+  resolveTask(input: {
+    staffTaskId: string;
+    expectedVersion: number;
+    actorStaffId: string;
+    resolutionCode: string;
+    note: string | null;
+    now: Date;
+  }): StaffTaskRecord {
+    const index = this.tasks.findIndex((task) => task.id === input.staffTaskId);
+    const task = index === -1 ? null : this.tasks[index];
+    if (!task) throw new StaffTaskError('NOT_FOUND', 'Staff task was not found.');
+    if (!['CLAIMED', 'VERIFIED', 'APPROVED'].includes(task.status) || task.version !== input.expectedVersion) {
+      throw new StaffTaskError('CONFLICT', 'Staff task cannot be resolved from its current state.');
+    }
+    const resolved: StaffTaskRecord = {
+      ...task, status: 'RESOLVED', version: task.version + 1, resolvedBy: input.actorStaffId,
+      contextSnapshot: { ...(task.contextSnapshot as Record<string, unknown>), resolutionCode: input.resolutionCode, resolutionNote: input.note },
+      updatedAt: input.now.toISOString()
+    };
+    this.tasks[index] = resolved;
+    return clone(resolved);
+  }
 }
 
 export class PostgresStaffTaskStore implements StaffTaskStore {
@@ -177,6 +217,14 @@ export class PostgresStaffTaskStore implements StaffTaskStore {
       [userId]
     );
     return result.rows.map(mapStaffTaskRow);
+  }
+
+  async findClaimedOrderTask(orderId: string, staffId: string): Promise<StaffTaskRecord | null> {
+    const result = await this.client.query<StaffTaskRow>(
+      `SELECT * FROM staff_tasks WHERE order_id = $1 AND claimed_by_staff_id = $2 AND status = 'CLAIMED' ORDER BY claimed_at DESC NULLS LAST LIMIT 1`,
+      [orderId, staffId]
+    );
+    return result.rows[0] ? mapStaffTaskRow(result.rows[0]) : null;
   }
 
   async createOrderTask(input: {
@@ -247,6 +295,31 @@ LIMIT 1
     return mapStaffTaskRow(row);
   }
 
+  async resolveTask(input: {
+    staffTaskId: string;
+    expectedVersion: number;
+    actorStaffId: string;
+    resolutionCode: string;
+    note: string | null;
+    now: Date;
+  }): Promise<StaffTaskRecord> {
+    const result = await this.client.query<StaffTaskRow>(
+      `UPDATE staff_tasks
+       SET status = 'RESOLVED', row_version = row_version + 1, resolved_by_staff_id = $3,
+           resolved_at = $4, updated_at = $4,
+           context_snapshot = context_snapshot || jsonb_build_object('resolutionCode', $5::text, 'resolutionNote', $6::text)
+       WHERE id = $1 AND row_version = $2 AND status = ANY($7::"StaffTaskStatus"[])
+       RETURNING *`,
+      [input.staffTaskId, input.expectedVersion, input.actorStaffId, input.now.toISOString(), input.resolutionCode, input.note, ['CLAIMED', 'VERIFIED', 'APPROVED']]
+    );
+    if (!result.rows[0]) {
+      const existing = await this.client.query<{ id: string }>('SELECT id FROM staff_tasks WHERE id = $1', [input.staffTaskId]);
+      if (!existing.rows[0]) throw new StaffTaskError('NOT_FOUND', 'Staff task was not found.');
+      throw new StaffTaskError('CONFLICT', 'Staff task cannot be resolved from its current state.');
+    }
+    return mapStaffTaskRow(result.rows[0]);
+  }
+
   async claimTask(input: {
     staffTaskId: string;
     expectedVersion: number;
@@ -309,6 +382,19 @@ export async function claimStaffTask(input: {
     throw new StaffTaskError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
   }
   return input.store.claimTask(input);
+}
+
+export async function resolveStaffTask(input: {
+  store: StaffTaskStore;
+  staffTaskId: string;
+  expectedVersion: number;
+  actorStaffId: string;
+  resolutionCode: string;
+  note: string | null;
+  now: Date;
+}): Promise<StaffTaskRecord> {
+  validateReasonCode(input.resolutionCode);
+  return input.store.resolveTask(input);
 }
 
 export function registerStaffTaskRoutes(
@@ -398,6 +484,33 @@ export function registerStaffTaskRoutes(
     mapError: mapStaffTaskError,
     fingerprintBody: (request) => parseTaskVersionBody(request.body)
   });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/staff-tasks/:staffTaskId/resolve',
+    permission: 'staff_task.resolve',
+    action: 'RESOLVE_STAFF_TASK',
+    targetType: 'staff_task',
+    targetId: (request) => staffTaskIdParam(request),
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    handler: async (request, actor) => {
+      const body = parseResolveTaskBody(request.body);
+      if (!actor.actorStaffId) {
+        throw new StaffTaskError('PERMISSION_DENIED', 'A staff actor is required to resolve a task.');
+      }
+      return resolveStaffTask({
+        store: options.store,
+        staffTaskId: staffTaskIdParam(request),
+        expectedVersion: body.expectedVersion,
+        actorStaffId: actor.actorStaffId,
+        resolutionCode: body.resolutionCode,
+        note: body.notes,
+        now: now()
+      });
+    },
+    mapError: mapStaffTaskError,
+    fingerprintBody: (request) => parseResolveTaskBody(request.body)
+  });
 }
 
 const activeTaskStatuses = new Set<StaffTaskStatus>(['OPEN', 'CLAIMED', 'VERIFIED', 'PENDING_APPROVAL', 'APPROVED']);
@@ -468,6 +581,24 @@ function parseTaskVersionBody(body: unknown): { expectedVersion: number } {
   return { expectedVersion: input.expectedVersion as number };
 }
 
+function parseResolveTaskBody(body: unknown): { expectedVersion: number; resolutionCode: string; notes: string } {
+  const input = objectBody(body);
+  if (!Number.isInteger(input.expectedVersion) || (input.expectedVersion as number) < 1) {
+    throw new StaffTaskError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+  }
+  const resolutionCode = stringField(input.resolutionCode, 'resolutionCode');
+  const notes = stringField(input.notes, 'notes');
+  if (notes.length > 2_000) {
+    throw new StaffTaskError('VALIDATION_ERROR', 'notes is invalid.');
+  }
+  validateReasonCode(resolutionCode);
+  return {
+    expectedVersion: input.expectedVersion as number,
+    resolutionCode,
+    notes
+  };
+}
+
 function objectBody(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new StaffTaskError('VALIDATION_ERROR', 'Request body must be an object.');
@@ -530,6 +661,7 @@ interface StaffTaskRow {
   order_id: string | null;
   gift_request_id: string | null;
   claimed_by_staff_id: string | null;
+  resolved_by_staff_id: string | null;
   voice_channel_id: string | null;
   context_snapshot: unknown;
   created_at: Date | string;
@@ -547,6 +679,7 @@ function mapStaffTaskRow(row: StaffTaskRow): StaffTaskRecord {
     orderId: row.order_id,
     giftRequestId: row.gift_request_id,
     claimedBy: row.claimed_by_staff_id,
+    resolvedBy: row.resolved_by_staff_id,
     requiredLevel: 'L1_SUPPORT',
     voiceChannelId: row.voice_channel_id,
     contextSnapshot: row.context_snapshot,
