@@ -5,6 +5,8 @@ import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
+  handleOpenCancellationPreview,
+  handleConfirmCancellation,
   handleOpenPlayerWorkbench,
   handleOpenServiceCenterFromPublicEntry,
   handleServiceLifecycleAction,
@@ -24,7 +26,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action'
       ? this.some(route)
       : this.none();
   }
@@ -56,6 +58,11 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
 
+    if (parsedData.area === 'cancellation-action') {
+      await this.confirmCancellation(interaction, parsedData);
+      return;
+    }
+
     if (parsedData.area !== 'order-action') {
       if (parsedData.area === 'service-action') {
         await this.handleServiceLifecycleButton(interaction, parsedData);
@@ -70,6 +77,11 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
 
     if (parsedData.action === 'submit-final') {
       await this.submitFinalOrder(interaction, parsedData);
+      return;
+    }
+
+    if (parsedData.action === 'cancel') {
+      await this.openCancellationPreview(interaction, parsedData);
       return;
     }
 
@@ -200,6 +212,50 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.reply({ content: '暂时无法打开确认面板。request_id: local-unhandled-result', ephemeral: true });
+  }
+
+  private async openCancellationPreview(
+    interaction: ButtonInteraction,
+    route: Extract<ServiceCenterRoute, { area: 'order-action' }>
+  ): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) {
+      await interaction.reply({ content: '请在服务器内取消订单。request_id: local-guild-required', ephemeral: true });
+      return;
+    }
+    const result = await handleOpenCancellationPreview({
+      api: createBotApiClient(), actor, orderId: route.orderId, expectedVersion: route.expectedVersion,
+      idempotencyKey: buildDiscordIdempotencyKey('order:cancel-preview', interaction.id)
+    });
+    if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
+      const reply = toDiscordReply(result.message);
+      await interaction.update({ content: reply.content, components: reply.components });
+      return;
+    }
+    await interaction.reply({
+      content: result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '暂时无法打开取消预览。request_id: local-unhandled-result',
+      ephemeral: true
+    });
+  }
+
+  private async confirmCancellation(
+    interaction: ButtonInteraction,
+    route: Extract<ServiceCenterRoute, { area: 'cancellation-action' }>
+  ): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) {
+      await interaction.reply({ content: '请在服务器内取消订单。request_id: local-guild-required', ephemeral: true });
+      return;
+    }
+    const result = await handleConfirmCancellation({
+      api: createBotApiClient(), actor, orderId: route.orderId, previewId: route.previewId,
+      expectedVersion: route.expectedVersion,
+      idempotencyKey: buildDiscordIdempotencyKey('order:cancel-confirm', interaction.id)
+    });
+    await interaction.reply({
+      content: result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '取消请求已处理。',
+      ephemeral: true
+    });
   }
 
   private async submitFinalOrder(

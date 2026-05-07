@@ -215,13 +215,19 @@ describe('M1-US-08 reusable fund reservation model and API lifecycle', () => {
       headers: botHeaders('111111111111111111', { 'idempotency-key': 'discord:order:submit:before-cancel' }),
       payload: { expectedVersion: 2 }
     });
+    const preview = await server.inject({
+      method: 'POST',
+      url: '/api/v1/orders/00000000-0000-0000-0000-00000000b001/cancellation-preview',
+      headers: botHeaders('111111111111111111', { 'idempotency-key': 'discord:order:cancel-preview:m1-us-08' }),
+      payload: { expectedVersion: 3, reasonCode: 'CUSTOMER_REQUEST' }
+    });
     const cancelled = await server.inject({
       method: 'POST',
       url: '/api/v1/orders/00000000-0000-0000-0000-00000000b001/cancel',
       headers: botHeaders('111111111111111111', { 'idempotency-key': 'discord:order:cancel:m1-us-08' }),
       payload: {
         expectedVersion: 3,
-        previewId: '00000000-0000-0000-0000-00000000c999',
+        previewId: preview.json().data.previewId,
         reasonCode: 'CUSTOMER_REQUEST'
       }
     });
@@ -232,6 +238,7 @@ describe('M1-US-08 reusable fund reservation model and API lifecycle', () => {
     });
 
     expect(submitted.statusCode).toBe(200);
+    expect(preview.statusCode).toBe(200);
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled.json()).toMatchObject({
       data: {

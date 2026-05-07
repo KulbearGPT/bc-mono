@@ -149,6 +149,7 @@ const authenticatedActorPermissions = new Set([
   'order.update',
   'order.estimate',
   'order.submit',
+  'order.cancellation.preview',
   'order.cancel',
   'dispatch.execute',
   'order.accept',

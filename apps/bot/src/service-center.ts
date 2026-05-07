@@ -117,6 +117,21 @@ export interface CancellationResultSummary {
   balance?: BalanceSummary;
 }
 
+export interface CancellationPreviewSummary {
+  previewId: string;
+  orderId: string;
+  orderVersion: number;
+  automaticallyProcessable: boolean;
+  fundAction: 'RELEASE_RESERVATION' | 'REFUND_CAPTURED_PAYMENT' | 'NONE';
+  estimatedAmountMinor: number;
+  releaseAmountMinor: number;
+  refundAmountMinor: number;
+  currency: string;
+  handlingTimeCode: 'IMMEDIATE' | 'PROVIDER_PENDING' | 'STAFF_REVIEW_REQUIRED';
+  staffTaskRequired: boolean;
+  validUntil: string;
+}
+
 export type DiscordPresenceSummary = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE' | 'UNKNOWN';
 
 export interface SyncDiscordPresenceRequest {
@@ -274,6 +289,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<CancellationResultSummary>;
+  previewOrderCancellation(
+    orderId: string,
+    input: { expectedVersion: number; reasonCode: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CancellationPreviewSummary>;
   acceptOrder(
     orderId: string,
     input: { expectedVersion: number; dispatchAttemptId: string },
@@ -456,6 +477,17 @@ export class HttpBotApiClient implements BotApiClient {
       actor,
       idempotencyKey,
       body: input
+    });
+  }
+
+  public async previewOrderCancellation(
+    orderId: string,
+    input: { expectedVersion: number; reasonCode: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<CancellationPreviewSummary> {
+    return this.request<CancellationPreviewSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/cancellation-preview`, {
+      method: 'POST', actor, idempotencyKey, body: input
     });
   }
 
@@ -706,6 +738,7 @@ export type BotFlowResult =
 export type ServiceCenterRoute =
   | { area: 'entry'; action: 'create-order' | 'service-center' | 'player-workbench' }
   | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
+  | { area: 'cancellation-action'; action: 'confirm'; orderId: string; previewId: string; expectedVersion: number }
   | { area: 'order-select'; orderId: string; field: 'game' | 'service' | 'region' | 'duration'; expectedVersion: number }
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
@@ -960,6 +993,33 @@ export function buildServiceCenterMessage(input: {
         ]
       }
     ]
+  };
+}
+
+export function buildCancellationPreviewMessage(preview: CancellationPreviewSummary): MessageSpec {
+  const handling = preview.staffTaskRequired
+    ? '处理方式：提交客服核对，不会自动退款或扣款'
+    : '处理方式：确认后立即处理';
+  return {
+    title: '取消影响确认',
+    body: [
+      `释放预留：${formatMoney(preview.releaseAmountMinor, preview.currency)}`,
+      `退款：${formatMoney(preview.refundAmountMinor, preview.currency)}`,
+      handling,
+      `预览有效期：${preview.validUntil}`
+    ].join('\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components: [{
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON', style: preview.staffTaskRequired ? 'SECONDARY' : 'DANGER',
+          customId: `bc:cancel:${preview.orderId}:${preview.previewId}:confirm:v${preview.orderVersion}`,
+          label: preview.staffTaskRequired ? '提交客服处理' : '确认取消'
+        },
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '返回服务中心' }
+      ]
+    }]
   };
 }
 
@@ -1480,6 +1540,53 @@ export async function handleOpenPlayerWorkbench(input: {
   }
 }
 
+export async function handleOpenCancellationPreview(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    const preview = await input.api.previewOrderCancellation(
+      input.orderId,
+      { expectedVersion: input.expectedVersion, reasonCode: 'CUSTOMER_REQUEST' },
+      input.actor,
+      input.idempotencyKey
+    );
+    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildCancellationPreviewMessage(preview) };
+  } catch (error) {
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开取消预览失败') };
+  }
+}
+
+export async function handleConfirmCancellation(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  previewId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  try {
+    const result = await input.api.cancelOrder(
+      input.orderId,
+      { expectedVersion: input.expectedVersion, previewId: input.previewId, reasonCode: 'CUSTOMER_REQUEST' },
+      input.actor,
+      input.idempotencyKey
+    );
+    return {
+      kind: 'EPHEMERAL_MESSAGE',
+      message: result.staffTaskId ? '已提交客服处理，请留意订单频道更新。' : '订单已取消，相关预留已释放。'
+    };
+  } catch (error) {
+    if (error instanceof BotApiError && error.code === 'CANCELLATION_PREVIEW_STALE') {
+      return { kind: 'EPHEMERAL_MESSAGE', message: `取消条件已变化，请刷新取消预览后重试。request_id: ${error.requestId}` };
+    }
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '取消订单失败') };
+  }
+}
+
 export async function handleCreateOrderFromPublicEntry(input: {
   api: BotApiClient;
   actor: BotActorContext;
@@ -1600,6 +1707,17 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   const availabilityAction = /^bc:player:availability:AVAILABLE:v([1-9][0-9]*)$/u.exec(customId);
   if (availabilityAction) {
     return { area: 'player-action', action: 'set-available', expectedVersion: Number.parseInt(availabilityAction[1], 10) };
+  }
+
+  const cancellationAction = /^bc:cancel:([0-9a-f-]{36}):([0-9a-f-]{36}):confirm:v([1-9][0-9]*)$/u.exec(customId);
+  if (cancellationAction) {
+    return {
+      area: 'cancellation-action',
+      action: 'confirm',
+      orderId: cancellationAction[1],
+      previewId: cancellationAction[2],
+      expectedVersion: Number.parseInt(cancellationAction[3], 10)
+    };
   }
 
   const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(game|service|region|duration):v([1-9][0-9]*)$/u.exec(customId);

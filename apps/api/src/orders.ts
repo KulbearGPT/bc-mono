@@ -133,6 +133,49 @@ export interface CancelOrderInput {
   note?: string | null;
 }
 
+export interface CancellationPreviewRequest {
+  expectedVersion: number;
+  reasonCode: string;
+}
+
+export interface CancellationPreviewRecord {
+  id: string;
+  orderId: string;
+  fundReservationId: string | null;
+  orderVersionSnapshot: number;
+  reservationVersionSnapshot: number | null;
+  status: 'ISSUED' | 'APPLIED' | 'EXPIRED' | 'INVALIDATED';
+  disposition: 'AUTO_RELEASE' | 'AUTO_REFUND' | 'STAFF_REVIEW_REQUIRED' | 'BLOCKED';
+  releaseAmountMinor: number;
+  refundAmountMinor: number;
+  currency: Currency;
+  policyKey: string;
+  policyVersion: number;
+  reasonCode: string;
+  requestedByUserId: string | null;
+  requestedByStaffId: string | null;
+  estimatedResolutionAt: string | null;
+  expiresAt: string;
+  appliedAt: string | null;
+  invalidatedAt: string | null;
+  createdAt: string;
+}
+
+export interface CancellationPreviewResult {
+  previewId: string;
+  orderId: string;
+  orderVersion: number;
+  automaticallyProcessable: boolean;
+  fundAction: 'RELEASE_RESERVATION' | 'REFUND_CAPTURED_PAYMENT' | 'NONE';
+  estimatedAmountMinor: number;
+  releaseAmountMinor: number;
+  refundAmountMinor: number;
+  currency: Currency;
+  handlingTimeCode: 'IMMEDIATE' | 'PROVIDER_PENDING' | 'STAFF_REVIEW_REQUIRED';
+  staffTaskRequired: boolean;
+  validUntil: string;
+}
+
 export interface FundReservationRecord {
   id: string;
   userId: string;
@@ -276,6 +319,7 @@ export interface PreparedCancelOrderWrite {
   reservation: FundReservationRecord | null;
   reservationEvent: FundReservationEventRecord | null;
   staffTask: StaffTaskRecord | null;
+  previewId: string;
 }
 
 export interface OrderStore {
@@ -283,6 +327,9 @@ export interface OrderStore {
   findById(orderId: string): Promise<OrderRecord | null>;
   findActiveReservationByOrder?(orderId: string): Promise<FundReservationRecord | null>;
   getMatchingProgress?(orderId: string): Promise<OrderMatchingProgress | null>;
+  issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
+  findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
+  applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
   nextEventSequence(orderId: string): Promise<number>;
   commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
   commitUpdate(input: {
@@ -311,6 +358,8 @@ export interface OrderStore {
     reservationEvent: FundReservationEventRecord | null;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    previewId: string;
+    now: Date;
   }): Promise<void>;
 }
 
@@ -380,6 +429,7 @@ export class OrderError extends Error {
   readonly code:
     | 'ACCOUNT_NOT_BOUND'
     | 'BUSINESS_RULE_VIOLATION'
+    | 'CANCELLATION_PREVIEW_STALE'
     | 'CONFLICT'
     | 'INSUFFICIENT_AVAILABLE_BALANCE'
     | 'PERMISSION_DENIED'
@@ -401,6 +451,7 @@ export class InMemoryOrderStore implements OrderStore {
   readonly reservations: FundReservationRecord[];
   readonly reservationEvents: FundReservationEventRecord[];
   readonly externalTransactions: ExternalTransactionMirrorRecord[];
+  readonly cancellationPreviews: CancellationPreviewRecord[];
 
   constructor(input: {
     orders?: OrderRecord[];
@@ -408,12 +459,32 @@ export class InMemoryOrderStore implements OrderStore {
     reservations?: FundReservationRecord[];
     reservationEvents?: FundReservationEventRecord[];
     externalTransactions?: ExternalTransactionMirrorRecord[];
+    cancellationPreviews?: CancellationPreviewRecord[];
   } = {}) {
     this.orders = input.orders?.map(clone) ?? [];
     this.events = input.events?.map(clone) ?? [];
     this.reservations = input.reservations?.map(clone) ?? [];
     this.reservationEvents = input.reservationEvents?.map(clone) ?? [];
     this.externalTransactions = input.externalTransactions?.map(clone) ?? [];
+    this.cancellationPreviews = input.cancellationPreviews?.map(clone) ?? [];
+  }
+
+  issueCancellationPreview(preview: CancellationPreviewRecord): void {
+    this.cancellationPreviews.push(clone(preview));
+  }
+
+  findCancellationPreview(previewId: string): CancellationPreviewRecord | null {
+    const preview = this.cancellationPreviews.find((candidate) => candidate.id === previewId);
+    return preview ? clone(preview) : null;
+  }
+
+  applyCancellationPreview(previewId: string, now: Date): void {
+    const index = this.cancellationPreviews.findIndex((candidate) => candidate.id === previewId);
+    const preview = index === -1 ? null : this.cancellationPreviews[index];
+    if (!preview || preview.status !== 'ISSUED') {
+      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    }
+    this.cancellationPreviews[index] = { ...preview, status: 'APPLIED', appliedAt: now.toISOString() };
   }
 
   async findActiveByCustomer(customerId: string): Promise<OrderRecord | null> {
@@ -514,14 +585,21 @@ export class InMemoryOrderStore implements OrderStore {
     reservationEvent: FundReservationEventRecord | null;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    previewId: string;
+    now: Date;
   }): Promise<void> {
+    const previewIndex = this.cancellationPreviews.findIndex((candidate) => candidate.id === input.previewId);
+    const preview = previewIndex === -1 ? null : this.cancellationPreviews[previewIndex];
     const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
     const existing = index === -1 ? null : this.orders[index];
     if (!existing) {
       throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
     }
+    if (!preview || !isCancellationPreviewCurrent(preview, existing, this.reservations, input.now)) {
+      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    }
     if (existing.version !== input.expectedVersion || !['DRAFT', 'PENDING_DISPATCH'].includes(existing.status)) {
-      throw new OrderError('CONFLICT', 'Order version is stale.');
+      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
     }
     if (input.reservation) {
       const reservationIndex = this.reservations.findIndex((candidate) => candidate.id === input.reservation?.id);
@@ -536,6 +614,7 @@ export class InMemoryOrderStore implements OrderStore {
       this.reservations[reservationIndex] = clone(input.reservation);
     }
     this.orders[index] = clone(input.order);
+    this.cancellationPreviews[previewIndex] = { ...preview, status: 'APPLIED', appliedAt: input.now.toISOString() };
     if (input.reservationEvent) {
       this.reservationEvents.push(clone(input.reservationEvent));
     }
@@ -569,6 +648,42 @@ LIMIT 1
       [customerId, Array.from(activeOrderStatuses)]
     );
     return result.rows[0] ? mapOrderRow(result.rows[0]) : null;
+  }
+
+  async issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> {
+    await this.client.query(
+      `
+INSERT INTO cancellation_previews (
+  id, order_id, fund_reservation_id, order_version_snapshot, reservation_version_snapshot,
+  status, disposition, release_amount_minor, refund_amount_minor, currency,
+  policy_key, policy_version, reason_code, requested_by_user_id, requested_by_staff_id,
+  estimated_resolution_at, expires_at, applied_at, invalidated_at, created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6::"CancellationPreviewStatus", $7::"CancellationDisposition", $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      `,
+      [
+        preview.id, preview.orderId, preview.fundReservationId, preview.orderVersionSnapshot, preview.reservationVersionSnapshot,
+        preview.status, preview.disposition, preview.releaseAmountMinor, preview.refundAmountMinor, preview.currency,
+        preview.policyKey, preview.policyVersion, preview.reasonCode, preview.requestedByUserId, preview.requestedByStaffId,
+        preview.estimatedResolutionAt, preview.expiresAt, preview.appliedAt, preview.invalidatedAt, preview.createdAt
+      ]
+    );
+  }
+
+  async findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> {
+    const result = await this.client.query<CancellationPreviewRow>('SELECT * FROM cancellation_previews WHERE id = $1 LIMIT 1', [previewId]);
+    return result.rows[0] ? mapCancellationPreviewRow(result.rows[0]) : null;
+  }
+
+  async applyCancellationPreview(previewId: string, now: Date): Promise<void> {
+    const result = await this.client.query(
+      `UPDATE cancellation_previews SET status = 'APPLIED', applied_at = $2 WHERE id = $1 AND status = 'ISSUED'`,
+      [previewId, now.toISOString()]
+    );
+    if ((result.rowCount ?? 0) !== 1) {
+      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    }
   }
 
   async findById(orderId: string): Promise<OrderRecord | null> {
@@ -774,24 +889,38 @@ WHERE order_id = $1
     reservationEvent: FundReservationEventRecord | null;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    previewId: string;
+    now: Date;
   }): Promise<void> {
     const transactionClient = this.pool ? await this.pool.connect() : this.client;
     try {
       await transactionClient.query('BEGIN');
+      const previewResult = await transactionClient.query<CancellationPreviewRow>(
+        'SELECT * FROM cancellation_previews WHERE id = $1 FOR UPDATE',
+        [input.previewId]
+      );
+      const preview = previewResult.rows[0] ? mapCancellationPreviewRow(previewResult.rows[0]) : null;
+      const currentOrderResult = await transactionClient.query<OrderRow>('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [input.order.id]);
+      const currentOrder = currentOrderResult.rows[0] ? mapOrderRow(currentOrderResult.rows[0]) : null;
+      const currentReservationResult = preview?.fundReservationId
+        ? await transactionClient.query<FundReservationRow>('SELECT * FROM fund_reservations WHERE id = $1 FOR UPDATE', [preview.fundReservationId])
+        : { rows: [] as FundReservationRow[] };
+      const currentReservations = currentReservationResult.rows.map(mapFundReservationRow);
+      if (!currentOrder || !preview || !isCancellationPreviewCurrent(preview, currentOrder, currentReservations, input.now)) {
+        throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+      }
       const updated = await updateCancelledOrder(transactionClient, input.order, input.expectedVersion);
       if ((updated.rowCount ?? 0) !== 1) {
         throw new OrderError('CONFLICT', 'Order version is stale.');
-      }
-      if (input.reservation) {
-        const released = await updateReleasedReservation(transactionClient, input.reservation);
-        if ((released.rowCount ?? 0) !== 1) {
-          throw new OrderError('CONFLICT', 'Order reservation is stale.');
-        }
       }
       if (input.reservationEvent) {
         await insertFundReservationEvent(transactionClient, input.reservationEvent);
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
+      await transactionClient.query(
+        `UPDATE cancellation_previews SET status = 'APPLIED', applied_at = $2 WHERE id = $1 AND status = 'ISSUED'`,
+        [input.previewId, input.now.toISOString()]
+      );
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -1133,8 +1262,17 @@ export async function prepareCancelOrder(input: {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
   const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
   validateCancelOrderInput(input.input);
+  const preview = await input.orderStore.findCancellationPreview(input.input.previewId);
+  const currentReservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
+  if (
+    !preview ||
+    preview.reasonCode !== input.input.reasonCode ||
+    !isCancellationPreviewCurrent(preview, order, currentReservation ? [currentReservation] : [], input.now)
+  ) {
+    throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+  }
   if (order.version !== input.input.expectedVersion) {
-    throw new OrderError('CONFLICT', 'Order version is stale.');
+    throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
   }
   if (['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status)) {
     if (!input.staffTaskStore) {
@@ -1150,6 +1288,7 @@ export async function prepareCancelOrder(input: {
       actor: input.actor,
       now: input.now
     });
+    await input.orderStore.applyCancellationPreview(preview.id, input.now);
     return {
       data: {
         orderId: order.id,
@@ -1167,15 +1306,14 @@ export async function prepareCancelOrder(input: {
       orderEvent: null,
       reservation: null,
       reservationEvent: null,
-      staffTask
+      staffTask,
+      previewId: preview.id
     };
   }
   if (!['DRAFT', 'PENDING_DISPATCH'].includes(order.status)) {
     throw new OrderError('CONFLICT', 'Order cannot be cancelled automatically.');
   }
-  const reservation = order.status === 'PENDING_DISPATCH'
-    ? await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null
-    : null;
+  const reservation = order.status === 'PENDING_DISPATCH' ? currentReservation : null;
   if (order.status === 'PENDING_DISPATCH' && !reservation) {
     throw new OrderError('CONFLICT', 'Order reservation is not active.');
   }
@@ -1189,6 +1327,62 @@ export async function prepareCancelOrder(input: {
         now: input.now
       })
     : null;
+  if (reservation && !releasedReservation) {
+    if (!input.staffTaskStore) {
+      throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for unresolved provider releases.');
+    }
+    const exceptionOrder: OrderRecord = {
+      ...order,
+      status: 'EXCEPTION',
+      version: order.version + 1,
+      updatedAt: input.now.toISOString()
+    };
+    const staffTask = await input.staffTaskStore.createOrderTask({
+      order: exceptionOrder,
+      type: 'AUTOMATION_FAILURE',
+      reasonCode: 'PROVIDER_RELEASE_UNKNOWN',
+      note: '供应商预留释放结果未知，需核对 Hold 状态后再处理取消。',
+      voiceChannelId: order.channelSpec.voiceChannelId,
+      actor: input.actor,
+      now: input.now
+    });
+    const nextSequence = await input.orderStore.nextEventSequence(order.id);
+    const orderEvent = buildOrderEvent({
+      order: exceptionOrder,
+      eventType: 'EXCEPTION_ENTERED',
+      fromStatus: order.status,
+      toStatus: 'EXCEPTION',
+      actor: input.actor,
+      now: input.now,
+      sequence: nextSequence,
+      payload: {
+        reasonCode: 'PROVIDER_RELEASE_UNKNOWN',
+        previewId: input.input.previewId,
+        reservationId: reservation.id,
+        staffTaskId: staffTask.id
+      }
+    });
+    return {
+      data: {
+        orderId: exceptionOrder.id,
+        status: 'EXCEPTION',
+        version: exceptionOrder.version,
+        fundAction: 'NONE',
+        amountMinor: 0,
+        currency: reservation.currency,
+        reservation: toApiReservationSummary(reservation),
+        refundTransaction: null,
+        staffTaskId: staffTask.id
+      },
+      order: exceptionOrder,
+      expectedVersion: input.input.expectedVersion,
+      orderEvent,
+      reservation: null,
+      reservationEvent: null,
+      staffTask,
+      previewId: preview.id
+    };
+  }
   const cancelledOrder = applyCancelOrder(order, input.now);
   const nextSequence = await input.orderStore.nextEventSequence(order.id);
   const reservationEvent = releasedReservation
@@ -1200,7 +1394,8 @@ export async function prepareCancelOrder(input: {
         amountMinor: releasedReservation.amountMinor,
         eventType: 'RELEASED',
         fromStatus: reservation!.status,
-        reasonCode: input.input.reasonCode
+        reasonCode: input.input.reasonCode,
+        sequence: releasedReservation.version
       })
     : null;
   const orderEvent = buildOrderEvent({
@@ -1235,7 +1430,69 @@ export async function prepareCancelOrder(input: {
     orderEvent,
     reservation: releasedReservation,
     reservationEvent,
-    staffTask: null
+    staffTask: null,
+    previewId: preview.id
+  };
+}
+
+export async function previewOrderCancellation(input: {
+  accountStore: AccountStore;
+  orderStore: OrderStore;
+  actor: ActorContext;
+  orderId: string;
+  input: CancellationPreviewRequest;
+  now: Date;
+}): Promise<CancellationPreviewResult> {
+  const binding = await requireCurrentBinding(input.accountStore, input.actor);
+  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  validateCancellationPreviewRequest(input.input);
+  if (order.version !== input.input.expectedVersion) {
+    throw new OrderError('CONFLICT', 'Order version is stale.');
+  }
+  const reservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
+  const automaticallyProcessable = order.status === 'DRAFT' || (order.status === 'PENDING_DISPATCH' && Boolean(reservation));
+  const releaseAmountMinor = order.status === 'PENDING_DISPATCH' && reservation ? reservation.amountMinor : 0;
+  const staffTaskRequired = ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status);
+  if (!automaticallyProcessable && !staffTaskRequired) {
+    throw new OrderError('CONFLICT', 'Order cannot be cancelled from its current state.');
+  }
+  const expiresAt = new Date(input.now.getTime() + 60_000).toISOString();
+  const record: CancellationPreviewRecord = {
+    id: crypto.randomUUID(),
+    orderId: order.id,
+    fundReservationId: automaticallyProcessable ? reservation?.id ?? null : null,
+    orderVersionSnapshot: order.version,
+    reservationVersionSnapshot: automaticallyProcessable ? reservation?.version ?? null : null,
+    status: 'ISSUED',
+    disposition: automaticallyProcessable ? 'AUTO_RELEASE' : 'STAFF_REVIEW_REQUIRED',
+    releaseAmountMinor,
+    refundAmountMinor: 0,
+    currency: order.currency,
+    policyKey: 'ORDER_CANCELLATION_V1',
+    policyVersion: 1,
+    reasonCode: input.input.reasonCode,
+    requestedByUserId: binding.userId,
+    requestedByStaffId: input.actor.actorStaffId,
+    estimatedResolutionAt: automaticallyProcessable ? input.now.toISOString() : null,
+    expiresAt,
+    appliedAt: null,
+    invalidatedAt: null,
+    createdAt: input.now.toISOString()
+  };
+  await input.orderStore.issueCancellationPreview(record);
+  return {
+    previewId: record.id,
+    orderId: order.id,
+    orderVersion: order.version,
+    automaticallyProcessable,
+    fundAction: releaseAmountMinor > 0 ? 'RELEASE_RESERVATION' : 'NONE',
+    estimatedAmountMinor: releaseAmountMinor,
+    releaseAmountMinor,
+    refundAmountMinor: 0,
+    currency: order.currency,
+    handlingTimeCode: automaticallyProcessable ? 'IMMEDIATE' : 'STAFF_REVIEW_REQUIRED',
+    staffTaskRequired,
+    validUntil: expiresAt
   };
 }
 
@@ -1258,6 +1515,26 @@ export function registerOrderRoutes(
   }
   const now = options.now ?? (() => new Date());
   const auditSink = options.auditSink ?? security.auditSink ?? new InMemoryAuditSink();
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/orders/:orderId/cancellation-preview',
+    permission: 'order.cancellation.preview',
+    action: 'PREVIEW_ORDER_CANCELLATION',
+    targetType: 'order',
+    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
+    handler: async (request, actor) => previewOrderCancellation({
+      accountStore: options.accountStore,
+      orderStore: options.orderStore,
+      actor,
+      orderId: readParams(request).orderId ?? '',
+      input: request.body as CancellationPreviewRequest,
+      now: now()
+    }),
+    mapError: mapOrderError,
+    fingerprintBody: (request) => request.body
+  });
 
   registerSecureWriteRoute(server, security, {
     method: 'POST',
@@ -1366,6 +1643,7 @@ export function registerOrderRoutes(
   registerSecureWriteRoute(server, security, {
     method: 'POST',
     url: '/api/v1/orders/:orderId/cancel',
+    retryCommitFailures: true,
     permission: 'order.cancel',
     action: 'CANCEL_ORDER',
     targetType: 'order',
@@ -1409,7 +1687,9 @@ export function registerOrderRoutes(
               },
               afterSnapshot: prepared.data
             },
-            auditSink
+            auditSink,
+            previewId: prepared.previewId,
+            now: now()
           });
         }
       };
@@ -1788,13 +2068,14 @@ function releaseOrderReservation(input: {
   idempotencyKey: string;
   reasonCode: string;
   now: Date;
-}): FundReservationRecord {
+}): FundReservationRecord | null {
   if (input.reservation.mode === 'PROVIDER_NATIVE_HOLD') {
     if (!input.reservation.providerHoldRef) {
       throw new OrderError('CONFLICT', 'Provider hold reference is missing.');
     }
+    let releasedHold: Hold;
     try {
-      input.fundingAdapter.releaseHold({
+      releasedHold = input.fundingAdapter.releaseHold({
         holdRef: input.reservation.providerHoldRef,
         idempotencyKey: input.idempotencyKey,
         fundReservationId: input.reservation.id,
@@ -1803,7 +2084,30 @@ function releaseOrderReservation(input: {
         amount: { amountMinor: input.reservation.amountMinor, currency: input.reservation.currency }
       });
     } catch (error) {
-      throw mapAdapterOrderError(error);
+      if (!(error instanceof AdapterError) || error.code !== 'PROVIDER_TIMEOUT') {
+        throw mapAdapterOrderError(error);
+      }
+      try {
+        releasedHold = input.fundingAdapter.getHold({
+          lookupType: 'IDEMPOTENCY_KEY',
+          lookupValue: input.idempotencyKey
+        });
+      } catch {
+        return null;
+      }
+    }
+    if (releasedHold.status !== 'RELEASED') {
+      return null;
+    }
+    if (
+      releasedHold.fundReservationId !== input.reservation.id ||
+      releasedHold.fundReservationVersion !== input.reservation.version ||
+      releasedHold.holdRef !== input.reservation.providerHoldRef ||
+      releasedHold.amount.amountMinor !== input.reservation.amountMinor ||
+      releasedHold.amount.currency !== input.reservation.currency ||
+      releasedHold.remainingAmount.amountMinor !== 0
+    ) {
+      throw new OrderError('CONFLICT', 'Recovered provider release does not match the order reservation.');
     }
   }
   return {
@@ -1903,11 +2207,12 @@ function buildReservationEvent(input: {
   eventType?: FundReservationEventType;
   fromStatus?: FundReservationStatus | null;
   reasonCode?: string | null;
+  sequence?: number;
 }): FundReservationEventRecord {
   return {
     id: crypto.randomUUID(),
     fundReservationId: input.reservation.id,
-    sequence: 1,
+    sequence: input.sequence ?? 1,
     eventType: input.eventType ?? 'CREATED',
     fromStatus: input.fromStatus ?? null,
     toStatus: input.reservation.status,
@@ -1944,6 +2249,44 @@ function validateCancelOrderInput(input: CancelOrderInput): void {
   if (typeof input.reasonCode !== 'string' || input.reasonCode.length < 1 || input.reasonCode.length > 64) {
     throw new OrderError('VALIDATION_ERROR', 'reasonCode is required.');
   }
+}
+
+function validateCancellationPreviewRequest(input: CancellationPreviewRequest): void {
+  if (!input || typeof input !== 'object') {
+    throw new OrderError('VALIDATION_ERROR', 'Cancellation preview payload is required.');
+  }
+  if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+  }
+  if (typeof input.reasonCode !== 'string' || input.reasonCode.length < 1 || input.reasonCode.length > 64) {
+    throw new OrderError('VALIDATION_ERROR', 'reasonCode is required.');
+  }
+}
+
+function isCancellationPreviewCurrent(
+  preview: CancellationPreviewRecord,
+  order: OrderRecord,
+  reservations: FundReservationRecord[],
+  now: Date
+): boolean {
+  if (
+    preview.status !== 'ISSUED' ||
+    preview.orderId !== order.id ||
+    preview.orderVersionSnapshot !== order.version ||
+    Date.parse(preview.expiresAt) < now.getTime()
+  ) {
+    return false;
+  }
+  if (!preview.fundReservationId) {
+    return preview.reservationVersionSnapshot === null;
+  }
+  const reservation = reservations.find((candidate) => candidate.id === preview.fundReservationId);
+  return Boolean(
+    reservation &&
+    reservation.orderId === order.id &&
+    reservation.version === preview.reservationVersionSnapshot &&
+    activeFundReservationStatuses.includes(reservation.status)
+  );
 }
 
 function validateSubmittableDraft(order: OrderRecord): void {
@@ -2088,6 +2431,7 @@ function mapOrderError(error: unknown): { statusCode: number; code: string; mess
   const statusByCode: Record<OrderError['code'], number> = {
     ACCOUNT_NOT_BOUND: 403,
     BUSINESS_RULE_VIOLATION: 422,
+    CANCELLATION_PREVIEW_STALE: 409,
     CONFLICT: 409,
     INSUFFICIENT_AVAILABLE_BALANCE: 422,
     PERMISSION_DENIED: 403,
@@ -2388,33 +2732,6 @@ VALUES (
   );
 }
 
-async function updateReleasedReservation(
-  client: OrderQueryClient,
-  reservation: FundReservationRecord
-): Promise<{ rowCount?: number | null }> {
-  return client.query(
-    `
-UPDATE fund_reservations
-SET status = $2::"FundReservationStatus",
-    row_version = $3,
-    settled_at = $4,
-    updated_at = $5
-WHERE id = $1
-  AND status = ANY($7::"FundReservationStatus"[])
-  AND row_version = $6
-    `,
-    [
-      reservation.id,
-      reservation.status,
-      reservation.version,
-      reservation.settledAt ? new Date(reservation.settledAt) : null,
-      new Date(reservation.updatedAt),
-      reservation.version - 1,
-      activeFundReservationStatuses
-    ]
-  );
-}
-
 async function insertFundReservationEvent(client: OrderQueryClient, event: FundReservationEventRecord): Promise<void> {
   await client.query(
     `
@@ -2596,6 +2913,31 @@ function mapFundReservationRow(row: FundReservationRow): FundReservationRecord {
   };
 }
 
+function mapCancellationPreviewRow(row: CancellationPreviewRow): CancellationPreviewRecord {
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    fundReservationId: row.fund_reservation_id,
+    orderVersionSnapshot: row.order_version_snapshot,
+    reservationVersionSnapshot: row.reservation_version_snapshot,
+    status: row.status,
+    disposition: row.disposition,
+    releaseAmountMinor: Number(row.release_amount_minor),
+    refundAmountMinor: Number(row.refund_amount_minor),
+    currency: row.currency as Currency,
+    policyKey: row.policy_key,
+    policyVersion: row.policy_version,
+    reasonCode: row.reason_code,
+    requestedByUserId: row.requested_by_user_id,
+    requestedByStaffId: row.requested_by_staff_id,
+    estimatedResolutionAt: row.estimated_resolution_at ? toIsoString(row.estimated_resolution_at) : null,
+    expiresAt: toIsoString(row.expires_at),
+    appliedAt: row.applied_at ? toIsoString(row.applied_at) : null,
+    invalidatedAt: row.invalidated_at ? toIsoString(row.invalidated_at) : null,
+    createdAt: toIsoString(row.created_at)
+  };
+}
+
 function mapPostgresOrderError(error: unknown): unknown {
   if (error instanceof OrderError) {
     return error;
@@ -2655,6 +2997,29 @@ interface FundReservationRow {
   settled_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
+}
+
+interface CancellationPreviewRow {
+  id: string;
+  order_id: string;
+  fund_reservation_id: string | null;
+  order_version_snapshot: number;
+  reservation_version_snapshot: number | null;
+  status: CancellationPreviewRecord['status'];
+  disposition: CancellationPreviewRecord['disposition'];
+  release_amount_minor: number | string | bigint;
+  refund_amount_minor: number | string | bigint;
+  currency: string;
+  policy_key: string;
+  policy_version: number;
+  reason_code: string;
+  requested_by_user_id: string | null;
+  requested_by_staff_id: string | null;
+  estimated_resolution_at: Date | string | null;
+  expires_at: Date | string;
+  applied_at: Date | string | null;
+  invalidated_at: Date | string | null;
+  created_at: Date | string;
 }
 
 function toNullableNumber(value: number | string | bigint | null): number | null {

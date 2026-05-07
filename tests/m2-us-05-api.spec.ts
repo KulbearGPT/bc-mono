@@ -266,17 +266,25 @@ describe('M2-US-05 staff task and cancellation support API', () => {
   test('accepted order cancellation creates CANCELLATION_ASSIST without changing order or releasing reservation', async () => {
     const { server, orderStore, staffTaskStore } = buildM2Server({ order: acceptedOrder() });
 
+    const preview = await server.inject({
+      method: 'POST',
+      url: `/api/v1/orders/${orderId}/cancellation-preview`,
+      headers: botHeaders(customerDiscordUserId, { 'idempotency-key': 'discord:order:cancel-preview:accepted' }),
+      payload: { expectedVersion: 4, reasonCode: 'CUSTOMER_REQUEST' }
+    });
+
     const cancelled = await server.inject({
       method: 'POST',
       url: `/api/v1/orders/${orderId}/cancel`,
       headers: botHeaders(customerDiscordUserId, { 'idempotency-key': 'discord:order:cancel:accepted' }),
       payload: {
         expectedVersion: 4,
-        previewId: '00000000-0000-0000-0000-00000000c999',
+        previewId: preview.json().data.previewId,
         reasonCode: 'CUSTOMER_REQUEST'
       }
     });
 
+    expect(preview.statusCode).toBe(200);
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled.json()).toMatchObject({
       data: {
