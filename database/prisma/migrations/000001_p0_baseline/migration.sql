@@ -665,6 +665,8 @@ CREATE TABLE "gift_requests" (
     "verified_by_staff_id" UUID,
     "verified_at" TIMESTAMPTZ(3),
     "verification_note" VARCHAR(1000),
+    "verification_payload_hash" VARCHAR(128),
+    "execution_credential_expires_at" TIMESTAMPTZ(3),
     "approved_by_staff_id" UUID,
     "approved_at" TIMESTAMPTZ(3),
     "captured_at" TIMESTAMPTZ(3),

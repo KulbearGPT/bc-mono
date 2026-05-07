@@ -1110,6 +1110,8 @@ model GiftRequest {
   verifiedByStaffId         String?           @map("verified_by_staff_id") @db.Uuid
   verifiedAt                DateTime?         @map("verified_at") @db.Timestamptz(3)
   verificationNote          String?           @map("verification_note") @db.VarChar(1000)
+  verificationPayloadHash   String?           @map("verification_payload_hash") @db.VarChar(128)
+  executionCredentialExpiresAt DateTime?       @map("execution_credential_expires_at") @db.Timestamptz(3)
   approvedByStaffId         String?           @map("approved_by_staff_id") @db.Uuid
   approvedAt                DateTime?         @map("approved_at") @db.Timestamptz(3)
   capturedAt                DateTime?         @map("captured_at") @db.Timestamptz(3)
