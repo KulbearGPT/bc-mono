@@ -24,6 +24,7 @@ import {
 } from './admin-order-actions.js';
 import type { MockFundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
+import { registerGiftRoutes, type GiftStore } from './gifts.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -81,6 +82,14 @@ export interface ApiServerOptions {
   };
   paymentWebhook?: {
     fundingAdapter: PaymentWebhookFundingAdapter;
+    providerKey: string;
+    now?: () => Date;
+  };
+  gift?: {
+    store: GiftStore;
+    orderStore: OrderStore;
+    accountStore: AccountStore;
+    fundingAdapter: OrderFundingAdapter;
     providerKey: string;
     now?: () => Date;
   };
@@ -244,6 +253,13 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
 
   if (options.paymentWebhook) {
     registerPaymentWebhookRoutes(server, options.paymentWebhook);
+  }
+
+  if (options.gift) {
+    if (!server.securityOptions) {
+      throw new Error('Gift routes require buildApiServer({ security, gift })');
+    }
+    registerGiftRoutes(server, options.gift);
   }
 
   return server;

@@ -17,7 +17,8 @@
     "./staff-tasks": "./src/staff-tasks.ts",
     "./risk-events": "./src/risk-events.ts",
     "./admin-order-actions": "./src/admin-order-actions.ts",
-    "./orders": "./src/orders.ts"
+    "./orders": "./src/orders.ts",
+    "./gifts": "./src/gifts.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

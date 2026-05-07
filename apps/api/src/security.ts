@@ -163,7 +163,8 @@ const authenticatedActorPermissions = new Set([
   'staff_task.request',
   'player.workspace.read',
   'player.availability.manage_self',
-  'presence.sync'
+  'presence.sync',
+  'gift.request'
 ]);
 
 export class InMemoryAuditSink implements AuditSink {

@@ -12,6 +12,7 @@ import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
 import { MockFundingAdapter } from './payment-adapter.js';
 import { InMemoryAuditSink, InMemoryIdempotencyStore, PostgresStaffDirectory } from './security.js';
+import { PostgresGiftStore } from './gifts.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -44,6 +45,7 @@ const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: database
 const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
 const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
+const giftStore = new PostgresGiftStore(databasePool);
 const fundingAdapter = new MockFundingAdapter();
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 
@@ -96,6 +98,13 @@ const server = buildApiServer({
     providerKey: 'mock-provider'
   },
   paymentWebhook: {
+    fundingAdapter,
+    providerKey: 'mock-provider'
+  },
+  gift: {
+    store: giftStore,
+    orderStore,
+    accountStore,
     fundingAdapter,
     providerKey: 'mock-provider'
   }

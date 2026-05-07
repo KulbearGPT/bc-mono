@@ -96,6 +96,7 @@ export interface OrderRecord {
   automationExpiresAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string | null;
 }
 
 export interface OrderEventRecord {
@@ -3227,6 +3228,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     automationPausedAt: row.automation_paused_at ? toIsoString(row.automation_paused_at) : null,
     automationResumedAt: row.automation_resumed_at ? toIsoString(row.automation_resumed_at) : null,
     automationExpiresAt: row.automation_expires_at ? toIsoString(row.automation_expires_at) : null,
+    completedAt: row.completed_at ? toIsoString(row.completed_at) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
   };
@@ -3327,6 +3329,7 @@ interface OrderRow {
   voice_channel_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
+  completed_at: Date | string | null;
 }
 
 interface FundReservationRow {

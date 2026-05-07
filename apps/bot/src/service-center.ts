@@ -1,3 +1,5 @@
+import type { GiftPanelData, GiftRequestResult } from './gifts.js';
+
 export type ClientSource = 'DISCORD_BOT';
 
 export interface BotActorContext {
@@ -341,6 +343,13 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<unknown>;
+  listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData>;
+  createOrderGiftRequest(
+    orderId: string,
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<GiftRequestResult>;
 }
 
 export class BotApiError extends Error {
@@ -426,6 +435,23 @@ export class HttpBotApiClient implements BotApiClient {
     return this.request<BalanceSummary>('/api/v1/me/balance', {
       method: 'GET',
       actor
+    });
+  }
+
+  public async listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData> {
+    return this.request<GiftPanelData>(`/api/v1/gifts?orderId=${encodeURIComponent(orderId)}`, {
+      method: 'GET', actor
+    });
+  }
+
+  public async createOrderGiftRequest(
+    orderId: string,
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<GiftRequestResult> {
+    return this.request<GiftRequestResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-requests`, {
+      method: 'POST', actor, idempotencyKey, body: input
     });
   }
 
