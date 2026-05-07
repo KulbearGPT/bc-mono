@@ -87,7 +87,7 @@ export interface DispatchStore {
     expectedVersion: number;
     dispatchAttemptId: string;
     player: PlayerProfileRecord;
-    outboxJob: OutboxJob;
+    outboxJobs: OutboxJob[];
     now: Date;
   }): Promise<void> | void;
   declineCandidate(input: {
@@ -163,7 +163,7 @@ export class InMemoryDispatchStore implements DispatchStore {
     expectedVersion: number;
     dispatchAttemptId: string;
     player: PlayerProfileRecord;
-    outboxJob: OutboxJob;
+    outboxJobs: OutboxJob[];
     now: Date;
   }): void {
     const orders = mutableOrderList(input.orderStore);
@@ -211,7 +211,7 @@ export class InMemoryDispatchStore implements DispatchStore {
       dispatchCandidate.respondedAt = input.now.toISOString();
       dispatchCandidate.updatedAt = input.now.toISOString();
     }
-    this.outboxJobs.push(clone(input.outboxJob));
+    this.outboxJobs.push(...input.outboxJobs.map(clone));
   }
 
   declineCandidate(input: {
@@ -420,7 +420,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::"OutboxStatus", $10, $11, $12
     expectedVersion: number;
     dispatchAttemptId: string;
     player: PlayerProfileRecord;
-    outboxJob: OutboxJob;
+    outboxJobs: OutboxJob[];
     now: Date;
   }): Promise<void> {
     const transactionClient = this.pool ? await this.pool.connect() : this.client;
@@ -519,10 +519,12 @@ WHERE id = $1
         `,
         [input.dispatchAttemptId, input.player.userId, input.now.toISOString()]
       );
-      await insertOutboxJob(transactionClient, input.outboxJob, {
-        orderId: input.order.id,
-        dispatchAttemptId: input.dispatchAttemptId
-      });
+      for (const job of input.outboxJobs) {
+        await insertOutboxJob(transactionClient, job, {
+          orderId: input.order.id,
+          dispatchAttemptId: input.dispatchAttemptId
+        });
+      }
       await transactionClient.query('COMMIT');
     } catch (error) {
       await transactionClient.query('ROLLBACK').catch(() => undefined);
@@ -803,13 +805,16 @@ export async function acceptOrder(input: {
     expectedVersion: input.expectedVersion,
     dispatchAttemptId: input.dispatchAttemptId,
     player,
-    outboxJob: buildAcceptedOrderOutboxJob({
-      order,
-      player,
-      dispatchAttemptId: input.dispatchAttemptId,
-      idempotencyKey: input.idempotencyKey,
-      now: input.now
-    }),
+    outboxJobs: [
+      buildAcceptedOrderOutboxJob({
+        order,
+        player,
+        dispatchAttemptId: input.dispatchAttemptId,
+        idempotencyKey: input.idempotencyKey,
+        now: input.now
+      }),
+      buildReadinessTimeoutJob({ order, idempotencyKey: input.idempotencyKey, now: input.now })
+    ],
     now: input.now
   });
   return {
@@ -1038,6 +1043,33 @@ function buildAcceptedOrderOutboxJob(input: {
     attempts: 0,
     maxAttempts: 8,
     runAfter: input.now.toISOString(),
+    lockedAt: null,
+    lockedBy: null,
+    completedAt: null,
+    lastError: null,
+    version: 1,
+    createdAt: input.now.toISOString(),
+    updatedAt: input.now.toISOString()
+  };
+}
+
+function buildReadinessTimeoutJob(input: {
+  order: OrderRecord;
+  idempotencyKey: string;
+  now: Date;
+}): OutboxJob {
+  const readinessDueAt = new Date(input.now.getTime() + 10 * 60_000).toISOString();
+  return {
+    id: crypto.randomUUID(),
+    type: 'READINESS_TIMEOUT',
+    status: 'PENDING',
+    payload: { orderId: input.order.id, readinessDueAt },
+    aggregateType: 'order',
+    aggregateId: input.order.id,
+    dedupeKey: `${input.idempotencyKey}:readiness-timeout`,
+    attempts: 0,
+    maxAttempts: 3,
+    runAfter: readinessDueAt,
     lockedAt: null,
     lockedBy: null,
     completedAt: null,

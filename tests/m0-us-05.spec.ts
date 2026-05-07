@@ -291,6 +291,7 @@ describe('M0-US-05 outbox/job runner and observability', () => {
         'GIFT_ANNOUNCEMENT',
         'DISPATCH_MESSAGE',
         'DISPATCH_TIMEOUT',
+        'READINESS_TIMEOUT',
         'CHANNEL_ARCHIVE',
         'PANEL_SYNC',
         'ROLE_RECONCILIATION'

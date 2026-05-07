@@ -66,6 +66,7 @@ export interface ApiServerOptions {
   staffTasks?: {
     store: StaffTaskStore;
     orderStore: OrderStore;
+    accountStore?: AccountStore;
     now?: () => Date;
   };
   riskEvents?: {

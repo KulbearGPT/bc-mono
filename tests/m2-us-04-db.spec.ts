@@ -9,6 +9,7 @@ import {
   PostgresServiceLifecycleStore,
   confirmOrder,
   expireOrderCompletionConfirmation,
+  expireOrderReadiness,
   requestOrderCompletion,
   setOrderReadiness
 } from '@blackcat/api/service-lifecycle';
@@ -359,6 +360,47 @@ SELECT
       reason_code: 'COMPLETION_CONFIRMATION_TIMEOUT',
       consumptions: '0',
       player_earnings: '0',
+      reservation_status: 'ACTIVE'
+    });
+  });
+
+  test('readiness timeout records one event and support task while preserving the active reservation', async () => {
+    const store = new PostgresServiceLifecycleStore({ pool });
+    await setOrderReadiness({
+      store,
+      orderId,
+      expectedVersion: 4,
+      readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      now
+    });
+    const overdue = new Date(now.getTime() + 11 * 60_000);
+
+    const first = await expireOrderReadiness({ store, orderId, now: overdue });
+    const replay = await expireOrderReadiness({ store, orderId, now: new Date(overdue.getTime() + 1_000) });
+    const snapshot = await pool.query(`
+SELECT
+  (SELECT status FROM orders WHERE id = '${orderId}') AS order_status,
+  (SELECT service_started_at FROM orders WHERE id = '${orderId}') AS service_started_at,
+  (SELECT count(*)::text FROM staff_tasks WHERE order_id = '${orderId}' AND reason_code = 'READINESS_TIMEOUT') AS staff_tasks,
+  (SELECT count(*)::text FROM order_events WHERE order_id = '${orderId}' AND event_type = 'READINESS_TIMED_OUT') AS timeout_events,
+  (SELECT count(*)::text FROM consumption_entries WHERE order_id = '${orderId}') AS consumptions,
+  (SELECT status FROM fund_reservations WHERE order_id = '${orderId}') AS reservation_status
+    `);
+
+    expect(first).toMatchObject({
+      outcome: 'ESCALATED',
+      status: 'ACCEPTED',
+      readiness: { customer: 'READY', player: 'NOT_READY' },
+      staffTask: { type: 'ORDER_ASSIST', reasonCode: 'READINESS_TIMEOUT', status: 'OPEN' }
+    });
+    expect(replay.staffTask?.id).toBe(first.staffTask?.id);
+    expect(snapshot.rows[0]).toMatchObject({
+      order_status: 'ACCEPTED',
+      service_started_at: null,
+      staff_tasks: '1',
+      timeout_events: '1',
+      consumptions: '0',
       reservation_status: 'ACTIVE'
     });
   });

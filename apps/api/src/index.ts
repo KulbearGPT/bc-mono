@@ -84,7 +84,8 @@ const server = buildApiServer({
   },
   staffTasks: {
     store: staffTaskStore,
-    orderStore
+    orderStore,
+    accountStore
   },
   riskEvents: {
     store: riskEventStore

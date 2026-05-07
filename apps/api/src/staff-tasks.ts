@@ -2,8 +2,9 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool } from 'pg';
 import type { ActorContext } from './security.js';
-import { registerSecureWriteRoute } from './security.js';
+import { registerSecureReadRoute, registerSecureWriteRoute } from './security.js';
 import type { OrderRecord, OrderStore } from './orders.js';
+import type { AccountStore } from './accounts.js';
 
 export type StaffTaskType =
   | 'ORDER_ASSIST'
@@ -37,6 +38,7 @@ export interface StaffTaskRecord {
 }
 
 export interface StaffTaskStore {
+  listCurrentUserTasks(userId: string): Promise<StaffTaskRecord[]> | StaffTaskRecord[];
   createOrderTask(input: {
     order: OrderRecord;
     type: StaffTaskType;
@@ -73,6 +75,13 @@ export class InMemoryStaffTaskStore implements StaffTaskStore {
 
   constructor(input: { tasks: StaffTaskRecord[] }) {
     this.tasks = input.tasks.map(clone);
+  }
+
+  listCurrentUserTasks(userId: string): StaffTaskRecord[] {
+    return this.tasks.filter((task) => {
+      const context = task.contextSnapshot as { customerId?: unknown };
+      return context?.customerId === userId;
+    }).map(clone);
   }
 
   createOrderTask(input: {
@@ -114,6 +123,8 @@ export class InMemoryStaffTaskStore implements StaffTaskStore {
         actorUserId: input.actor.actorUserId,
         actorStaffId: input.actor.actorStaffId,
         actorSource: input.actor.actorSource,
+        customerId: input.order.customerId,
+        playerId: input.order.playerId,
         note: input.note ?? null
       },
       createdAt: input.now.toISOString(),
@@ -160,6 +171,14 @@ export class PostgresStaffTaskStore implements StaffTaskStore {
     this.client = client;
   }
 
+  async listCurrentUserTasks(userId: string): Promise<StaffTaskRecord[]> {
+    const result = await this.client.query<StaffTaskRow>(
+      `SELECT task.* FROM staff_tasks AS task JOIN orders ON orders.id = task.order_id WHERE orders.customer_id = $1 ORDER BY task.created_at DESC, task.id DESC LIMIT 50`,
+      [userId]
+    );
+    return result.rows.map(mapStaffTaskRow);
+  }
+
   async createOrderTask(input: {
     order: OrderRecord;
     type: StaffTaskType;
@@ -180,6 +199,8 @@ export class PostgresStaffTaskStore implements StaffTaskStore {
       actorUserId: input.actor.actorUserId,
       actorStaffId: input.actor.actorStaffId,
       actorSource: input.actor.actorSource,
+      customerId: input.order.customerId,
+      playerId: input.order.playerId,
       note: input.note ?? null
     };
     const inserted = await this.client.query<StaffTaskRow>(
@@ -292,13 +313,36 @@ export async function claimStaffTask(input: {
 
 export function registerStaffTaskRoutes(
   server: FastifyInstance,
-  options: { store: StaffTaskStore; orderStore: Pick<OrderStore, 'findById'>; now?: () => Date }
+  options: { store: StaffTaskStore; orderStore: Pick<OrderStore, 'findById'>; accountStore?: Pick<AccountStore, 'findByDiscord'>; now?: () => Date }
 ): void {
   const security = server.securityOptions;
   if (!security) {
     throw new Error('Staff task routes require buildApiServer({ security })');
   }
   const now = options.now ?? (() => new Date());
+
+  if (options.accountStore) {
+    registerSecureReadRoute(server, security, {
+      method: 'GET',
+      url: '/api/v1/me/staff-tasks',
+      permission: 'account.self.read',
+      action: 'LIST_CURRENT_USER_STAFF_TASKS',
+      targetType: 'staff_task',
+      acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
+      handler: async (_request, actor) => {
+        if (!actor.guildId || !actor.discordUserId) {
+          throw new StaffTaskError('PERMISSION_DENIED', 'Discord actor context is required.');
+        }
+        const binding = await options.accountStore!.findByDiscord({ guildId: actor.guildId, discordUserId: actor.discordUserId });
+        if (!binding) {
+          throw new StaffTaskError('PERMISSION_DENIED', 'Current account is not bound.');
+        }
+        const tasks = await options.store.listCurrentUserTasks(binding.userId);
+        return { items: tasks.map(toCurrentUserTask), nextCursor: null };
+      },
+      mapError: mapStaffTaskError
+    });
+  }
 
   registerSecureWriteRoute(server, security, {
     method: 'POST',
@@ -357,6 +401,19 @@ export function registerStaffTaskRoutes(
 }
 
 const activeTaskStatuses = new Set<StaffTaskStatus>(['OPEN', 'CLAIMED', 'VERIFIED', 'PENDING_APPROVAL', 'APPROVED']);
+
+function toCurrentUserTask(task: StaffTaskRecord) {
+  return {
+    id: task.id,
+    publicId: task.publicId,
+    type: task.type,
+    reasonCode: task.reasonCode,
+    status: task.status,
+    orderId: task.orderId,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt
+  };
+}
 
 function validateOrderStaffTaskType(type: StaffTaskType): void {
   if (![

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
+import type { OutboxJob } from './outbox.js';
 import { registerSecureWriteRoute } from './security.js';
 
 export type LifecycleOrderStatus = 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
@@ -64,8 +65,8 @@ export interface CompletionRequestResult {
 export interface ServiceLifecycleStaffTask {
   id: string;
   publicId: string;
-  type: 'COMPLETION_REVIEW';
-  reasonCode: 'COMPLETION_CONFIRMATION_TIMEOUT';
+  type: 'ORDER_ASSIST' | 'COMPLETION_REVIEW';
+  reasonCode: 'READINESS_TIMEOUT' | 'COMPLETION_CONFIRMATION_TIMEOUT';
   status: 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'RESOLVED' | 'CANCELLED';
 }
 
@@ -88,6 +89,23 @@ export interface CompletionTimeoutResult {
   version: number;
   staffTask: ServiceLifecycleStaffTask;
 }
+
+export type ReadinessTimeoutResult =
+  | {
+    outcome: 'ESCALATED';
+    orderId: string;
+    status: 'ACCEPTED';
+    version: number;
+    readiness: { customer: ReadinessValue; player: ReadinessValue };
+    staffTask: ServiceLifecycleStaffTask;
+  }
+  | {
+    outcome: 'SKIPPED';
+    orderId: string;
+    status: LifecycleOrderStatus;
+    version: number;
+    staffTask: null;
+  };
 
 export interface OrderCompletionResult {
   orderId: string;
@@ -127,6 +145,7 @@ export interface ServiceLifecycleStore {
     orderId: string;
     now: Date;
   }): Promise<CompletionTimeoutResult> | CompletionTimeoutResult;
+  commitReadinessTimeout(input: { orderId: string; now: Date }): Promise<ReadinessTimeoutResult> | ReadinessTimeoutResult;
 }
 
 export interface ServiceLifecycleQueryClient {
@@ -364,6 +383,48 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       orderId: order.id,
       status: 'PENDING_CONFIRMATION',
       version: order.version,
+      staffTask
+    };
+  }
+
+  commitReadinessTimeout(input: { orderId: string; now: Date }): ReadinessTimeoutResult {
+    const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
+    const order = index === -1 ? null : this.orders[index];
+    if (!order) {
+      throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
+    }
+    if (order.status !== 'ACCEPTED') {
+      return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
+    }
+    if (!order.readinessDueAt || Date.parse(order.readinessDueAt) > input.now.getTime()) {
+      throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
+    }
+    if (order.customerReadyAt && order.playerReadyAt) {
+      return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
+    }
+    const taskId = `staff-task:${order.id}:readiness-timeout`;
+    const existing = this.staffTasks.find((task) => task.id === taskId);
+    const staffTask = existing ?? {
+      id: taskId,
+      publicId: `TASK-${order.publicId}-READY`,
+      type: 'ORDER_ASSIST' as const,
+      reasonCode: 'READINESS_TIMEOUT' as const,
+      status: 'OPEN' as const
+    };
+    if (!existing) {
+      this.staffTasks.push(staffTask);
+      this.orders[index] = { ...order, version: order.version + 1, updatedAt: input.now.toISOString() };
+    }
+    const current = this.orders[index]!;
+    return {
+      outcome: 'ESCALATED',
+      orderId: current.id,
+      status: 'ACCEPTED',
+      version: current.version,
+      readiness: {
+        customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
+        player: current.playerReadyAt ? 'READY' : 'NOT_READY'
+      },
       staffTask
     };
   }
@@ -710,6 +771,76 @@ RETURNING *
       }
     }
   }
+
+  async commitReadinessTimeout(input: { orderId: string; now: Date }): Promise<ReadinessTimeoutResult> {
+    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    try {
+      await transactionClient.query('BEGIN');
+      const current = await lockOrder(transactionClient, input.orderId);
+      if (!current) {
+        throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
+      }
+      if (current.status !== 'ACCEPTED') {
+        await transactionClient.query('COMMIT');
+        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
+      }
+      if (!current.readinessDueAt || Date.parse(current.readinessDueAt) > input.now.getTime()) {
+        throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
+      }
+      if (current.customerReadyAt && current.playerReadyAt) {
+        await transactionClient.query('COMMIT');
+        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
+      }
+      const existingEvent = await transactionClient.query<{ id: string }>(
+        `SELECT id FROM order_events WHERE order_id = $1 AND event_type = 'READINESS_TIMED_OUT' LIMIT 1`,
+        [current.id]
+      );
+      const staffTask = await insertOrGetReadinessTask(transactionClient, { order: current, now: input.now });
+      let version = current.version;
+      if (!existingEvent.rows[0]) {
+        await insertOrderEvent(transactionClient, {
+          orderId: current.id,
+          sequence: await nextOrderEventSequence(transactionClient, current.id),
+          eventType: 'READINESS_TIMED_OUT',
+          fromStatus: 'ACCEPTED',
+          toStatus: 'ACCEPTED',
+          actorUserId: null,
+          actorSource: 'SYSTEM_JOB',
+          now: input.now,
+          payload: {
+            readinessDueAt: current.readinessDueAt,
+            customerReady: Boolean(current.customerReadyAt),
+            playerReady: Boolean(current.playerReadyAt),
+            staffTaskId: staffTask.id
+          }
+        });
+        const updated = await transactionClient.query<{ row_version: number }>(
+          `UPDATE orders SET row_version = row_version + 1, updated_at = $2 WHERE id = $1 AND status = 'ACCEPTED' RETURNING row_version`,
+          [current.id, input.now.toISOString()]
+        );
+        version = updated.rows[0]?.row_version ?? current.version;
+      }
+      await transactionClient.query('COMMIT');
+      return {
+        outcome: 'ESCALATED',
+        orderId: current.id,
+        status: 'ACCEPTED',
+        version,
+        readiness: {
+          customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
+          player: current.playerReadyAt ? 'READY' : 'NOT_READY'
+        },
+        staffTask
+      };
+    } catch (error) {
+      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      throw mapPostgresLifecycleError(error);
+    } finally {
+      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+        transactionClient.release();
+      }
+    }
+  }
 }
 
 export async function setOrderReadiness(input: {
@@ -775,6 +906,32 @@ export async function expireOrderCompletionConfirmation(input: {
     orderId: input.orderId,
     now: input.now
   });
+}
+
+export async function expireOrderReadiness(input: {
+  store: ServiceLifecycleStore;
+  orderId: string;
+  now: Date;
+}): Promise<ReadinessTimeoutResult> {
+  return input.store.commitReadinessTimeout({ orderId: input.orderId, now: input.now });
+}
+
+export async function handleReadinessTimeoutJob(input: {
+  job: OutboxJob;
+  store: ServiceLifecycleStore;
+  now: Date;
+}): Promise<ReadinessTimeoutResult> {
+  if (input.job.type !== 'READINESS_TIMEOUT') {
+    throw new ServiceLifecycleError('VALIDATION_ERROR', 'Expected a READINESS_TIMEOUT job.');
+  }
+  const payload = input.job.payload as { orderId?: unknown; readinessDueAt?: unknown };
+  if (!payload || typeof payload.orderId !== 'string' || typeof payload.readinessDueAt !== 'string') {
+    throw new ServiceLifecycleError('VALIDATION_ERROR', 'Readiness timeout payload is invalid.');
+  }
+  if (payload.orderId !== input.job.aggregateId) {
+    throw new ServiceLifecycleError('VALIDATION_ERROR', 'Readiness timeout aggregate does not match payload.');
+  }
+  return expireOrderReadiness({ store: input.store, orderId: payload.orderId, now: input.now });
 }
 
 export async function rejectLegacyStartService(input: {
@@ -1044,10 +1201,11 @@ async function insertOrderEvent(
   input: {
     orderId: string;
     sequence: number;
-    eventType: 'CUSTOMER_READY_CONFIRMED' | 'PLAYER_READY_CONFIRMED' | 'SERVICE_STARTED' | 'COMPLETION_REQUESTED' | 'COMPLETED';
+    eventType: 'CUSTOMER_READY_CONFIRMED' | 'PLAYER_READY_CONFIRMED' | 'READINESS_TIMED_OUT' | 'SERVICE_STARTED' | 'COMPLETION_REQUESTED' | 'COMPLETED';
     fromStatus: LifecycleOrderStatus;
     toStatus: LifecycleOrderStatus;
-    actorUserId: string;
+    actorUserId: string | null;
+    actorSource?: 'DISCORD_BOT' | 'SYSTEM_JOB';
     now: Date;
     payload: unknown;
   }
@@ -1060,7 +1218,7 @@ INSERT INTO order_events (
 )
 VALUES (
   gen_random_uuid(), $1, $2, $3::"OrderEventType", $4::"OrderStatus", $5::"OrderStatus",
-  $6, NULL, 'DISCORD_BOT', NULL, $7::jsonb, $8
+  $6, NULL, $9::"ActorSource", NULL, $7::jsonb, $8
 )
     `,
     [
@@ -1071,7 +1229,8 @@ VALUES (
       input.toStatus,
       input.actorUserId,
       JSON.stringify(input.payload),
-      input.now.toISOString()
+      input.now.toISOString(),
+      input.actorSource ?? 'DISCORD_BOT'
     ]
   );
 }
@@ -1380,6 +1539,56 @@ LIMIT 1
   )).rows[0];
   if (!row) {
     throw new ServiceLifecycleError('CONFLICT', 'Could not create completion review task.');
+  }
+  return mapStaffTaskRow(row);
+}
+
+async function insertOrGetReadinessTask(
+  client: ServiceLifecycleQueryClient,
+  input: { order: ServiceLifecycleOrderRecord; now: Date }
+): Promise<ServiceLifecycleStaffTask> {
+  const publicId = `TASK-${input.order.publicId}-READY`;
+  const contextSnapshot = {
+    orderId: input.order.id,
+    publicId: input.order.publicId,
+    status: input.order.status,
+    channelId: input.order.channelId,
+    voiceChannelId: input.order.voiceChannelId,
+    readinessDueAt: input.order.readinessDueAt,
+    customerReady: Boolean(input.order.customerReadyAt),
+    playerReady: Boolean(input.order.playerReadyAt)
+  };
+  const inserted = await client.query<ServiceLifecycleStaffTaskRow>(
+    `
+INSERT INTO staff_tasks (
+  id, public_id, type, reason_code, status, row_version,
+  order_id, gift_request_id, created_by_staff_id, claimed_by_staff_id,
+  resolved_by_staff_id, voice_channel_id, staff_channel_message_id,
+  context_snapshot, claimed_at, verified_at, resolved_at, created_at, updated_at
+)
+VALUES (
+  gen_random_uuid(), $1, 'ORDER_ASSIST', 'READINESS_TIMEOUT', 'OPEN', 1,
+  $2, NULL, NULL, NULL,
+  NULL, $3, NULL,
+  $4::jsonb, NULL, NULL, NULL, $5, $5
+)
+ON CONFLICT (public_id) DO NOTHING
+RETURNING id, public_id, type, reason_code, status
+    `,
+    [
+      publicId,
+      input.order.id,
+      input.order.voiceChannelId,
+      JSON.stringify(contextSnapshot),
+      input.now.toISOString()
+    ]
+  );
+  const row = inserted.rows[0] ?? (await client.query<ServiceLifecycleStaffTaskRow>(
+    `SELECT id, public_id, type, reason_code, status FROM staff_tasks WHERE public_id = $1 LIMIT 1`,
+    [publicId]
+  )).rows[0];
+  if (!row) {
+    throw new ServiceLifecycleError('CONFLICT', 'Could not create readiness support task.');
   }
   return mapStaffTaskRow(row);
 }
