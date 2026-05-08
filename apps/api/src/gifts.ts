@@ -5,6 +5,7 @@ import type { AccountStore } from './accounts.js';
 import { buildFundReservationDraft, resolveFundReservationMode, type FundReservationDraft } from './funding.js';
 import type { OrderRecord, OrderStore, OrderFundingAdapter } from './orders.js';
 import { AdapterError, type MockFundingAdapter } from './payment-adapter.js';
+import type { OutboxJob } from './outbox.js';
 import {
   registerSecureReadRoute,
   registerSecureWriteRoute,
@@ -36,7 +37,7 @@ export interface GiftRequestRecord {
   giftCatalogVersionId: string;
   senderId: string;
   receiverId: string;
-  status: 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'CAPTURED' | 'ANNOUNCED' | 'REJECTED';
   version: number;
   giftCodeSnapshot: string;
   giftNameSnapshot: string;
@@ -50,6 +51,10 @@ export interface GiftRequestRecord {
   executionCredentialExpiresAt?: string | null;
   approvedByStaffId?: string | null;
   approvedAt?: string | null;
+  capturedAt?: string | null;
+  announcedAt?: string | null;
+  broadcastChannelId?: string | null;
+  broadcastMessageId?: string | null;
   rejectedReason?: string | null;
   expiresAt: string;
   createdAt: string;
@@ -105,8 +110,61 @@ export interface GiftStore {
   }): Promise<void> | void;
   verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date }): Promise<GiftReviewResult> | GiftReviewResult;
   authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
+  getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> | GiftCaptureContext;
+  findCapture(giftRequestId: string): Promise<GiftCaptureResult | null> | GiftCaptureResult | null;
+  commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> | GiftCaptureResult;
+  markAnnounced(input: { giftRequestId: string; channelId: string; messageId: string; now: Date }): Promise<void> | void;
   rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }): Promise<{ status: 'REJECTED'; reason: string }> | { status: 'REJECTED'; reason: string };
 }
+
+export interface GiftCaptureContext {
+  request: GiftRequestRecord;
+  reservation: GiftReservationRecord;
+  externalUserId: string;
+  senderDisplayName: string;
+  receiverDisplayName: string;
+}
+
+export interface GiftCaptureResult {
+  status: 'CAPTURED';
+  giftRequestId: string;
+  reservation: {
+    reservationId: string;
+    amountMinor: number;
+    capturedMinor: number;
+    releasedMinor: number;
+    currency: string;
+    status: 'CAPTURED';
+    version: number;
+    expiresAt: string;
+  };
+  chargeOutcome: {
+    kind: 'DEBIT';
+    status: 'SUCCEEDED';
+    amountMinor: number;
+    currency: string;
+    providerReferenceDisplay: string;
+    observedAt: string;
+  };
+  consumptionId: string;
+  announcementJobId: string;
+}
+
+export interface GiftCaptureCommit {
+  giftRequestId: string;
+  expectedGiftVersion: number;
+  expectedReservationVersion: number;
+  provider: string;
+  providerTransactionRef: string;
+  providerIdempotencyKey: string;
+  actorStaffId: string;
+  broadcastChannelId: string;
+  senderDisplayName: string;
+  receiverDisplayName: string;
+  now: Date;
+}
+
+export type GiftCaptureFundingAdapter = Pick<MockFundingAdapter, 'captureHold' | 'createReservationDebit'>;
 
 export interface GiftReviewResult {
   status: 'VERIFIED';
@@ -160,20 +218,27 @@ export class InMemoryGiftStore implements GiftStore {
   readonly requests: GiftRequestRecord[];
   readonly reservations: GiftReservationRecord[];
   readonly staffTasks: GiftStaffTaskRecord[];
-  readonly captures: unknown[] = [];
-  readonly broadcasts: unknown[] = [];
+  readonly captures: GiftCaptureResult[] = [];
+  readonly consumptions: Array<{ id: string; giftRequestId: string; amountMinor: number; currency: string }> = [];
+  readonly broadcasts: OutboxJob[] = [];
   readonly approvals: GiftApprovalRecord[] = [];
+  private readonly externalUserIds: Record<string, string>;
+  private readonly displayNames: Record<string, string>;
 
   constructor(input: {
     catalog?: GiftCatalogRecord[];
     requests?: GiftRequestRecord[];
     reservations?: GiftReservationRecord[];
     staffTasks?: GiftStaffTaskRecord[];
+    externalUserIds?: Record<string, string>;
+    displayNames?: Record<string, string>;
   } = {}) {
     this.catalog = clone(input.catalog ?? []);
     this.requests = clone(input.requests ?? []);
     this.reservations = clone(input.reservations ?? []);
     this.staffTasks = clone(input.staffTasks ?? []);
+    this.externalUserIds = clone(input.externalUserIds ?? {});
+    this.displayNames = clone(input.displayNames ?? {});
   }
 
   listActiveCatalog(): GiftCatalogRecord[] {
@@ -242,7 +307,7 @@ export class InMemoryGiftStore implements GiftStore {
       if (!approval || request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.requiredLevel)
         || Date.parse(approval.expiresAt) <= input.now.getTime()
         || approval.payloadSnapshot.verificationPayloadHash !== request.verificationPayloadHash
-        || approval.payloadHash !== crypto.createHash('sha256').update(JSON.stringify(approval.payloadSnapshot)).digest('hex')) {
+        || approval.payloadHash !== hashStableJson(approval.payloadSnapshot)) {
         throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
       }
       approval.status = 'APPROVED';
@@ -267,6 +332,56 @@ export class InMemoryGiftStore implements GiftStore {
     if (task) this.staffTasks[this.staffTasks.indexOf(task)] = { ...task, status: 'APPROVED', version: task.version + 1, updatedAt: input.now.toISOString() };
     return { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel, approvalRequestId: null,
       executionCredential: { payloadHash: request.verificationPayloadHash!, expiresAt: request.executionCredentialExpiresAt! } };
+  }
+
+  getCaptureContext(giftRequestId: string): GiftCaptureContext {
+    const request = this.requireRequest(giftRequestId);
+    const reservation = this.requireReservation(giftRequestId);
+    const externalUserId = this.externalUserIds[request.senderId];
+    if (!externalUserId) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
+    return clone({ request, reservation, externalUserId,
+      senderDisplayName: this.displayNames[request.senderId] ?? request.senderId,
+      receiverDisplayName: this.displayNames[request.receiverId] ?? request.receiverId });
+  }
+
+  findCapture(giftRequestId: string): GiftCaptureResult | null {
+    const capture = this.captures.find((candidate) => candidate.giftRequestId === giftRequestId);
+    return capture ? clone(capture) : null;
+  }
+
+  commitCapture(input: GiftCaptureCommit): GiftCaptureResult {
+    const existing = this.findCapture(input.giftRequestId);
+    if (existing) return existing;
+    const request = this.requireRequest(input.giftRequestId);
+    const reservation = this.requireReservation(input.giftRequestId);
+    if (request.status !== 'APPROVED' || request.version !== input.expectedGiftVersion
+      || reservation.status !== 'ACTIVE' || reservation.version !== input.expectedReservationVersion
+      || reservation.amountMinor !== request.priceMinor) {
+      throw new GiftError('CONFLICT', 'Gift or reservation changed before capture.');
+    }
+    const consumptionId = deterministicUuid(`gift-consumption:${request.id}`);
+    const announcement = buildGiftAnnouncementJob(request, input.broadcastChannelId,
+      input.senderDisplayName, input.receiverDisplayName, input.now);
+    const result = buildCaptureResult({ request, reservation, consumptionId, announcementJobId: announcement.id,
+      providerTransactionRef: input.providerTransactionRef, now: input.now });
+    this.requests[this.requests.indexOf(request)] = { ...request, status: 'CAPTURED', version: request.version + 1,
+      capturedAt: input.now.toISOString(), updatedAt: input.now.toISOString() };
+    this.reservations[this.reservations.indexOf(reservation)] = { ...reservation, status: 'CAPTURED', version: reservation.version + 1,
+      settledAt: input.now.toISOString(), updatedAt: input.now.toISOString() };
+    this.captures.push(clone(result));
+    this.consumptions.push({ id: consumptionId, giftRequestId: request.id,
+      amountMinor: request.priceMinor, currency: request.currency });
+    this.broadcasts.push(announcement);
+    return clone(result);
+  }
+
+  markAnnounced(input: { giftRequestId: string; channelId: string; messageId: string; now: Date }): void {
+    const request = this.requireRequest(input.giftRequestId);
+    if (request.status === 'ANNOUNCED' && request.broadcastMessageId === input.messageId) return;
+    if (request.status !== 'CAPTURED') throw new GiftError('CONFLICT', 'Only captured gifts can be announced.');
+    this.requests[this.requests.indexOf(request)] = { ...request, status: 'ANNOUNCED', version: request.version + 1,
+      announcedAt: input.now.toISOString(), broadcastChannelId: input.channelId, broadcastMessageId: input.messageId,
+      updatedAt: input.now.toISOString() };
   }
 
   rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }) {
@@ -443,7 +558,7 @@ AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input
         if (!approval || snapshot.request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.required_level)
           || approval.expires_at.getTime() <= input.now.getTime()
           || approval.payload_snapshot.verificationPayloadHash !== snapshot.request.verificationPayloadHash
-          || approval.payload_hash !== crypto.createHash('sha256').update(JSON.stringify(approval.payload_snapshot)).digest('hex')) {
+          || approval.payload_hash !== hashStableJson(approval.payload_snapshot)) {
           throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
         }
         await client.query(`UPDATE approval_requests SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [approval.id, input.now]);
@@ -480,6 +595,109 @@ AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input
     } finally { client.release(); }
   }
 
+  async getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId });
+      const account = await client.query<{ external_user_id: string; sender_display_name: string; receiver_display_name: string }>(`
+SELECT ea.external_user_id, sender.display_name AS sender_display_name, receiver.display_name AS receiver_display_name
+FROM external_accounts ea
+JOIN users sender ON sender.id = ea.user_id
+JOIN users receiver ON receiver.id = $3
+WHERE ea.user_id = $1 AND ea.provider = $2 AND ea.status = 'ACTIVE'
+ORDER BY ea.verified_at DESC LIMIT 1`, [snapshot.request.senderId, snapshot.reservation.provider, snapshot.request.receiverId]);
+      if (!account.rows[0]) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
+      await client.query('COMMIT');
+      return { request: snapshot.request, reservation: snapshot.reservation, externalUserId: account.rows[0].external_user_id,
+        senderDisplayName: account.rows[0].sender_display_name, receiverDisplayName: account.rows[0].receiver_display_name };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async findCapture(giftRequestId: string): Promise<GiftCaptureResult | null> {
+    const result = await this.pool.query<GiftCaptureRow>(`${giftCaptureSelect}
+WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED'`, [giftRequestId]);
+    const row = result.rows[0];
+    return row ? mapGiftCaptureRow(row) : null;
+  }
+
+  async commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query<GiftCaptureRow>(`${giftCaptureSelect}
+WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED' FOR UPDATE OF tx`, [input.giftRequestId]);
+      if (existing.rows[0]) {
+        await client.query('COMMIT');
+        return mapGiftCaptureRow(existing.rows[0]);
+      }
+      const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
+      if (snapshot.request.status !== 'APPROVED' || snapshot.request.version !== input.expectedGiftVersion
+        || snapshot.reservation.status !== 'ACTIVE' || snapshot.reservation.version !== input.expectedReservationVersion
+        || snapshot.reservation.amountMinor !== snapshot.request.priceMinor) {
+        throw new GiftError('CONFLICT', 'Gift or reservation changed before capture.');
+      }
+      const transactionId = deterministicUuid(`gift-transaction:${snapshot.request.id}`);
+      const consumptionId = deterministicUuid(`gift-consumption:${snapshot.request.id}`);
+      await client.query(`INSERT INTO fund_reservation_events (
+        id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,
+        idempotency_key,actor_staff_id,actor_source,reason_code,created_at
+      ) VALUES ($1,$2,$3,'CAPTURED','ACTIVE','CAPTURED',$4,$5,$6,$7,'DASHBOARD','GIFT_APPROVED',$8)`, [
+        deterministicUuid(`gift-reservation-captured:${snapshot.request.id}`), snapshot.reservation.id,
+        snapshot.reservation.version + 1, snapshot.request.priceMinor, snapshot.reservation.version + 1,
+        `gift:reservation:capture:${snapshot.request.id}:v1`, input.actorStaffId, input.now
+      ]);
+      await client.query(`INSERT INTO external_transactions (
+        id,provider,type,user_id,gift_request_id,fund_reservation_id,external_ref,idempotency_key,
+        amount_minor,currency,status,request_metadata,response_metadata,initiated_at,settled_at,created_at,updated_at
+      ) VALUES ($1,$2,'GIFT_CHARGE',$3,$4,$5,$6,$7,$8,$9,'SUCCEEDED',$10::jsonb,$11::jsonb,$12,$12,$12,$12)`, [
+        transactionId, input.provider, snapshot.request.senderId, snapshot.request.id, snapshot.reservation.id,
+        input.providerTransactionRef, input.providerIdempotencyKey, snapshot.request.priceMinor, snapshot.request.currency,
+        JSON.stringify({ fundReservationId: snapshot.reservation.id, reservationVersion: snapshot.reservation.version }),
+        JSON.stringify({ providerTransactionRef: input.providerTransactionRef }), input.now
+      ]);
+      await client.query(`INSERT INTO consumption_entries (
+        id,user_id,entry_type,direction,gift_request_id,external_transaction_id,amount_minor,currency,
+        source_type,source_id,idempotency_key,occurred_at,created_at
+      ) VALUES ($1,$2,'GIFT_CHARGE','DEBIT',$3,$4,$5,$6,'GIFT_REQUEST',$3,$7,$8,$8)`, [
+        consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
+        snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
+      ]);
+      await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
+        captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
+      const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
+        input.senderDisplayName, input.receiverDisplayName, input.now);
+      await client.query(`INSERT INTO outbox_events (
+        id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,
+        attempt_count,max_attempts,available_at,created_at,updated_at
+      ) VALUES ($1,'GIFT_ANNOUNCEMENT','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$6,$6)`, [
+        announcement.id, snapshot.request.id, announcement.dedupeKey, JSON.stringify(announcement.payload),
+        announcement.maxAttempts, input.now
+      ]);
+      await client.query('COMMIT');
+      return buildCaptureResult({ request: snapshot.request, reservation: snapshot.reservation,
+        consumptionId, announcementJobId: announcement.id, providerTransactionRef: input.providerTransactionRef, now: input.now });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async markAnnounced(input: { giftRequestId: string; channelId: string; messageId: string; now: Date }): Promise<void> {
+    const result = await this.pool.query(`UPDATE gift_requests SET status = 'ANNOUNCED', row_version = row_version + 1,
+      announced_at = $2, broadcast_channel_id = $3, broadcast_message_id = $4, updated_at = $2
+      WHERE id = $1 AND status = 'CAPTURED'`, [input.giftRequestId, input.now, input.channelId, input.messageId]);
+    if (result.rowCount !== 1) {
+      const existing = await this.pool.query<{ status: string; broadcast_message_id: string | null }>(
+        `SELECT status, broadcast_message_id FROM gift_requests WHERE id = $1`, [input.giftRequestId]);
+      if (existing.rows[0]?.status === 'ANNOUNCED' && existing.rows[0].broadcast_message_id === input.messageId) return;
+      throw new GiftError(existing.rows[0] ? 'CONFLICT' : 'NOT_FOUND', 'Gift announcement state changed.');
+    }
+  }
+
   async rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }): Promise<{ status: 'REJECTED'; reason: string }> {
     const client = await this.pool.connect();
     try {
@@ -505,8 +723,9 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   store: GiftStore;
   orderStore: OrderStore;
   accountStore: AccountStore;
-  fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance'> & OrderFundingAdapter;
+  fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance' | 'captureHold' | 'createReservationDebit'> & OrderFundingAdapter;
   providerKey: string;
+  broadcastChannelId: string;
   now?: () => Date;
 }): void {
   if (!server.securityOptions) throw new Error('Gift routes require security options.');
@@ -554,9 +773,27 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     handler: async (request, actor) => {
       if (!actor.actorStaffId || !actor.actorLevel) throw new GiftError('PERMISSION_DENIED', 'A staff actor is required.');
       const body = parseDecisionBody(request.body);
+      const existingCapture = await options.store.findCapture(giftRequestIdParam(request));
+      if (existingCapture) return { data: existingCapture, statusCode: 200, commit: () => undefined };
+      const captureContext = await options.store.getCaptureContext(giftRequestIdParam(request));
+      if (captureContext.request.status === 'APPROVED') {
+        if (![captureContext.request.version, captureContext.request.version - 1].includes(body.expectedVersion)) {
+          throw new GiftError('CONFLICT', 'Gift approval version is stale.');
+        }
+        const recovered = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
+          providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,
+          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+        return { data: recovered, statusCode: 200, commit: () => undefined };
+      }
       const data = await options.store.authorizeGift({ giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
         actorStaffId: actor.actorStaffId, actorLevel: actor.actorLevel, reason: body.reason, now: now() });
-      return { data, statusCode: 'code' in data && data.code === 'APPROVAL_PENDING' ? 202 : 200, commit: () => undefined };
+      if ('code' in data && data.code === 'APPROVAL_PENDING') {
+        return { data, statusCode: 202, commit: () => undefined };
+      }
+      const captured = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
+        providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,
+        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+      return { data: captured, statusCode: 200, commit: () => undefined };
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
@@ -574,6 +811,71 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
+}
+
+export async function captureApprovedGift(input: {
+  store: GiftStore;
+  fundingAdapter: GiftCaptureFundingAdapter;
+  providerKey: string;
+  broadcastChannelId: string;
+  giftRequestId: string;
+  actorStaffId?: string;
+  now: Date;
+}): Promise<GiftCaptureResult> {
+  const existing = await input.store.findCapture(input.giftRequestId);
+  if (existing) return existing;
+  const context = await input.store.getCaptureContext(input.giftRequestId);
+  const { request, reservation } = context;
+  if (request.status !== 'APPROVED' || reservation.status !== 'ACTIVE'
+    || reservation.amountMinor !== request.priceMinor || reservation.currency !== request.currency) {
+    throw new GiftError('CONFLICT', 'Gift is not ready for capture.');
+  }
+  const providerIdempotencyKey = `debit:gift:${request.id}:v1`;
+  let providerTransactionRef: string | null;
+  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
+    if (!reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold reference is missing.');
+    const hold = input.fundingAdapter.captureHold({ holdRef: reservation.providerHoldRef,
+      idempotencyKey: providerIdempotencyKey, fundReservationId: reservation.id,
+      fundReservationVersion: reservation.version, amount: { amountMinor: request.priceMinor, currency: request.currency },
+      businessReference: request.id, reasonCode: 'GIFT_APPROVED' });
+    if (hold.status !== 'CAPTURED') throw new GiftError('CONFLICT', 'Provider hold was not fully captured.');
+    providerTransactionRef = hold.captureTransactionRef ?? null;
+  } else {
+    const transaction = input.fundingAdapter.createReservationDebit({ idempotencyKey: providerIdempotencyKey,
+      fundReservationId: reservation.id, fundReservationVersion: reservation.version,
+      externalUserId: context.externalUserId, amount: { amountMinor: request.priceMinor, currency: request.currency },
+      businessSource: 'GIFT', businessReference: request.id,
+      metadata: { giftRequestId: request.id, reservationId: reservation.id } });
+    if (transaction.status !== 'SUCCEEDED') throw new GiftError('CONFLICT', 'Provider debit did not succeed.');
+    providerTransactionRef = transaction.providerRef;
+  }
+  if (!providerTransactionRef) throw new GiftError('CONFLICT', 'Provider transaction reference is missing.');
+  return input.store.commitCapture({ giftRequestId: request.id, expectedGiftVersion: request.version,
+    expectedReservationVersion: reservation.version, provider: reservation.provider ?? input.providerKey,
+    providerTransactionRef, providerIdempotencyKey,
+    actorStaffId: input.actorStaffId ?? request.approvedByStaffId ?? request.verifiedByStaffId ?? request.senderId,
+    broadcastChannelId: input.broadcastChannelId,
+    senderDisplayName: context.senderDisplayName,
+    receiverDisplayName: context.receiverDisplayName,
+    now: input.now });
+}
+
+export function createGiftAnnouncementHandler(input: {
+  store: Pick<GiftStore, 'markAnnounced'>;
+  send: (message: { channelId: string; content: string; dedupeKey: string }) => Promise<{ messageId: string }>;
+  now?: () => Date;
+}) {
+  const now = input.now ?? (() => new Date());
+  return async (job: OutboxJob): Promise<void> => {
+    const payload = job.payload as Record<string, unknown>;
+    if (job.type !== 'GIFT_ANNOUNCEMENT' || typeof payload.giftRequestId !== 'string'
+      || typeof payload.channelId !== 'string' || typeof payload.content !== 'string') {
+      throw new GiftError('VALIDATION_ERROR', 'Gift announcement payload is invalid.');
+    }
+    const delivered = await input.send({ channelId: payload.channelId, content: payload.content, dedupeKey: job.dedupeKey });
+    await input.store.markAnnounced({ giftRequestId: payload.giftRequestId, channelId: payload.channelId,
+      messageId: delivered.messageId, now: now() });
+  };
 }
 
 export async function listGifts(input: {
@@ -797,9 +1099,92 @@ function buildGiftApproval(request: GiftRequestRecord, actorStaffId: string, req
     amountMinor: request.priceMinor, currency: request.currency };
   return { id, publicId: `APR-${id.replaceAll('-', '').slice(0, 18).toUpperCase()}`, action: 'GIFT_APPROVE',
     targetId: request.id, targetVersion: request.version, payloadSnapshot,
-    payloadHash: crypto.createHash('sha256').update(JSON.stringify(payloadSnapshot)).digest('hex'),
+    payloadHash: hashStableJson(payloadSnapshot),
     amountMinor: request.priceMinor, currency: request.currency, requestedByStaffId: actorStaffId,
     requiredLevel, reason, expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), createdAt: now.toISOString(), status: 'PENDING' };
+}
+
+function buildGiftAnnouncementJob(request: GiftRequestRecord, broadcastChannelId: string,
+  senderDisplayName: string, receiverDisplayName: string, now: Date): OutboxJob {
+  return {
+    id: deterministicUuid(`gift-announcement:${request.id}`), type: 'GIFT_ANNOUNCEMENT', status: 'PENDING',
+    payload: {
+      giftRequestId: request.id,
+      channelId: broadcastChannelId,
+      content: request.broadcastTemplateSnapshot
+        .replaceAll('{sender_name}', senderDisplayName)
+        .replaceAll('{receiver_name}', receiverDisplayName)
+        .replaceAll('{gift_name}', request.giftNameSnapshot)
+    },
+    aggregateType: 'GIFT_REQUEST', aggregateId: request.id,
+    dedupeKey: `gift:announcement:${request.id}:v1`, attempts: 0, maxAttempts: 8,
+    runAfter: now.toISOString(), lockedAt: null, lockedBy: null, lastError: null,
+    version: 1, createdAt: now.toISOString(), updatedAt: now.toISOString()
+  };
+}
+
+function buildCaptureResult(input: {
+  request: GiftRequestRecord;
+  reservation: GiftReservationRecord;
+  consumptionId: string;
+  announcementJobId: string;
+  providerTransactionRef: string;
+  now: Date;
+}): GiftCaptureResult {
+  return {
+    status: 'CAPTURED', giftRequestId: input.request.id,
+    reservation: {
+      reservationId: input.reservation.id, amountMinor: input.reservation.amountMinor,
+      capturedMinor: input.reservation.amountMinor, releasedMinor: 0, currency: input.reservation.currency,
+      status: 'CAPTURED', version: input.reservation.version + 1, expiresAt: input.reservation.expiresAt
+    },
+    chargeOutcome: {
+      kind: 'DEBIT', status: 'SUCCEEDED', amountMinor: input.request.priceMinor, currency: input.request.currency,
+      providerReferenceDisplay: maskProviderReference(input.providerTransactionRef), observedAt: input.now.toISOString()
+    },
+    consumptionId: input.consumptionId, announcementJobId: input.announcementJobId
+  };
+}
+
+function maskProviderReference(reference: string): string {
+  if (reference.length <= 8) return '***';
+  return `${reference.slice(0, 5)}***${reference.slice(-4)}`;
+}
+
+const giftCaptureSelect = `SELECT tx.gift_request_id, tx.external_ref, tx.amount_minor, tx.currency,
+  tx.settled_at, fr.id AS reservation_id, fr.amount_minor AS reservation_amount_minor,
+  fr.row_version AS reservation_version, fr.expires_at AS reservation_expires_at,
+  ce.id AS consumption_id, oe.id AS announcement_job_id
+FROM external_transactions tx
+JOIN fund_reservations fr ON fr.id = tx.fund_reservation_id
+JOIN consumption_entries ce ON ce.external_transaction_id = tx.id
+JOIN outbox_events oe ON oe.gift_request_id = tx.gift_request_id AND oe.event_type = 'GIFT_ANNOUNCEMENT'`;
+
+function mapGiftCaptureRow(row: GiftCaptureRow): GiftCaptureResult {
+  const observedAt = row.settled_at ? toIso(row.settled_at) : new Date(0).toISOString();
+  return {
+    status: 'CAPTURED', giftRequestId: row.gift_request_id,
+    reservation: { reservationId: row.reservation_id, amountMinor: Number(row.reservation_amount_minor),
+      capturedMinor: Number(row.reservation_amount_minor), releasedMinor: 0, currency: row.currency,
+      status: 'CAPTURED', version: row.reservation_version, expiresAt: toIso(row.reservation_expires_at) },
+    chargeOutcome: { kind: 'DEBIT', status: 'SUCCEEDED', amountMinor: Number(row.amount_minor), currency: row.currency,
+      providerReferenceDisplay: maskProviderReference(row.external_ref), observedAt },
+    consumptionId: row.consumption_id, announcementJobId: row.announcement_job_id
+  };
+}
+
+interface GiftCaptureRow {
+  gift_request_id: string;
+  external_ref: string;
+  amount_minor: string | number | bigint;
+  currency: string;
+  settled_at: Date | string | null;
+  reservation_id: string;
+  reservation_amount_minor: string | number | bigint;
+  reservation_version: number;
+  reservation_expires_at: Date | string;
+  consumption_id: string;
+  announcement_job_id: string;
 }
 
 async function loadGiftReviewSnapshot(client: PoolClient, selector: { taskId?: string; giftRequestId?: string }) {
@@ -898,4 +1283,16 @@ interface GiftCatalogRow {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function hashStableJson(value: unknown): string {
+  return crypto.createHash('sha256').update(JSON.stringify(sortJson(value))).digest('hex');
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => [key, sortJson(child)]));
 }

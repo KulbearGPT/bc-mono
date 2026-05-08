@@ -8,28 +8,40 @@ export type PaymentWebhookFundingAdapter = Pick<MockFundingAdapter, 'verifyWebho
 export interface PaymentWebhookStore {
   get(providerKey: string, providerEventId: string): PaymentWebhookAcknowledgement | null;
   set(providerKey: string, providerEventId: string, acknowledgement: PaymentWebhookAcknowledgement): void;
+  apply?(providerKey: string, event: VerifiedTransactionEvent): PaymentWebhookAcknowledgement;
 }
 
 export interface PaymentWebhookAcknowledgement {
   providerEventId: string;
   eventType: 'DEBIT_UPDATED' | 'REFUND_UPDATED';
-  status: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  status: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'PARTIALLY_REFUNDED' | 'REFUNDED';
   duplicate: boolean;
   applied: boolean;
   transactionId: string | null;
 }
 
-interface VerifiedTransactionEvent {
+export interface VerifiedTransactionEvent {
   eventId: string;
   resourceType: 'TRANSACTION';
   eventType: 'DEBIT_UPDATED' | 'REFUND_UPDATED';
   transactionStatus: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  providerRef: string;
+  originalProviderRef?: string;
+  amount?: { amountMinor: number; currency: string };
 }
 
 const rawWebhookBodies = new WeakMap<FastifyRequest, Buffer>();
 
 export class InMemoryPaymentWebhookStore implements PaymentWebhookStore {
   private readonly acknowledgements = new Map<string, PaymentWebhookAcknowledgement>();
+  readonly transactions: PaymentWebhookTransactionRecord[];
+  readonly refunds: Array<{ providerRef: string; originalProviderRef: string; status: string; amountMinor: number }> = [];
+  readonly consumptionAdjustments: Array<{ providerRef: string; amountMinor: number }> = [];
+  readonly commissionAdjustments: Array<{ providerRef: string; amountMinor: number }> = [];
+
+  constructor(input: { transactions?: PaymentWebhookTransactionRecord[] } = {}) {
+    this.transactions = clone(input.transactions ?? []);
+  }
 
   get(providerKey: string, providerEventId: string): PaymentWebhookAcknowledgement | null {
     return clone(this.acknowledgements.get(this.key(providerKey, providerEventId))) ?? null;
@@ -39,9 +51,67 @@ export class InMemoryPaymentWebhookStore implements PaymentWebhookStore {
     this.acknowledgements.set(this.key(providerKey, providerEventId), clone(acknowledgement));
   }
 
+  apply(_providerKey: string, event: VerifiedTransactionEvent): PaymentWebhookAcknowledgement {
+    if (event.eventType === 'DEBIT_UPDATED') {
+      const transaction = this.transactions.find((candidate) => candidate.providerRef === event.providerRef);
+      if (!transaction) return unapplied(event);
+      transaction.status = deriveTransactionStatus(event.transactionStatus, transaction.amountMinor, transaction.refundedMinor);
+      return acknowledgement(event, transaction.id, transaction.status);
+    }
+    const originalProviderRef = event.originalProviderRef;
+    if (!originalProviderRef || !event.amount) return unapplied(event);
+    const transaction = this.transactions.find((candidate) => candidate.providerRef === originalProviderRef);
+    if (!transaction) return unapplied(event);
+    let refund = this.refunds.find((candidate) => candidate.providerRef === event.providerRef);
+    if (!refund) {
+      refund = { providerRef: event.providerRef, originalProviderRef, status: event.transactionStatus,
+        amountMinor: event.amount.amountMinor };
+      this.refunds.push(refund);
+    } else {
+      refund.status = event.transactionStatus;
+    }
+    if (event.transactionStatus === 'SUCCEEDED') {
+      transaction.refundedMinor = this.refunds
+        .filter((candidate) => candidate.originalProviderRef === transaction.providerRef && candidate.status === 'SUCCEEDED')
+        .reduce((sum, candidate) => sum + candidate.amountMinor, 0);
+      transaction.status = deriveTransactionStatus('SUCCEEDED', transaction.amountMinor, transaction.refundedMinor);
+      if (!this.consumptionAdjustments.some((candidate) => candidate.providerRef === event.providerRef)) {
+        this.consumptionAdjustments.push({ providerRef: event.providerRef, amountMinor: event.amount.amountMinor });
+        this.commissionAdjustments.push({ providerRef: event.providerRef, amountMinor: event.amount.amountMinor });
+      }
+    }
+    return acknowledgement(event, transaction.id, event.transactionStatus);
+  }
+
   private key(providerKey: string, providerEventId: string): string {
     return `${providerKey}:${providerEventId}`;
   }
+}
+
+export interface PaymentWebhookTransactionRecord {
+  id: string;
+  providerRef: string;
+  status: PaymentWebhookAcknowledgement['status'];
+  amountMinor: number;
+  currency: string;
+  refundedMinor: number;
+}
+
+function unapplied(event: VerifiedTransactionEvent): PaymentWebhookAcknowledgement {
+  return acknowledgement(event, null, event.transactionStatus, false);
+}
+
+function acknowledgement(event: VerifiedTransactionEvent, transactionId: string | null,
+  status: PaymentWebhookAcknowledgement['status'], applied = true): PaymentWebhookAcknowledgement {
+  return { providerEventId: event.eventId, eventType: event.eventType, status,
+    duplicate: false, applied, transactionId };
+}
+
+function deriveTransactionStatus(providerStatus: VerifiedTransactionEvent['transactionStatus'], amountMinor: number,
+  refundedMinor: number): PaymentWebhookAcknowledgement['status'] {
+  if (refundedMinor >= amountMinor) return 'REFUNDED';
+  if (refundedMinor > 0) return 'PARTIALLY_REFUNDED';
+  return providerStatus;
 }
 
 export function registerPaymentWebhookRoutes(
@@ -111,14 +181,7 @@ export function registerPaymentWebhookRoutes(
         };
       }
 
-      const acknowledgement: PaymentWebhookAcknowledgement = {
-        providerEventId: event.eventId,
-        eventType: event.eventType,
-        status: event.transactionStatus,
-        duplicate: false,
-        applied: false,
-        transactionId: null
-      };
+      const acknowledgement = store.apply?.(providerKey, event) ?? unapplied(event);
       store.set(providerKey, event.eventId, acknowledgement);
       return {
         requestId,

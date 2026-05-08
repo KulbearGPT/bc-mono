@@ -67,15 +67,18 @@ function fixture(level: StaffAccount['level'], priceMinor = 200000, input: { ste
     verificationPayloadHash: 'will-be-replaced', executionCredentialExpiresAt: new Date(now.getTime() + 15 * 60_000).toISOString()
   } : {});
   const store = new InMemoryGiftStore({ catalog: [], requests: [req], reservations: [reservation(priceMinor)],
-    staffTasks: [{ ...task(verified ? 'VERIFIED' : 'CLAIMED'), claimedBy: input.claimedBy ?? staffId }] });
+    staffTasks: [{ ...task(verified ? 'VERIFIED' : 'CLAIMED'), claimedBy: input.claimedBy ?? staffId }],
+    externalUserIds: { [order().customerId]: 'mock-user-ok' } });
   if (verified) store.refreshVerificationHash(giftRequestId, now);
   const directory: StaffDirectory = { resolveByDiscord: () => staff(effectiveLevel) };
+  const adapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: reservation().id, version: 2 }] });
   const server = buildApiServer({ env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
     security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore(), staffDirectory: directory,
       stepUpVerifier: { verify: () => stepUp } } });
   registerGiftRoutes(server, { store, orderStore: new InMemoryOrderStore({ orders: [order()] }),
-    accountStore: new InMemoryAccountStore({}), fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider', now: () => now });
-  return { server, store, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
+    accountStore: new InMemoryAccountStore({}), fundingAdapter: adapter, providerKey: 'mock-provider',
+    broadcastChannelId: '900000000000000020', now: () => now });
+  return { server, store, adapter, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
 }
 
 describe('M3-US-02 gift review and authorization', () => {
@@ -103,8 +106,9 @@ describe('M3-US-02 gift review and authorization', () => {
     const approved = await l2.server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`, headers: headers('gift:approve:l2-boundary'),
       payload: { expectedVersion: 2, reason: 'Verified request' } });
     expect(approved.statusCode).toBe(200);
-    expect(approved.json()).toMatchObject({ data: { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel: 'L2_SUPERVISOR', approvalRequestId: null } });
-    expect(l2.store.captures).toHaveLength(0);
+    expect(approved.json()).toMatchObject({ data: { status: 'CAPTURED', giftRequestId,
+      reservation: { status: 'CAPTURED' }, chargeOutcome: { status: 'SUCCEEDED' } } });
+    expect(l2.store.captures).toHaveLength(1);
   });
 
   test('routes 200100 from L2 to an immutable L3 approval without capture', async () => {
@@ -120,7 +124,8 @@ describe('M3-US-02 gift review and authorization', () => {
     const continued = await server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`, headers: headers('gift:approve:l3-continue'),
       payload: { expectedVersion: 3, reason: 'Reviewed escalation and approved.' } });
     expect(continued.statusCode).toBe(200);
-    expect(continued.json()).toMatchObject({ data: { status: 'APPROVED', requiredLevel: 'L3_OPERATIONS', approvalRequestId: expect.any(String) } });
+    expect(continued.json()).toMatchObject({ data: { status: 'CAPTURED', giftRequestId } });
+    expect(store.captures).toHaveLength(1);
   });
 
   test('requires recent step-up for L3 direct authorization and rejects stale payload credentials', async () => {
@@ -148,7 +153,8 @@ describe('M3-US-02 gift review and authorization', () => {
     const approved = await l4.server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`, headers: headers('gift:approve:l4-direct'),
       payload: { expectedVersion: 2, reason: 'Owner verified and authorized.' } });
     expect(approved.statusCode).toBe(200);
-    expect(approved.json()).toMatchObject({ data: { status: 'APPROVED', requiredLevel: 'L4_ADMIN_OWNER' } });
+    expect(approved.json()).toMatchObject({ data: { status: 'CAPTURED', giftRequestId } });
+    expect(l4.store.captures).toHaveLength(1);
   });
 
   test('rejects a verified request with a reason and never captures or broadcasts', async () => {
@@ -159,5 +165,28 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(response.json()).toMatchObject({ data: { status: 'REJECTED', reason: 'Customer changed their mind.' } });
     expect(store.captures).toHaveLength(0);
     expect(store.broadcasts).toHaveLength(0);
+  });
+
+  test('resumes the same provider debit after an approved database commit temporarily fails', async () => {
+    const { server, store, adapter } = fixture('L2_SUPERVISOR', 200000, { verified: true });
+    const commit = store.commitCapture.bind(store);
+    let failOnce = true;
+    store.commitCapture = (input) => {
+      if (failOnce) {
+        failOnce = false;
+        throw new Error('temporary database failure');
+      }
+      return commit(input);
+    };
+    const first = await server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`,
+      headers: headers('gift:approve:db-failure'), payload: { expectedVersion: 2, reason: 'Verified request' } });
+    expect(first.statusCode).toBe(500);
+
+    const retry = await server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`,
+      headers: headers('gift:approve:db-recovery'), payload: { expectedVersion: 2, reason: 'Verified request' } });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({ data: { status: 'CAPTURED', giftRequestId } });
+    expect(store.captures).toHaveLength(1);
+    expect(adapter.getProviderBalance({ externalUserId: 'mock-user-ok' }).providerBalanceMinor).toBe(800000);
   });
 });

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
-import { PostgresGiftStore } from '@blackcat/api/gifts';
+import { PostgresGiftStore, captureApprovedGift } from '@blackcat/api/gifts';
+import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T13:00:00.000Z');
@@ -57,6 +58,26 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
       action: 'GIFT_APPROVE', required_level: 'L3_OPERATIONS', verification_payload_hash: expect.any(String), payload_hash: expect.any(String) });
     await expect(store.authorizeGift({ giftRequestId: giftId, expectedVersion: 2, actorStaffId: staffId,
       actorLevel: 'L3_OPERATIONS', reason: 'Stale retry.', now })).rejects.toThrowError(expect.objectContaining({ code: 'EXECUTION_CREDENTIAL_STALE' }));
+
+    const authorized = await store.authorizeGift({ giftRequestId: giftId, expectedVersion: 3, actorStaffId: staffId,
+      actorLevel: 'L3_OPERATIONS', reason: 'Escalation reviewed and approved.', now });
+    expect(authorized).toMatchObject({ status: 'APPROVED', action: 'READY_FOR_CAPTURE' });
+    const adapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: reservationId, version: 2 }] });
+    const captured = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
+    const replay = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
+    expect(replay).toEqual(captured);
+    const facts = await pool.query(`SELECT gr.status AS gift_status, fr.status AS reservation_status,
+      count(DISTINCT tx.id)::int AS transaction_count, count(DISTINCT ce.id)::int AS consumption_count,
+      count(DISTINCT oe.id)::int AS outbox_count
+      FROM gift_requests gr JOIN fund_reservations fr ON fr.gift_request_id = gr.id
+      LEFT JOIN external_transactions tx ON tx.gift_request_id = gr.id
+      LEFT JOIN consumption_entries ce ON ce.gift_request_id = gr.id
+      LEFT JOIN outbox_events oe ON oe.gift_request_id = gr.id
+      WHERE gr.id = $1 GROUP BY gr.status, fr.status`, [giftId]);
+    expect(facts.rows[0]).toEqual({ gift_status: 'CAPTURED', reservation_status: 'CAPTURED',
+      transaction_count: 1, consumption_count: 1, outbox_count: 1 });
   });
 });
 
@@ -67,6 +88,8 @@ async function seed() {
 INSERT INTO users (id, display_name, status, row_version, created_at, updated_at) VALUES
 ('${customerId}', 'Customer', 'ACTIVE', 1, now(), now()), ('${playerId}', 'Player', 'ACTIVE', 1, now(), now()),
 ('${staffId}', 'Supervisor', 'ACTIVE', 1, now(), now());
+INSERT INTO external_accounts (id,user_id,provider,external_user_id,status,active_user_provider_key,verified_at,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-000000003512','${customerId}','mock-provider','mock-user-ok','ACTIVE','${customerId}:mock-provider',now(),now(),now());
 INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
 VALUES ('${staffId}','${staffId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
 INSERT INTO orders (id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,

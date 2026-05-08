@@ -67,7 +67,8 @@ function fixture(input: { order?: OrderRecord; gifts?: GiftCatalogRecord[]; exte
   });
   registerGiftRoutes(server, {
     store: gifts, orderStore: orders, accountStore: accounts,
-    fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider', now: () => now
+    fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider',
+    broadcastChannelId: '900000000000000020', now: () => now
   });
   return { server, gifts };
 }

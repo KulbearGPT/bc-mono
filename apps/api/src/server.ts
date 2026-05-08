@@ -24,7 +24,7 @@ import {
 } from './admin-order-actions.js';
 import type { MockFundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
-import { registerGiftRoutes, type GiftStore } from './gifts.js';
+import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -89,8 +89,9 @@ export interface ApiServerOptions {
     store: GiftStore;
     orderStore: OrderStore;
     accountStore: AccountStore;
-    fundingAdapter: OrderFundingAdapter;
+    fundingAdapter: OrderFundingAdapter & GiftCaptureFundingAdapter;
     providerKey: string;
+    broadcastChannelId: string;
     now?: () => Date;
   };
 }

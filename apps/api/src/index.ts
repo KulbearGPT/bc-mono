@@ -48,6 +48,7 @@ const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: database
 const giftStore = new PostgresGiftStore(databasePool);
 const fundingAdapter = new MockFundingAdapter();
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
+const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 
 const server = buildApiServer({
   env: process.env,
@@ -106,7 +107,8 @@ const server = buildApiServer({
     orderStore,
     accountStore,
     fundingAdapter,
-    providerKey: 'mock-provider'
+    providerKey: 'mock-provider',
+    broadcastChannelId: giftBroadcastChannelId
   }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
