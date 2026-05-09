@@ -1,5 +1,7 @@
 export interface DashboardCapabilities {
   permissions: string[];
+  staffId?: string;
+  level?: string;
 }
 
 export interface DashboardNavigationItem {
@@ -47,7 +49,11 @@ export function createDashboardApiClient(options: {
       return request(path, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken ?? '' },
+        headers: {
+          'content-type': 'application/json',
+          'x-csrf-token': csrfToken ?? '',
+          'idempotency-key': `dashboard:${crypto.randomUUID()}`
+        },
         body: JSON.stringify(body)
       });
     }

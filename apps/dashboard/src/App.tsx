@@ -5,6 +5,7 @@ import {
   createDashboardApiClient,
   type DashboardCapabilities
 } from './dashboard-shell.js';
+import { SupportWorkbenchPage } from './SupportWorkbenchPage.js';
 
 export function App() {
   const manifest = buildDashboardManifest();
@@ -39,7 +40,9 @@ export function App() {
           <nav aria-label="管理导航" style={{ padding: 16, background: '#fff', borderRight: '1px solid #d9e1e3' }}>
             {state.navigation.map((item) => <a key={item.id} href={item.href} style={{ display: 'block', padding: '10px 8px', color: '#173238' }}>{item.label}</a>)}
           </nav>
-          <section style={{ padding: 24 }}><h1>运营概览</h1><p>当前页面与操作均按服务端员工权限显示。</p></section>
+          {window.location.pathname === '/support'
+            ? <SupportWorkbenchPage capabilities={result!.capabilities!} />
+            : <section style={{ padding: 24 }}><h1>运营概览</h1><p>当前页面与操作均按服务端员工权限显示。</p></section>}
         </div>
       )}
     </main>

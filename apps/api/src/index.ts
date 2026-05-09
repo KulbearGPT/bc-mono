@@ -17,6 +17,7 @@ import { PostgresPlayerEarningStore } from './player-earnings.js';
 import { PostgresCommissionStore } from './commissions.js';
 import { PostgresReferralAttributionStore } from './referrals.js';
 import { DiscordHttpOAuthProvider, PostgresDashboardAuthStore } from './dashboard-auth.js';
+import { PostgresSupportWorkbenchStore } from './support-workbench.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -149,7 +150,10 @@ const server = buildApiServer({
     guildId: dashboardOAuthConfig.guildId!,
     dashboardUrl: dashboardOAuthConfig.dashboardUrl!,
     secureCookies: process.env.NODE_ENV === 'production'
-  } : undefined
+  } : undefined,
+  supportWorkbench: {
+    store: new PostgresSupportWorkbenchStore(databasePool)
+  }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(

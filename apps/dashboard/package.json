@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./gift-review": "./src/gift-review.ts",
-    "./dashboard-shell": "./src/dashboard-shell.ts"
+    "./dashboard-shell": "./src/dashboard-shell.ts",
+    "./support-workbench": "./src/support-workbench.ts"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
