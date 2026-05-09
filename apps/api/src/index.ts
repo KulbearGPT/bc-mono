@@ -16,6 +16,7 @@ import { PostgresGiftStore } from './gifts.js';
 import { PostgresPlayerEarningStore } from './player-earnings.js';
 import { PostgresCommissionStore } from './commissions.js';
 import { PostgresReferralAttributionStore } from './referrals.js';
+import { DiscordHttpOAuthProvider, PostgresDashboardAuthStore } from './dashboard-auth.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -55,13 +56,25 @@ const referralStore = new PostgresReferralAttributionStore(databasePool);
 const fundingAdapter = new MockFundingAdapter();
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
+const dashboardOAuthConfig = {
+  clientId: process.env.DISCORD_OAUTH_CLIENT_ID?.trim(),
+  clientSecret: process.env.DISCORD_OAUTH_CLIENT_SECRET?.trim(),
+  redirectUri: process.env.DISCORD_OAUTH_REDIRECT_URI?.trim(),
+  guildId: process.env.DISCORD_GUILD_ID?.trim(),
+  dashboardUrl: process.env.DASHBOARD_URL?.trim(),
+  csrfSecret: process.env.DASHBOARD_CSRF_SECRET?.trim()
+};
+const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
+  ? new PostgresDashboardAuthStore({ client: databasePool, csrfSecret: dashboardOAuthConfig.csrfSecret! })
+  : undefined;
 
 const server = buildApiServer({
   env: process.env,
   security: {
     auditSink: new InMemoryAuditSink(),
     idempotencyStore: new InMemoryIdempotencyStore(),
-    staffDirectory: new PostgresStaffDirectory({ client: databasePool })
+    staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
+    dashboardSessions: dashboardAuthStore
   },
   catalog: {
     store: catalogStore
@@ -124,7 +137,19 @@ const server = buildApiServer({
   },
   referrals: {
     store: referralStore
-  }
+  },
+  dashboardAuth: dashboardAuthStore ? {
+    store: dashboardAuthStore,
+    oauth: new DiscordHttpOAuthProvider({
+      clientId: dashboardOAuthConfig.clientId!,
+      clientSecret: dashboardOAuthConfig.clientSecret!,
+      redirectUri: dashboardOAuthConfig.redirectUri!
+    }),
+    staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
+    guildId: dashboardOAuthConfig.guildId!,
+    dashboardUrl: dashboardOAuthConfig.dashboardUrl!,
+    secureCookies: process.env.NODE_ENV === 'production'
+  } : undefined
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(

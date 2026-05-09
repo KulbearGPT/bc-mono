@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./gift-review": "./src/gift-review.ts"
+    "./gift-review": "./src/gift-review.ts",
+    "./dashboard-shell": "./src/dashboard-shell.ts"
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",

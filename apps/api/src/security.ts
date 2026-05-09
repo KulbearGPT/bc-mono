@@ -17,6 +17,17 @@ export interface StaffDirectory {
   resolveByDiscord(input: { discordUserId: string; guildId: string }): StaffAccount | null | Promise<StaffAccount | null>;
 }
 
+export interface DashboardSessionResolver {
+  resolve(sessionToken: string, now?: Date):
+    | { ok: true; staff: StaffAccount; csrfToken: string }
+    | { ok: false; reason: 'AUTH_REQUIRED' | 'SESSION_REVOKED' }
+    | Promise<
+        | { ok: true; staff: StaffAccount; csrfToken: string }
+        | { ok: false; reason: 'AUTH_REQUIRED' | 'SESSION_REVOKED' }
+      >;
+  verifyCsrf(sessionToken: string, csrfToken: string): boolean | Promise<boolean>;
+}
+
 export interface StaffDirectoryQueryClient {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
 }
@@ -80,6 +91,7 @@ export interface SecurityOptions {
   auditSink?: AuditSink;
   idempotencyStore?: IdempotencyStore;
   staffDirectory?: StaffDirectory;
+  dashboardSessions?: DashboardSessionResolver;
   stepUpVerifier?: {
     verify(input: { request: FastifyRequest; actor: ActorContext }): boolean | Promise<boolean>;
   };
@@ -119,6 +131,9 @@ const levelRank: Record<StaffLevel, number> = {
 };
 
 const minimumPermissionLevel: Record<string, StaffLevel> = {
+  'staff.session.active': 'L1_SUPPORT',
+  'dashboard.view': 'L1_SUPPORT',
+  'staff_task.read': 'L1_SUPPORT',
   'catalog.read': 'L2_SUPERVISOR',
   'catalog.manage': 'L3_OPERATIONS',
   'staff_task.claim': 'L1_SUPPORT',
@@ -305,7 +320,7 @@ export function registerSecureReadRoute(
           outcome: 'REJECTED',
           reason: authResult.reason
         });
-        return sendError(reply, requestId, 401, 'AUTH_REQUIRED', 'Authentication or actor context is invalid.');
+        return sendAuthenticationError(reply, requestId, authResult.reason);
       }
 
       const actor = authResult.actor;
@@ -404,7 +419,7 @@ export function registerSecureWriteRoute(
           outcome: 'REJECTED',
           reason: authResult.reason
         });
-        return sendError(reply, requestId, 401, 'AUTH_REQUIRED', 'Authentication or actor context is invalid.');
+        return sendAuthenticationError(reply, requestId, authResult.reason);
       }
 
       const actor = authResult.actor;
@@ -416,6 +431,16 @@ export function registerSecureWriteRoute(
           reason: 'CLIENT_SOURCE_NOT_ACCEPTED'
         });
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
+      }
+
+      if (actor.actorSource === 'DASHBOARD' && !(await hasValidDashboardCsrf(request, securityOptions))) {
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: 'REJECTED',
+          reason: 'CSRF_REQUIRED'
+        });
+        return sendError(reply, requestId, 403, 'CSRF_REQUIRED', 'A valid CSRF token is required.');
       }
 
       const idempotencyKey = getHeader(request, 'idempotency-key');
@@ -695,6 +720,30 @@ async function authenticateActor(
   }
   const actorSource = actorSourceResult.actorSource;
 
+  if (actorSource === 'DASHBOARD' && securityOptions.dashboardSessions) {
+    const sessionToken = parseCookie(request, 'p0_session');
+    if (!sessionToken || !securityOptions.dashboardSessions) {
+      return { ok: false, reason: 'AUTH_REQUIRED' };
+    }
+    const session = await securityOptions.dashboardSessions.resolve(sessionToken);
+    if (!session.ok) return { ok: false, reason: session.reason };
+    const staff = session.staff;
+    return {
+      ok: true,
+      actor: {
+        actorUserId: staff.userId,
+        actorStaffId: staff.staffId,
+        actorLevel: staff.level,
+        actorSource: 'DASHBOARD',
+        clientId: 'DASHBOARD',
+        guildId: null,
+        discordUserId: null,
+        interactionId: null,
+        permissionsVersion: staff.permissionsVersion
+      }
+    };
+  }
+
   if (!expectedToken || authorization !== `Bearer ${expectedToken}`) {
     return { ok: false, reason: 'AUTH_REQUIRED' };
   }
@@ -756,6 +805,26 @@ async function authenticateActor(
       permissionsVersion: staff.permissionsVersion
     }
   };
+}
+
+async function hasValidDashboardCsrf(request: FastifyRequest, securityOptions: SecurityOptions): Promise<boolean> {
+  // Trusted service-token compatibility is retained only when Dashboard sessions are not configured.
+  if (!securityOptions.dashboardSessions) return true;
+  const sessionToken = parseCookie(request, 'p0_session');
+  const csrfCookie = parseCookie(request, 'p0_csrf');
+  const csrfHeader = getHeader(request, 'x-csrf-token');
+  if (!sessionToken || !csrfCookie || !csrfHeader || csrfCookie !== csrfHeader || !securityOptions.dashboardSessions) {
+    return false;
+  }
+  return securityOptions.dashboardSessions.verifyCsrf(sessionToken, csrfHeader);
+}
+
+function parseCookie(request: FastifyRequest, name: string): string | null {
+  for (const part of (request.headers.cookie ?? '').split(';')) {
+    const [key, ...value] = part.trim().split('=');
+    if (key === name && value.length > 0) return decodeURIComponent(value.join('='));
+  }
+  return null;
 }
 
 function hasPermission(level: StaffLevel | null, permission: string): boolean {
@@ -888,6 +957,13 @@ function sendError(
 ) {
   reply.code(statusCode);
   return buildErrorPayload(requestId, code, message, details);
+}
+
+function sendAuthenticationError(reply: FastifyReply, requestId: string, reason: string) {
+  if (reason === 'SESSION_REVOKED') {
+    return sendError(reply, requestId, 401, 'SESSION_REVOKED', 'The staff session is expired or has been revoked.');
+  }
+  return sendError(reply, requestId, 401, 'AUTH_REQUIRED', 'Authentication or actor context is invalid.');
 }
 
 function buildErrorPayload(

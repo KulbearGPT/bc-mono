@@ -28,6 +28,7 @@ import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } fr
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
 import { registerReferralAttributionRoutes, type ReferralAttributionStore } from './referrals.js';
+import { registerDashboardAuthRoutes, type DashboardAuthOptions } from './dashboard-auth.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -103,6 +104,7 @@ export interface ApiServerOptions {
   };
   commissions?: { store: CommissionStore; now?: () => Date };
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
+  dashboardAuth?: DashboardAuthOptions;
 }
 
 export interface HealthPayload {
@@ -281,6 +283,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     registerCommissionRoutes(server, options.commissions);
   }
   if(options.referrals){if(!server.securityOptions)throw new Error('Referral routes require buildApiServer({ security, referrals })');registerReferralAttributionRoutes(server,options.referrals);}
+  if (options.dashboardAuth) registerDashboardAuthRoutes(server, options.dashboardAuth);
 
   return server;
 }
