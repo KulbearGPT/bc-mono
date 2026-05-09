@@ -26,6 +26,7 @@ import type { MockFundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
 import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
+import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -99,6 +100,7 @@ export interface ApiServerOptions {
     store: PlayerEarningStore;
     now?: () => Date;
   };
+  commissions?: { store: CommissionStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -271,6 +273,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.playerEarnings) {
     if (!server.securityOptions) throw new Error('Player earning routes require buildApiServer({ security, playerEarnings })');
     registerPlayerEarningRoutes(server, options.playerEarnings);
+  }
+  if (options.commissions) {
+    if (!server.securityOptions) throw new Error('Commission routes require buildApiServer({ security, commissions })');
+    registerCommissionRoutes(server, options.commissions);
   }
 
   return server;

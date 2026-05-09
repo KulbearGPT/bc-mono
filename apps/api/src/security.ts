@@ -128,6 +128,8 @@ const minimumPermissionLevel: Record<string, StaffLevel> = {
   'gift.reject': 'L2_SUPERVISOR',
   'earnings.read': 'L2_SUPERVISOR',
   'earnings.manage': 'L3_OPERATIONS',
+  'commission.read': 'L3_OPERATIONS',
+  'commission.manage': 'L3_OPERATIONS',
   'refund.execute': 'L2_SUPERVISOR',
   'order.resolve': 'L2_SUPERVISOR',
   'order.reassign': 'L2_SUPERVISOR',

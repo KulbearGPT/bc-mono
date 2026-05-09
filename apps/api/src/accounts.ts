@@ -71,14 +71,26 @@ export interface BalanceResult {
 }
 
 export interface ConsumptionPageResult {
-  items: [];
-  nextCursor: null;
+  items: ConsumptionRecord[];
+  nextCursor: string | null;
 }
 
 export interface CurrentCommissionPageResult {
   summary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
-  items: [];
-  nextCursor: null;
+  items: BeneficiaryCommissionRecord[];
+  nextCursor: string | null;
+}
+
+export interface ConsumptionRecord {
+  id: string; type: 'ORDER' | 'GIFT' | 'REVERSAL'; sourceId: string; amountMinor: number; currency: string;
+  status: 'SUCCEEDED' | 'REVERSED'; targetDisplay: string; occurredAt: string; reversalOf: string | null;
+}
+
+export interface BeneficiaryCommissionRecord {
+  id: string; programType: 'PROMOTER_FIRST_PURCHASE' | 'PLAYER_LIFETIME'; sourceCustomerMasked: { display: string };
+  amountMinor: number; currency: string; status: 'PENDING' | 'CONFIRMED' | 'PAID' | 'REVERSED';
+  adjustments: Array<{ type: 'REVERSAL_DEBIT' | 'CORRECTION_DEBIT' | 'CORRECTION_CREDIT'; amountMinor: number; currency: string; createdAt: string }>;
+  netAmountMinor: number; version: number; createdAt: string;
 }
 
 export interface AccountStore {
@@ -87,7 +99,11 @@ export interface AccountStore {
   createBinding(input: AccountBindingRecord): Promise<AccountBindingRecord>;
   commitBinding?(input: { binding: AccountBindingRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
   sumActiveReservations(input: { userId: string; currency: string }): Promise<number>;
+  listConsumptions?(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult>;
+  listBeneficiaryCommissions?(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult>;
 }
+
+interface PageCursor { occurredAt: string; id: string }
 
 export interface AccountQueryClient {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
@@ -132,14 +148,20 @@ export class InMemoryAccountStore implements AccountStore {
   private readonly externalIndex = new Map<string, string>();
   private readonly reservations: FundReservationBalanceRecord[];
   private readonly reservationSource: (() => FundReservationBalanceRecord[]) | null;
+  private readonly consumptions: Array<ConsumptionRecord & { userId: string }>;
+  private readonly commissions: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>;
 
   constructor(input: {
     bindings?: AccountBindingRecord[];
     reservations?: FundReservationBalanceRecord[];
     reservationSource?: () => FundReservationBalanceRecord[];
+    consumptions?: Array<ConsumptionRecord & { userId: string }>;
+    commissions?: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>;
   }) {
     this.reservations = input.reservations ?? [];
     this.reservationSource = input.reservationSource ?? null;
+    this.consumptions = clone(input.consumptions ?? []);
+    this.commissions = clone(input.commissions ?? []);
     for (const binding of input.bindings ?? []) {
       this.bindings.set(discordKey(binding), clone(binding));
       this.externalIndex.set(externalKey(binding.provider, binding.externalUserId), discordKey(binding));
@@ -195,6 +217,17 @@ export class InMemoryAccountStore implements AccountStore {
       .filter((reservation) => reservation.currency === input.currency)
       .filter((reservation) => activeReservationStatuses.has(reservation.status))
       .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
+  }
+
+  async listConsumptions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
+    const page = paginate(this.consumptions.filter((item) => item.userId === input.userId), input.cursor, input.limit);
+    return { items: page.items.map(({ userId: _hidden, ...item }) => item), nextCursor: page.nextCursor };
+  }
+
+  async listBeneficiaryCommissions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult> {
+    const owned = this.commissions.filter((item) => item.beneficiaryUserId === input.userId);
+    const page = paginate(owned, input.cursor, input.limit);
+    return { summary: commissionSummary(owned), items: page.items.map(({ beneficiaryUserId: _hidden, ...item }) => item), nextCursor: page.nextCursor };
   }
 }
 
@@ -270,6 +303,49 @@ LIMIT 1
       [input.provider, input.externalUserId]
     );
     return result.rows[0] ? mapAccountBindingRow(result.rows[0]) : null;
+  }
+
+  async listConsumptions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
+    const result = await this.client.query<ConsumptionRow>(`SELECT ce.id,ce.entry_type,ce.source_id,ce.amount_minor,
+      ce.currency,ce.direction,ce.occurred_at,ce.reversal_of_entry_id,o.public_id AS order_public_id,
+      gr.gift_name_snapshot
+      FROM consumption_entries ce LEFT JOIN orders o ON o.id=ce.order_id
+      LEFT JOIN gift_requests gr ON gr.id=ce.gift_request_id
+      WHERE ce.user_id=$1 AND ($2::timestamptz IS NULL OR (ce.occurred_at,ce.id) < ($2,$3::uuid))
+      ORDER BY ce.occurred_at DESC,ce.id DESC LIMIT $4`, [input.userId, input.cursor?.occurredAt ?? null,
+      input.cursor?.id ?? null, input.limit + 1]);
+    const items = result.rows.slice(0, input.limit).map(mapConsumption);
+    return { items, nextCursor: result.rows.length > input.limit && items.length
+      ? encodeCursor({ occurredAt: items.at(-1)!.occurredAt, id: items.at(-1)!.id }) : null };
+  }
+
+  async listBeneficiaryCommissions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult> {
+    const result = await this.client.query<CommissionSelfRow>(`SELECT c.id,c.program_type_snapshot,c.amount_minor,c.currency,c.status,
+      c.row_version,c.created_at,source_user.display_name AS source_display,
+      COALESCE(jsonb_agg(jsonb_build_object('type',ca.type,'amountMinor',ca.amount_minor,'currency',ca.currency,
+        'createdAt',ca.created_at) ORDER BY ca.created_at) FILTER (WHERE ca.id IS NOT NULL),'[]'::jsonb) AS adjustments
+      FROM commissions c JOIN referral_attributions ra ON ra.id=c.referral_attribution_id
+      JOIN users source_user ON source_user.id=ra.referred_user_id
+      LEFT JOIN commission_adjustments ca ON ca.commission_id=c.id
+      WHERE c.beneficiary_user_id=$1 AND ($2::timestamptz IS NULL OR (c.created_at,c.id) < ($2,$3::uuid))
+      GROUP BY c.id,source_user.display_name ORDER BY c.created_at DESC,c.id DESC LIMIT $4`, [input.userId,
+      input.cursor?.occurredAt ?? null, input.cursor?.id ?? null, input.limit + 1]);
+    const summaryResult = await this.client.query<{ status: string; amount: string }>(`SELECT c.status::text,
+      COALESCE(SUM(GREATEST(0,c.amount_minor - COALESCE(a.debits,0) + COALESCE(a.credits,0))),0)::text AS amount
+      FROM commissions c LEFT JOIN LATERAL (SELECT
+        SUM(amount_minor) FILTER (WHERE type IN ('REVERSAL_DEBIT','CORRECTION_DEBIT')) AS debits,
+        SUM(amount_minor) FILTER (WHERE type='CORRECTION_CREDIT') AS credits
+        FROM commission_adjustments WHERE commission_id=c.id) a ON true
+      WHERE c.beneficiary_user_id=$1 GROUP BY c.status`, [input.userId]);
+    const items = result.rows.slice(0, input.limit).map(mapSelfCommission);
+    const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: result.rows[0]?.currency ?? 'CNY' };
+    for (const row of summaryResult.rows) {
+      if (row.status === 'PENDING') summary.pendingMinor = Number(row.amount);
+      if (row.status === 'CONFIRMED') summary.confirmedMinor = Number(row.amount);
+      if (row.status === 'PAID') summary.paidMinor = Number(row.amount);
+    }
+    return { summary, items, nextCursor: result.rows.length > input.limit && items.length
+      ? encodeCursor({ occurredAt: items.at(-1)!.createdAt, id: items.at(-1)!.id }) : null };
   }
 
   async createBinding(input: AccountBindingRecord): Promise<AccountBindingRecord> {
@@ -455,24 +531,23 @@ export async function getCurrentBalance(input: {
 export async function listCurrentUserConsumptions(input: {
   store: AccountStore;
   actor: ActorContext;
+  cursor?: string;
+  limit?: number;
 }): Promise<ConsumptionPageResult> {
-  await requireCurrentBinding(input.store, input.actor);
-  return {
-    items: [],
-    nextCursor: null
-  };
+  const binding = await requireCurrentBinding(input.store, input.actor);
+  if (!input.store.listConsumptions) return { items: [], nextCursor: null };
+  return input.store.listConsumptions({ userId: binding.userId, cursor: decodeCursor(input.cursor), limit: input.limit ?? 50 });
 }
 
 export async function listCurrentUserCommissions(input: {
   store: AccountStore;
   actor: ActorContext;
+  cursor?: string;
+  limit?: number;
 }): Promise<CurrentCommissionPageResult> {
-  await requireCurrentBinding(input.store, input.actor);
-  return {
-    summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
-    items: [],
-    nextCursor: null
-  };
+  const binding = await requireCurrentBinding(input.store, input.actor);
+  if (!input.store.listBeneficiaryCommissions) return { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' }, items: [], nextCursor: null };
+  return input.store.listBeneficiaryCommissions({ userId: binding.userId, cursor: decodeCursor(input.cursor), limit: input.limit ?? 50 });
 }
 
 export function registerAccountRoutes(
@@ -550,7 +625,7 @@ export function registerAccountRoutes(
     permission: 'consumption.self.read',
     action: 'LIST_CURRENT_USER_CONSUMPTIONS',
     targetType: 'consumption',
-    handler: (_request, actor) => listCurrentUserConsumptions({ store: options.store, actor }),
+    handler: (request, actor) => listCurrentUserConsumptions({ store: options.store, actor, ...pageQuery(request) }),
     mapError: mapAccountError
   });
 
@@ -560,7 +635,7 @@ export function registerAccountRoutes(
     permission: 'commission.self.read',
     action: 'LIST_CURRENT_USER_COMMISSIONS',
     targetType: 'commission',
-    handler: (_request, actor) => listCurrentUserCommissions({ store: options.store, actor }),
+    handler: (request, actor) => listCurrentUserCommissions({ store: options.store, actor, ...pageQuery(request) }),
     mapError: mapAccountError
   });
 }
@@ -817,6 +892,86 @@ function isUuid(value: string | null): boolean {
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function pageQuery(request: FastifyRequest): { cursor?: string; limit: number } {
+  const query = request.query as { cursor?: unknown; limit?: unknown };
+  const limit = Number(query.limit ?? 50);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new AccountError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
+  if (query.cursor !== undefined && typeof query.cursor !== 'string') throw new AccountError('VALIDATION_ERROR', 'cursor is invalid.');
+  return { cursor: query.cursor, limit };
+}
+
+function encodeCursor(cursor: PageCursor): string { return Buffer.from(JSON.stringify(cursor)).toString('base64url'); }
+
+function decodeCursor(value?: string): PageCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as PageCursor;
+    if (!parsed || !Number.isFinite(Date.parse(parsed.occurredAt)) || !isUuidLike(parsed.id)) throw new Error('invalid');
+    return parsed;
+  } catch {
+    throw new AccountError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+}
+
+function isUuidLike(value: string): boolean { return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value); }
+
+function paginate<T extends { id: string; occurredAt?: string; createdAt?: string }>(records: T[], cursor: PageCursor | null, limit: number) {
+  const sorted = clone(records).sort((left, right) => {
+    const leftAt = left.occurredAt ?? left.createdAt!;
+    const rightAt = right.occurredAt ?? right.createdAt!;
+    return rightAt.localeCompare(leftAt) || right.id.localeCompare(left.id);
+  });
+  const filtered = cursor ? sorted.filter((item) => {
+    const at = item.occurredAt ?? item.createdAt!;
+    return at < cursor.occurredAt || (at === cursor.occurredAt && item.id < cursor.id);
+  }) : sorted;
+  const items = filtered.slice(0, limit);
+  const last = items.at(-1);
+  return { items, nextCursor: filtered.length > limit && last
+    ? encodeCursor({ occurredAt: last.occurredAt ?? last.createdAt!, id: last.id }) : null };
+}
+
+function commissionSummary(records: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>) {
+  const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: records[0]?.currency ?? 'CNY' };
+  for (const record of records) {
+    if (record.status === 'PENDING') summary.pendingMinor += record.netAmountMinor;
+    if (record.status === 'CONFIRMED') summary.confirmedMinor += record.netAmountMinor;
+    if (record.status === 'PAID') summary.paidMinor += record.netAmountMinor;
+  }
+  return summary;
+}
+
+function mapConsumption(row: ConsumptionRow): ConsumptionRecord {
+  const type = row.entry_type === 'ORDER_CHARGE' ? 'ORDER' : row.entry_type === 'GIFT_CHARGE' ? 'GIFT' : 'REVERSAL';
+  return { id: row.id, type, sourceId: row.source_id,
+    amountMinor: row.direction === 'CREDIT' ? -Number(row.amount_minor) : Number(row.amount_minor), currency: row.currency,
+    status: row.direction === 'CREDIT' ? 'REVERSED' : 'SUCCEEDED',
+    targetDisplay: row.order_public_id ? `Order ${row.order_public_id}` : row.gift_name_snapshot ? `Gift ${row.gift_name_snapshot}` : 'Refund adjustment',
+    occurredAt: toIsoString(row.occurred_at), reversalOf: row.reversal_of_entry_id };
+}
+
+function mapSelfCommission(row: CommissionSelfRow): BeneficiaryCommissionRecord {
+  const adjustments = row.adjustments.map((item) => ({ type: item.type,
+    amountMinor: Number(item.amountMinor), currency: item.currency, createdAt: toIsoString(item.createdAt) }));
+  const net = adjustments.reduce((value, item) => item.type === 'CORRECTION_CREDIT'
+    ? value + item.amountMinor : value - item.amountMinor, Number(row.amount_minor));
+  return { id: row.id, programType: row.program_type_snapshot, sourceCustomerMasked: { display: 'Customer ***' },
+    amountMinor: Number(row.amount_minor), currency: row.currency, status: row.status, adjustments,
+    netAmountMinor: Math.max(0, net), version: row.row_version, createdAt: toIsoString(row.created_at) };
+}
+
+interface ConsumptionRow {
+  id: string; entry_type: 'ORDER_CHARGE' | 'GIFT_CHARGE' | 'REFUND_REVERSAL'; source_id: string;
+  amount_minor: string | number | bigint; currency: string; direction: 'DEBIT' | 'CREDIT'; occurred_at: Date | string;
+  reversal_of_entry_id: string | null; order_public_id: string | null; gift_name_snapshot: string | null;
+}
+
+interface CommissionSelfRow {
+  id: string; program_type_snapshot: BeneficiaryCommissionRecord['programType']; amount_minor: string | number | bigint;
+  currency: string; status: BeneficiaryCommissionRecord['status']; row_version: number; created_at: Date | string;
+  source_display: string; adjustments: Array<{ type: BeneficiaryCommissionRecord['adjustments'][number]['type']; amountMinor: number | string; currency: string; createdAt: Date | string }>;
 }
 
 function clone<T>(value: T): T {

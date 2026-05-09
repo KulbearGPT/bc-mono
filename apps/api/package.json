@@ -19,7 +19,8 @@
     "./admin-order-actions": "./src/admin-order-actions.ts",
     "./orders": "./src/orders.ts",
     "./gifts": "./src/gifts.ts",
-    "./player-earnings": "./src/player-earnings.ts"
+    "./player-earnings": "./src/player-earnings.ts",
+    "./commissions": "./src/commissions.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
