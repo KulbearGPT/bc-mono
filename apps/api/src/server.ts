@@ -25,6 +25,7 @@ import {
 import type { MockFundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
 import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
+import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -92,6 +93,10 @@ export interface ApiServerOptions {
     fundingAdapter: OrderFundingAdapter & GiftCaptureFundingAdapter;
     providerKey: string;
     broadcastChannelId: string;
+    now?: () => Date;
+  };
+  playerEarnings?: {
+    store: PlayerEarningStore;
     now?: () => Date;
   };
 }
@@ -261,6 +266,11 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
       throw new Error('Gift routes require buildApiServer({ security, gift })');
     }
     registerGiftRoutes(server, options.gift);
+  }
+
+  if (options.playerEarnings) {
+    if (!server.securityOptions) throw new Error('Player earning routes require buildApiServer({ security, playerEarnings })');
+    registerPlayerEarningRoutes(server, options.playerEarnings);
   }
 
   return server;

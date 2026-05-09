@@ -13,6 +13,7 @@ import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
 import { MockFundingAdapter } from './payment-adapter.js';
 import { InMemoryAuditSink, InMemoryIdempotencyStore, PostgresStaffDirectory } from './security.js';
 import { PostgresGiftStore } from './gifts.js';
+import { PostgresPlayerEarningStore } from './player-earnings.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -46,6 +47,7 @@ const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
 const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
 const giftStore = new PostgresGiftStore(databasePool);
+const playerEarningStore = new PostgresPlayerEarningStore(databasePool);
 const fundingAdapter = new MockFundingAdapter();
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
@@ -109,6 +111,9 @@ const server = buildApiServer({
     fundingAdapter,
     providerKey: 'mock-provider',
     broadcastChannelId: giftBroadcastChannelId
+  },
+  playerEarnings: {
+    store: playerEarningStore
   }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
