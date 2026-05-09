@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { OutboxJob } from './outbox.js';
 import { registerSecureWriteRoute } from './security.js';
+import { calculateReferralCommissionMinor, createEligibleReferralCommission } from './referrals.js';
 
 export type LifecycleOrderStatus = 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
 export type ReadinessValue = 'READY' | 'NOT_READY';
@@ -328,7 +329,7 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
         && candidate.currency === order.currency
         && candidate.eligibleOrderSpend;
     })) {
-      const amountMinor = calculateCommissionMinor({
+      const amountMinor = calculateReferralCommissionMinor({
         baseAmountMinor: order.amountMinor,
         fixedAmountMinor: attribution.fixedAmountMinor,
         rateBps: attribution.rateBps,
@@ -1444,73 +1445,9 @@ async function insertEligibleReferralCommission(
     now: Date;
   }
 ): Promise<void> {
-  const attribution = (await client.query<ServiceLifecycleReferralAttributionRow>(
-    `
-SELECT
-  attribution.id,
-  attribution.beneficiary_user_id,
-  program.program_type,
-  program.version AS program_version,
-  program.award_mode,
-  program.fixed_amount_minor,
-  program.rate_bps,
-  program.currency
-FROM referral_attributions AS attribution
-JOIN referral_program_versions AS program ON program.id = attribution.program_version_id
-WHERE attribution.referred_user_id = $1
-  AND attribution.status = 'ACTIVE'
-  AND program.status = 'ACTIVE'
-  AND program.eligible_order_spend = true
-  AND program.currency = $2
-ORDER BY attribution.bound_at ASC, attribution.id ASC
-LIMIT 1
-FOR UPDATE OF attribution
-    `,
-    [input.order.customerId, input.order.currency]
-  )).rows[0];
-  if (!attribution) {
-    return;
-  }
-  const amountMinor = calculateCommissionMinor({
-    baseAmountMinor: input.order.amountMinor,
-    fixedAmountMinor: toNullableNumber(attribution.fixed_amount_minor),
-    rateBps: attribution.rate_bps,
-    awardMode: attribution.award_mode
-  });
-  if (amountMinor <= 0) {
-    return;
-  }
-  await client.query(
-    `
-INSERT INTO commissions (
-  id, referral_attribution_id, beneficiary_user_id, source_consumption_entry_id,
-  program_type_snapshot, program_version_snapshot, award_mode_snapshot,
-  base_amount_minor, fixed_amount_minor, rate_bps, amount_minor,
-  currency, status, row_version, confirmed_at, paid_at, created_at, updated_at
-)
-VALUES (
-  gen_random_uuid(), $1, $2, $3,
-  $4::"ReferralProgramType", $5, $6::"ReferralAwardMode",
-  $7, $8, $9, $10,
-  $11, 'PENDING', 1, NULL, NULL, $12, $12
-)
-ON CONFLICT (source_consumption_entry_id) DO NOTHING
-    `,
-    [
-      attribution.id,
-      attribution.beneficiary_user_id,
-      input.consumptionEntryId,
-      attribution.program_type,
-      attribution.program_version,
-      attribution.award_mode,
-      input.order.amountMinor,
-      toNullableNumber(attribution.fixed_amount_minor),
-      attribution.rate_bps,
-      amountMinor,
-      input.order.currency,
-      input.now.toISOString()
-    ]
-  );
+  await createEligibleReferralCommission(client,{referredUserId:input.order.customerId,
+    sourceConsumptionEntryId:input.consumptionEntryId,baseAmountMinor:input.order.amountMinor,
+    currency:input.order.currency,source:'ORDER',now:input.now});
 }
 
 async function insertOrGetCompletionReviewTask(
@@ -1663,18 +1600,6 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function calculateCommissionMinor(input: {
-  baseAmountMinor: number;
-  fixedAmountMinor: number | null;
-  rateBps: number | null;
-  awardMode: 'FIXED_MINOR' | 'NET_SPEND_BPS';
-}): number {
-  if (input.awardMode === 'FIXED_MINOR') {
-    return Math.max(0, input.fixedAmountMinor ?? 0);
-  }
-  return Math.floor(input.baseAmountMinor * Math.max(0, input.rateBps ?? 0) / 10_000);
-}
-
 interface ServiceLifecycleOrderRow {
   id: string;
   public_id: string;
@@ -1712,16 +1637,6 @@ interface ServiceLifecycleReservationRow {
   row_version: number;
 }
 
-interface ServiceLifecycleReferralAttributionRow {
-  id: string;
-  beneficiary_user_id: string;
-  program_type: 'PROMOTER_FIRST_PURCHASE' | 'PLAYER_LIFETIME';
-  program_version: number;
-  award_mode: 'FIXED_MINOR' | 'NET_SPEND_BPS';
-  fixed_amount_minor: number | string | bigint | null;
-  rate_bps: number | null;
-  currency: string;
-}
 
 interface ServiceLifecycleStaffTaskRow {
   id: string;

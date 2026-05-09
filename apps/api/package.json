@@ -20,7 +20,8 @@
     "./orders": "./src/orders.ts",
     "./gifts": "./src/gifts.ts",
     "./player-earnings": "./src/player-earnings.ts",
-    "./commissions": "./src/commissions.ts"
+    "./commissions": "./src/commissions.ts",
+    "./referrals": "./src/referrals.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

@@ -130,6 +130,8 @@ const minimumPermissionLevel: Record<string, StaffLevel> = {
   'earnings.manage': 'L3_OPERATIONS',
   'commission.read': 'L3_OPERATIONS',
   'commission.manage': 'L3_OPERATIONS',
+  'referral.read': 'L2_SUPERVISOR',
+  'referral.manage': 'L3_OPERATIONS',
   'refund.execute': 'L2_SUPERVISOR',
   'order.resolve': 'L2_SUPERVISOR',
   'order.reassign': 'L2_SUPERVISOR',
@@ -482,7 +484,9 @@ export function registerSecureWriteRoute(
         }
       }
 
-      const fingerprint = buildRequestFingerprint(request, actor, route.fingerprintBody?.(request));
+      let fingerprintBody:unknown;
+      try{fingerprintBody=route.fingerprintBody?.(request);}catch(error){const mapped=route.mapError?.(error);await appendAudit(auditSink,{...baseAudit,...buildAuditContext(actor),outcome:'REJECTED',reason:mapped?.code??'VALIDATION_ERROR'});return sendError(reply,requestId,mapped?.statusCode??400,mapped?.code??'VALIDATION_ERROR',mapped?.message??'The request payload is invalid.',mapped?.details??[]);}
+      const fingerprint = buildRequestFingerprint(request, actor, fingerprintBody);
       const scopeKey = buildIdempotencyScopeKey(idempotencyKey, route.action, actor);
       if (route.retryCommitFailures) {
         idempotencyStore.retryFailed?.(scopeKey, fingerprint, 'COMMIT_FAILED');

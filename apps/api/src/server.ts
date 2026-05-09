@@ -27,6 +27,7 @@ import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from 
 import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
+import { registerReferralAttributionRoutes, type ReferralAttributionStore } from './referrals.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -101,6 +102,7 @@ export interface ApiServerOptions {
     now?: () => Date;
   };
   commissions?: { store: CommissionStore; now?: () => Date };
+  referrals?: { store: ReferralAttributionStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -278,6 +280,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) throw new Error('Commission routes require buildApiServer({ security, commissions })');
     registerCommissionRoutes(server, options.commissions);
   }
+  if(options.referrals){if(!server.securityOptions)throw new Error('Referral routes require buildApiServer({ security, referrals })');registerReferralAttributionRoutes(server,options.referrals);}
 
   return server;
 }

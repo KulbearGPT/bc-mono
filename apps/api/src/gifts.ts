@@ -15,6 +15,7 @@ import {
   type AuditSink
 } from './security.js';
 import type { StaffLevel } from './security.js';
+import { createEligibleReferralCommission } from './referrals.js';
 
 export type GiftCatalogStatus = 'DRAFT' | 'ACTIVE' | 'RETIRED';
 
@@ -732,6 +733,9 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
         snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
       ]);
+      await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
+        sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
+        currency:snapshot.request.currency,source:'GIFT',now:input.now});
       await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
         captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
       const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
