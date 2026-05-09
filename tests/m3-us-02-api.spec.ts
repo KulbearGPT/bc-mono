@@ -165,6 +165,7 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(response.json()).toMatchObject({ data: { status: 'REJECTED', reason: 'Customer changed their mind.' } });
     expect(store.captures).toHaveLength(0);
     expect(store.broadcasts).toHaveLength(0);
+    expect(store.reservations[0]).toMatchObject({ status: 'RELEASED', version: 3 });
   });
 
   test('resumes the same provider debit after an approved database commit temporarily fails', async () => {

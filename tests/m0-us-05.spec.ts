@@ -288,7 +288,8 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       'worker-a',
       1,
       [
-        'GIFT_ANNOUNCEMENT',
+      'GIFT_ANNOUNCEMENT',
+      'GIFT_EXPIRY',
         'DISPATCH_MESSAGE',
         'DISPATCH_TIMEOUT',
         'READINESS_TIMEOUT',

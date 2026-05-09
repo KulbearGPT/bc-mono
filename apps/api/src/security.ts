@@ -94,7 +94,7 @@ export interface SecureRouteOptions {
   successReason?: (request: FastifyRequest) => string | null;
   acceptedSources?: ActorSource[];
   fingerprintBody?: (request: FastifyRequest) => unknown;
-  mapError?: (error: unknown) => { statusCode: number; code: string; message: string } | null;
+  mapError?: (error: unknown) => { statusCode: number; code: string; message: string; details?: Array<{ field: string; reason: string }> } | null;
   requiresRecentStepUp?: boolean | ((request: FastifyRequest, actor: ActorContext) => boolean);
   retryCommitFailures?: boolean;
   auditSnapshots?: (
@@ -360,7 +360,8 @@ export function registerSecureReadRoute(
           requestId,
           mappedError?.statusCode ?? 500,
           mappedError?.code ?? 'OPERATION_FAILED',
-          mappedError?.message ?? 'The operation failed.'
+          mappedError?.message ?? 'The operation failed.',
+          mappedError?.details ?? []
         );
       }
     }
@@ -523,9 +524,10 @@ export function registerSecureWriteRoute(
         code: string,
         message: string,
         reason: string,
-        statusCode = 500
+        statusCode = 500,
+        details: Array<{ field: string; reason: string }> = []
       ) => {
-        const failedPayload = buildErrorPayload(requestId, code, message);
+        const failedPayload = buildErrorPayload(requestId, code, message, details);
         try {
           await appendAudit(auditSink, {
             ...baseAudit,
@@ -550,7 +552,8 @@ export function registerSecureWriteRoute(
           mappedError?.code ?? 'OPERATION_FAILED',
           mappedError?.message ?? 'The operation failed before it could be completed.',
           mappedError?.code ?? 'HANDLER_FAILED',
-          mappedError?.statusCode ?? 500
+          mappedError?.statusCode ?? 500,
+          mappedError?.details ?? []
         );
       }
 
@@ -578,7 +581,7 @@ export function registerSecureWriteRoute(
       } catch (error) {
         const mappedError = route.mapError?.(error);
         if (mappedError) {
-          return failReservedRequest(mappedError.code, mappedError.message, mappedError.code, mappedError.statusCode);
+          return failReservedRequest(mappedError.code, mappedError.message, mappedError.code, mappedError.statusCode, mappedError.details ?? []);
         }
         const failureCode = stagedWrite.commit ? 'COMMIT_FAILED' : 'AUDIT_APPEND_FAILED';
         return failReservedRequest(

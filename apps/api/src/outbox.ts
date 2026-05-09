@@ -2,6 +2,7 @@ import type { ActorContext, AuditSink, StaffLevel } from './security.js';
 
 export type JobType =
   | 'GIFT_ANNOUNCEMENT'
+  | 'GIFT_EXPIRY'
   | 'DISPATCH_MESSAGE'
   | 'DISPATCH_TIMEOUT'
   | 'READINESS_TIMEOUT'
@@ -70,6 +71,7 @@ const levelRank: Record<StaffLevel, number> = {
 
 const deliveryJobTypes = new Set<JobType>([
   'GIFT_ANNOUNCEMENT',
+  'GIFT_EXPIRY',
   'DISPATCH_MESSAGE',
   'DISPATCH_TIMEOUT',
   'READINESS_TIMEOUT',

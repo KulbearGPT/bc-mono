@@ -57,8 +57,8 @@ SELECT
   (SELECT count(*) FROM fund_reservation_events WHERE fund_reservation_id = $2)::int AS events,
   (SELECT count(*) FROM staff_tasks WHERE gift_request_id = $1)::int AS tasks,
   (SELECT count(*) FROM external_transactions WHERE gift_request_id = $1)::int AS captures,
-  (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1)::int AS broadcasts`, [request().id, reservation().id]);
-    expect(result.rows[0]).toEqual({ requests: 1, reservations: 1, events: 2, tasks: 1, captures: 0, broadcasts: 0 });
+  (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1 AND event_type='GIFT_EXPIRY')::int AS expiry_jobs`, [request().id, reservation().id]);
+    expect(result.rows[0]).toEqual({ requests: 1, reservations: 1, events: 2, tasks: 1, captures: 0, expiry_jobs: 1 });
   });
 
   test('rolls back every business row when the staff task insert fails', async () => {

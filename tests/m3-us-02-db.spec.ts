@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
-import { PostgresGiftStore, captureApprovedGift } from '@blackcat/api/gifts';
+import { PostgresGiftStore, captureApprovedGift, terminateGiftRequest } from '@blackcat/api/gifts';
 import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 
 const execFile = promisify(execFileCallback);
@@ -17,6 +17,8 @@ const orderId = '00000000-0000-0000-0000-000000003504';
 const giftId = '00000000-0000-0000-0000-000000003505';
 const reservationId = '00000000-0000-0000-0000-000000003506';
 const taskId = '00000000-0000-0000-0000-000000003507';
+const releaseGiftId = '00000000-0000-0000-0000-000000003515';
+const releaseReservationId = '00000000-0000-0000-0000-000000003516';
 let root = '';
 let data = '';
 let port = 0;
@@ -79,6 +81,20 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
     expect(facts.rows[0]).toEqual({ gift_status: 'CAPTURED', reservation_status: 'CAPTURED',
       transaction_count: 1, consumption_count: 1, outbox_count: 1 });
   });
+
+  test('atomically releases a pending gift without creating financial side effects', async () => {
+    const store=new PostgresGiftStore(pool);const released=await terminateGiftRequest({store,giftRequestId:releaseGiftId,
+      expectedVersion:1,terminalStatus:'WITHDRAWN',reason:'CUSTOMER_WITHDREW_REQUEST',actorUserId:customerId,now});
+    const replay=await terminateGiftRequest({store,giftRequestId:releaseGiftId,expectedVersion:1,terminalStatus:'WITHDRAWN',
+      reason:'CUSTOMER_WITHDREW_REQUEST',actorUserId:customerId,now});expect(replay).toEqual(released);
+    const facts=await pool.query(`SELECT gr.status AS gift_status,fr.status AS reservation_status,fr.row_version,
+      (SELECT count(*)::int FROM fund_reservation_events WHERE fund_reservation_id=fr.id) AS event_count,
+      (SELECT count(*)::int FROM external_transactions WHERE gift_request_id=gr.id) AS charge_count,
+      (SELECT count(*)::int FROM consumption_entries WHERE gift_request_id=gr.id) AS consumption_count,
+      (SELECT count(*)::int FROM outbox_events WHERE gift_request_id=gr.id) AS outbox_count
+      FROM gift_requests gr JOIN fund_reservations fr ON fr.gift_request_id=gr.id WHERE gr.id=$1`,[releaseGiftId]);
+    expect(facts.rows[0]).toEqual({gift_status:'WITHDRAWN',reservation_status:'RELEASED',row_version:3,event_count:3,charge_count:0,consumption_count:0,outbox_count:0});
+  });
 });
 
 async function seed() {
@@ -100,14 +116,22 @@ INSERT INTO gift_catalog_items (id,code,created_at,updated_at) VALUES ('${itemId
 INSERT INTO gift_catalog_versions (id,gift_catalog_item_id,version,status,active_gift_key,name,price_minor,currency,broadcast_template,created_by_staff_id,activated_at,created_at)
 VALUES ('${versionId}','${itemId}',1,'ACTIVE','${itemId}','星光礼盒',200100,'CNY','{sender_name}','${staffId}',now(),now());
 INSERT INTO gift_requests (id,public_id,order_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,expires_at,created_at,updated_at)
-VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CNY','{sender_name}',now()+interval '30 minutes',now(),now());
+VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CNY','{sender_name}',now()+interval '30 minutes',now(),now()),
+('${releaseGiftId}','G-3515','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CNY','{sender_name}',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservations (id,user_id,source_type,gift_request_id,mode,provider,amount_minor,currency,status,row_version,idempotency_key,expires_at,created_at,updated_at)
-VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION_FALLBACK','mock-provider',200100,'CNY','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now());
+VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION_FALLBACK','mock-provider',200100,'CNY','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now()),
+('${releaseReservationId}','${customerId}','GIFT','${releaseGiftId}','LOCAL_RESERVATION_FALLBACK','mock-provider',200100,'CNY','PENDING',1,'gift:3515',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)
 VALUES ('00000000-0000-0000-0000-000000003510','${reservationId}',1,'CREATED',NULL,'PENDING',200100,1,'gift:3505:created','${customerId}','DISCORD_BOT',now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)
 VALUES ('00000000-0000-0000-0000-000000003511','${reservationId}',2,'ACTIVATED','PENDING','ACTIVE',0,2,'gift:3505:activated','${customerId}','DISCORD_BOT',now());
+INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at) VALUES
+('00000000-0000-0000-0000-000000003517','${releaseReservationId}',1,'CREATED',NULL,'PENDING',200100,1,'gift:3515:created','${customerId}','DISCORD_BOT',now()),
+('00000000-0000-0000-0000-000000003518','${releaseReservationId}',2,'ACTIVATED','PENDING','ACTIVE',0,2,'gift:3515:activated','${customerId}','DISCORD_BOT',now());
 INSERT INTO staff_tasks (id,public_id,type,reason_code,status,row_version,order_id,gift_request_id,claimed_by_staff_id,voice_channel_id,context_snapshot,claimed_at,created_at,updated_at)
 VALUES ('${taskId}','T-GIFT-3507','GIFT_REVIEW','GIFT_REQUESTED','CLAIMED',2,'${orderId}','${giftId}','${staffId}','900000000000000005',
-'{"orderId":"${orderId}","reservationId":"${reservationId}"}'::jsonb,now(),now(),now());`);
+'{"orderId":"${orderId}","reservationId":"${reservationId}"}'::jsonb,now(),now(),now());
+INSERT INTO staff_tasks (id,public_id,type,reason_code,status,row_version,order_id,gift_request_id,voice_channel_id,context_snapshot,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-000000003519','T-GIFT-3519','GIFT_REVIEW','GIFT_REQUESTED','OPEN',1,'${orderId}','${releaseGiftId}','900000000000000005',
+'{"orderId":"${orderId}","reservationId":"${releaseReservationId}"}'::jsonb,now(),now());`);
 }

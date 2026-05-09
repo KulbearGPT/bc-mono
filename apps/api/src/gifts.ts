@@ -37,7 +37,7 @@ export interface GiftRequestRecord {
   giftCatalogVersionId: string;
   senderId: string;
   receiverId: string;
-  status: 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'CAPTURED' | 'ANNOUNCED' | 'REJECTED';
+  status: 'PENDING_REVIEW' | 'PENDING_APPROVAL' | 'APPROVED' | 'CAPTURED' | 'ANNOUNCED' | 'REJECTED' | 'EXPIRED' | 'WITHDRAWN' | 'FAILED' | 'REVERSED';
   version: number;
   giftCodeSnapshot: string;
   giftNameSnapshot: string;
@@ -66,7 +66,7 @@ export interface GiftStaffTaskRecord {
   publicId: string;
   type: 'GIFT_REVIEW';
   reasonCode: 'GIFT_REQUESTED';
-  status: 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  status: 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'RESOLVED' | 'CANCELLED';
   version: number;
   orderId: string;
   giftRequestId: string;
@@ -115,6 +115,19 @@ export interface GiftStore {
   commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> | GiftCaptureResult;
   markAnnounced(input: { giftRequestId: string; channelId: string; messageId: string; now: Date }): Promise<void> | void;
   rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }): Promise<{ status: 'REJECTED'; reason: string }> | { status: 'REJECTED'; reason: string };
+  getTerminationContext(giftRequestId: string): Promise<{ request: GiftRequestRecord; reservation: GiftReservationRecord }> | { request: GiftRequestRecord; reservation: GiftReservationRecord };
+  commitTermination(input: GiftTerminationCommit): Promise<GiftTerminationResult> | GiftTerminationResult;
+}
+
+export interface GiftTerminationCommit {
+  giftRequestId: string; expectedGiftVersion: number; expectedReservationVersion: number;
+  terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
+  actorUserId?: string; actorStaffId?: string; now: Date;
+}
+
+export interface GiftTerminationResult {
+  giftRequestId: string; status: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
+  reservation: { reservationId: string; status: 'RELEASED' | 'EXPIRED'; amountMinor: number; releasedMinor: number; currency: string; version: number };
 }
 
 export interface GiftCaptureContext {
@@ -164,7 +177,7 @@ export interface GiftCaptureCommit {
   now: Date;
 }
 
-export type GiftCaptureFundingAdapter = Pick<MockFundingAdapter, 'captureHold' | 'createReservationDebit'>;
+export type GiftCaptureFundingAdapter = Pick<MockFundingAdapter, 'captureHold' | 'createReservationDebit' | 'releaseHold'>;
 
 export interface GiftReviewResult {
   status: 'VERIFIED';
@@ -206,7 +219,7 @@ export class GiftError extends Error {
     | 'EXECUTION_CREDENTIAL_STALE'
     | 'INSUFFICIENT_AVAILABLE_BALANCE';
 
-  constructor(code: GiftError['code'], message: string) {
+  constructor(code: GiftError['code'], message: string, readonly details: Array<{ field: string; reason: string }> = []) {
     super(message);
     this.name = 'GiftError';
     this.code = code;
@@ -221,6 +234,7 @@ export class InMemoryGiftStore implements GiftStore {
   readonly captures: GiftCaptureResult[] = [];
   readonly consumptions: Array<{ id: string; giftRequestId: string; amountMinor: number; currency: string }> = [];
   readonly broadcasts: OutboxJob[] = [];
+  readonly expiryJobs: OutboxJob[] = [];
   readonly approvals: GiftApprovalRecord[] = [];
   private readonly externalUserIds: Record<string, string>;
   private readonly displayNames: Record<string, string>;
@@ -270,6 +284,7 @@ export class InMemoryGiftStore implements GiftStore {
     this.requests.push(clone(input.request));
     this.reservations.push(clone(input.reservation));
     this.staffTasks.push(clone(input.staffTask));
+    this.expiryJobs.push(buildGiftExpiryJob(input.request));
     await input.auditSink.append(input.auditRecord);
   }
 
@@ -349,6 +364,25 @@ export class InMemoryGiftStore implements GiftStore {
     return capture ? clone(capture) : null;
   }
 
+  getTerminationContext(giftRequestId: string) {
+    return clone({ request: this.requireRequest(giftRequestId), reservation: this.requireReservation(giftRequestId) });
+  }
+
+  commitTermination(input: GiftTerminationCommit): GiftTerminationResult {
+    const request = this.requireRequest(input.giftRequestId); const reservation = this.requireReservation(input.giftRequestId);
+    if (request.status === input.terminalStatus && ['RELEASED','EXPIRED'].includes(reservation.status)) return terminationResult(request,reservation,input.reason);
+    if (request.version !== input.expectedGiftVersion || reservation.version !== input.expectedReservationVersion
+      || !['PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(request.status) || reservation.status !== 'ACTIVE')
+      throw new GiftError('CONFLICT','Gift request or reservation cannot be released.');
+    if (input.actorUserId && request.senderId !== input.actorUserId) throw new GiftError('PERMISSION_DENIED','Only the sender can withdraw this gift request.');
+    const reservationStatus = input.terminalStatus === 'EXPIRED' ? 'EXPIRED' : 'RELEASED';
+    Object.assign(request,{status:input.terminalStatus,version:request.version+1,rejectedReason:input.reason,updatedAt:input.now.toISOString()});
+    Object.assign(reservation,{status:reservationStatus,version:reservation.version+1,settledAt:input.now.toISOString(),updatedAt:input.now.toISOString()});
+    const task=this.staffTasks.find((candidate)=>candidate.giftRequestId===request.id);
+    if(task)Object.assign(task,{status:input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',version:task.version+1,updatedAt:input.now.toISOString()});
+    return terminationResult(request,reservation,input.reason);
+  }
+
   commitCapture(input: GiftCaptureCommit): GiftCaptureResult {
     const existing = this.findCapture(input.giftRequestId);
     if (existing) return existing;
@@ -387,10 +421,8 @@ export class InMemoryGiftStore implements GiftStore {
   rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }) {
     const request = this.requireRequest(input.giftRequestId);
     if (request.version !== input.expectedVersion || !request.verifiedAt || !request.verificationPayloadHash) throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
-    this.requests[this.requests.indexOf(request)] = { ...request, status: 'REJECTED', version: request.version + 1,
-      rejectedReason: input.reason, updatedAt: input.now.toISOString() };
-    const task = this.staffTasks.find((candidate) => candidate.giftRequestId === request.id);
-    if (task) this.staffTasks[this.staffTasks.indexOf(task)] = { ...task, status: 'REJECTED', version: task.version + 1, updatedAt: input.now.toISOString() };
+    this.commitTermination({giftRequestId:input.giftRequestId,expectedGiftVersion:input.expectedVersion,
+      expectedReservationVersion:this.requireReservation(input.giftRequestId).version,terminalStatus:'REJECTED',reason:input.reason,actorStaffId:input.actorStaffId,now:input.now});
     return { status: 'REJECTED' as const, reason: input.reason };
   }
 
@@ -506,6 +538,10 @@ AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input
         input.staffTask.id, input.staffTask.publicId, input.staffTask.orderId, input.staffTask.giftRequestId,
         input.staffTask.voiceChannelId, JSON.stringify(input.staffTask.contextSnapshot), new Date(input.staffTask.createdAt)
       ]);
+      const expiryJob=buildGiftExpiryJob(input.request);
+      await client.query(`INSERT INTO outbox_events (id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
+        VALUES ($1,'GIFT_EXPIRY','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$7,$7)`,[expiryJob.id,input.request.id,expiryJob.dedupeKey,
+        JSON.stringify(expiryJob.payload),expiryJob.maxAttempts,new Date(expiryJob.runAfter),new Date(expiryJob.createdAt)]);
       await client.query('COMMIT');
       await input.auditSink.append(input.auditRecord);
     } catch (error) {
@@ -624,6 +660,36 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
     return row ? mapGiftCaptureRow(row) : null;
   }
 
+  async getTerminationContext(giftRequestId: string) {
+    const client=await this.pool.connect();
+    try{await client.query('BEGIN');const snapshot=await loadGiftReviewSnapshot(client,{giftRequestId});await client.query('COMMIT');
+      return {request:snapshot.request,reservation:snapshot.reservation};
+    }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  }
+
+  async commitTermination(input: GiftTerminationCommit): Promise<GiftTerminationResult> {
+    const client=await this.pool.connect();
+    try{
+      await client.query('BEGIN');const snapshot=await loadGiftReviewSnapshot(client,{giftRequestId:input.giftRequestId});
+      if(snapshot.request.status===input.terminalStatus&&['RELEASED','EXPIRED'].includes(snapshot.reservation.status)){
+        await client.query('COMMIT');return terminationResult(snapshot.request,snapshot.reservation,input.reason);
+      }
+      if(snapshot.request.version!==input.expectedGiftVersion||snapshot.reservation.version!==input.expectedReservationVersion
+        ||!['PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(snapshot.request.status)||snapshot.reservation.status!=='ACTIVE')
+        throw new GiftError('CONFLICT','Gift request or reservation cannot be released.');
+      if(input.actorUserId&&snapshot.request.senderId!==input.actorUserId)throw new GiftError('PERMISSION_DENIED','Only the sender can withdraw this gift request.');
+      const reservationStatus=input.terminalStatus==='EXPIRED'?'EXPIRED':'RELEASED';const eventType=input.terminalStatus==='EXPIRED'?'EXPIRED':'RELEASED';
+      await client.query(`INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_staff_id,actor_source,reason_code,created_at)
+        VALUES ($1,$2,$3,$4,'ACTIVE',$5,$6,$3,$7,$8,$9,$10,$11,$12)`,[deterministicUuid(`gift-reservation:${input.terminalStatus}:${snapshot.request.id}`),snapshot.reservation.id,
+        snapshot.reservation.version+1,eventType,reservationStatus,snapshot.reservation.amountMinor,`gift:reservation:${input.terminalStatus.toLowerCase()}:${snapshot.request.id}:v1`,input.actorUserId??null,input.actorStaffId??null,
+        input.actorStaffId?'DASHBOARD':input.actorUserId?'DISCORD_BOT':'SYSTEM_JOB',input.terminalStatus==='EXPIRED'?'ADMIN_CORRECTION':'USER_REQUEST',input.now]);
+      await client.query('UPDATE gift_requests SET status=$2,row_version=row_version+1,rejected_reason=$3,updated_at=$4 WHERE id=$1',[snapshot.request.id,input.terminalStatus,input.reason,input.now]);
+      await client.query(`UPDATE staff_tasks SET status=$2,row_version=row_version+1,resolved_by_staff_id=$3,resolved_at=$4,updated_at=$4 WHERE id=$1`,[snapshot.task.id,input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',input.actorStaffId??null,input.now]);
+      await client.query('COMMIT');
+      return {giftRequestId:snapshot.request.id,status:input.terminalStatus,reason:input.reason,reservation:{reservationId:snapshot.reservation.id,status:reservationStatus,amountMinor:snapshot.reservation.amountMinor,releasedMinor:snapshot.reservation.amountMinor,currency:snapshot.reservation.currency,version:snapshot.reservation.version+1}};
+    }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  }
+
   async commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> {
     const client = await this.pool.connect();
     try {
@@ -699,23 +765,10 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
   }
 
   async rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }): Promise<{ status: 'REJECTED'; reason: string }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
-      if (snapshot.request.version !== input.expectedVersion || !snapshot.request.verifiedAt || snapshot.task.status !== 'VERIFIED') {
-        throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
-      }
-      await client.query(`UPDATE gift_requests SET status = 'REJECTED', row_version = row_version + 1,
-        rejected_reason = $2, updated_at = $3 WHERE id = $1`, [input.giftRequestId, input.reason, input.now]);
-      await client.query(`UPDATE staff_tasks SET status = 'REJECTED', row_version = row_version + 1,
-        resolved_by_staff_id = $2, resolved_at = $3, updated_at = $3 WHERE id = $1`, [snapshot.task.id, input.actorStaffId, input.now]);
-      await client.query('COMMIT');
-      return { status: 'REJECTED', reason: input.reason };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    const context=await this.getTerminationContext(input.giftRequestId);
+    if(context.request.version!==input.expectedVersion||!context.request.verifiedAt)throw new GiftError('CONFLICT','Gift request is not ready for rejection.');
+    await this.commitTermination({giftRequestId:input.giftRequestId,expectedGiftVersion:input.expectedVersion,expectedReservationVersion:context.reservation.version,
+      terminalStatus:'REJECTED',reason:input.reason,actorStaffId:input.actorStaffId,now:input.now});return{status:'REJECTED',reason:input.reason};
   }
 }
 
@@ -723,7 +776,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   store: GiftStore;
   orderStore: OrderStore;
   accountStore: AccountStore;
-  fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance' | 'captureHold' | 'createReservationDebit'> & OrderFundingAdapter;
+  fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance' | 'captureHold' | 'createReservationDebit' | 'releaseHold'> & OrderFundingAdapter;
   providerKey: string;
   broadcastChannelId: string;
   now?: () => Date;
@@ -750,6 +803,16 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
       idempotencyKey: request.headers['idempotency-key'] as string, auditSink, now: now()
     }),
     fingerprintBody: (request) => parseGiftRequestBody(request.body), mapError: mapGiftError
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
+    acceptedSources:['DISCORD_BOT','DASHBOARD'],handler:async(request,actor)=>{
+      const binding=actor.guildId&&actor.discordUserId?await options.accountStore.findByDiscord({guildId:actor.guildId,discordUserId:actor.discordUserId}):null;
+      if(!binding)throw new GiftError('PERMISSION_DENIED','A bound sender account is required.');const body=parseCancelBody(request.body);
+      return terminateGiftRequest({store:options.store,fundingAdapter:options.fundingAdapter,giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
+        terminalStatus:'WITHDRAWN',reason:body.reason,actorUserId:binding.userId,now:now()});
+    },fingerprintBody:(request)=>parseCancelBody(request.body),mapError:mapGiftError
   });
 
   registerSecureWriteRoute(server, security, {
@@ -803,14 +866,58 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     action: 'REJECT_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
-    handler: (request, actor) => {
+    handler: async (request, actor) => {
       if (!actor.actorStaffId) throw new GiftError('PERMISSION_DENIED', 'A staff actor is required.');
       const body = parseDecisionBody(request.body);
-      return options.store.rejectGift({ giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
-        actorStaffId: actor.actorStaffId, reason: body.reason, now: now() });
+      const context = await options.store.getTerminationContext(giftRequestIdParam(request));
+      if (!context.request.verifiedAt) throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
+      return terminateGiftRequest({ store: options.store, fundingAdapter: options.fundingAdapter,
+        giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
+        terminalStatus: 'REJECTED', reason: body.reason, actorStaffId: actor.actorStaffId, now: now() });
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
+}
+
+export async function terminateGiftRequest(input: {
+  store: GiftStore; fundingAdapter?: Pick<MockFundingAdapter, 'releaseHold'>; giftRequestId: string;
+  expectedVersion: number; terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
+  actorUserId?: string; actorStaffId?: string; now: Date;
+}): Promise<GiftTerminationResult> {
+  const { request, reservation } = await input.store.getTerminationContext(input.giftRequestId);
+  if (request.status === input.terminalStatus && ['RELEASED', 'EXPIRED'].includes(reservation.status)) {
+    return terminationResult(request, reservation, input.reason);
+  }
+  if (request.version !== input.expectedVersion || reservation.status !== 'ACTIVE'
+    || !['PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED'].includes(request.status)) {
+    throw new GiftError('CONFLICT', 'Gift request or reservation cannot be released.');
+  }
+  if (input.actorUserId && request.senderId !== input.actorUserId) {
+    throw new GiftError('PERMISSION_DENIED', 'Only the sender can withdraw this gift request.');
+  }
+  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
+    if (!input.fundingAdapter || !reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold cannot be released.');
+    const hold = input.fundingAdapter.releaseHold({ holdRef: reservation.providerHoldRef,
+      idempotencyKey: `release:gift:${request.id}:${input.terminalStatus.toLowerCase()}:v1`,
+      fundReservationId: reservation.id, fundReservationVersion: reservation.version, reasonCode: input.reason,
+      amount: { amountMinor: reservation.amountMinor, currency: reservation.currency } });
+    if (hold.status !== 'RELEASED') throw new GiftError('CONFLICT', 'Provider hold was not fully released.');
+  }
+  return input.store.commitTermination({ giftRequestId: request.id, expectedGiftVersion: request.version,
+    expectedReservationVersion: reservation.version, terminalStatus: input.terminalStatus, reason: input.reason,
+    actorUserId: input.actorUserId, actorStaffId: input.actorStaffId, now: input.now });
+}
+
+export async function expireGiftRequest(input: {
+  store: GiftStore; fundingAdapter?: Pick<MockFundingAdapter, 'releaseHold'>; giftRequestId: string; now: Date;
+}): Promise<GiftTerminationResult> {
+  const context = await input.store.getTerminationContext(input.giftRequestId);
+  if (context.request.status === 'EXPIRED' && context.reservation.status === 'EXPIRED') {
+    return terminationResult(context.request, context.reservation, 'GIFT_REQUEST_EXPIRED');
+  }
+  if (Date.parse(context.request.expiresAt) > input.now.getTime()) throw new GiftError('CONFLICT', 'Gift request has not expired.');
+  return terminateGiftRequest({ ...input, expectedVersion: context.request.version,
+    terminalStatus: 'EXPIRED', reason: 'GIFT_REQUEST_EXPIRED' });
 }
 
 export async function captureApprovedGift(input: {
@@ -878,6 +985,13 @@ export function createGiftAnnouncementHandler(input: {
   };
 }
 
+export function createGiftExpiryHandler(input:{store:GiftStore;fundingAdapter?:Pick<MockFundingAdapter,'releaseHold'>;now?:()=>Date}){
+  const now=input.now??(()=>new Date());return async(job:OutboxJob):Promise<void>=>{if(job.type!=='GIFT_EXPIRY')throw new GiftError('VALIDATION_ERROR','Expected a GIFT_EXPIRY job.');
+    const payload=job.payload as Record<string,unknown>;if(typeof payload.giftRequestId!=='string')throw new GiftError('VALIDATION_ERROR','Gift expiry payload is invalid.');
+    const context=await input.store.getTerminationContext(payload.giftRequestId);if(!['PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(context.request.status))return;
+    await expireGiftRequest({store:input.store,fundingAdapter:input.fundingAdapter,giftRequestId:payload.giftRequestId,now:now()});};
+}
+
 export async function listGifts(input: {
   store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
   fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance'>; actor: ActorContext; orderId: string; now: Date;
@@ -912,7 +1026,10 @@ async function prepareGiftRequest(input: {
   if (providerBalance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
   const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: catalog.currency });
   if (providerBalance.providerBalanceMinor - reservedMinor < catalog.priceMinor) {
-    throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
+    const availableMinor=Math.max(0,providerBalance.providerBalanceMinor-reservedMinor);
+    throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.',[
+      {field:'availableMinor',reason:String(availableMinor)},{field:'shortfallMinor',reason:String(catalog.priceMinor-availableMinor)},
+      {field:'rechargeAction',reason:'OPEN_RECHARGE'}]);
   }
 
   const requestId = deterministicUuid(`gift-request:${binding.userId}:${order.id}:${input.idempotencyKey}`);
@@ -931,7 +1048,7 @@ async function prepareGiftRequest(input: {
     idempotencyKey: input.idempotencyKey, ttlMinutes: 30, now: input.now
   });
   const hold = mode === 'PROVIDER_NATIVE_HOLD' ? input.fundingAdapter.createHold({
-    idempotencyKey: input.idempotencyKey, fundReservationId: draft.id, fundReservationVersion: draft.version,
+    idempotencyKey: input.idempotencyKey, fundReservationId: draft.id, fundReservationVersion: draft.version + 1,
     externalUserId: binding.externalUserId, amount: { amountMinor: catalog.priceMinor, currency: catalog.currency },
     businessSource: 'GIFT', businessReference: request.id, expiresAt,
     metadata: { orderId: order.id, giftCode: catalog.code }
@@ -1020,6 +1137,13 @@ function parseDecisionBody(value: unknown) {
   return { expectedVersion: body.expectedVersion as number, reason: reason.trim() };
 }
 
+function parseCancelBody(value: unknown) {
+  const body=value as Record<string,unknown>;const reason=[body?.reasonCode,body?.note]
+    .filter((part):part is string=>typeof part==='string').join(': ').trim();
+  if(!body||!Number.isInteger(body.expectedVersion)||reason.length<3)throw new GiftError('VALIDATION_ERROR','expectedVersion and reasonCode are required.');
+  return{expectedVersion:body.expectedVersion as number,reason};
+}
+
 function giftOrderIdParam(request: FastifyRequest): string {
   const id = (request.params as { orderId?: unknown }).orderId;
   if (typeof id !== 'string') throw new GiftError('VALIDATION_ERROR', 'orderId is required.');
@@ -1046,13 +1170,13 @@ function giftRequestIdParam(request: FastifyRequest): string {
 
 function mapGiftError(error: unknown) {
   if (error instanceof AdapterError) {
-    if (error.code === 'INSUFFICIENT_FUNDS') return { statusCode: 422, code: 'INSUFFICIENT_AVAILABLE_BALANCE', message: 'Available balance is insufficient.' };
+    if (error.code === 'INSUFFICIENT_FUNDS') return { statusCode: 422, code: 'INSUFFICIENT_AVAILABLE_BALANCE', message: 'Available balance is insufficient.', details: error.details };
     if (error.code === 'PROVIDER_TIMEOUT') return { statusCode: 504, code: 'PROVIDER_TIMEOUT', message: 'The balance provider timed out.' };
     return { statusCode: error.retryable ? 503 : 409, code: error.code, message: error.message };
   }
   if (!(error instanceof GiftError)) return null;
   const statusCode = error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'VALIDATION_ERROR' ? 400 : error.code === 'INSUFFICIENT_AVAILABLE_BALANCE' ? 422 : 409;
-  return { statusCode, code: error.code, message: error.message };
+  return { statusCode, code: error.code, message: error.message, details: error.details };
 }
 
 function deterministicUuid(seed: string): string {
@@ -1123,6 +1247,10 @@ function buildGiftAnnouncementJob(request: GiftRequestRecord, broadcastChannelId
   };
 }
 
+function buildGiftExpiryJob(request:GiftRequestRecord):OutboxJob{return{id:deterministicUuid(`gift-expiry:${request.id}`),type:'GIFT_EXPIRY',status:'PENDING',
+  payload:{giftRequestId:request.id},aggregateType:'GIFT_REQUEST',aggregateId:request.id,dedupeKey:`gift-expiry:${request.id}`,attempts:0,maxAttempts:8,
+  runAfter:request.expiresAt,lockedAt:null,lockedBy:null,lastError:null,version:1,createdAt:request.createdAt,updatedAt:request.createdAt};}
+
 function buildCaptureResult(input: {
   request: GiftRequestRecord;
   reservation: GiftReservationRecord;
@@ -1144,6 +1272,12 @@ function buildCaptureResult(input: {
     },
     consumptionId: input.consumptionId, announcementJobId: input.announcementJobId
   };
+}
+
+function terminationResult(request:GiftRequestRecord,reservation:GiftReservationRecord,reason:string):GiftTerminationResult{
+  return{giftRequestId:request.id,status:request.status as GiftTerminationResult['status'],reason,reservation:{reservationId:reservation.id,
+    status:reservation.status as 'RELEASED'|'EXPIRED',amountMinor:reservation.amountMinor,releasedMinor:reservation.amountMinor,
+    currency:reservation.currency,version:reservation.version}};
 }
 
 function maskProviderReference(reference: string): string {

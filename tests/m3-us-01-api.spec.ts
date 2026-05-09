@@ -65,12 +65,13 @@ function fixture(input: { order?: OrderRecord; gifts?: GiftCatalogRecord[]; exte
     env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
     security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() }
   });
+  const adapter = new MockFundingAdapter({ now });
   registerGiftRoutes(server, {
     store: gifts, orderStore: orders, accountStore: accounts,
-    fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider',
+    fundingAdapter: adapter, providerKey: 'mock-provider',
     broadcastChannelId: '900000000000000020', now: () => now
   });
-  return { server, gifts };
+  return { server, gifts, adapter };
 }
 
 describe('M3-US-01 gift catalog and order gift request', () => {
@@ -130,7 +131,9 @@ describe('M3-US-01 gift catalog and order gift request', () => {
       payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id }
     });
     expect(response.statusCode).toBe(422);
-    expect(response.json()).toMatchObject({ error: { code: 'INSUFFICIENT_AVAILABLE_BALANCE' } });
+    expect(response.json()).toMatchObject({ error: { code: 'INSUFFICIENT_AVAILABLE_BALANCE', details: [
+      { field: 'availableMinor', reason: '100' }, { field: 'shortfallMinor', reason: '199800' },
+      { field: 'rechargeAction', reason: 'OPEN_RECHARGE' }] } });
     expect(gifts.requests).toHaveLength(0);
     expect(gifts.reservations).toHaveLength(0);
     expect(gifts.staffTasks).toHaveLength(0);
@@ -150,5 +153,15 @@ describe('M3-US-01 gift catalog and order gift request', () => {
     expect(gifts.requests).toHaveLength(1);
     expect(gifts.reservations).toHaveLength(1);
     expect(gifts.staffTasks).toHaveLength(1);
+  });
+
+  test('releases the provider-native gift hold when the sender withdraws', async () => {
+    const {server,gifts,adapter}=fixture();const created=await server.inject({method:'POST',url:`/api/v1/orders/${orderId}/gift-requests`,
+      headers:headers('gift:P-3101:native-release'),payload:{expectedOrderVersion:7,giftCatalogVersionId:gift().id}});
+    const giftRequestId=created.json().data.id as string;const holdRef=gifts.reservations[0]!.providerHoldRef!;
+    const cancelled=await server.inject({method:'POST',url:`/api/v1/gift-requests/${giftRequestId}/cancel`,headers:headers('gift:P-3101:native-cancel'),
+      payload:{expectedVersion:1,reasonCode:'CUSTOMER_WITHDREW_REQUEST'}});
+    expect(cancelled.json()).toMatchObject({data:{status:'WITHDRAWN',reservation:{status:'RELEASED'}}});
+    expect(adapter.getHold({lookupType:'PROVIDER_HOLD_REF',lookupValue:holdRef}).status).toBe('RELEASED');
   });
 });
