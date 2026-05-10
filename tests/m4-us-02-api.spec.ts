@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryStaffTaskStore, type StaffTaskRecord } from '@blackcat/api/staff-tasks';
 import { InMemoryOrderStore, type OrderRecord } from '@blackcat/api/orders';
@@ -30,7 +30,7 @@ function fixture() {
   const tasks = new InMemoryStaffTaskStore({ tasks: [
     task({ id: '00000000-0000-0000-0000-000000002001', status: 'OPEN', claimedBy: null }),
     task({ id: '00000000-0000-0000-0000-000000002002', status: 'CLAIMED', claimedBy: l1StaffId }),
-    task({ id: '00000000-0000-0000-0000-000000002003', status: 'CLAIMED', claimedBy: otherStaffId })
+    task({ id: '00000000-0000-0000-0000-000000002003', orderId: '00000000-0000-0000-0000-000000001099', status: 'CLAIMED', claimedBy: otherStaffId })
   ] });
   const orders = new InMemoryOrderStore({ orders: [order()] });
   const workbench = new InMemorySupportWorkbenchStore({ tasks, orders });
@@ -51,9 +51,8 @@ describe('M4-US-02 L1 support workbench API', () => {
 
   test('requires L1 to claim a task before opening full order context', async () => {
     const { server } = fixture();
-    const denied = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}`, headers: headers() });
+    const denied = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}`, headers: headers(otherDiscordId) });
     expect(denied.statusCode).toBe(403);
-
     const own = await server.inject({ method: 'GET', url: '/api/v1/admin/staff-tasks/00000000-0000-0000-0000-000000002002', headers: headers() });
     expect(own.statusCode).toBe(200);
     expect(own.json()).toMatchObject({ data: { task: { claimedBy: l1StaffId }, links: {
@@ -61,9 +60,19 @@ describe('M4-US-02 L1 support workbench API', () => {
       voiceChannel: `https://discord.com/channels/${guildId}/120000000000000003`
     } } });
 
-    const orderResponse = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}?taskId=00000000-0000-0000-0000-000000002002`, headers: headers() });
+    const orderResponse = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}`, headers: headers() });
     expect(orderResponse.statusCode).toBe(200);
     expect(orderResponse.json()).toMatchObject({ data: { order: { status: 'ACCEPTED' }, matching: { stage: 'ACCEPTED' }, readiness: { bothReady: false }, automation: { state: 'RUNNING' } } });
+  });
+
+  test('rejects a nonstaff admin order detail request before calling the store', async () => {
+    const { server, workbench } = fixture();
+    const getOrder = vi.spyOn(workbench, 'getOrder');
+
+    const response = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}`, headers: headers('999999999999999998') });
+
+    expect(response.statusCode).toBe(403);
+    expect(getOrder).not.toHaveBeenCalled();
   });
 
   test('lets L1 append a note and escalate only a personally claimed task', async () => {

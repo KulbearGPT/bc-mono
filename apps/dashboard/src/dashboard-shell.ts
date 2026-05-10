@@ -40,23 +40,29 @@ export function createDashboardApiClient(options: {
 } = {}) {
   const request = options.fetch ?? fetch;
   const cookie = options.cookie ?? (() => document.cookie);
+  const write = (method: 'POST' | 'PUT' | 'PATCH', path: string, body: unknown, idempotencyKey?: string) => {
+    const csrfToken = readCookie(cookie(), 'p0_csrf');
+    return request(path, {
+      method,
+      credentials: 'include',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken ?? '',
+        'idempotency-key': idempotencyKey ?? `dashboard:${crypto.randomUUID()}`
+      },
+      body: JSON.stringify(body)
+    });
+  };
   return {
     get(path: string) {
       return request(path, { credentials: 'include', headers: { accept: 'application/json' } });
     },
-    post(path: string, body: unknown) {
-      const csrfToken = readCookie(cookie(), 'p0_csrf');
-      return request(path, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'content-type': 'application/json',
-          'x-csrf-token': csrfToken ?? '',
-          'idempotency-key': `dashboard:${crypto.randomUUID()}`
-        },
-        body: JSON.stringify(body)
-      });
-    }
+    post(path: string, body: unknown, idempotencyKey?: string) {
+      return write('POST', path, body, idempotencyKey);
+    },
+    put(path: string, body: unknown, idempotencyKey?: string) { return write('PUT', path, body, idempotencyKey); },
+    patch(path: string, body: unknown, idempotencyKey?: string) { return write('PATCH', path, body, idempotencyKey); }
   };
 }
 

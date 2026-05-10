@@ -53,9 +53,14 @@ export interface PlayerEarningMutationInput {
 export interface PlayerEarningStore {
   resolvePlayerUserId(input: { guildId: string; discordUserId: string }): Promise<string | null> | string | null;
   list(input: { playerId?: string; status?: PlayerEarningStatus; limit: number }): Promise<PlayerEarningRecord[]> | PlayerEarningRecord[];
+  listPage(input: PlayerEarningPageInput): Promise<PlayerEarningPage> | PlayerEarningPage;
   mutate(input: PlayerEarningMutationInput): Promise<{ resultType: 'STATE_UPDATED' | 'ADJUSTMENT_CREATED'; playerEarning: PlayerEarningRecord; adjustment: PlayerEarningAdjustmentRecord | null }> |
     { resultType: 'STATE_UPDATED' | 'ADJUSTMENT_CREATED'; playerEarning: PlayerEarningRecord; adjustment: PlayerEarningAdjustmentRecord | null };
 }
+
+interface PlayerEarningPageCursor { createdAt: string; id: string; }
+interface PlayerEarningPageInput { playerId?: string; status?: PlayerEarningStatus; cursor: PlayerEarningPageCursor | null; limit: number; }
+interface PlayerEarningPage { items: PlayerEarningRecord[]; nextCursor: string | null; }
 
 export class PlayerEarningError extends Error {
   constructor(readonly code: 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'CONFLICT', message: string) {
@@ -80,6 +85,12 @@ export class InMemoryPlayerEarningStore implements PlayerEarningStore {
   list(input: { playerId?: string; status?: PlayerEarningStatus; limit: number }): PlayerEarningRecord[] {
     return clone(this.earnings.filter((earning) => (!input.playerId || earning.playerId === input.playerId)
       && (!input.status || earning.status === input.status)).slice(0, input.limit));
+  }
+
+  listPage(input: PlayerEarningPageInput): PlayerEarningPage {
+    const records = this.earnings.filter((earning) => (!input.playerId || earning.playerId === input.playerId)
+      && (!input.status || earning.status === input.status));
+    return pagePlayerEarningRecords(records, input);
   }
 
   mutate(input: PlayerEarningMutationInput) {
@@ -129,6 +140,21 @@ export class PostgresPlayerEarningStore implements PlayerEarningStore {
       WHERE ($1::uuid IS NULL OR player_user_id = $1) AND ($2::text IS NULL OR status::text = $2)
       ORDER BY created_at DESC, id DESC LIMIT $3`, [input.playerId ?? null, input.status ?? null, input.limit]);
     return Promise.all(result.rows.map((row) => loadPlayerEarning(this.pool, row.id)));
+  }
+
+  async listPage(input: PlayerEarningPageInput): Promise<PlayerEarningPage> {
+    const result = await this.pool.query<{ id: string }>(`SELECT id FROM player_earnings
+      WHERE ($1::uuid IS NULL OR player_user_id = $1) AND ($2::text IS NULL OR status::text = $2)
+        AND ($3::timestamptz IS NULL OR (created_at,id) < ($3::timestamptz,$4::uuid))
+      ORDER BY created_at DESC, id DESC LIMIT $5`, [
+      input.playerId ?? null,
+      input.status ?? null,
+      input.cursor?.createdAt ?? null,
+      input.cursor?.id ?? null,
+      input.limit + 1
+    ]);
+    const records = await Promise.all(result.rows.map((row) => loadPlayerEarning(this.pool, row.id)));
+    return pageFromPlayerEarningRows(records, input.limit);
   }
 
   async mutate(input: PlayerEarningMutationInput) {
@@ -217,15 +243,12 @@ export function registerPlayerEarningRoutes(server: FastifyInstance, options: { 
     permission: 'player.workspace.read', action: 'LIST_MY_PLAYER_EARNINGS', targetType: 'player_earning',
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'], handler: async (request, actor) => {
       const playerId = await resolveSelf(options.store, actor);
-      return { items: await options.store.list({ playerId, limit: pageLimit(request) }), nextCursor: null };
+      return options.store.listPage({ ...playerEarningPageQuery(request, false), playerId });
     }, mapError: mapEarningError });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/player-earnings',
     permission: 'earnings.read', action: 'LIST_PLAYER_EARNINGS', targetType: 'player_earning',
-    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: (request) => {
-      const query = request.query as { playerId?: string; status?: PlayerEarningStatus };
-      return Promise.resolve(options.store.list({ playerId: query.playerId, status: parseStatus(query.status), limit: pageLimit(request) }))
-        .then((items) => ({ items, nextCursor: null }));
-    }, mapError: mapEarningError });
+    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: (request) => options.store.listPage(playerEarningPageQuery(request, true)),
+    mapError: mapEarningError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/player-earnings/:playerEarningId',
     permission: 'earnings.manage', action: 'UPDATE_PLAYER_EARNING', targetType: 'player_earning', targetId: earningIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
@@ -265,10 +288,66 @@ function requireReversal(input: PlayerEarningMutationInput, earning: PlayerEarni
   return amount;
 }
 
-function pageLimit(request: FastifyRequest): number {
-  const raw = Number((request.query as { limit?: unknown }).limit ?? 50);
-  if (!Number.isInteger(raw) || raw < 1 || raw > 100) throw new PlayerEarningError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
-  return raw;
+function playerEarningPageQuery(request: FastifyRequest, includeAdminFilters: boolean): PlayerEarningPageInput {
+  const query = request.query as { playerId?: unknown; status?: unknown; cursor?: unknown; limit?: unknown };
+  const limit = Number(query.limit ?? 20);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new PlayerEarningError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
+  if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) {
+    throw new PlayerEarningError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+  if (includeAdminFilters && query.playerId !== undefined && typeof query.playerId !== 'string') {
+    throw new PlayerEarningError('VALIDATION_ERROR', 'playerId is invalid.');
+  }
+  return {
+    playerId: includeAdminFilters ? query.playerId as string | undefined : undefined,
+    status: includeAdminFilters ? parseStatus(query.status) : undefined,
+    cursor: query.cursor === undefined ? null : decodePlayerEarningCursor(query.cursor as string),
+    limit
+  };
+}
+
+function pagePlayerEarningRecords(records: PlayerEarningRecord[], input: PlayerEarningPageInput): PlayerEarningPage {
+  const sorted = clone(records).sort(comparePlayerEarningPageKeys);
+  const afterCursor = input.cursor
+    ? sorted.filter((record) => comparePlayerEarningPageKeys(record, input.cursor!) > 0)
+    : sorted;
+  return pageFromPlayerEarningRows(afterCursor, input.limit);
+}
+
+function pageFromPlayerEarningRows(records: PlayerEarningRecord[], limit: number): PlayerEarningPage {
+  const items = records.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: records.length > limit && last
+      ? encodePlayerEarningCursor({ createdAt: last.createdAt, id: last.id })
+      : null
+  };
+}
+
+function comparePlayerEarningPageKeys(
+  left: Pick<PlayerEarningRecord, 'createdAt' | 'id'>,
+  right: Pick<PlayerEarningRecord, 'createdAt' | 'id'>
+): number {
+  const createdAtDiff = right.createdAt.localeCompare(left.createdAt);
+  return createdAtDiff === 0 ? right.id.localeCompare(left.id) : createdAtDiff;
+}
+
+function encodePlayerEarningCursor(cursor: PlayerEarningPageCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodePlayerEarningCursor(value: string): PlayerEarningPageCursor {
+  try {
+    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<PlayerEarningPageCursor>;
+    if (typeof cursor.createdAt !== 'string' || Number.isNaN(Date.parse(cursor.createdAt)) || typeof cursor.id !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id)) {
+      throw new Error('invalid cursor');
+    }
+    return { createdAt: new Date(cursor.createdAt).toISOString(), id: cursor.id };
+  } catch {
+    throw new PlayerEarningError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
 }
 
 function parseStatus(value: unknown): PlayerEarningStatus | undefined {

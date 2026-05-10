@@ -17,6 +17,7 @@
     "./staff-tasks": "./src/staff-tasks.ts",
     "./risk-events": "./src/risk-events.ts",
     "./admin-order-actions": "./src/admin-order-actions.ts",
+    "./admin-directory": "./src/admin-directory.ts",
     "./orders": "./src/orders.ts",
     "./gifts": "./src/gifts.ts",
     "./player-earnings": "./src/player-earnings.ts",

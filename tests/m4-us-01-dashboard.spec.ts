@@ -34,4 +34,21 @@ describe('M4-US-01 dashboard shell', () => {
     expect(new Headers(requests[1]?.init?.headers).get('x-csrf-token')).toBe('csrf-token');
     expect(JSON.stringify(requests)).not.toContain('localStorage');
   });
+
+  test('preserves an explicit idempotency key across logical retries', async () => {
+    const requests: RequestInit[] = [];
+    const client = createDashboardApiClient({
+      cookie: () => 'p0_csrf=csrf-token',
+      fetch: async (_input, init) => {
+        requests.push(init ?? {});
+        return new Response('{}', { status: 200 });
+      }
+    });
+    await client.patch('/api/v1/admin/resource/1', { action: 'UPDATE' }, 'dashboard:logical-operation-1');
+    await client.patch('/api/v1/admin/resource/1', { action: 'UPDATE' }, 'dashboard:logical-operation-1');
+    expect(requests.map((request) => new Headers(request.headers).get('idempotency-key'))).toEqual([
+      'dashboard:logical-operation-1',
+      'dashboard:logical-operation-1'
+    ]);
+  });
 });

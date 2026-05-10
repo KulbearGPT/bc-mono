@@ -100,6 +100,30 @@ VALUES (
     expect(audit.rows[0]).toEqual({ count: '1', reason: 'INITIAL_CATALOG_VERSION' });
   });
 
+  test('keyset-paginates catalog versions by createdAt and id', async () => {
+    const store = new PostgresServiceCatalogStore({ client });
+    await store.save(service({
+      id: '00000000-0000-0000-0000-00000000d011',
+      status: 'RETIRED',
+      version: 11,
+      createdAt: '2026-07-17T16:00:00.000Z',
+      retiredAt: '2026-07-17T16:30:00.000Z'
+    }));
+    await store.save(service({
+      id: '00000000-0000-0000-0000-00000000d012',
+      status: 'RETIRED',
+      version: 12,
+      createdAt: '2026-07-17T16:00:00.000Z',
+      retiredAt: '2026-07-17T16:30:00.000Z'
+    }));
+
+    const first = await store.listPage({ cursor: null, limit: 1 });
+    const second = await store.listPage({ cursor: decodeCursor(first.nextCursor!), limit: 1 });
+
+    expect(first.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-00000000d012']);
+    expect(second.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-00000000d011']);
+  });
+
   test('resolves active staff accounts from bound Discord accounts', async () => {
     const directory = new PostgresStaffDirectory({ client });
 
@@ -171,6 +195,10 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     retiredAt: null,
     ...overrides
   };
+}
+
+function decodeCursor(value: string): { createdAt: string; id: string } {
+  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { createdAt: string; id: string };
 }
 
 function auditRecord(action: string, reason: string): AuditRecord {

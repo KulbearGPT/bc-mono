@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
-export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK';
+export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK' | 'UNKNOWN';
 export type AuditOutcome = 'SUCCEEDED' | 'REJECTED' | 'FAILED';
 
 export interface StaffAccount {
@@ -67,6 +67,10 @@ export interface AuditRecord {
 
 export interface AuditSink {
   append(record: AuditRecord): void | Promise<void>;
+}
+
+export interface AuditQueryClient {
+  query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
 }
 
 export interface IdempotencyRecord {
@@ -134,6 +138,12 @@ const minimumPermissionLevel: Record<string, StaffLevel> = {
   'staff.session.active': 'L1_SUPPORT',
   'dashboard.view': 'L1_SUPPORT',
   'staff_task.read': 'L1_SUPPORT',
+  'user.read': 'L2_SUPERVISOR',
+  'user.status.manage': 'L3_OPERATIONS',
+  'player.read': 'L2_SUPERVISOR',
+  'gift_catalog.read': 'L2_SUPERVISOR',
+  'gift_catalog.manage': 'L3_OPERATIONS',
+  'gift_request.read': 'L1_SUPPORT',
   'catalog.read': 'L2_SUPERVISOR',
   'catalog.manage': 'L3_OPERATIONS',
   'staff_task.claim': 'L1_SUPPORT',
@@ -196,6 +206,52 @@ export class InMemoryAuditSink implements AuditSink {
   append(record: AuditRecord): void {
     this.records.push(record);
   }
+}
+
+export class PostgresAuditSink implements AuditSink {
+  constructor(private readonly options: { client: AuditQueryClient }) {}
+
+  async append(record: AuditRecord): Promise<void> {
+    await insertPostgresAuditRecord(this.options.client, record);
+  }
+}
+
+export async function insertPostgresAuditRecord(client: AuditQueryClient, record: AuditRecord): Promise<void> {
+  await client.query(
+    `INSERT INTO audit_logs (
+      id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
+      interaction_id, permission_code, action, target_type, target_id, outcome,
+      before_snapshot, after_snapshot, reason, request_id, approval_request_id, created_at
+    ) VALUES (
+      $1, $2, $3, $4::"StaffLevel", $5::"ActorSource", $6,
+      $7, $8, $9, $10, $11, $12::"AuditOutcome",
+      $13::jsonb, $14::jsonb, $15, $16, $17, $18
+    )`,
+    [
+      record.id,
+      record.actorId && isAuditUuid(record.actorId) ? record.actorId : null,
+      record.actorStaffId,
+      record.actorLevel,
+      record.actorSource,
+      record.clientId,
+      record.interactionId,
+      record.permissionCode,
+      record.action,
+      record.targetType,
+      record.targetId,
+      record.outcome,
+      record.beforeSnapshot == null ? null : JSON.stringify(record.beforeSnapshot),
+      record.afterSnapshot == null ? null : JSON.stringify(record.afterSnapshot),
+      record.reason,
+      record.requestId,
+      record.approvalRequestId,
+      new Date(record.occurredAt)
+    ]
+  );
+}
+
+function isAuditUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 export class InMemoryIdempotencyStore implements IdempotencyStore {
@@ -925,7 +981,7 @@ function buildUnauthenticatedAuditContext(request: FastifyRequest) {
     actorId: null,
     actorStaffId: null,
     actorLevel: null,
-    actorSource: actorSource.actorSource,
+    actorSource: actorSource.actorSource ?? 'UNKNOWN',
     clientId: actorSource.actorSource ?? 'UNKNOWN',
     interactionId: getHeader(request, 'x-discord-interaction-id'),
     approvalRequestId: null

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./admin-business": "./src/admin-business.ts",
     "./gift-review": "./src/gift-review.ts",
     "./dashboard-shell": "./src/dashboard-shell.ts",
     "./support-workbench": "./src/support-workbench.ts"

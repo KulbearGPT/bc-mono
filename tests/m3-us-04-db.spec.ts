@@ -11,6 +11,7 @@ const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T16:30:00.000Z');
 let root = ''; let data = ''; let pool: Pool;
 const earningId = '00000000-0000-0000-0000-000000003910';
+const olderEarningId = '00000000-0000-0000-0000-000000003916';
 const staffId = '00000000-0000-0000-0000-000000003911';
 
 describe('M3-US-04 PostgreSQL player earnings', () => {
@@ -25,6 +26,15 @@ describe('M3-US-04 PostgreSQL player earnings', () => {
     await seed();
   }, 30_000);
   afterAll(async () => { await pool?.end().catch(() => undefined); if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined); if (root) await rm(root, { recursive: true, force: true }); });
+
+  test('keyset-paginates player earnings without duplicates', async () => {
+    const store = new PostgresPlayerEarningStore(pool);
+    const first = await store.listPage({ cursor: null, limit: 1 });
+    const second = await store.listPage({ cursor: decodeCursor(first.nextCursor!), limit: 1 });
+
+    expect(first.items.map((item) => item.id)).toEqual([earningId]);
+    expect(second.items.map((item) => item.id)).toEqual([olderEarningId]);
+  });
 
   test('transitions state and appends a reversal while preserving the original earning', async () => {
     const store = new PostgresPlayerEarningStore(pool);
@@ -51,14 +61,22 @@ async function seed() {
   const playerId = '00000000-0000-0000-0000-000000003912';
   const customerId = '00000000-0000-0000-0000-000000003913';
   const orderId = '00000000-0000-0000-0000-000000003914';
+  const olderOrderId = '00000000-0000-0000-0000-000000003917';
   await pool.query(`INSERT INTO users (id,display_name,status,row_version,created_at,updated_at) VALUES
     ('${playerId}','Player','ACTIVE',1,now(),now()),('${customerId}','Customer','ACTIVE',1,now(),now()),('${staffId}','Operator','ACTIVE',1,now(),now());
     INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
     VALUES ('${staffId}','${staffId}','L3_OPERATIONS','ACTIVE','MANUAL',1,now(),now());
     INSERT INTO discord_accounts (id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at)
     VALUES ('00000000-0000-0000-0000-000000003915','${playerId}','900000000000000001','900000000000000041',now(),now(),now());
-    INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at)
-    VALUES ('${orderId}','P-3914','${customerId}','${playerId}','COMPLETED',8,'CNY',12000,'900000000000000001','900000000000000003','900000000000000004',now(),now());
+    INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at) VALUES
+    ('${orderId}','P-3914','${customerId}','${playerId}','COMPLETED',8,'CNY',12000,'900000000000000001','900000000000000003','900000000000000004','2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
+    ('${olderOrderId}','P-3917','${customerId}','${playerId}','COMPLETED',8,'CNY',12000,'900000000000000001','900000000000000005','900000000000000006','2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');
     INSERT INTO player_earnings (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,created_at,updated_at)
-    VALUES ('${earningId}','${orderId}','${playerId}',2,4200,8400,'CNY','PENDING',1,now(),now());`);
+    VALUES
+    ('${earningId}','${orderId}','${playerId}',2,4200,8400,'CNY','PENDING',1,'2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
+    ('${olderEarningId}','${olderOrderId}','${playerId}',2,4200,8400,'CNY','PENDING',1,'2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');`);
+}
+
+function decodeCursor(value: string): { createdAt: string; id: string } {
+  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { createdAt: string; id: string };
 }

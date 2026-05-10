@@ -395,7 +395,7 @@ describe('M0-US-03 unified auth, actor context, idempotency, and audit middlewar
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ error: { code: 'AUTH_REQUIRED' } });
     expect(auditSink.records.at(-1)).toMatchObject({
-      actorSource: null,
+      actorSource: 'UNKNOWN',
       outcome: 'REJECTED',
       reason: 'INVALID_CLIENT_SOURCE'
     });
@@ -414,7 +414,7 @@ describe('M0-US-03 unified auth, actor context, idempotency, and audit middlewar
 
     expect(missing.statusCode).toBe(401);
     expect(auditSink.records.at(-1)).toMatchObject({
-      actorSource: null,
+      actorSource: 'UNKNOWN',
       clientId: 'UNKNOWN',
       outcome: 'REJECTED',
       reason: 'INVALID_CLIENT_SOURCE'
@@ -467,7 +467,7 @@ describe('M0-US-03 unified auth, actor context, idempotency, and audit middlewar
       payload: { taskId: 'T-400' }
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitUntil(() => runCount === 1);
     expect(runCount).toBe(1);
     releaseHandler?.();
 
@@ -834,3 +834,11 @@ describe('M0-US-03 unified auth, actor context, idempotency, and audit middlewar
     expect(snapshotReplay.json()).toEqual(snapshotFirst.json());
   });
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for the asynchronous test condition.');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}

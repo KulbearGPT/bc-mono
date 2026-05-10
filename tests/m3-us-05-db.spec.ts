@@ -46,6 +46,15 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
       .toEqual([expect.objectContaining({ id: '00000000-0000-0000-0000-000000004215' })]);
   });
 
+  test('keyset-paginates confidential commissions without duplicates', async () => {
+    const store = new PostgresCommissionStore(pool);
+    const first = await store.listPage({ status: 'PENDING', cursor: null, limit: 1 });
+    const second = await store.listPage({ status: 'PENDING', cursor: decodeCreatedCursor(first.nextCursor!), limit: 1 });
+
+    expect(first.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-000000004215']);
+    expect(second.items.map((item) => item.id)).toEqual([commissionId]);
+  });
+
   test('persists an idempotent append-only reversal and keeps the original amount', async () => {
     const store = new PostgresCommissionStore(pool);
     const input = { commissionId, expectedVersion: 1, action: 'CREATE_REVERSAL' as const,
@@ -61,6 +70,10 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
 
 function decode(value: string): { occurredAt: string; id: string } {
   return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { occurredAt: string; id: string };
+}
+
+function decodeCreatedCursor(value: string): { createdAt: string; id: string } {
+  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { createdAt: string; id: string };
 }
 
 async function seed() {

@@ -256,10 +256,12 @@ const permissionsByLevel: Record<StaffLevel, string[]> = {
     'staff_task.read',
     'staff_task.claim',
     'staff_task.verify',
+    'order.read',
+    'gift_request.read',
     'audit.read'
   ],
-  L2_SUPERVISOR: ['gift.approve', 'gift.reject', 'refund.execute', 'order.resolve'],
-  L3_OPERATIONS: ['catalog.manage', 'earnings.manage', 'commission.manage', 'referral.manage'],
+  L2_SUPERVISOR: ['gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'user.read', 'player.read', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage'],
+  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage'],
   L4_ADMIN_OWNER: ['access.manage']
 };
 

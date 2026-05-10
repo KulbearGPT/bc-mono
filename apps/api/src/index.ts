@@ -11,13 +11,14 @@ import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
 import { MockFundingAdapter } from './payment-adapter.js';
-import { InMemoryAuditSink, InMemoryIdempotencyStore, PostgresStaffDirectory } from './security.js';
+import { InMemoryIdempotencyStore, PostgresAuditSink, PostgresStaffDirectory } from './security.js';
 import { PostgresGiftStore } from './gifts.js';
 import { PostgresPlayerEarningStore } from './player-earnings.js';
 import { PostgresCommissionStore } from './commissions.js';
 import { PostgresReferralAttributionStore } from './referrals.js';
 import { DiscordHttpOAuthProvider, PostgresDashboardAuthStore } from './dashboard-auth.js';
 import { PostgresSupportWorkbenchStore } from './support-workbench.js';
+import { PostgresAdminDirectoryStore } from './admin-directory.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -72,7 +73,7 @@ const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
 const server = buildApiServer({
   env: process.env,
   security: {
-    auditSink: new InMemoryAuditSink(),
+    auditSink: new PostgresAuditSink({ client: databasePool }),
     idempotencyStore: new InMemoryIdempotencyStore(),
     staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
     dashboardSessions: dashboardAuthStore
@@ -153,6 +154,9 @@ const server = buildApiServer({
   } : undefined,
   supportWorkbench: {
     store: new PostgresSupportWorkbenchStore(databasePool)
+  },
+  adminDirectory: {
+    store: new PostgresAdminDirectoryStore(databasePool)
   }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });

@@ -67,9 +67,25 @@ export interface EstimateServiceResult {
 
 export interface ServiceCatalogStore {
   list(): Promise<ServiceCatalogRecord[]>;
+  listPage(input: CatalogPageInput): Promise<CatalogPage>;
   getById(id: string): Promise<ServiceCatalogRecord | null>;
   save(record: ServiceCatalogRecord): Promise<ServiceCatalogRecord>;
   commit?(input: { records: ServiceCatalogRecord[]; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
+}
+
+interface CatalogPageCursor {
+  createdAt: string;
+  id: string;
+}
+
+interface CatalogPageInput {
+  cursor: CatalogPageCursor | null;
+  limit: number;
+}
+
+interface CatalogPage {
+  items: ServiceCatalogRecord[];
+  nextCursor: string | null;
 }
 
 export interface CatalogQueryClient {
@@ -152,6 +168,10 @@ export class InMemoryServiceCatalogStore implements ServiceCatalogStore {
     });
   }
 
+  async listPage(input: CatalogPageInput): Promise<CatalogPage> {
+    return pageCatalogRecords(Array.from(this.records.values()), input);
+  }
+
   async getById(id: string): Promise<ServiceCatalogRecord | null> {
     const record = this.records.get(id);
     return record ? clone(record) : null;
@@ -205,6 +225,27 @@ JOIN service_offerings AS offering ON offering.id = version.service_offering_id
 ORDER BY offering.game_code ASC, offering.service_code ASC, offering.region_code ASC NULLS FIRST, version.version ASC
     `);
     return result.rows.map(mapServiceCatalogRow);
+  }
+
+  async listPage(input: CatalogPageInput): Promise<CatalogPage> {
+    const result = await this.client.query<ServiceCatalogRow>(
+      `
+SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
+       offering.service_code, offering.service_name, offering.region_code,
+       version.billing_unit_minutes, version.minimum_units,
+       version.customer_unit_price_minor, version.player_unit_payout_minor,
+       version.currency, version.status, version.version,
+       version.created_by_staff_id, version.created_at,
+       version.activated_at, version.retired_at
+FROM service_catalog_versions AS version
+JOIN service_offerings AS offering ON offering.id = version.service_offering_id
+WHERE ($1::timestamptz IS NULL OR (version.created_at, version.id) < ($1::timestamptz, $2::uuid))
+ORDER BY version.created_at DESC, version.id DESC
+LIMIT $3
+      `,
+      [input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1]
+    );
+    return pageFromCatalogRows(result.rows.map(mapServiceCatalogRow), input.limit);
   }
 
   async getById(id: string): Promise<ServiceCatalogRecord | null> {
@@ -559,10 +600,10 @@ export function registerCatalogRoutes(
     permission: 'catalog.read',
     action: 'LIST_SERVICE_CATALOG_VERSIONS',
     targetType: 'service_catalog_version',
-    handler: async () => ({
-      items: (await options.store.list()).map(toAdminCatalog),
-      nextCursor: null
-    }),
+    handler: async (request) => {
+      const page = await options.store.listPage(readCatalogPageQuery(request));
+      return { items: page.items.map(toAdminCatalog), nextCursor: page.nextCursor };
+    },
     mapError: mapCatalogError
   });
 
@@ -763,6 +804,61 @@ function readCatalogFilters(request: FastifyRequest): { game?: string; region?: 
   };
 }
 
+function readCatalogPageQuery(request: FastifyRequest): CatalogPageInput {
+  const query = request.query as { cursor?: unknown; limit?: unknown };
+  const limit = Number(query.limit ?? 20);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new CatalogError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
+  }
+  if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) {
+    throw new CatalogError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+  return { cursor: query.cursor === undefined ? null : decodeCatalogCursor(query.cursor as string), limit };
+}
+
+function pageCatalogRecords(records: ServiceCatalogRecord[], input: CatalogPageInput): CatalogPage {
+  const sorted = records.map(clone).sort(compareCatalogPageKeys);
+  const afterCursor = input.cursor
+    ? sorted.filter((record) => compareCatalogPageKeys(record, input.cursor!) > 0)
+    : sorted;
+  return pageFromCatalogRows(afterCursor, input.limit);
+}
+
+function pageFromCatalogRows(records: ServiceCatalogRecord[], limit: number): CatalogPage {
+  const items = records.slice(0, limit);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: records.length > limit && last
+      ? encodeCatalogCursor({ createdAt: last.createdAt, id: last.id })
+      : null
+  };
+}
+
+function compareCatalogPageKeys(
+  left: Pick<ServiceCatalogRecord, 'createdAt' | 'id'>,
+  right: Pick<ServiceCatalogRecord, 'createdAt' | 'id'>
+): number {
+  const createdAtDiff = right.createdAt.localeCompare(left.createdAt);
+  return createdAtDiff === 0 ? right.id.localeCompare(left.id) : createdAtDiff;
+}
+
+function encodeCatalogCursor(cursor: CatalogPageCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
+}
+
+function decodeCatalogCursor(value: string): CatalogPageCursor {
+  try {
+    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<CatalogPageCursor>;
+    if (typeof cursor.createdAt !== 'string' || Number.isNaN(Date.parse(cursor.createdAt)) || typeof cursor.id !== 'string' || !isCursorUuid(cursor.id)) {
+      throw new Error('invalid cursor');
+    }
+    return { createdAt: new Date(cursor.createdAt).toISOString(), id: cursor.id };
+  } catch {
+    throw new CatalogError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+}
+
 function readParams(request: FastifyRequest): { serviceCatalogId?: string } {
   return request.params as { serviceCatalogId?: string };
 }
@@ -868,4 +964,8 @@ function toIsoString(value: Date | string): string {
 
 function isUuid(value: string | null): boolean {
   return Boolean(value?.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i));
+}
+
+function isCursorUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }

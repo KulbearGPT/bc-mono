@@ -386,6 +386,7 @@ enum ActorSource {
   DASHBOARD
   SYSTEM_JOB
   THIRD_PARTY_WEBHOOK
+  UNKNOWN
 }
 
 enum BotConfigEventSource {

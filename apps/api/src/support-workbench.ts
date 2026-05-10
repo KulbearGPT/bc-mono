@@ -139,11 +139,12 @@ export class PostgresSupportWorkbenchStore implements SupportWorkbenchStore {
   }
 
   async getOrder(input: { orderId: string; taskId: string | null; actor: ActorContext }) {
+    requireStaff(input.actor);
     if (input.actor.actorLevel === 'L1_SUPPORT') {
-      if (!input.taskId) throw new SupportWorkbenchError('PERMISSION_DENIED', 'A personally claimed task is required.');
-      const task = await this.getTask({ taskId: input.taskId, actor: input.actor });
-      requireOwnedClaim(task, input.actor);
-      if (task.orderId !== input.orderId) throw new SupportWorkbenchError('PERMISSION_DENIED', 'The task does not belong to this order.');
+      const scope = await this.pool.query(`SELECT id FROM staff_tasks WHERE order_id = $1 AND claimed_by_staff_id = $2
+        AND status IN ('CLAIMED', 'VERIFIED', 'PENDING_APPROVAL') AND ($3::uuid IS NULL OR id = $3::uuid) LIMIT 1`,
+      [input.orderId, input.actor.actorStaffId, input.taskId]);
+      if (!scope.rows[0]) throw new SupportWorkbenchError('PERMISSION_DENIED', 'A personally claimed task is required.');
     }
     const order = await this.orders.findById(input.orderId);
     if (!order) throw new SupportWorkbenchError('NOT_FOUND', 'Order was not found.');
@@ -207,8 +208,9 @@ function requireOwnedClaim(task: StaffTaskRecord, actor: ActorContext): void {
 function requireOrderScope(tasks: StaffTaskRecord[], input: { orderId: string; taskId: string | null; actor: ActorContext }): void {
   requireStaff(input.actor);
   if (input.actor.actorLevel !== 'L1_SUPPORT') return;
-  const task = tasks.find((item) => item.id === input.taskId && item.orderId === input.orderId);
-  if (!task || task.claimedBy !== input.actor.actorStaffId || !['CLAIMED', 'PENDING_APPROVAL', 'VERIFIED'].includes(task.status)) {
+  const task = tasks.find((item) => (!input.taskId || item.id === input.taskId) && item.orderId === input.orderId
+    && item.claimedBy === input.actor.actorStaffId && ['CLAIMED', 'PENDING_APPROVAL', 'VERIFIED'].includes(item.status));
+  if (!task) {
     throw new SupportWorkbenchError('PERMISSION_DENIED', 'A personally claimed task is required.');
   }
 }

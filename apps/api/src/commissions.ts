@@ -29,9 +29,14 @@ export interface CommissionMutationInput {
 
 export interface CommissionStore {
   list(input: { status?: CommissionStatus; limit: number }): Promise<CommissionRecord[]> | CommissionRecord[];
+  listPage(input: CommissionPageInput): Promise<CommissionPage> | CommissionPage;
   get(id: string): Promise<CommissionRecord> | CommissionRecord;
   mutate(input: CommissionMutationInput): Promise<CommissionMutationResult> | CommissionMutationResult;
 }
+
+interface CommissionPageCursor { createdAt: string; id: string; }
+interface CommissionPageInput { status?: CommissionStatus; cursor: CommissionPageCursor | null; limit: number; }
+interface CommissionPage { items: CommissionRecord[]; nextCursor: string | null; }
 
 export interface CommissionMutationResult {
   resultType: 'STATE_UPDATED' | 'ADJUSTMENT_CREATED'; commission: CommissionRecord;
@@ -49,6 +54,10 @@ export class InMemoryCommissionStore implements CommissionStore {
   constructor(input: { commissions?: CommissionRecord[] } = {}) { this.commissions = structuredClone(input.commissions ?? []); }
   list(input: { status?: CommissionStatus; limit: number }): CommissionRecord[] {
     return structuredClone(this.commissions.filter((item) => !input.status || item.status === input.status).slice(0, input.limit));
+  }
+  listPage(input: CommissionPageInput): CommissionPage {
+    const records = this.commissions.filter((item) => !input.status || item.status === input.status);
+    return pageCommissionRecords(records, input);
   }
   get(id: string): CommissionRecord {
     const item = this.commissions.find((candidate) => candidate.id === id);
@@ -90,6 +99,19 @@ export class PostgresCommissionStore implements CommissionStore {
     const result = await this.pool.query<{ id: string }>(`SELECT id FROM commissions
       WHERE ($1::text IS NULL OR status::text=$1) ORDER BY created_at DESC,id DESC LIMIT $2`, [input.status ?? null, input.limit]);
     return Promise.all(result.rows.map((row) => loadCommission(this.pool, row.id)));
+  }
+  async listPage(input: CommissionPageInput): Promise<CommissionPage> {
+    const result = await this.pool.query<{ id: string }>(`SELECT id FROM commissions
+      WHERE ($1::text IS NULL OR status::text=$1)
+        AND ($2::timestamptz IS NULL OR (created_at,id) < ($2::timestamptz,$3::uuid))
+      ORDER BY created_at DESC,id DESC LIMIT $4`, [
+      input.status ?? null,
+      input.cursor?.createdAt ?? null,
+      input.cursor?.id ?? null,
+      input.limit + 1
+    ]);
+    const records = await Promise.all(result.rows.map((row) => loadCommission(this.pool, row.id)));
+    return pageFromCommissionRows(records, input.limit);
   }
   get(id: string): Promise<CommissionRecord> { return loadCommission(this.pool, id); }
   async mutate(input: CommissionMutationInput): Promise<CommissionMutationResult> {
@@ -136,7 +158,7 @@ export function registerCommissionRoutes(server: FastifyInstance, options: { sto
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions', permission: 'commission.read',
     action: 'LIST_COMMISSIONS', targetType: 'commission', acceptedSources: ['DASHBOARD','DISCORD_BOT'],
-    handler: async (request) => ({ items: await options.store.list({ status: parseStatus((request.query as {status?: unknown}).status), limit: pageLimit(request) }), nextCursor: null }), mapError });
+    handler: (request) => options.store.listPage(commissionPageQuery(request)), mapError });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.read',
     action: 'GET_COMMISSION_CONFIDENTIAL', targetType: 'commission', targetId: commissionIdParam, acceptedSources: ['DASHBOARD','DISCORD_BOT'],
     handler: (request) => options.store.get(commissionIdParam(request)), mapError });
@@ -176,7 +198,12 @@ function parseMutation(value: unknown) {
   return {expectedVersion:body.expectedVersion as number,action:body.action as CommissionMutationInput['action'],reversalAmount,reason};
 }
 function requireReversal(input:CommissionMutationInput,item:CommissionRecord){const amount=input.reversalAmount;if(!amount||amount.amountMinor<1||amount.currency!==item.currency)throw new CommissionError('VALIDATION_ERROR','A positive reversalAmount in the commission currency is required.');return amount;}
-function pageLimit(request:FastifyRequest){const value=Number((request.query as {limit?:unknown}).limit??50);if(!Number.isInteger(value)||value<1||value>100)throw new CommissionError('VALIDATION_ERROR','limit must be between 1 and 100.');return value;}
+function commissionPageQuery(request:FastifyRequest):CommissionPageInput{const query=request.query as{status?:unknown;cursor?:unknown;limit?:unknown};const limit=Number(query.limit??20);if(!Number.isInteger(limit)||limit<1||limit>100)throw new CommissionError('VALIDATION_ERROR','limit must be between 1 and 100.');if(query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>500))throw new CommissionError('VALIDATION_ERROR','cursor is invalid.');return{status:parseStatus(query.status),cursor:query.cursor===undefined?null:decodeCommissionCursor(query.cursor as string),limit};}
+function pageCommissionRecords(records:CommissionRecord[],input:CommissionPageInput):CommissionPage{const sorted=structuredClone(records).sort(compareCommissionPageKeys);const after=input.cursor?sorted.filter((record)=>compareCommissionPageKeys(record,input.cursor!)>0):sorted;return pageFromCommissionRows(after,input.limit);}
+function pageFromCommissionRows(records:CommissionRecord[],limit:number):CommissionPage{const items=records.slice(0,limit);const last=items.at(-1);return{items,nextCursor:records.length>limit&&last?encodeCommissionCursor({createdAt:last.createdAt,id:last.id}):null};}
+function compareCommissionPageKeys(left:Pick<CommissionRecord,'createdAt'|'id'>,right:Pick<CommissionRecord,'createdAt'|'id'>){const createdAtDiff=right.createdAt.localeCompare(left.createdAt);return createdAtDiff===0?right.id.localeCompare(left.id):createdAtDiff;}
+function encodeCommissionCursor(cursor:CommissionPageCursor){return Buffer.from(JSON.stringify(cursor)).toString('base64url');}
+function decodeCommissionCursor(value:string):CommissionPageCursor{try{const cursor=JSON.parse(Buffer.from(value,'base64url').toString('utf8')) as Partial<CommissionPageCursor>;if(typeof cursor.createdAt!=='string'||Number.isNaN(Date.parse(cursor.createdAt))||typeof cursor.id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id))throw new Error('invalid cursor');return{createdAt:new Date(cursor.createdAt).toISOString(),id:cursor.id};}catch{throw new CommissionError('VALIDATION_ERROR','cursor is invalid.');}}
 function parseStatus(value:unknown):CommissionStatus|undefined{if(value===undefined)return undefined;if(!['PENDING','CONFIRMED','PAID','REVERSED'].includes(String(value)))throw new CommissionError('VALIDATION_ERROR','status is invalid.');return value as CommissionStatus;}
 function commissionIdParam(request:FastifyRequest){const id=(request.params as {commissionId?:unknown}).commissionId;if(typeof id!=='string')throw new CommissionError('VALIDATION_ERROR','commissionId is required.');return id;}
 function mapError(error:unknown){if(!(error instanceof CommissionError))return null;return {statusCode:error.code==='NOT_FOUND'?404:error.code==='PERMISSION_DENIED'?403:error.code==='VALIDATION_ERROR'?400:409,code:error.code,message:error.message};}
