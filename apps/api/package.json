@@ -6,6 +6,7 @@
   "exports": {
     "./server": "./src/server.ts",
     "./security": "./src/security.ts",
+    "./mfa": "./src/mfa.ts",
     "./payment-adapter": "./src/payment-adapter.ts",
     "./outbox": "./src/outbox.ts",
     "./catalog": "./src/catalog.ts",

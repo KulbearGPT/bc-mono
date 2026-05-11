@@ -269,6 +269,58 @@ CREATE TABLE "staff_sessions" (
 );
 
 -- CreateTable
+CREATE TABLE "staff_mfa_credentials" (
+    "id" UUID NOT NULL,
+    "staff_account_id" UUID NOT NULL,
+    "method" VARCHAR(30) NOT NULL,
+    "secret_ciphertext" VARCHAR(4096) NOT NULL,
+    "verified_at" TIMESTAMPTZ(3) NOT NULL,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+
+    CONSTRAINT "staff_mfa_credentials_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "staff_mfa_enrollments" (
+    "id" UUID NOT NULL,
+    "staff_account_id" UUID NOT NULL,
+    "method" VARCHAR(30) NOT NULL,
+    "secret_ciphertext" VARCHAR(4096) NOT NULL,
+    "expires_at" TIMESTAMPTZ(3) NOT NULL,
+    "verified_at" TIMESTAMPTZ(3),
+    "failed_attempts" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "staff_mfa_enrollments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "staff_mfa_recovery_codes" (
+    "id" UUID NOT NULL,
+    "credential_id" UUID NOT NULL,
+    "code_hash" VARCHAR(255) NOT NULL,
+    "consumed_at" TIMESTAMPTZ(3),
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "staff_mfa_recovery_codes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "staff_step_up_challenges" (
+    "id" UUID NOT NULL,
+    "staff_account_id" UUID NOT NULL,
+    "staff_session_id" UUID NOT NULL,
+    "method" VARCHAR(30) NOT NULL,
+    "expires_at" TIMESTAMPTZ(3) NOT NULL,
+    "consumed_at" TIMESTAMPTZ(3),
+    "failed_attempts" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "staff_step_up_challenges_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "discord_role_mappings" (
     "id" UUID NOT NULL,
     "guild_id" VARCHAR(32) NOT NULL,
@@ -1112,6 +1164,27 @@ CREATE UNIQUE INDEX "staff_sessions_session_hash_key" ON "staff_sessions"("sessi
 CREATE INDEX "staff_sessions_staff_account_id_revoked_at_expires_at_idx" ON "staff_sessions"("staff_account_id", "revoked_at", "expires_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "staff_mfa_credentials_staff_account_id_key" ON "staff_mfa_credentials"("staff_account_id");
+
+-- CreateIndex
+CREATE INDEX "staff_mfa_credentials_staff_account_id_verified_at_idx" ON "staff_mfa_credentials"("staff_account_id", "verified_at");
+
+-- CreateIndex
+CREATE INDEX "staff_mfa_enrollments_owner_state_idx" ON "staff_mfa_enrollments"("staff_account_id", "verified_at", "expires_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "staff_mfa_recovery_codes_code_hash_key" ON "staff_mfa_recovery_codes"("code_hash");
+
+-- CreateIndex
+CREATE INDEX "staff_mfa_recovery_codes_credential_id_consumed_at_idx" ON "staff_mfa_recovery_codes"("credential_id", "consumed_at");
+
+-- CreateIndex
+CREATE INDEX "staff_step_up_challenges_owner_state_idx" ON "staff_step_up_challenges"("staff_account_id", "consumed_at", "expires_at");
+
+-- CreateIndex
+CREATE INDEX "staff_step_up_challenges_session_state_idx" ON "staff_step_up_challenges"("staff_session_id", "consumed_at", "expires_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "discord_role_mappings_active_mapping_key_key" ON "discord_role_mappings"("active_mapping_key");
 
 -- CreateIndex
@@ -1535,6 +1608,21 @@ ALTER TABLE "guild_bot_config_events" ADD CONSTRAINT "guild_bot_config_events_ac
 ALTER TABLE "staff_sessions" ADD CONSTRAINT "staff_sessions_staff_account_id_fkey" FOREIGN KEY ("staff_account_id") REFERENCES "staff_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "staff_mfa_credentials" ADD CONSTRAINT "staff_mfa_credentials_staff_account_id_fkey" FOREIGN KEY ("staff_account_id") REFERENCES "staff_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_mfa_enrollments" ADD CONSTRAINT "staff_mfa_enrollments_staff_account_id_fkey" FOREIGN KEY ("staff_account_id") REFERENCES "staff_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_mfa_recovery_codes" ADD CONSTRAINT "staff_mfa_recovery_codes_credential_id_fkey" FOREIGN KEY ("credential_id") REFERENCES "staff_mfa_credentials"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_step_up_challenges" ADD CONSTRAINT "staff_step_up_challenges_staff_account_id_fkey" FOREIGN KEY ("staff_account_id") REFERENCES "staff_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "staff_step_up_challenges" ADD CONSTRAINT "staff_step_up_challenges_staff_session_id_fkey" FOREIGN KEY ("staff_session_id") REFERENCES "staff_sessions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "discord_role_mappings" ADD CONSTRAINT "discord_role_mappings_created_by_staff_id_fkey" FOREIGN KEY ("created_by_staff_id") REFERENCES "staff_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1867,6 +1955,40 @@ GRANT USAGE ON SCHEMA public TO blackcat_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO blackcat_app;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO blackcat_app;
 
+-- MFA and recent-verification records retain protected material and expiry evidence.
+ALTER TABLE staff_sessions
+  ADD CONSTRAINT staff_session_step_up_at_bounds_chk CHECK (
+    step_up_at IS NULL OR (step_up_at >= created_at AND step_up_at <= expires_at)
+  );
+
+ALTER TABLE staff_mfa_credentials
+  ADD CONSTRAINT staff_mfa_credential_method_chk CHECK (method = 'TOTP'),
+  ADD CONSTRAINT staff_mfa_credential_secret_ciphertext_chk CHECK (length(secret_ciphertext) >= 16),
+  ADD CONSTRAINT staff_mfa_credential_verified_at_chk CHECK (verified_at >= created_at);
+
+ALTER TABLE staff_mfa_enrollments
+  ADD CONSTRAINT staff_mfa_enrollment_method_chk CHECK (method = 'TOTP'),
+  ADD CONSTRAINT staff_mfa_enrollment_secret_ciphertext_chk CHECK (length(secret_ciphertext) >= 16),
+  ADD CONSTRAINT staff_mfa_enrollment_expiry_chk CHECK (expires_at > created_at),
+  ADD CONSTRAINT staff_mfa_enrollment_attempts_chk CHECK (failed_attempts BETWEEN 0 AND 5),
+  ADD CONSTRAINT staff_mfa_enrollment_verified_at_chk CHECK (
+    verified_at IS NULL OR (verified_at >= created_at AND verified_at <= expires_at)
+  );
+
+ALTER TABLE staff_mfa_recovery_codes
+  ADD CONSTRAINT staff_mfa_recovery_code_hash_chk CHECK (length(code_hash) >= 32),
+  ADD CONSTRAINT staff_mfa_recovery_code_consumed_at_chk CHECK (
+    consumed_at IS NULL OR consumed_at >= created_at
+  );
+
+ALTER TABLE staff_step_up_challenges
+  ADD CONSTRAINT staff_step_up_challenge_method_chk CHECK (method IN ('TOTP', 'RECOVERY_CODE')),
+  ADD CONSTRAINT staff_step_up_challenge_expiry_chk CHECK (expires_at > created_at),
+  ADD CONSTRAINT staff_step_up_challenge_attempts_chk CHECK (failed_attempts BETWEEN 0 AND 5),
+  ADD CONSTRAINT staff_step_up_challenge_consumed_at_chk CHECK (
+    consumed_at IS NULL OR (consumed_at >= created_at AND consumed_at <= expires_at)
+  );
+
 -- Currency and non-negative money constraints. Every amount is stored as minor units.
 ALTER TABLE orders
   ADD CONSTRAINT orders_currency_format_chk CHECK (currency ~ '^[A-Z]{3}$'),
@@ -2104,6 +2226,193 @@ FOR EACH ROW EXECUTE FUNCTION deny_append_only_mutation();
 CREATE TRIGGER trg_audit_logs_append_only
 BEFORE UPDATE OR DELETE ON audit_logs
 FOR EACH ROW EXECUTE FUNCTION deny_append_only_mutation();
+
+CREATE OR REPLACE FUNCTION enforce_staff_mfa_credential_protection()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'staff MFA credentials cannot be deleted';
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+    OR NEW.staff_account_id IS DISTINCT FROM OLD.staff_account_id
+    OR NEW.method IS DISTINCT FROM OLD.method
+    OR NEW.secret_ciphertext IS DISTINCT FROM OLD.secret_ciphertext
+    OR NEW.verified_at IS DISTINCT FROM OLD.verified_at
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'staff MFA credential security facts are immutable';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_staff_mfa_credential_protection
+BEFORE UPDATE OR DELETE ON staff_mfa_credentials
+FOR EACH ROW EXECUTE FUNCTION enforce_staff_mfa_credential_protection();
+
+CREATE OR REPLACE FUNCTION enforce_staff_mfa_enrollment_single_verification()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'staff MFA enrollments cannot be deleted';
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+    OR NEW.staff_account_id IS DISTINCT FROM OLD.staff_account_id
+    OR NEW.method IS DISTINCT FROM OLD.method
+    OR NEW.secret_ciphertext IS DISTINCT FROM OLD.secret_ciphertext
+    OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at
+    OR OLD.verified_at IS NOT NULL
+    OR NOT (
+      (NEW.verified_at IS NOT NULL AND NEW.failed_attempts = OLD.failed_attempts)
+      OR (NEW.verified_at IS NULL AND NEW.failed_attempts = OLD.failed_attempts + 1 AND NEW.failed_attempts <= 5)
+    ) THEN
+    RAISE EXCEPTION 'staff MFA enrollment can only be verified once';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_staff_mfa_enrollment_single_verification
+BEFORE UPDATE OR DELETE ON staff_mfa_enrollments
+FOR EACH ROW EXECUTE FUNCTION enforce_staff_mfa_enrollment_single_verification();
+
+CREATE OR REPLACE FUNCTION enforce_staff_mfa_recovery_code_single_use()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'staff MFA recovery codes cannot be deleted';
+  END IF;
+
+  IF NEW.id IS DISTINCT FROM OLD.id
+    OR NEW.credential_id IS DISTINCT FROM OLD.credential_id
+    OR NEW.code_hash IS DISTINCT FROM OLD.code_hash
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at
+    OR OLD.consumed_at IS NOT NULL
+    OR NEW.consumed_at IS NULL THEN
+    RAISE EXCEPTION 'staff MFA recovery code can only be consumed once';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_staff_mfa_recovery_code_single_use
+BEFORE UPDATE OR DELETE ON staff_mfa_recovery_codes
+FOR EACH ROW EXECUTE FUNCTION enforce_staff_mfa_recovery_code_single_use();
+
+CREATE OR REPLACE FUNCTION enforce_staff_step_up_challenge_single_use()
+RETURNS trigger AS $$
+DECLARE
+  owning_staff_account_id uuid;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'staff step-up challenges cannot be deleted';
+  END IF;
+
+  SELECT staff_account_id INTO owning_staff_account_id
+  FROM staff_sessions
+  WHERE id = NEW.staff_session_id;
+
+  IF NOT FOUND OR owning_staff_account_id <> NEW.staff_account_id THEN
+    RAISE EXCEPTION 'staff step-up challenge session owner mismatch';
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND (
+    NEW.id IS DISTINCT FROM OLD.id
+    OR NEW.staff_account_id IS DISTINCT FROM OLD.staff_account_id
+    OR NEW.staff_session_id IS DISTINCT FROM OLD.staff_session_id
+    OR NEW.method IS DISTINCT FROM OLD.method
+    OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at
+    OR OLD.consumed_at IS NOT NULL
+    OR NOT (
+      (NEW.failed_attempts = OLD.failed_attempts AND NEW.consumed_at IS NOT NULL)
+      OR (NEW.failed_attempts = OLD.failed_attempts + 1 AND NEW.failed_attempts < 5 AND NEW.consumed_at IS NULL)
+      OR (NEW.failed_attempts = 5 AND NEW.failed_attempts = OLD.failed_attempts + 1 AND NEW.consumed_at IS NOT NULL)
+    )
+  ) THEN
+    RAISE EXCEPTION 'staff step-up challenge can only be consumed once';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_staff_step_up_challenge_single_use
+BEFORE INSERT OR UPDATE OR DELETE ON staff_step_up_challenges
+FOR EACH ROW EXECUTE FUNCTION enforce_staff_step_up_challenge_single_use();
+
+-- Database-enforced security audit: authentication state can never commit without an immutable audit row.
+CREATE OR REPLACE FUNCTION audit_staff_security_state_change()
+RETURNS trigger AS $$
+DECLARE
+  security_staff_id uuid;
+  security_user_id uuid;
+  security_level "StaffLevel";
+  security_action text;
+  security_target_type text;
+BEGIN
+  IF TG_TABLE_NAME = 'staff_sessions' THEN
+    IF NEW.step_up_at IS NOT DISTINCT FROM OLD.step_up_at THEN
+      RETURN NEW;
+    END IF;
+    security_staff_id := NEW.staff_account_id;
+    security_action := 'STEP_UP_SESSION_VERIFIED';
+    security_target_type := 'staff_session';
+  ELSIF TG_TABLE_NAME = 'staff_mfa_recovery_codes' THEN
+    SELECT credential.staff_account_id INTO security_staff_id
+      FROM staff_mfa_credentials AS credential WHERE credential.id = NEW.credential_id;
+    security_action := 'MFA_RECOVERY_CODE_CONSUMED';
+    security_target_type := 'staff_mfa_recovery_code';
+  ELSE
+    security_staff_id := NEW.staff_account_id;
+    security_action := CASE TG_TABLE_NAME
+      WHEN 'staff_mfa_credentials' THEN 'MFA_CREDENTIAL_ACTIVATED'
+      WHEN 'staff_mfa_enrollments' THEN 'MFA_ENROLLMENT_STATE_CHANGED'
+      WHEN 'staff_step_up_challenges' THEN 'STEP_UP_CHALLENGE_STATE_CHANGED'
+      ELSE 'STAFF_SECURITY_STATE_CHANGED'
+    END;
+    security_target_type := TG_TABLE_NAME;
+  END IF;
+
+  SELECT user_id, level INTO security_user_id, security_level
+    FROM staff_accounts WHERE id = security_staff_id;
+
+  INSERT INTO audit_logs (
+    id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
+    permission_code, action, target_type, target_id, outcome, reason, request_id, created_at
+  ) VALUES (
+    gen_random_uuid(), security_user_id, security_staff_id, security_level, 'DASHBOARD', 'DATABASE_GUARD',
+    'mfa.manage_self', security_action, security_target_type, NEW.id::text, 'SUCCEEDED',
+    'ATOMIC_SECURITY_STATE_AUDIT', 'db_guard_' || gen_random_uuid()::text, now()
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_staff_mfa_credential_atomic_audit
+AFTER INSERT ON staff_mfa_credentials
+FOR EACH ROW EXECUTE FUNCTION audit_staff_security_state_change();
+
+CREATE TRIGGER trg_staff_mfa_enrollment_atomic_audit
+AFTER UPDATE ON staff_mfa_enrollments
+FOR EACH ROW EXECUTE FUNCTION audit_staff_security_state_change();
+
+CREATE TRIGGER trg_staff_mfa_recovery_code_atomic_audit
+AFTER UPDATE ON staff_mfa_recovery_codes
+FOR EACH ROW EXECUTE FUNCTION audit_staff_security_state_change();
+
+CREATE TRIGGER trg_staff_step_up_challenge_atomic_audit
+AFTER INSERT OR UPDATE ON staff_step_up_challenges
+FOR EACH ROW EXECUTE FUNCTION audit_staff_security_state_change();
+
+CREATE TRIGGER trg_staff_session_step_up_atomic_audit
+AFTER UPDATE OF step_up_at ON staff_sessions
+FOR EACH ROW EXECUTE FUNCTION audit_staff_security_state_change();
 
 CREATE OR REPLACE FUNCTION enforce_fund_reservation_event_guard()
 RETURNS trigger AS $$
@@ -2417,6 +2726,14 @@ FROM blackcat_app;
 
 REVOKE DELETE ON TABLE audit_logs FROM blackcat_app;
 REVOKE UPDATE, DELETE ON TABLE guild_bot_config_events FROM blackcat_app;
+REVOKE DELETE ON TABLE staff_mfa_credentials FROM blackcat_app;
+REVOKE DELETE ON TABLE staff_mfa_enrollments FROM blackcat_app;
+REVOKE DELETE ON TABLE staff_mfa_recovery_codes FROM blackcat_app;
+REVOKE DELETE ON TABLE staff_step_up_challenges FROM blackcat_app;
+REVOKE UPDATE (staff_account_id, method, secret_ciphertext, verified_at, created_at) ON staff_mfa_credentials FROM blackcat_app;
+REVOKE UPDATE (staff_account_id, method, secret_ciphertext, expires_at, created_at) ON staff_mfa_enrollments FROM blackcat_app;
+REVOKE UPDATE (credential_id, code_hash, created_at) ON staff_mfa_recovery_codes FROM blackcat_app;
+REVOKE UPDATE (staff_account_id, staff_session_id, method, expires_at, created_at) ON staff_step_up_challenges FROM blackcat_app;
 REVOKE UPDATE (amount_minor) ON fund_reservations FROM blackcat_app;
 REVOKE UPDATE (customer_unit_price_minor, player_unit_payout_minor, amount_minor, expected_player_earning_minor) ON orders FROM blackcat_app;
 REVOKE UPDATE (price_minor) ON gift_requests FROM blackcat_app;

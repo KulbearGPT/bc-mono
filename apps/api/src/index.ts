@@ -64,10 +64,15 @@ const dashboardOAuthConfig = {
   redirectUri: process.env.DISCORD_OAUTH_REDIRECT_URI?.trim(),
   guildId: process.env.DISCORD_GUILD_ID?.trim(),
   dashboardUrl: process.env.DASHBOARD_URL?.trim(),
-  csrfSecret: process.env.DASHBOARD_CSRF_SECRET?.trim()
+  csrfSecret: process.env.DASHBOARD_CSRF_SECRET?.trim(),
+  mfaEncryptionKey: process.env.DASHBOARD_MFA_ENCRYPTION_KEY?.trim()
 };
 const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
-  ? new PostgresDashboardAuthStore({ client: databasePool, csrfSecret: dashboardOAuthConfig.csrfSecret! })
+  ? new PostgresDashboardAuthStore({
+      client: databasePool,
+      csrfSecret: dashboardOAuthConfig.csrfSecret!,
+      mfaEncryptionKey: dashboardOAuthConfig.mfaEncryptionKey!
+    })
   : undefined;
 
 const server = buildApiServer({

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
@@ -26,6 +27,7 @@ export interface DashboardSessionResolver {
         | { ok: false; reason: 'AUTH_REQUIRED' | 'SESSION_REVOKED' }
       >;
   verifyCsrf(sessionToken: string, csrfToken: string): boolean | Promise<boolean>;
+  verifyRecentStepUp?(sessionToken: string, now?: Date): boolean | Promise<boolean>;
 }
 
 export interface StaffDirectoryQueryClient {
@@ -136,6 +138,8 @@ const levelRank: Record<StaffLevel, number> = {
 
 const minimumPermissionLevel: Record<string, StaffLevel> = {
   'staff.session.active': 'L1_SUPPORT',
+  'mfa.manage_self': 'L1_SUPPORT',
+  'step_up.execute': 'L1_SUPPORT',
   'dashboard.view': 'L1_SUPPORT',
   'staff_task.read': 'L1_SUPPORT',
   'user.read': 'L2_SUPERVISOR',
@@ -257,6 +261,7 @@ function isAuditUuid(value: string): boolean {
 export class InMemoryIdempotencyStore implements IdempotencyStore {
   private readonly records = new Map<string, IdempotencyRecord>();
   private readonly waiters = new Map<string, Array<(record: IdempotencyRecord) => void>>();
+  private readonly payloadKey = randomBytes(32);
 
   get scopeKeys(): string[] {
     return Array.from(this.records.keys());
@@ -277,7 +282,7 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
                   this.waiters.set(scopeKey, waiters);
                 })
               }
-            : existing
+            : hydrateIdempotencyRecord(existing, this.payloadKey)
       };
     }
 
@@ -295,16 +300,16 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     if (!record) {
       return;
     }
-    const completedRecord: IdempotencyRecord = {
+    const completedRecord: IdempotencyRecord & { encryptedPayload: string } = {
       scopeKey,
       fingerprint: record.fingerprint,
       status: 'COMPLETED',
       statusCode,
-      payload
+      encryptedPayload: encryptIdempotencyPayload(payload, this.payloadKey)
     };
     this.records.set(scopeKey, completedRecord);
     for (const waiter of this.waiters.get(scopeKey) ?? []) {
-      waiter(completedRecord);
+      waiter({ ...completedRecord, payload });
     }
     this.waiters.delete(scopeKey);
   }
@@ -341,6 +346,27 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     this.records.delete(scopeKey);
     return true;
   }
+}
+
+function encryptIdempotencyPayload(payload: unknown, key: Buffer): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()]);
+  return [iv, cipher.getAuthTag(), ciphertext].map((value) => value.toString('base64url')).join('.');
+}
+
+function hydrateIdempotencyRecord(record: IdempotencyRecord, key: Buffer): IdempotencyRecord {
+  const encrypted = (record as IdempotencyRecord & { encryptedPayload?: string }).encryptedPayload;
+  if (!encrypted) return record;
+  const [ivValue, tagValue, ciphertextValue] = encrypted.split('.');
+  if (!ivValue || !tagValue || !ciphertextValue) throw new Error('IDEMPOTENCY_PAYLOAD_INVALID');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  const payload = JSON.parse(Buffer.concat([
+    decipher.update(Buffer.from(ciphertextValue, 'base64url')),
+    decipher.final()
+  ]).toString('utf8')) as unknown;
+  return { scopeKey: record.scopeKey, fingerprint: record.fingerprint, status: record.status, statusCode: record.statusCode, payload, errorCode: record.errorCode };
 }
 
 export function registerSecureReadRoute(
@@ -547,7 +573,13 @@ export function registerSecureWriteRoute(
         ? route.requiresRecentStepUp(request, actor)
         : route.requiresRecentStepUp === true;
       if (requiresRecentStepUp) {
-        const verified = await securityOptions.stepUpVerifier?.verify({ request, actor }) ?? false;
+        const explicitVerification = securityOptions.stepUpVerifier?.verify({ request, actor });
+        const sessionToken = actor.actorSource === 'DASHBOARD' ? parseCookie(request, 'p0_session') : null;
+        const verified = explicitVerification !== undefined
+          ? await explicitVerification
+          : sessionToken && securityOptions.dashboardSessions?.verifyRecentStepUp
+            ? await securityOptions.dashboardSessions.verifyRecentStepUp(sessionToken)
+            : false;
         if (!verified) {
           await appendAudit(auditSink, {
             ...baseAudit,
@@ -924,7 +956,7 @@ function isStagedSecureWrite(result: unknown): result is StagedSecureWrite {
 }
 
 function buildRequestFingerprint(request: FastifyRequest, actor: ActorContext, sanitizedBody?: unknown): string {
-  return JSON.stringify({
+  return createHash('sha256').update(JSON.stringify({
     method: request.method,
     url: request.url,
     body: sanitizedBody ?? request.body ?? null,
@@ -934,7 +966,7 @@ function buildRequestFingerprint(request: FastifyRequest, actor: ActorContext, s
     guildId: actor.guildId,
     discordUserId: actor.discordUserId,
     permissionsVersion: actor.permissionsVersion
-  });
+  })).digest('hex');
 }
 
 function buildIdempotencyScopeKey(

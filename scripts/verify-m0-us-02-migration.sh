@@ -317,6 +317,162 @@ expect_sql_failure "active-reservation-failed-terminal-rejected" "
   );
 "
 
+psql_db -qAtc "
+  INSERT INTO staff_accounts (id, user_id, level, role_source, updated_at)
+  VALUES (
+    '00000000-0000-0000-0000-000000000502',
+    '00000000-0000-0000-0000-000000000004',
+    'L3_OPERATIONS',
+    'MANUAL',
+    now()
+  );
+
+  INSERT INTO staff_sessions (
+    id, staff_account_id, session_hash, permissions_version, expires_at, updated_at
+  ) VALUES
+  (
+    '00000000-0000-0000-0000-000000000710',
+    '00000000-0000-0000-0000-000000000501',
+    'm4-session-owner-a',
+    1,
+    now() + interval '1 hour',
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000711',
+    '00000000-0000-0000-0000-000000000502',
+    'm4-session-owner-b',
+    1,
+    now() + interval '1 hour',
+    now()
+  );
+
+  INSERT INTO staff_mfa_credentials (
+    id, staff_account_id, method, secret_ciphertext, verified_at, updated_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000720',
+    '00000000-0000-0000-0000-000000000501',
+    'TOTP',
+    'ciphertext:v1:verified-secret',
+    now(),
+    now()
+  );
+
+  INSERT INTO staff_mfa_enrollments (
+    id, staff_account_id, method, secret_ciphertext, expires_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000721',
+    '00000000-0000-0000-0000-000000000502',
+    'TOTP',
+    'ciphertext:v1:pending-secret',
+    now() + interval '10 minutes'
+  );
+
+  INSERT INTO staff_mfa_recovery_codes (id, credential_id, code_hash)
+  VALUES (
+    '00000000-0000-0000-0000-000000000730',
+    '00000000-0000-0000-0000-000000000720',
+    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  );
+
+  INSERT INTO staff_step_up_challenges (
+    id, staff_account_id, staff_session_id, method, expires_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000740',
+    '00000000-0000-0000-0000-000000000501',
+    '00000000-0000-0000-0000-000000000710',
+    'TOTP',
+    now() + interval '5 minutes'
+  );
+"
+
+expect_sql_failure "mfa-enrollment-expiry-rejected" "
+  INSERT INTO staff_mfa_enrollments (
+    id, staff_account_id, method, secret_ciphertext, expires_at, created_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000722',
+    '00000000-0000-0000-0000-000000000502',
+    'TOTP',
+    'ciphertext:v1:expired-secret',
+    now(),
+    now()
+  );
+"
+
+expect_sql_failure "mfa-enrollment-owner-missing-rejected" "
+  INSERT INTO staff_mfa_enrollments (
+    id, staff_account_id, method, secret_ciphertext, expires_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000723',
+    '00000000-0000-0000-0000-000000000599',
+    'TOTP',
+    'ciphertext:v1:missing-owner',
+    now() + interval '10 minutes'
+  );
+"
+
+psql_db -qAtc "
+  UPDATE staff_mfa_enrollments
+  SET verified_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000721';
+
+  UPDATE staff_mfa_recovery_codes
+  SET consumed_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000730';
+
+  UPDATE staff_step_up_challenges
+  SET consumed_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000740';
+
+  UPDATE staff_sessions
+  SET step_up_at = now(), updated_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000710';
+"
+
+security_audit_count="$(psql_db -qAtc "SELECT count(*) FROM audit_logs WHERE reason = 'ATOMIC_SECURITY_STATE_AUDIT';")"
+if [[ "${security_audit_count}" -lt 4 ]]; then
+  echo "atomic-security-audit-missing" >&2
+  exit 1
+fi
+echo "atomic-security-audit-ok"
+
+expect_sql_failure "mfa-enrollment-replay-rejected" "
+  UPDATE staff_mfa_enrollments
+  SET verified_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000721';
+"
+
+expect_sql_failure "mfa-recovery-code-replay-rejected" "
+  UPDATE staff_mfa_recovery_codes
+  SET consumed_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000730';
+"
+
+expect_sql_failure "step-up-cross-owner-binding-rejected" "
+  INSERT INTO staff_step_up_challenges (
+    id, staff_account_id, staff_session_id, method, expires_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000741',
+    '00000000-0000-0000-0000-000000000501',
+    '00000000-0000-0000-0000-000000000711',
+    'TOTP',
+    now() + interval '5 minutes'
+  );
+"
+
+expect_sql_failure "step-up-replay-rejected" "
+  UPDATE staff_step_up_challenges
+  SET consumed_at = now()
+  WHERE id = '00000000-0000-0000-0000-000000000740';
+"
+
+expect_sql_failure "mfa-secret-update-rejected" "
+  SET ROLE blackcat_app;
+  UPDATE staff_mfa_credentials
+  SET secret_ciphertext = 'ciphertext:v1:mutated-secret'
+  WHERE id = '00000000-0000-0000-0000-000000000720';
+"
+
 expect_sql_failure "audit-delete-rejected" "SET ROLE blackcat_app; DELETE FROM audit_logs;"
 expect_sql_failure "protected-amount-update-rejected" "SET ROLE blackcat_app; UPDATE fund_reservations SET amount_minor = 999 WHERE id = '00000000-0000-0000-0000-000000000201';"
 expect_sql_failure "order-amount-update-rejected" "SET ROLE blackcat_app; UPDATE orders SET amount_minor = 999 WHERE id = '00000000-0000-0000-0000-000000000101';"

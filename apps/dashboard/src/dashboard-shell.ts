@@ -2,10 +2,13 @@ export interface DashboardCapabilities {
   permissions: string[];
   staffId?: string;
   level?: string;
+  thresholds?: { giftApprovalLimitMinor: number | null; refundLimitMinor: number | null; l4DirectExecutionFromMinor: number; currency: string };
+  stepUp?: { requiredForSensitiveActions: boolean; validUntil: string | null };
+  mfa?: { enrolled: boolean; method: 'TOTP' | null };
 }
 
 export interface DashboardNavigationItem {
-  id: 'overview' | 'support' | 'operations' | 'access';
+  id: 'overview' | 'support' | 'security' | 'operations' | 'access';
   label: string;
   href: string;
 }
@@ -13,6 +16,7 @@ export interface DashboardNavigationItem {
 const navigationRules: Array<DashboardNavigationItem & { permission: string }> = [
   { id: 'overview', label: '运营概览', href: '/', permission: 'dashboard.view' },
   { id: 'support', label: '客服工作台', href: '/support', permission: 'staff_task.read' },
+  { id: 'security', label: '账户安全', href: '/security', permission: 'mfa.manage_self' },
   { id: 'operations', label: '业务管理', href: '/operations', permission: 'catalog.manage' },
   { id: 'access', label: '权限管理', href: '/access', permission: 'access.manage' }
 ];
@@ -48,6 +52,7 @@ export function createDashboardApiClient(options: {
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
+        'x-client-source': 'DASHBOARD',
         'x-csrf-token': csrfToken ?? '',
         'idempotency-key': idempotencyKey ?? `dashboard:${crypto.randomUUID()}`
       },
@@ -56,7 +61,7 @@ export function createDashboardApiClient(options: {
   };
   return {
     get(path: string) {
-      return request(path, { credentials: 'include', headers: { accept: 'application/json' } });
+      return request(path, { credentials: 'include', headers: { accept: 'application/json', 'x-client-source': 'DASHBOARD' } });
     },
     post(path: string, body: unknown, idempotencyKey?: string) {
       return write('POST', path, body, idempotencyKey);

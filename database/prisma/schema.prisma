@@ -516,6 +516,9 @@ model StaffAccount {
   confirmedBy            StaffAccount?             @relation("StaffAccountConfirmation", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   confirmedStaffAccounts StaffAccount[]            @relation("StaffAccountConfirmation")
   sessions               StaffSession[]
+  mfaCredential          StaffMfaCredential?
+  mfaEnrollments         StaffMfaEnrollment[]
+  stepUpChallenges       StaffStepUpChallenge[]
   roleSyncEvents         StaffRoleSyncEvent[]
   approvedPlayerProfiles PlayerProfile[]           @relation("PlayerApprovedBy")
   createdCatalogVersions ServiceCatalogVersion[]   @relation("ServiceVersionCreatedBy")
@@ -598,10 +601,78 @@ model StaffSession {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  staffAccount StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  staffAccount     StaffAccount           @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  stepUpChallenges StaffStepUpChallenge[]
 
   @@index([staffAccountId, revokedAt, expiresAt])
   @@map("staff_sessions")
+}
+
+/// Active TOTP material. secretCiphertext contains only application-encrypted data.
+model StaffMfaCredential {
+  id               String   @id @default(uuid()) @db.Uuid
+  staffAccountId   String   @unique @map("staff_account_id") @db.Uuid
+  method           String   @db.VarChar(30)
+  secretCiphertext String   @map("secret_ciphertext") @db.VarChar(4096)
+  verifiedAt       DateTime @map("verified_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  staffAccount  StaffAccount           @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  recoveryCodes StaffMfaRecoveryCode[]
+
+  @@index([staffAccountId, verifiedAt])
+  @@map("staff_mfa_credentials")
+}
+
+/// Pending enrollment material. Expired rows remain as security evidence.
+model StaffMfaEnrollment {
+  id               String    @id @default(uuid()) @db.Uuid
+  staffAccountId   String    @map("staff_account_id") @db.Uuid
+  method           String    @db.VarChar(30)
+  secretCiphertext String    @map("secret_ciphertext") @db.VarChar(4096)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  verifiedAt       DateTime? @map("verified_at") @db.Timestamptz(3)
+  failedAttempts   Int       @default(0) @map("failed_attempts")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([staffAccountId, verifiedAt, expiresAt], map: "staff_mfa_enrollments_owner_state_idx")
+  @@map("staff_mfa_enrollments")
+}
+
+/// Recovery codes are one-way hashes and can be consumed exactly once.
+model StaffMfaRecoveryCode {
+  id           String    @id @default(uuid()) @db.Uuid
+  credentialId String    @map("credential_id") @db.Uuid
+  codeHash     String    @unique @map("code_hash") @db.VarChar(255)
+  consumedAt   DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  credential StaffMfaCredential @relation(fields: [credentialId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([credentialId, consumedAt])
+  @@map("staff_mfa_recovery_codes")
+}
+
+/// A short-lived MFA proof challenge bound to one authenticated staff session.
+model StaffStepUpChallenge {
+  id             String    @id @default(uuid()) @db.Uuid
+  staffAccountId String    @map("staff_account_id") @db.Uuid
+  staffSessionId String    @map("staff_session_id") @db.Uuid
+  method         String    @db.VarChar(30)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt     DateTime? @map("consumed_at") @db.Timestamptz(3)
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  staffSession StaffSession @relation(fields: [staffSessionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([staffAccountId, consumedAt, expiresAt], map: "staff_step_up_challenges_owner_state_idx")
+  @@index([staffSessionId, consumedAt, expiresAt], map: "staff_step_up_challenges_session_state_idx")
+  @@map("staff_step_up_challenges")
 }
 
 model DiscordRoleMapping {
