@@ -19,6 +19,7 @@ import {
   type StaffLevel
 } from './security.js';
 import type { PolicyReader } from './operations.js';
+import { resolveStaffPolicy } from './authorization-policy.js';
 
 export interface DiscordOAuthProvider {
   getAuthorizationUrl(input: { state: string }): string;
@@ -587,24 +588,6 @@ export interface DashboardAuthOptions {
   policyReader?: PolicyReader;
 }
 
-const permissionsByLevel: Record<StaffLevel, string[]> = {
-  L1_SUPPORT: [
-    'staff.session.active',
-    'mfa.manage_self',
-    'step_up.execute',
-    'dashboard.view',
-    'staff_task.read',
-    'staff_task.claim',
-    'staff_task.verify',
-    'order.read',
-    'gift_request.read',
-    'audit.read'
-  ],
-  L2_SUPERVISOR: ['gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'user.read', 'player.read', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage', 'job.read', 'job.retry'],
-  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage', 'policy.read', 'policy.manage'],
-  L4_ADMIN_OWNER: ['access.read', 'access.manage']
-};
-
 export function registerDashboardAuthRoutes(server: FastifyInstance, options: DashboardAuthOptions): void {
   const now = options.now ?? (() => new Date());
   const secureCookies = options.secureCookies ?? true;
@@ -763,8 +746,7 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
 }
 
 export async function buildCapabilities(staffId: string, level: StaffLevel, permissionsVersion: number, store?: DashboardAuthStore, sessionToken?: string, current = new Date(), policyReader?: PolicyReader) {
-  const ranks: StaffLevel[] = ['L1_SUPPORT', 'L2_SUPERVISOR', 'L3_OPERATIONS', 'L4_ADMIN_OWNER'];
-  const rank = ranks.indexOf(level);
+  const policy = resolveStaffPolicy(level);
   const mfaEnrolled = store ? await store.isMfaEnrolled(staffId) : false;
   const [giftApprovalLimitMinor, refundLimitMinor, l4DirectExecutionFromMinor] = await Promise.all([
     policyReader?.getPolicyInteger('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000) ?? 200_000,
@@ -774,8 +756,8 @@ export async function buildCapabilities(staffId: string, level: StaffLevel, perm
   return {
     staffId,
     level,
-    scope: level === 'L1_SUPPORT' ? 'SELF' : level === 'L2_SUPERVISOR' ? 'TEAM' : level === 'L3_OPERATIONS' ? 'BUSINESS' : 'ALL',
-    permissions: ranks.slice(0, rank + 1).flatMap((item) => permissionsByLevel[item]),
+    scope: policy.scope,
+    permissions: policy.permissions,
     thresholds: {
       giftApprovalLimitMinor: level === 'L1_SUPPORT' ? null : giftApprovalLimitMinor,
       refundLimitMinor: level === 'L1_SUPPORT' ? null : refundLimitMinor,

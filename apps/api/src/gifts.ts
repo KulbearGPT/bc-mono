@@ -17,6 +17,7 @@ import {
 import type { StaffLevel } from './security.js';
 import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
+import { requiredLevelForAmount } from './authorization-policy.js';
 
 type GiftApprovalThresholds = { l2LimitMinor: number; l4FromMinor: number };
 
@@ -1216,9 +1217,7 @@ function assertExecutionCredential(request: GiftRequestRecord, reservation: Gift
 }
 
 function requiredGiftLevel(amountMinor: number, thresholds: GiftApprovalThresholds = { l2LimitMinor: 200_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
-  if (amountMinor <= thresholds.l2LimitMinor) return 'L2_SUPERVISOR';
-  if (amountMinor < thresholds.l4FromMinor) return 'L3_OPERATIONS';
-  return 'L4_ADMIN_OWNER';
+  return requiredLevelForAmount(amountMinor, thresholds);
 }
 
 async function giftApprovalThresholds(policyReader?: PolicyReader): Promise<GiftApprovalThresholds> {

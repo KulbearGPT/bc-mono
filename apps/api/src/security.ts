@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
+import { hasStaffPermission } from './authorization-policy.js';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK' | 'UNKNOWN';
@@ -128,56 +129,6 @@ type StagedSecureWrite = {
   data: unknown;
   statusCode?: number;
   commit: (successAuditRecord: AuditRecord) => Promise<void> | void;
-};
-
-const levelRank: Record<StaffLevel, number> = {
-  L1_SUPPORT: 1,
-  L2_SUPERVISOR: 2,
-  L3_OPERATIONS: 3,
-  L4_ADMIN_OWNER: 4
-};
-
-const minimumPermissionLevel: Record<string, StaffLevel> = {
-  'staff.session.active': 'L1_SUPPORT',
-  'mfa.manage_self': 'L1_SUPPORT',
-  'step_up.execute': 'L1_SUPPORT',
-  'dashboard.view': 'L1_SUPPORT',
-  'staff_task.read': 'L1_SUPPORT',
-  'user.read': 'L2_SUPERVISOR',
-  'user.status.manage': 'L3_OPERATIONS',
-  'player.read': 'L2_SUPERVISOR',
-  'gift_catalog.read': 'L2_SUPERVISOR',
-  'gift_catalog.manage': 'L3_OPERATIONS',
-  'gift_request.read': 'L1_SUPPORT',
-  'catalog.read': 'L2_SUPERVISOR',
-  'catalog.manage': 'L3_OPERATIONS',
-  'staff_task.claim': 'L1_SUPPORT',
-  'staff_task.verify': 'L1_SUPPORT',
-  'staff_task.resolve': 'L2_SUPERVISOR',
-  'gift.approve': 'L2_SUPERVISOR',
-  'gift.reject': 'L2_SUPERVISOR',
-  'earnings.read': 'L2_SUPERVISOR',
-  'earnings.manage': 'L3_OPERATIONS',
-  'commission.read': 'L3_OPERATIONS',
-  'commission.manage': 'L3_OPERATIONS',
-  'referral.read': 'L2_SUPERVISOR',
-  'referral.manage': 'L3_OPERATIONS',
-  'refund.execute': 'L2_SUPERVISOR',
-  'order.resolve': 'L2_SUPERVISOR',
-  'order.reassign': 'L2_SUPERVISOR',
-  'order.pause': 'L1_SUPPORT',
-  'order.resume': 'L2_SUPERVISOR',
-  'player.approve': 'L3_OPERATIONS',
-  'player.status.manage': 'L3_OPERATIONS',
-  'player.tags.manage': 'L2_SUPERVISOR',
-  'user.risk.manage': 'L2_SUPERVISOR',
-  'job.read': 'L2_SUPERVISOR',
-  'job.retry': 'L2_SUPERVISOR',
-  'audit.read': 'L1_SUPPORT',
-  'policy.read': 'L3_OPERATIONS',
-  'policy.manage': 'L3_OPERATIONS',
-  'access.manage': 'L4_ADMIN_OWNER',
-  'access.read': 'L4_ADMIN_OWNER'
 };
 
 const authenticatedActorPermissions = new Set([
@@ -955,11 +906,7 @@ function hasPermission(level: StaffLevel | null, permission: string): boolean {
   if (!level) {
     return false;
   }
-  const minimumLevel = minimumPermissionLevel[permission];
-  if (!minimumLevel) {
-    return false;
-  }
-  return levelRank[level] >= levelRank[minimumLevel];
+  return hasStaffPermission(level, permission);
 }
 
 function isAcceptedSource(actor: ActorContext, acceptedSources: ActorSource[] | undefined): boolean {

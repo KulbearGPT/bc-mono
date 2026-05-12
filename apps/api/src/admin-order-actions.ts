@@ -13,6 +13,7 @@ import {
 } from './orders.js';
 import { registerSecureWriteRoute } from './security.js';
 import type { PolicyReader } from './operations.js';
+import { requiredLevelForAmount } from './authorization-policy.js';
 
 type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type RefundFundingAdapter = Pick<MockFundingAdapter, 'createRefund'> &
@@ -1669,13 +1670,7 @@ function isUuid(value: string | null): value is string {
 
 
 function requiredRefundLevel(amountMinor: number, thresholds: { l2LimitMinor: number; l4FromMinor: number } = { l2LimitMinor: 50_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
-  if (amountMinor >= thresholds.l4FromMinor) {
-    return 'L4_ADMIN_OWNER';
-  }
-  if (amountMinor > thresholds.l2LimitMinor) {
-    return 'L3_OPERATIONS';
-  }
-  return 'L2_SUPERVISOR';
+  return requiredLevelForAmount(amountMinor, thresholds);
 }
 
 async function refundApprovalThresholds(policyReader?: PolicyReader) {
