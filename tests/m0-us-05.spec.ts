@@ -77,7 +77,7 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       attempts: 1,
       lockedAt: null,
       lockedBy: null,
-      lastError: 'Discord timeout',
+      lastError: expect.stringMatching(/^DELIVERY_FAILED; requestId=req_/),
       version: 3
     });
     expect(afterFirstFailure.runAfter).toBe(new Date(now.getTime() + 3_500).toISOString());
@@ -86,7 +86,7 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       request_id: expect.stringMatching(/^req_/),
       jobId: '00000000-0000-0000-0000-00000000a001',
       workerId: 'worker-a',
-      error: 'Discord timeout'
+      error_code: 'DELIVERY_HANDLER_FAILED'
     });
     expect(metrics).toContainEqual({
       name: 'outbox_job_failed_total',
@@ -113,7 +113,7 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       attempts: 2,
       lockedAt: null,
       lockedBy: null,
-      lastError: 'Discord still down'
+      lastError: expect.stringMatching(/^DELIVERY_FAILED; requestId=req_/)
     });
     expect(metrics).toContainEqual({
       name: 'outbox_job_failed_total',

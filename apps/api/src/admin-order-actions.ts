@@ -12,6 +12,7 @@ import {
   type OrderStore
 } from './orders.js';
 import { registerSecureWriteRoute } from './security.js';
+import type { PolicyReader } from './operations.js';
 
 type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type RefundFundingAdapter = Pick<MockFundingAdapter, 'createRefund'> &
@@ -180,6 +181,7 @@ export async function refundOrder(input: {
   staffLevel: StaffLevel;
   idempotencyKey: string;
   now: Date;
+  approvalThresholds?: { l2LimitMinor: number; l4FromMinor: number };
 }): Promise<AdminStagedWrite<RefundOrderResult | ApprovalPendingResult>> {
   if (input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L1 support cannot execute refunds.');
@@ -190,7 +192,7 @@ export async function refundOrder(input: {
   }
   assertMoneyMatchesOrder(input.amount, order.currency, 'Refund');
   assertAmountWithinSnapshot(input.amount.amountMinor, order.amountMinor, 'Refund');
-  const requiredLevel = requiredRefundLevel(input.amount.amountMinor);
+  const requiredLevel = requiredRefundLevel(input.amount.amountMinor, input.approvalThresholds);
   if (requiredLevel !== 'L2_SUPERVISOR' && levelRank(input.staffLevel) < levelRank(requiredLevel)) {
     if (!input.actor.actorStaffId || (!input.orderStore.commitApproval && !input.orderStore.approvalRequests)) {
       throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot create an approval request.');
@@ -295,6 +297,7 @@ export async function resolveOrder(input: {
   staffLevel: StaffLevel;
   idempotencyKey: string;
   now: Date;
+  approvalThresholds?: { l2LimitMinor: number; l4FromMinor: number };
 }): Promise<AdminStagedWrite<OrderResolutionResult | ApprovalPendingResult>> {
   if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to resolve orders.');
@@ -307,7 +310,7 @@ export async function resolveOrder(input: {
   assertMoneyMatchesOrder(input.playerEarning, order.currency, 'Player earning');
   assertAmountWithinSnapshot(input.refund.amountMinor, order.amountMinor, 'Refund');
   assertAmountWithinSnapshot(input.playerEarning.amountMinor, order.playerEarningMinor, 'Player earning');
-  const requiredLevel = requiredRefundLevel(input.refund.amountMinor);
+  const requiredLevel = requiredRefundLevel(input.refund.amountMinor, input.approvalThresholds);
   if (requiredLevel !== 'L2_SUPERVISOR' && levelRank(input.staffLevel) < levelRank(requiredLevel)) {
     if (!input.orderStore.commitApproval && !input.orderStore.approvalRequests) {
       throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order store cannot create an approval request.');
@@ -518,6 +521,7 @@ export function registerAdminOrderActionRoutes(
     fundingAdapter: RefundFundingAdapter;
     providerKey: string;
     now?: () => Date;
+    policyReader?: PolicyReader;
   }
 ): void {
   const security = server.securityOptions;
@@ -540,6 +544,7 @@ export function registerAdminOrderActionRoutes(
         throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required.');
       }
       const body = parseRefundOrderBody(request.body);
+      const approvalThresholds = await refundApprovalThresholds(options.policyReader);
       return refundOrder({
         orderStore: options.orderStore,
         fundingAdapter: options.fundingAdapter,
@@ -552,7 +557,8 @@ export function registerAdminOrderActionRoutes(
         actor,
         staffLevel: actor.actorLevel,
         idempotencyKey: idempotencyKey(request),
-        now: options.now?.() ?? new Date()
+        now: options.now?.() ?? new Date(),
+        approvalThresholds
       });
     },
     mapError: mapAdminOrderActionError,
@@ -574,6 +580,7 @@ export function registerAdminOrderActionRoutes(
         throw new AdminOrderActionError('PERMISSION_DENIED', 'A staff actor is required.');
       }
       const body = parseResolveOrderBody(request.body);
+      const approvalThresholds = await refundApprovalThresholds(options.policyReader);
       return resolveOrder({
         orderStore: options.orderStore,
         fundingAdapter: options.fundingAdapter,
@@ -588,7 +595,8 @@ export function registerAdminOrderActionRoutes(
         actor,
         staffLevel: actor.actorLevel,
         idempotencyKey: idempotencyKey(request),
-        now: options.now?.() ?? new Date()
+        now: options.now?.() ?? new Date(),
+        approvalThresholds
       });
     },
     mapError: mapAdminOrderActionError,
@@ -1660,14 +1668,21 @@ function isUuid(value: string | null): value is string {
 }
 
 
-function requiredRefundLevel(amountMinor: number): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
-  if (amountMinor >= 500_000) {
+function requiredRefundLevel(amountMinor: number, thresholds: { l2LimitMinor: number; l4FromMinor: number } = { l2LimitMinor: 50_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
+  if (amountMinor >= thresholds.l4FromMinor) {
     return 'L4_ADMIN_OWNER';
   }
-  if (amountMinor > 50_000) {
+  if (amountMinor > thresholds.l2LimitMinor) {
     return 'L3_OPERATIONS';
   }
   return 'L2_SUPERVISOR';
+}
+
+async function refundApprovalThresholds(policyReader?: PolicyReader) {
+  return {
+    l2LimitMinor: await policyReader?.getPolicyInteger('L2_REFUND_LIMIT_MINOR', 50_000) ?? 50_000,
+    l4FromMinor: await policyReader?.getPolicyInteger('L4_DIRECT_EXECUTION_THRESHOLD_MINOR', 500_000) ?? 500_000
+  };
 }
 
 function levelRank(level: StaffLevel): number {

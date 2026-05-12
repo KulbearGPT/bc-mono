@@ -58,6 +58,7 @@ function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
   return {
     createBinding: vi.fn(),
     createOrder: vi.fn().mockResolvedValue({ statusCode: 201, order: draftOrder() }),
+    reportChannelCreationFailure: vi.fn().mockResolvedValue(undefined),
     updateOrder: vi.fn().mockResolvedValue(draftOrder({ version: 4 })),
     getOrder: vi.fn().mockResolvedValue(draftOrder()),
     ...overrides
@@ -263,8 +264,21 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
 
     expect(result).toEqual({
       kind: 'CHANNEL_CREATION_FAILED',
-      message: '订单频道创建失败，请稍后重试或联系客户。request_id: local-channel-create'
+      message: expect.stringMatching(/^订单频道创建失败，请稍后重试或联系客服。request_id: req_/)
     });
+  });
+
+  test('channel failure reporting retries once and keeps a deterministic support request id', async () => {
+    const report = vi.fn().mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValueOnce(undefined);
+    const input = { api: api({ reportChannelCreationFailure: report }), actor: actor(), provisionalChannel: null,
+      idempotencyKey: 'discord:create-order:channel-failed-retry' } as const;
+
+    const first = await handleCreateOrderFromPublicEntry(input);
+    const second = await handleCreateOrderFromPublicEntry(input);
+
+    expect(report).toHaveBeenCalledTimes(3);
+    expect(first).toEqual(second);
+    expect(first).toMatchObject({ kind: 'CHANNEL_CREATION_FAILED', message: expect.not.stringContaining('故障记录上报失败') });
   });
 
   test('binding submit sends one-time code to createBinding and never exposes the code in the UI result', async () => {

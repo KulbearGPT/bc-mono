@@ -8,6 +8,7 @@ export type JobType =
   | 'READINESS_TIMEOUT'
   | 'CHANNEL_ARCHIVE'
   | 'PANEL_SYNC'
+  | 'CHANNEL_CREATE_FAILURE'
   | 'ROLE_RECONCILIATION';
 
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
@@ -434,7 +435,7 @@ export class OutboxWorker {
         const failed = await this.store.markFailed({
           jobId: job.id,
           workerId: this.workerId,
-          error: message,
+          error: storedDeliveryFailure(requestId),
           retryAt,
           now: failedAt
         });
@@ -448,7 +449,7 @@ export class OutboxWorker {
           aggregateId: job.aggregateId,
           workerId: this.workerId,
           attempt: job.attempts,
-          error: message
+          error_code: 'DELIVERY_HANDLER_FAILED'
         });
         results.push(failed);
       }
@@ -460,6 +461,10 @@ export class OutboxWorker {
   private backoffForAttempt(attempt: number): number {
     return this.backoffMs[Math.min(Math.max(attempt - 1, 0), this.backoffMs.length - 1)] ?? 1_000;
   }
+}
+
+function storedDeliveryFailure(requestId: string): string {
+  return `DELIVERY_FAILED; requestId=${requestId}`;
 }
 
 export async function retryJob(input: {

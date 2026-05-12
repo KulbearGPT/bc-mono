@@ -32,6 +32,7 @@ import { registerDashboardAuthRoutes, type DashboardAuthOptions } from './dashbo
 import { registerSupportWorkbenchRoutes, type SupportWorkbenchStore } from './support-workbench.js';
 import { registerAdminDirectoryRoutes, type AdminDirectoryStore } from './admin-directory.js';
 import { registerAccessRoutes, type AccessStore } from './access.js';
+import { registerOperationsRoutes, type OperationsStore } from './operations.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -111,6 +112,7 @@ export interface ApiServerOptions {
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
+  operations?: { store: OperationsStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -238,7 +240,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) {
       throw new Error('Dispatch routes require buildApiServer({ security, dispatch })');
     }
-    registerDispatchRoutes(server, options.dispatch);
+    registerDispatchRoutes(server, { ...options.dispatch, policyReader: options.operations?.store });
   }
 
   if (options.serviceLifecycle) {
@@ -266,7 +268,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) {
       throw new Error('Admin order action routes require buildApiServer({ security, adminOrders })');
     }
-    registerAdminOrderActionRoutes(server, options.adminOrders);
+    registerAdminOrderActionRoutes(server, { ...options.adminOrders, policyReader: options.operations?.store });
   }
 
   if (options.paymentWebhook) {
@@ -277,7 +279,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) {
       throw new Error('Gift routes require buildApiServer({ security, gift })');
     }
-    registerGiftRoutes(server, options.gift);
+    registerGiftRoutes(server, { ...options.gift, policyReader: options.operations?.store });
   }
 
   if (options.playerEarnings) {
@@ -289,10 +291,11 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     registerCommissionRoutes(server, options.commissions);
   }
   if(options.referrals){if(!server.securityOptions)throw new Error('Referral routes require buildApiServer({ security, referrals })');registerReferralAttributionRoutes(server,options.referrals);}
-  if (options.dashboardAuth) registerDashboardAuthRoutes(server, options.dashboardAuth);
+  if (options.dashboardAuth) registerDashboardAuthRoutes(server, { ...options.dashboardAuth, policyReader: options.operations?.store });
   if (options.access) registerAccessRoutes(server, options.access);
   if (options.supportWorkbench) registerSupportWorkbenchRoutes(server, options.supportWorkbench);
   if (options.adminDirectory) registerAdminDirectoryRoutes(server, options.adminDirectory);
+  if (options.operations) registerOperationsRoutes(server, options.operations);
 
   return server;
 }

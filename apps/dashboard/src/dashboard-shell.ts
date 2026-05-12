@@ -17,7 +17,7 @@ const navigationRules: Array<DashboardNavigationItem & { permission: string }> =
   { id: 'overview', label: '运营概览', href: '/', permission: 'dashboard.view' },
   { id: 'support', label: '客服工作台', href: '/support', permission: 'staff_task.read' },
   { id: 'security', label: '账户安全', href: '/security', permission: 'mfa.manage_self' },
-  { id: 'operations', label: '业务管理', href: '/operations', permission: 'catalog.manage' },
+  { id: 'operations', label: '系统运营', href: '/operations', permission: 'audit.read' },
   { id: 'access', label: '权限管理', href: '/access', permission: 'access.manage' }
 ];
 

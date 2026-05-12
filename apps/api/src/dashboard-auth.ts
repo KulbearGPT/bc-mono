@@ -18,6 +18,7 @@ import {
   type StaffDirectory,
   type StaffLevel
 } from './security.js';
+import type { PolicyReader } from './operations.js';
 
 export interface DiscordOAuthProvider {
   getAuthorizationUrl(input: { state: string }): string;
@@ -118,7 +119,7 @@ export class InMemoryDashboardAuthStore implements DashboardAuthStore {
   private readonly credentials = new Map<string, StoredMfaCredential>();
   private readonly challenges = new Map<string, StoredStepUpChallenge>();
 
-  constructor(private readonly encryptionKey = 'development-only-mfa-encryption-key') {}
+  constructor(private readonly encryptionKey = 'development-only-mfa-encryption-key', private readonly policyReader?: PolicyReader) {}
 
   createOAuthState(now = new Date()): string {
     const state = randomToken();
@@ -237,7 +238,7 @@ export class InMemoryDashboardAuthStore implements DashboardAuthStore {
     return { challengeId, method: 'TOTP', expiresAt };
   }
 
-  completeStepUp({ staffId, sessionToken, challengeId, method, proof, now = new Date() }: { staffId: string; sessionToken: string; challengeId: string; method: 'TOTP' | 'RECOVERY_CODE'; proof: string; now?: Date }): StepUpState {
+  async completeStepUp({ staffId, sessionToken, challengeId, method, proof, now = new Date() }: { staffId: string; sessionToken: string; challengeId: string; method: 'TOTP' | 'RECOVERY_CODE'; proof: string; now?: Date }): Promise<StepUpState> {
     const challenge = this.challenges.get(challengeId);
     const sessionHash = hash(sessionToken);
     if (!challenge || challenge.staffId !== staffId || challenge.sessionHash !== sessionHash) throw new DashboardAuthConflictError('STEP_UP_CHALLENGE_NOT_FOUND', 'The challenge does not belong to this session.');
@@ -261,18 +262,20 @@ export class InMemoryDashboardAuthStore implements DashboardAuthStore {
     if (!session || session.revokedAt || session.expiresAt <= now) throw new DashboardAuthConflictError('SESSION_REVOKED', 'The staff session is no longer active.');
     challenge.consumedAt = now;
     session.stepUpAt = now;
-    return { verifiedAt: now, validUntil: new Date(now.getTime() + 15 * 60_000) };
+    const validityMinutes = await this.policyReader?.getPolicyInteger('STEP_UP_VALIDITY_MINUTES', 15) ?? 15;
+    return { verifiedAt: now, validUntil: new Date(now.getTime() + validityMinutes * 60_000) };
   }
 
-  getStepUpValidUntil(sessionToken: string, now = new Date()): Date | null {
+  async getStepUpValidUntil(sessionToken: string, now = new Date()): Promise<Date | null> {
     const session = this.sessions.get(hash(sessionToken));
     if (!session?.stepUpAt || session.revokedAt || session.expiresAt <= now) return null;
-    const validUntil = new Date(session.stepUpAt.getTime() + 15 * 60_000);
+    const validityMinutes = await this.policyReader?.getPolicyInteger('STEP_UP_VALIDITY_MINUTES', 15) ?? 15;
+    const validUntil = new Date(session.stepUpAt.getTime() + validityMinutes * 60_000);
     return validUntil > now ? validUntil : null;
   }
 
-  verifyRecentStepUp(sessionToken: string, now = new Date()): boolean {
-    return this.getStepUpValidUntil(sessionToken, now) !== null;
+  async verifyRecentStepUp(sessionToken: string, now = new Date()): Promise<boolean> {
+    return (await this.getStepUpValidUntil(sessionToken, now)) !== null;
   }
 
   isMfaEnrolled(staffId: string): boolean { return this.credentials.has(staffId); }
@@ -281,7 +284,7 @@ export class InMemoryDashboardAuthStore implements DashboardAuthStore {
 export class PostgresDashboardAuthStore implements DashboardAuthStore {
   private readonly oauthStates = new Map<string, Date>();
 
-  constructor(private readonly options: { client: StaffDirectoryQueryClient; csrfSecret: string; mfaEncryptionKey: string }) {}
+  constructor(private readonly options: { client: StaffDirectoryQueryClient; csrfSecret: string; mfaEncryptionKey: string; policyReader?: PolicyReader }) {}
 
   private get mfaEncryptionKey(): string { return this.options.mfaEncryptionKey; }
 
@@ -530,7 +533,8 @@ export class PostgresDashboardAuthStore implements DashboardAuthStore {
       if (method === 'RECOVERY_CODE') await this.recordFailedStepUpAttempt(challengeId, staffId, now);
       throw new DashboardAuthConflictError(method === 'RECOVERY_CODE' ? 'MFA_PROOF_INVALID' : 'STEP_UP_CHALLENGE_CONFLICT', 'The proof or challenge is no longer valid.');
     }
-    return { verifiedAt: now, validUntil: new Date(now.getTime() + 15 * 60_000) };
+    const validityMinutes = await this.options.policyReader?.getPolicyInteger('STEP_UP_VALIDITY_MINUTES', 15) ?? 15;
+    return { verifiedAt: now, validUntil: new Date(now.getTime() + validityMinutes * 60_000) };
   }
 
   async getStepUpValidUntil(sessionToken: string, now = new Date()): Promise<Date | null> {
@@ -542,7 +546,8 @@ export class PostgresDashboardAuthStore implements DashboardAuthStore {
     );
     const stepUpAt = result.rows[0]?.step_up_at;
     if (!stepUpAt) return null;
-    const validUntil = new Date(new Date(stepUpAt).getTime() + 15 * 60_000);
+    const validityMinutes = await this.options.policyReader?.getPolicyInteger('STEP_UP_VALIDITY_MINUTES', 15) ?? 15;
+    const validUntil = new Date(new Date(stepUpAt).getTime() + validityMinutes * 60_000);
     return validUntil > now ? validUntil : null;
   }
 
@@ -579,6 +584,7 @@ export interface DashboardAuthOptions {
   dashboardUrl: string;
   secureCookies?: boolean;
   now?: () => Date;
+  policyReader?: PolicyReader;
 }
 
 const permissionsByLevel: Record<StaffLevel, string[]> = {
@@ -594,9 +600,9 @@ const permissionsByLevel: Record<StaffLevel, string[]> = {
     'gift_request.read',
     'audit.read'
   ],
-  L2_SUPERVISOR: ['gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'user.read', 'player.read', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage'],
-  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage'],
-  L4_ADMIN_OWNER: ['access.manage']
+  L2_SUPERVISOR: ['gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'user.read', 'player.read', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage', 'job.read', 'job.retry'],
+  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage', 'policy.read', 'policy.manage'],
+  L4_ADMIN_OWNER: ['access.read', 'access.manage']
 };
 
 export function registerDashboardAuthRoutes(server: FastifyInstance, options: DashboardAuthOptions): void {
@@ -670,7 +676,8 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
       actor.permissionsVersion!,
       options.store,
       parseCookies(request).p0_session,
-      now()
+      now(),
+      options.policyReader
     )
   });
   registerSecureWriteRoute(server, server.securityOptions, {
@@ -755,19 +762,24 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
   });
 }
 
-async function buildCapabilities(staffId: string, level: StaffLevel, permissionsVersion: number, store?: DashboardAuthStore, sessionToken?: string, current = new Date()) {
+export async function buildCapabilities(staffId: string, level: StaffLevel, permissionsVersion: number, store?: DashboardAuthStore, sessionToken?: string, current = new Date(), policyReader?: PolicyReader) {
   const ranks: StaffLevel[] = ['L1_SUPPORT', 'L2_SUPERVISOR', 'L3_OPERATIONS', 'L4_ADMIN_OWNER'];
   const rank = ranks.indexOf(level);
   const mfaEnrolled = store ? await store.isMfaEnrolled(staffId) : false;
+  const [giftApprovalLimitMinor, refundLimitMinor, l4DirectExecutionFromMinor] = await Promise.all([
+    policyReader?.getPolicyInteger('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000) ?? 200_000,
+    policyReader?.getPolicyInteger('L2_REFUND_LIMIT_MINOR', 50_000) ?? 50_000,
+    policyReader?.getPolicyInteger('L4_DIRECT_EXECUTION_THRESHOLD_MINOR', 500_000) ?? 500_000
+  ]);
   return {
     staffId,
     level,
     scope: level === 'L1_SUPPORT' ? 'SELF' : level === 'L2_SUPERVISOR' ? 'TEAM' : level === 'L3_OPERATIONS' ? 'BUSINESS' : 'ALL',
     permissions: ranks.slice(0, rank + 1).flatMap((item) => permissionsByLevel[item]),
     thresholds: {
-      giftApprovalLimitMinor: level === 'L1_SUPPORT' ? null : 200_000,
-      refundLimitMinor: level === 'L1_SUPPORT' ? null : 50_000,
-      l4DirectExecutionFromMinor: 500_000,
+      giftApprovalLimitMinor: level === 'L1_SUPPORT' ? null : giftApprovalLimitMinor,
+      refundLimitMinor: level === 'L1_SUPPORT' ? null : refundLimitMinor,
+      l4DirectExecutionFromMinor,
       currency: 'CNY'
     },
     mfa: { enrolled: mfaEnrolled, method: mfaEnrolled ? 'TOTP' : null },

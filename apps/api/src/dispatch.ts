@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
+import type { PolicyReader } from './operations.js';
 import { registerSecureWriteRoute } from './security.js';
 import type { OutboxJob } from './outbox.js';
 import type { OrderRecord, OrderStatus, OrderStore } from './orders.js';
@@ -703,6 +704,7 @@ export async function dispatchOrder(input: {
   dispatchChannelId: string;
   idempotencyKey: string;
   now: Date;
+  timeoutMinutes?: number;
 }): Promise<DispatchResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
   const requirement = requireOrderRequirement(order);
@@ -710,7 +712,7 @@ export async function dispatchOrder(input: {
   const candidates = selectEligibleDispatchCandidates(pool, requirement);
   const round = await input.dispatchStore.nextRound(order.id);
   const attemptId = crypto.randomUUID();
-  const expiresAt = new Date(input.now.getTime() + 5 * 60_000).toISOString();
+  const expiresAt = new Date(input.now.getTime() + (input.timeoutMinutes ?? 5) * 60_000).toISOString();
   const attempt: DispatchAttemptRecord = {
     id: attemptId,
     orderId: order.id,
@@ -863,6 +865,7 @@ export function registerDispatchRoutes(
     playerPool: DispatchPlayerPool;
     dispatchChannelId: string;
     now?: () => Date;
+    policyReader?: PolicyReader;
   }
 ): void {
   const security = server.securityOptions;
@@ -880,6 +883,7 @@ export function registerDispatchRoutes(
     acceptedSources: ['SYSTEM_JOB'],
     handler: async (request) => {
       const body = parseDispatchOrderBody(request.body);
+      const timeoutMinutes = await options.policyReader?.getPolicyInteger('DISPATCH_TIMEOUT_MINUTES', 5) ?? 5;
       return dispatchOrder({
         orderStore: options.orderStore,
         dispatchStore: options.dispatchStore,
@@ -889,7 +893,8 @@ export function registerDispatchRoutes(
         trigger: body.trigger,
         dispatchChannelId: options.dispatchChannelId,
         idempotencyKey: idempotencyKey(request),
-        now: now()
+        now: now(),
+        timeoutMinutes
       });
     },
     mapError: mapDispatchError,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { GiftPanelData, GiftRequestResult } from './gifts.js';
 
 export type ClientSource = 'DISCORD_BOT';
@@ -267,6 +268,11 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<{ statusCode: number; order: OrderSummary }>;
+  reportChannelCreationFailure(
+    input: { requestId: string; failureCode: 'CHANNEL_CREATE_FAILED' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown>;
   getOrder(orderId: string, actor: BotActorContext): Promise<OrderSummary>;
   updateOrder(
     orderId: string,
@@ -401,6 +407,14 @@ export class HttpBotApiClient implements BotApiClient {
       includeStatus: true
     });
     return { statusCode: response.statusCode, order: response.data };
+  }
+
+  public async reportChannelCreationFailure(
+    input: { requestId: string; failureCode: 'CHANNEL_CREATE_FAILED' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<unknown> {
+    return this.request('/api/v1/internal/discord/channel-failures', { method: 'POST', actor, idempotencyKey, body: input });
   }
 
   public async getOrder(orderId: string, actor: BotActorContext): Promise<OrderSummary> {
@@ -1647,9 +1661,23 @@ export async function handleCreateOrderFromPublicEntry(input: {
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
   if (!input.provisionalChannel) {
+    const requestId = `req_${createHash('sha256').update(`${input.actor.guildId}:${input.actor.interactionId}`).digest('hex').slice(0, 24)}`;
+    let reported = false;
+    for (let attempt = 0; attempt < 2 && !reported; attempt += 1) {
+      try {
+        await input.api.reportChannelCreationFailure(
+          { requestId, failureCode: 'CHANNEL_CREATE_FAILED' },
+          input.actor,
+          `channel-failure:${input.actor.interactionId}`
+        );
+        reported = true;
+      } catch {
+        // A second bounded attempt protects the support record without delaying the interaction indefinitely.
+      }
+    }
     return {
       kind: 'CHANNEL_CREATION_FAILED',
-      message: '订单频道创建失败，请稍后重试或联系客户。request_id: local-channel-create'
+      message: `订单频道创建失败，请稍后重试或联系客服。request_id: ${requestId}${reported ? '' : '；故障记录上报失败，请向客服提供此编号。'}`
     };
   }
 

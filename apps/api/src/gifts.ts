@@ -16,6 +16,9 @@ import {
 } from './security.js';
 import type { StaffLevel } from './security.js';
 import { createEligibleReferralCommission } from './referrals.js';
+import type { PolicyReader } from './operations.js';
+
+type GiftApprovalThresholds = { l2LimitMinor: number; l4FromMinor: number };
 
 export type GiftCatalogStatus = 'DRAFT' | 'ACTIVE' | 'RETIRED';
 
@@ -110,7 +113,7 @@ export interface GiftStore {
     auditSink: AuditSink;
   }): Promise<void> | void;
   verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date }): Promise<GiftReviewResult> | GiftReviewResult;
-  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
+  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
   getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> | GiftCaptureContext;
   findCapture(giftRequestId: string): Promise<GiftCaptureResult | null> | GiftCaptureResult | null;
   commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> | GiftCaptureResult;
@@ -314,7 +317,7 @@ export class InMemoryGiftStore implements GiftStore {
       executionCredential: { payloadHash: updated.verificationPayloadHash!, expiresAt } };
   }
 
-  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date }): GiftAuthorizationResult {
+  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): GiftAuthorizationResult {
     const request = this.requireRequest(input.giftRequestId);
     const reservation = this.requireReservation(request.id);
     const task = this.staffTasks.find((candidate) => candidate.giftRequestId === request.id);
@@ -334,7 +337,7 @@ export class InMemoryGiftStore implements GiftStore {
         approvalRequestId: approval.id, executionCredential: { payloadHash: request.verificationPayloadHash!, expiresAt: request.executionCredentialExpiresAt! } };
     }
     assertExecutionCredential(request, reservation, task, input.expectedVersion, input.now);
-    const requiredLevel = requiredGiftLevel(request.priceMinor);
+    const requiredLevel = requiredGiftLevel(request.priceMinor, input.approvalThresholds);
     if (levelRank(input.actorLevel) < levelRank(requiredLevel)) {
       if (requiredLevel === 'L2_SUPERVISOR') throw new GiftError('PERMISSION_DENIED', 'L1 cannot authorize gifts.');
       const approval = buildGiftApproval(request, input.actorStaffId, requiredLevel, input.reason, input.now);
@@ -580,7 +583,7 @@ AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input
     } finally { client.release(); }
   }
 
-  async authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date }): Promise<GiftAuthorizationResult> {
+  async authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): Promise<GiftAuthorizationResult> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -610,7 +613,7 @@ AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input
           approvalRequestId: approval.id, executionCredential: { payloadHash: snapshot.request.verificationPayloadHash!, expiresAt: snapshot.request.executionCredentialExpiresAt! } };
       }
       assertExecutionCredential(snapshot.request, snapshot.reservation, snapshot.task, input.expectedVersion, input.now);
-      const requiredLevel = requiredGiftLevel(snapshot.request.priceMinor);
+      const requiredLevel = requiredGiftLevel(snapshot.request.priceMinor, input.approvalThresholds);
       if (levelRank(input.actorLevel) < levelRank(requiredLevel)) {
         if (requiredLevel === 'L2_SUPERVISOR') throw new GiftError('PERMISSION_DENIED', 'L1 cannot authorize gifts.');
         const approval = buildGiftApproval(snapshot.request, input.actorStaffId, requiredLevel, input.reason, input.now);
@@ -784,6 +787,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   providerKey: string;
   broadcastChannelId: string;
   now?: () => Date;
+  policyReader?: PolicyReader;
 }): void {
   if (!server.securityOptions) throw new Error('Gift routes require security options.');
   const security = server.securityOptions;
@@ -852,8 +856,9 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
           giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
         return { data: recovered, statusCode: 200, commit: () => undefined };
       }
+      const approvalThresholds = await giftApprovalThresholds(options.policyReader);
       const data = await options.store.authorizeGift({ giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
-        actorStaffId: actor.actorStaffId, actorLevel: actor.actorLevel, reason: body.reason, now: now() });
+        actorStaffId: actor.actorStaffId, actorLevel: actor.actorLevel, reason: body.reason, now: now(), approvalThresholds });
       if ('code' in data && data.code === 'APPROVAL_PENDING') {
         return { data, statusCode: 202, commit: () => undefined };
       }
@@ -1210,10 +1215,17 @@ function assertExecutionCredential(request: GiftRequestRecord, reservation: Gift
   }
 }
 
-function requiredGiftLevel(amountMinor: number): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
-  if (amountMinor <= 200_000) return 'L2_SUPERVISOR';
-  if (amountMinor < 500_000) return 'L3_OPERATIONS';
+function requiredGiftLevel(amountMinor: number, thresholds: GiftApprovalThresholds = { l2LimitMinor: 200_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
+  if (amountMinor <= thresholds.l2LimitMinor) return 'L2_SUPERVISOR';
+  if (amountMinor < thresholds.l4FromMinor) return 'L3_OPERATIONS';
   return 'L4_ADMIN_OWNER';
+}
+
+async function giftApprovalThresholds(policyReader?: PolicyReader): Promise<GiftApprovalThresholds> {
+  return {
+    l2LimitMinor: await policyReader?.getPolicyInteger('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000) ?? 200_000,
+    l4FromMinor: await policyReader?.getPolicyInteger('L4_DIRECT_EXECUTION_THRESHOLD_MINOR', 500_000) ?? 500_000
+  };
 }
 
 function levelRank(level: StaffLevel): number {

@@ -9,6 +9,7 @@ import { SupportWorkbenchPage } from './SupportWorkbenchPage.js';
 import { AdminBusinessRoute } from './AdminBusinessRoute.js';
 import { buildAdminBusinessNavigation, resolveAdminBusinessPage } from './admin-business.js';
 import { SecurityPage } from './SecurityPage.js';
+import { OperationsRoute } from './OperationsRoute.js';
 
 export function App() {
   const manifest = buildDashboardManifest();
@@ -52,6 +53,8 @@ export function App() {
             ? <SupportWorkbenchPage capabilities={result!.capabilities!} />
             : window.location.pathname === '/security'
             ? <SecurityPage capabilities={result!.capabilities!} />
+            : window.location.pathname === '/operations'
+            ? <OperationsRoute capabilities={result!.capabilities!} />
             : <section style={{ padding: 24 }}><h1>运营概览</h1><p>当前页面与操作均按服务端员工权限显示。</p></section>}
         </div>
       )}

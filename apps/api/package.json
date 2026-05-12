@@ -8,6 +8,7 @@
     "./security": "./src/security.ts",
     "./mfa": "./src/mfa.ts",
     "./access": "./src/access.ts",
+    "./operations": "./src/operations.ts",
     "./payment-adapter": "./src/payment-adapter.ts",
     "./outbox": "./src/outbox.ts",
     "./catalog": "./src/catalog.ts",

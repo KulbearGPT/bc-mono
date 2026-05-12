@@ -174,6 +174,8 @@ const minimumPermissionLevel: Record<string, StaffLevel> = {
   'job.read': 'L2_SUPERVISOR',
   'job.retry': 'L2_SUPERVISOR',
   'audit.read': 'L1_SUPPORT',
+  'policy.read': 'L3_OPERATIONS',
+  'policy.manage': 'L3_OPERATIONS',
   'access.manage': 'L4_ADMIN_OWNER',
   'access.read': 'L4_ADMIN_OWNER'
 };
@@ -204,7 +206,8 @@ const authenticatedActorPermissions = new Set([
   'player.availability.manage_self',
   'presence.sync',
   'gift.request',
-  'access.role_sync'
+  'access.role_sync',
+  'operations.failure.report'
 ]);
 
 export class InMemoryAuditSink implements AuditSink {

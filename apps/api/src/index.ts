@@ -20,6 +20,7 @@ import { DiscordHttpOAuthProvider, PostgresDashboardAuthStore } from './dashboar
 import { PostgresSupportWorkbenchStore } from './support-workbench.js';
 import { PostgresAdminDirectoryStore } from './admin-directory.js';
 import { PostgresAccessStore } from './access.js';
+import { PostgresOperationsStore } from './operations.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -68,11 +69,13 @@ const dashboardOAuthConfig = {
   csrfSecret: process.env.DASHBOARD_CSRF_SECRET?.trim(),
   mfaEncryptionKey: process.env.DASHBOARD_MFA_ENCRYPTION_KEY?.trim()
 };
+const operationsStore = new PostgresOperationsStore(databasePool);
 const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
   ? new PostgresDashboardAuthStore({
       client: databasePool,
       csrfSecret: dashboardOAuthConfig.csrfSecret!,
-      mfaEncryptionKey: dashboardOAuthConfig.mfaEncryptionKey!
+      mfaEncryptionKey: dashboardOAuthConfig.mfaEncryptionKey!,
+      policyReader: operationsStore
     })
   : undefined;
 const accessStore = new PostgresAccessStore(databasePool);
@@ -176,6 +179,9 @@ const server = buildApiServer({
   },
   access: {
     store: accessStore
+  },
+  operations: {
+    store: operationsStore
   }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
