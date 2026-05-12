@@ -152,7 +152,7 @@ export class PostgresSupportWorkbenchStore implements SupportWorkbenchStore {
   }
 }
 
-export function registerSupportWorkbenchRoutes(server: FastifyInstance, options: { store: SupportWorkbenchStore; now?: () => Date }): void {
+export function registerSupportWorkbenchRoutes(server: FastifyInstance, options: { store: SupportWorkbenchStore; now?: () => Date; registerOrderRoute?: boolean }): void {
   if (!server.securityOptions) throw new Error('Support workbench routes require security options.');
   const security = server.securityOptions;
   const now = options.now ?? (() => new Date());
@@ -177,10 +177,12 @@ export function registerSupportWorkbenchRoutes(server: FastifyInstance, options:
     targetId: taskId, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], successStatusCode: 202,
     handler: async (request, actor) => ({ task: await options.store.escalate({ taskId: taskId(request), actor, ...parseEscalation(request.body), now: now() }), requiredLevel: 'L2_SUPERVISOR' }), mapError
   });
-  registerSecureReadRoute(server, security, {
-    method: 'GET', url: '/api/v1/admin/orders/:orderId', permission: 'staff_task.read', action: 'GET_ADMIN_ORDER', targetType: 'order',
-    targetId: orderId, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: (request, actor) => options.store.getOrder({ orderId: orderId(request), taskId: queryTaskId(request), actor }), mapError
-  });
+  if (options.registerOrderRoute !== false) {
+    registerSecureReadRoute(server, security, {
+      method: 'GET', url: '/api/v1/admin/orders/:orderId', permission: 'staff_task.read', action: 'GET_ADMIN_ORDER', targetType: 'order',
+      targetId: orderId, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: (request, actor) => options.store.getOrder({ orderId: orderId(request), taskId: queryTaskId(request), actor }), mapError
+    });
+  }
 }
 
 function buildOrderView(order: OrderRecord) {

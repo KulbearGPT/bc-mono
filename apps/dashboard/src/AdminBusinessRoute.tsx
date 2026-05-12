@@ -5,6 +5,7 @@ import {
   buildAdminActionRequest,
   buildAdminBusinessPage,
   buildAdminDetailRequest,
+  buildAdminOrderTimelineRequest,
   buildAdminResourceQuery,
   buildAdminUserConsumptionRequest,
   type AdminBusinessAction,
@@ -108,7 +109,8 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
         return;
       }
       if (page !== 'users') {
-        setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data: body.data });
+        setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data: body.data,
+          timelinePage: page === 'orders' ? { kind: 'READY', requestId: null } : undefined });
         return;
       }
       const userId = typeof body.data.id === 'string' ? body.data.id : null;
@@ -142,6 +144,34 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     }
   }
 
+  async function loadMoreOrderTimeline(cursor: string) {
+    if (detail?.kind !== 'READY' || detail.page !== 'orders' || !detail.data) return;
+    const order = detail.data.order as Record<string, unknown> | undefined;
+    if (!order || typeof order.id !== 'string') return;
+    setDetail((current) => current?.kind === 'READY' && current.page === 'orders'
+      ? { ...current, timelinePage: { kind: 'LOADING', requestId: null } }
+      : current);
+    try {
+      const response = await client.get(buildAdminOrderTimelineRequest(order.id, cursor));
+      const body = await response.json().catch(() => null) as { requestId?: string; data?: Record<string, unknown> } | null;
+      if (!response.ok || !body?.data) {
+        setDetail((current) => current?.kind === 'READY' && current.page === 'orders'
+          ? { ...current, timelinePage: { kind: 'ERROR', requestId: body?.requestId ?? null } }
+          : current);
+        return;
+      }
+      setDetail((current) => {
+        if (current?.kind !== 'READY' || current.page !== 'orders' || !current.data) return current;
+        const prior=current.data.timeline as {items?:unknown[]}|undefined;const next=body.data!.timeline as {items?:unknown[];nextCursor?:unknown}|undefined;
+        return { ...current, timelinePage: { kind: 'READY', requestId: null }, data: { ...current.data, timeline: { items: [...(prior?.items??[]),...(next?.items??[])], nextCursor: typeof next?.nextCursor==='string'?next.nextCursor:null } } };
+      });
+    } catch {
+      setDetail((current) => current?.kind === 'READY' && current.page === 'orders'
+        ? { ...current, timelinePage: { kind: 'ERROR', requestId: null } }
+        : current);
+    }
+  }
+
   function loadMoreConsumptions(cursor: string) {
     if (detail?.kind !== 'READY' || detail.page !== 'users' || typeof detail.data?.id !== 'string') return;
     const userId = detail.data.id;
@@ -160,5 +190,5 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} />;
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} />;
 }

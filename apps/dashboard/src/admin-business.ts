@@ -40,7 +40,13 @@ export interface AdminBusinessDetailState {
     items: ReadonlyArray<Record<string, unknown>>;
     nextCursor: string | null;
   };
+  timelinePage?: {
+    kind: 'READY' | 'LOADING' | 'ERROR';
+    requestId: string | null;
+  };
 }
+
+export interface AdminTimelineRow { id: string; type: string; status: string; direction: string; amountMinor: number | null; currency: string | null; occurredAt: string }
 
 export interface AdminBusinessPageInput {
   page: AdminBusinessPageId;
@@ -216,6 +222,23 @@ export function buildAdminDetailRequest(
   const id = page === 'players' ? requireText(item.playerId, 'playerId') : requireText(item.id, 'id');
   const resource = page === 'orders' ? 'orders' : page === 'users' ? 'users' : page === 'players' ? 'players' : 'gift-requests';
   return `/api/v1/admin/${resource}/${encodeURIComponent(id)}`;
+}
+
+export function buildAdminOrderTimelineRequest(orderId: string, cursor: string): string {
+  const params = new URLSearchParams({ timelineCursor: requireText(cursor, 'timelineCursor'), timelineLimit: '25' });
+  return `/api/v1/admin/orders/${encodeURIComponent(requireText(orderId, 'orderId'))}?${params.toString()}`;
+}
+
+export function readAdminOrderTimeline(data: Record<string, unknown>): { items: AdminTimelineRow[]; nextCursor: string | null } {
+  const timeline = data.timeline;
+  if (!timeline || typeof timeline !== 'object' || Array.isArray(timeline)) return { items: [], nextCursor: null };
+  const record = timeline as { items?: unknown; nextCursor?: unknown };
+  const items = Array.isArray(record.items) ? record.items.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))).map((item) => ({
+    id: typeof item.id === 'string' ? item.id : '', type: typeof item.type === 'string' ? item.type : 'UNKNOWN', status: typeof item.status === 'string' ? item.status : 'UNKNOWN',
+    direction: typeof item.direction === 'string' ? item.direction : 'INFO', amountMinor: Number.isSafeInteger(item.amountMinor) ? Number(item.amountMinor) : null,
+    currency: typeof item.currency === 'string' ? item.currency : null, occurredAt: typeof item.occurredAt === 'string' ? item.occurredAt : ''
+  })) : [];
+  return { items, nextCursor: typeof record.nextCursor === 'string' ? record.nextCursor : null };
 }
 
 export function buildAdminUserConsumptionRequest(userId: string, cursor: string | null = null): string {

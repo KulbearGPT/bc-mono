@@ -21,6 +21,7 @@ import { PostgresSupportWorkbenchStore } from './support-workbench.js';
 import { PostgresAdminDirectoryStore } from './admin-directory.js';
 import { PostgresAccessStore } from './access.js';
 import { PostgresOperationsStore } from './operations.js';
+import { PostgresTransactionTimelineStore } from './transaction-timeline.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -175,7 +176,8 @@ const server = buildApiServer({
     store: new PostgresSupportWorkbenchStore(databasePool)
   },
   adminDirectory: {
-    store: new PostgresAdminDirectoryStore(databasePool)
+    store: new PostgresAdminDirectoryStore(databasePool),
+    timelineStore: new PostgresTransactionTimelineStore(databasePool)
   },
   access: {
     store: accessStore

@@ -11,6 +11,7 @@ import {
   type AuditSink
 } from './security.js';
 import { PostgresOrderStore, type OrderRecord } from './orders.js';
+import { TransactionTimelineError, type TransactionTimelineStore } from './transaction-timeline.js';
 
 export type AdminOrderListItem = OrderRecord;
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
@@ -326,7 +327,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
       AND task.status IN ('CLAIMED', 'VERIFIED', 'PENDING_APPROVAL')))`, [input.giftRequestId, input.actorLevel, input.actorStaffId]); return rows.rows[0] ? mapGiftRequest(rows.rows[0]) : null; }
 }
 
-export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; now?: () => Date }) {
+export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date }) {
   if (!server.securityOptions) throw new Error('Admin directory routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
@@ -338,6 +339,10 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
     }, mapError
   });
   read('/api/v1/admin/orders', 'order.read', 'LIST_ADMIN_ORDERS', 'order', (request, actor) => options.store.listOrders({ ...pageQuery(request), status: enumQuery(request, 'status', ['DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION']), query: queryString(request, 'query'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }));
+  if (options.timelineStore) read('/api/v1/admin/orders/:orderId', 'staff_task.read', 'GET_ADMIN_ORDER', 'order', async (request, actor) => {
+    try { return required(await options.timelineStore!.getAdminOrder({ orderId: param(request, 'orderId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, cursor: timelineCursor(request), limit: timelineLimit(request) }), 'Order'); }
+    catch (error) { if (error instanceof TransactionTimelineError) throw new AdminDirectoryError('VALIDATION_ERROR', error.message); throw error; }
+  });
   read('/api/v1/admin/users', 'user.read', 'LIST_ADMIN_USERS', 'user', (request) => options.store.listUsers({ ...pageQuery(request), query: queryString(request, 'query') }));
   read('/api/v1/admin/users/:userId', 'user.read', 'GET_ADMIN_USER', 'user', async (request) => required(await options.store.getUser(param(request, 'userId')), 'User'));
   read('/api/v1/admin/users/:userId/consumptions', 'user.read', 'LIST_ADMIN_USER_CONSUMPTIONS', 'consumption_entry', async (request) => {
@@ -450,6 +455,8 @@ function pageQuery(request: FastifyRequest): PageInput {
 function queryString(request: FastifyRequest, key: string): string | undefined { const value = (request.query as Record<string, unknown>)[key]; if (value === undefined) return undefined; if (typeof value !== 'string' || value.length > 100) throw new AdminDirectoryError('VALIDATION_ERROR', `${key} is invalid.`); return value.trim() || undefined; }
 function enumQuery(request: FastifyRequest, key: string, allowed: string[]): string | undefined { const value = queryString(request, key); if (value && !allowed.includes(value)) throw new AdminDirectoryError('VALIDATION_ERROR', `${key} is invalid.`); return value; }
 function consumptionType(request: FastifyRequest): AdminConsumptionMirrorType | undefined { const value = queryString(request, 'type'); if (value === undefined) return undefined; if (!isAdminConsumptionMirrorType(value)) throw new AdminDirectoryError('VALIDATION_ERROR', 'type is invalid.'); return value; }
+function timelineLimit(request: FastifyRequest) { const value=Number((request.query as Record<string,unknown>).timelineLimit??25);if(!Number.isInteger(value)||value<1||value>100)throw new AdminDirectoryError('VALIDATION_ERROR','timelineLimit is invalid.');return value; }
+function timelineCursor(request: FastifyRequest) { const value=(request.query as Record<string,unknown>).timelineCursor;if(value===undefined)return null;if(typeof value!=='string'||value.length<1||value.length>500)throw new AdminDirectoryError('VALIDATION_ERROR','timelineCursor is invalid.');return value; }
 function param(request: FastifyRequest, key: string): string { return String((request.params as Record<string, unknown>)[key] ?? ''); }
 function required<T>(value: T | null, label: string): T { if (!value) throw new AdminDirectoryError('NOT_FOUND', `${label} was not found.`); return value; }
 function parseUserStatus(body: unknown) { const input = object(body); const expectedVersion = integer(input.expectedVersion, 'expectedVersion'); const status = text(input.status, 'status'); if (!['ACTIVE', 'PAUSED', 'SUSPENDED'].includes(status)) throw new AdminDirectoryError('VALIDATION_ERROR', 'status is invalid.'); return { expectedVersion, status, reasonCode: reason(input.reasonCode), note: nullableText(input.note, 1000) }; }

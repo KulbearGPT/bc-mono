@@ -33,6 +33,7 @@ import { registerSupportWorkbenchRoutes, type SupportWorkbenchStore } from './su
 import { registerAdminDirectoryRoutes, type AdminDirectoryStore } from './admin-directory.js';
 import { registerAccessRoutes, type AccessStore } from './access.js';
 import { registerOperationsRoutes, type OperationsStore } from './operations.js';
+import type { TransactionTimelineStore } from './transaction-timeline.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -110,7 +111,7 @@ export interface ApiServerOptions {
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
-  adminDirectory?: { store: AdminDirectoryStore; now?: () => Date };
+  adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; now?: () => Date };
 }
@@ -293,7 +294,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if(options.referrals){if(!server.securityOptions)throw new Error('Referral routes require buildApiServer({ security, referrals })');registerReferralAttributionRoutes(server,options.referrals);}
   if (options.dashboardAuth) registerDashboardAuthRoutes(server, { ...options.dashboardAuth, policyReader: options.operations?.store });
   if (options.access) registerAccessRoutes(server, options.access);
-  if (options.supportWorkbench) registerSupportWorkbenchRoutes(server, options.supportWorkbench);
+  if (options.supportWorkbench) registerSupportWorkbenchRoutes(server, {
+    ...options.supportWorkbench,
+    registerOrderRoute: !options.adminDirectory?.timelineStore
+  });
   if (options.adminDirectory) registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);
 

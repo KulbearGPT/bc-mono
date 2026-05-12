@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel } from './admin-business.js';
-import { formatMinorCurrency } from './admin-business.js';
+import { formatMinorCurrency, readAdminOrderTimeline } from './admin-business.js';
 
 export function AdminBusinessPage(props: {
   model: AdminBusinessPageModel;
@@ -18,6 +18,7 @@ export function AdminBusinessPage(props: {
   onOpenDetail?: (item: Record<string, unknown>) => void;
   onCloseDetail?: () => void;
   onNextConsumptions?: (cursor: string) => void;
+  onNextTimeline?: (cursor: string) => void;
 }) {
   const { model } = props;
   if (model.kind === 'FORBIDDEN') {
@@ -50,7 +51,7 @@ export function AdminBusinessPage(props: {
       {model.kind === 'EMPTY' && <div style={{ minHeight: 160 }}><p>当前筛选下没有记录。</p><button type="button" onClick={props.onClearFilters}>清除筛选</button></div>}
       {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}
 
-      {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} />}
+      {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} />}
 
@@ -174,7 +175,7 @@ function submitAction(event: FormEvent<HTMLFormElement>, props: Parameters<typeo
   props.onSubmit?.(props.active.action, props.active.item, fields);
 }
 
-function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: () => void; onNextConsumptions?: (cursor: string) => void }) {
+function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: () => void; onNextConsumptions?: (cursor: string) => void; onNextTimeline?: (cursor: string) => void }) {
   const { detail } = props;
   return (
     <aside aria-label="业务对象详情" style={{ marginTop: 20, borderTop: '1px solid #d9e1e3', paddingTop: 16, minHeight: 160 }}>
@@ -182,9 +183,19 @@ function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: 
       {detail.kind === 'LOADING' && <p aria-busy="true">正在载入详情...</p>}
       {detail.kind === 'FORBIDDEN' && <p role="alert">{detail.page === 'orders' ? '当前订单不在你的任务权限范围内。' : '当前账号无权查看此详情。'}{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
       {detail.kind === 'ERROR' && <p role="alert">详情暂时无法载入。{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
-      {detail.kind === 'READY' && detail.data && <><dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
+      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
     </aside>
   );
+}
+
+function OrderTimelineRegion(props:{data:Record<string,unknown>;pageState?:AdminBusinessDetailState['timelinePage'];onNext?:(cursor:string)=>void}) {
+  const timeline=readAdminOrderTimeline(props.data);const order=props.data.order as Record<string,unknown>|undefined;
+  return <><dl>{order&&Object.entries(order).filter(([key])=>['publicId','status','amountMinor','currency','updatedAt'].includes(key)).map(([key,value])=><div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key,value,order.currency)}</dd></div>)}</dl>
+    <section aria-label="交易时间线" style={{marginTop:16}}><h3 style={{fontSize:16}}>交易时间线</h3>
+      {timeline.items.length===0?<p>暂无交易记录。</p>:<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><th scope="col">时间</th><th scope="col">类型</th><th scope="col">方向</th><th scope="col">金额</th><th scope="col">状态</th></tr></thead><tbody>{timeline.items.map((item)=><tr key={item.id}><td>{item.occurredAt}</td><td>{item.type}</td><td>{item.direction}</td><td>{item.amountMinor===null?'—':displayValue('amountMinor',item.amountMinor,item.currency)}</td><td>{item.status}</td></tr>)}</tbody></table>}
+      {props.pageState?.kind==='ERROR'&&<p role="alert">后续交易记录暂时无法载入。{props.pageState.requestId?` request_id: ${props.pageState.requestId}`:''}</p>}
+      {timeline.nextCursor&&<button type="button" disabled={props.pageState?.kind==='LOADING'} onClick={()=>props.onNext?.(timeline.nextCursor!)}>加载更多记录</button>}
+    </section></>;
 }
 
 function UserConsumptionRegion(props: { consumptions: NonNullable<AdminBusinessDetailState['consumptions']>; onNext?: (cursor: string) => void }) {
