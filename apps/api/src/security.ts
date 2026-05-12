@@ -111,6 +111,7 @@ export interface SecureRouteOptions {
   successStatusCode?: number;
   successReason?: (request: FastifyRequest) => string | null;
   acceptedSources?: ActorSource[];
+  allowServiceActor?: boolean;
   fingerprintBody?: (request: FastifyRequest) => unknown;
   mapError?: (error: unknown) => { statusCode: number; code: string; message: string; details?: Array<{ field: string; reason: string }> } | null;
   requiresRecentStepUp?: boolean | ((request: FastifyRequest, actor: ActorContext) => boolean);
@@ -173,7 +174,8 @@ const minimumPermissionLevel: Record<string, StaffLevel> = {
   'job.read': 'L2_SUPERVISOR',
   'job.retry': 'L2_SUPERVISOR',
   'audit.read': 'L1_SUPPORT',
-  'access.manage': 'L4_ADMIN_OWNER'
+  'access.manage': 'L4_ADMIN_OWNER',
+  'access.read': 'L4_ADMIN_OWNER'
 };
 
 const authenticatedActorPermissions = new Set([
@@ -201,7 +203,8 @@ const authenticatedActorPermissions = new Set([
   'player.workspace.read',
   'player.availability.manage_self',
   'presence.sync',
-  'gift.request'
+  'gift.request',
+  'access.role_sync'
 ]);
 
 export class InMemoryAuditSink implements AuditSink {
@@ -394,7 +397,7 @@ export function registerSecureReadRoute(
         requestId
       };
 
-      const authResult = await authenticateActor(request, securityOptions);
+      const authResult = await authenticateActor(request, securityOptions, route.allowServiceActor === true);
       if (!authResult.ok) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -431,6 +434,14 @@ export function registerSecureReadRoute(
           'The actor is not permitted to perform this action.',
           [{ field: 'permission', reason: `${route.permission} required` }]
         );
+      }
+
+      const requiresRecentStepUp = typeof route.requiresRecentStepUp === 'function'
+        ? route.requiresRecentStepUp(request, actor)
+        : route.requiresRecentStepUp === true;
+      if (requiresRecentStepUp && !(await hasRecentStepUp(request, actor, securityOptions))) {
+        await appendAudit(auditSink, { ...baseAudit, ...buildAuditContext(actor), outcome: 'REJECTED', reason: 'STEP_UP_REQUIRED' });
+        return sendError(reply, requestId, 428, 'STEP_UP_REQUIRED', 'A recent MFA step-up is required for this sensitive action.');
       }
 
       try {
@@ -493,7 +504,7 @@ export function registerSecureWriteRoute(
         requestId
       };
 
-      const authResult = await authenticateActor(request, securityOptions);
+      const authResult = await authenticateActor(request, securityOptions, route.allowServiceActor === true);
       if (!authResult.ok) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -573,13 +584,7 @@ export function registerSecureWriteRoute(
         ? route.requiresRecentStepUp(request, actor)
         : route.requiresRecentStepUp === true;
       if (requiresRecentStepUp) {
-        const explicitVerification = securityOptions.stepUpVerifier?.verify({ request, actor });
-        const sessionToken = actor.actorSource === 'DASHBOARD' ? parseCookie(request, 'p0_session') : null;
-        const verified = explicitVerification !== undefined
-          ? await explicitVerification
-          : sessionToken && securityOptions.dashboardSessions?.verifyRecentStepUp
-            ? await securityOptions.dashboardSessions.verifyRecentStepUp(sessionToken)
-            : false;
+        const verified = await hasRecentStepUp(request, actor, securityOptions);
         if (!verified) {
           await appendAudit(auditSink, {
             ...baseAudit,
@@ -718,6 +723,14 @@ export function registerSecureWriteRoute(
   });
 }
 
+async function hasRecentStepUp(request: FastifyRequest, actor: ActorContext, securityOptions: SecurityOptions): Promise<boolean> {
+  const explicitVerification = securityOptions.stepUpVerifier?.verify({ request, actor });
+  if (explicitVerification !== undefined) return explicitVerification;
+  const sessionToken = actor.actorSource === 'DASHBOARD' ? parseCookie(request, 'p0_session') : null;
+  return Boolean(sessionToken && securityOptions.dashboardSessions?.verifyRecentStepUp
+    && await securityOptions.dashboardSessions.verifyRecentStepUp(sessionToken));
+}
+
 export function registerSecurityProbeRoutes(server: FastifyInstance): void {
   const security = server.securityOptions;
   if (!security) {
@@ -796,7 +809,8 @@ LIMIT 1
 
 async function authenticateActor(
   request: FastifyRequest,
-  securityOptions: SecurityOptions
+  securityOptions: SecurityOptions,
+  allowServiceActor = false
 ): Promise<{ ok: true; actor: ActorContext } | { ok: false; reason: string }> {
   const env = securityOptions.env ?? process.env;
   const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
@@ -844,6 +858,22 @@ async function authenticateActor(
         actorLevel: null,
         actorSource,
         clientId: actorSource,
+        guildId: null,
+        discordUserId: null,
+        interactionId: getHeader(request, 'x-discord-interaction-id'),
+        permissionsVersion: null
+      }
+    };
+  }
+  if (actorSource === 'DISCORD_BOT' && allowServiceActor) {
+    return {
+      ok: true,
+      actor: {
+        actorUserId: null,
+        actorStaffId: null,
+        actorLevel: null,
+        actorSource,
+        clientId: 'DISCORD_BOT_SERVICE',
         guildId: null,
         discordUserId: null,
         interactionId: getHeader(request, 'x-discord-interaction-id'),

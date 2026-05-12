@@ -31,6 +31,7 @@ export interface DashboardAuthStore extends DashboardSessionResolver {
     | { sessionToken: string; csrfToken: string }
     | Promise<{ sessionToken: string; csrfToken: string }>;
   revoke(sessionToken: string): void | Promise<void>;
+  revokeStaffSessions(staffId: string, now?: Date): number | Promise<number>;
   beginMfaEnrollment(input: { staffId: string; accountName: string; now?: Date }): MfaEnrollment | Promise<MfaEnrollment>;
   verifyMfaEnrollment(input: { staffId: string; enrollmentId: string; proof: string; now?: Date }): MfaActivation | Promise<MfaActivation>;
   beginStepUp(input: { staffId: string; sessionToken: string; now?: Date }): StepUpChallenge | Promise<StepUpChallenge>;
@@ -179,6 +180,14 @@ export class InMemoryDashboardAuthStore implements DashboardAuthStore {
   revoke(sessionToken: string): void {
     const session = this.sessions.get(hash(sessionToken));
     if (session) session.revokedAt = new Date();
+  }
+
+  revokeStaffSessions(staffId: string, now = new Date()): number {
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (session.staff.staffId === staffId && !session.revokedAt && session.expiresAt > now) { session.revokedAt = now; count += 1; }
+    }
+    return count;
   }
 
   setCurrentPermissionsVersion(staffId: string, version: number): void {
@@ -364,6 +373,15 @@ export class PostgresDashboardAuthStore implements DashboardAuthStore {
       'UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, now()), updated_at = now() WHERE session_hash = $1',
       [hash(sessionToken)]
     );
+  }
+
+  async revokeStaffSessions(staffId: string, now = new Date()): Promise<number> {
+    const result = await this.options.client.query<{ id: string }>(
+      `UPDATE staff_sessions SET revoked_at = $2::timestamptz, updated_at = $2::timestamptz
+        WHERE staff_account_id = $1::uuid AND revoked_at IS NULL AND expires_at > $2::timestamptz RETURNING id`,
+      [staffId, now.toISOString()]
+    );
+    return result.rows.length;
   }
 
   async beginMfaEnrollment({ staffId, accountName, now = new Date() }: { staffId: string; accountName: string; now?: Date }): Promise<MfaEnrollment> {

@@ -19,6 +19,7 @@ import { PostgresReferralAttributionStore } from './referrals.js';
 import { DiscordHttpOAuthProvider, PostgresDashboardAuthStore } from './dashboard-auth.js';
 import { PostgresSupportWorkbenchStore } from './support-workbench.js';
 import { PostgresAdminDirectoryStore } from './admin-directory.js';
+import { PostgresAccessStore } from './access.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -74,6 +75,16 @@ const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
       mfaEncryptionKey: dashboardOAuthConfig.mfaEncryptionKey!
     })
   : undefined;
+const accessStore = new PostgresAccessStore(databasePool);
+const bootstrapOwnerDiscordUserId = process.env.BOOTSTRAP_L4_DISCORD_USER_ID?.trim();
+if (bootstrapOwnerDiscordUserId) {
+  if (!dashboardOAuthConfig.guildId) throw new Error('DISCORD_GUILD_ID is required for L4 bootstrap.');
+  await accessStore.bootstrapOwner({
+    guildId: dashboardOAuthConfig.guildId,
+    discordUserId: bootstrapOwnerDiscordUserId,
+    now: new Date()
+  });
+}
 
 const server = buildApiServer({
   env: process.env,
@@ -162,6 +173,9 @@ const server = buildApiServer({
   },
   adminDirectory: {
     store: new PostgresAdminDirectoryStore(databasePool)
+  },
+  access: {
+    store: accessStore
   }
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
