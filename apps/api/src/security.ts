@@ -160,6 +160,7 @@ const authenticatedActorPermissions = new Set([
   'access.role_sync',
   'operations.failure.report'
 ]);
+const serviceActorPermissions = new Set(['access.role_sync', 'bot_config.read']);
 
 export class InMemoryAuditSink implements AuditSink {
   readonly records: AuditRecord[] = [];
@@ -373,7 +374,7 @@ export function registerSecureReadRoute(
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
       }
 
-      if (!hasPermission(actor.actorLevel, route.permission)) {
+      if (!hasPermission(actor, route.permission)) {
         await appendAudit(auditSink, {
           ...baseAudit,
           ...buildAuditContext(actor),
@@ -517,7 +518,7 @@ export function registerSecureWriteRoute(
         );
       }
 
-      if (!hasPermission(actor.actorLevel, route.permission)) {
+      if (!hasPermission(actor, route.permission)) {
         await appendAudit(auditSink, {
           ...baseAudit,
           ...buildAuditContext(actor),
@@ -819,7 +820,8 @@ async function authenticateActor(
       }
     };
   }
-  if (actorSource === 'DISCORD_BOT' && allowServiceActor) {
+  if (actorSource === 'DISCORD_BOT' && allowServiceActor
+    && !getHeader(request, 'x-actor-discord-user-id') && !getHeader(request, 'x-actor-guild-id')) {
     return {
       ok: true,
       actor: {
@@ -899,14 +901,15 @@ function parseCookie(request: FastifyRequest, name: string): string | null {
   return null;
 }
 
-function hasPermission(level: StaffLevel | null, permission: string): boolean {
+function hasPermission(actor: ActorContext, permission: string): boolean {
+  if (actor.clientId === 'DISCORD_BOT_SERVICE') return serviceActorPermissions.has(permission);
   if (authenticatedActorPermissions.has(permission)) {
     return true;
   }
-  if (!level) {
+  if (!actor.actorLevel) {
     return false;
   }
-  return hasStaffPermission(level, permission);
+  return hasStaffPermission(actor.actorLevel, permission);
 }
 
 function isAcceptedSource(actor: ActorContext, acceptedSources: ActorSource[] | undefined): boolean {

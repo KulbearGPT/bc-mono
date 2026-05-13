@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./bot-config": "./src/bot-config.ts",
     "./gifts": "./src/gifts.ts",
     "./piece-manifest": "./src/piece-manifest.ts",
     "./role-sync": "./src/role-sync.ts",

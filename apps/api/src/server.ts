@@ -35,6 +35,7 @@ import { registerAccessRoutes, type AccessStore } from './access.js';
 import { registerOperationsRoutes, type OperationsStore } from './operations.js';
 import type { TransactionTimelineStore } from './transaction-timeline.js';
 import type { DashboardMetricsStore } from './dashboard-metrics.js';
+import { registerBotConfigRoutes, type BotConfigRouteOptions } from './bot-config.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -112,6 +113,7 @@ export interface ApiServerOptions {
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
   dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
+  botConfig?: BotConfigRouteOptions;
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
@@ -243,7 +245,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) {
       throw new Error('Dispatch routes require buildApiServer({ security, dispatch })');
     }
-    registerDispatchRoutes(server, { ...options.dispatch, policyReader: options.operations?.store });
+    registerDispatchRoutes(server, { ...options.dispatch, policyReader: options.operations?.store,botConfigStore:options.botConfig?.store });
   }
 
   if (options.serviceLifecycle) {
@@ -282,7 +284,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) {
       throw new Error('Gift routes require buildApiServer({ security, gift })');
     }
-    registerGiftRoutes(server, { ...options.gift, policyReader: options.operations?.store });
+    registerGiftRoutes(server, { ...options.gift, policyReader: options.operations?.store,botConfigStore:options.botConfig?.store });
   }
 
   if (options.playerEarnings) {
@@ -303,6 +305,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   });
   if (options.adminDirectory) registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);
+  if (options.botConfig) registerBotConfigRoutes(server, options.botConfig);
 
   return server;
 }

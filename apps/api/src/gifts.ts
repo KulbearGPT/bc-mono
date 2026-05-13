@@ -17,6 +17,7 @@ import {
 import type { StaffLevel } from './security.js';
 import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
+import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
 
 type GiftApprovalThresholds = { l2LimitMinor: number; l4FromMinor: number };
@@ -141,6 +142,7 @@ export interface GiftCaptureContext {
   externalUserId: string;
   senderDisplayName: string;
   receiverDisplayName: string;
+  guildId:string|null;
 }
 
 export interface GiftCaptureResult {
@@ -243,6 +245,7 @@ export class InMemoryGiftStore implements GiftStore {
   readonly approvals: GiftApprovalRecord[] = [];
   private readonly externalUserIds: Record<string, string>;
   private readonly displayNames: Record<string, string>;
+  private readonly guildIdsByOrder:Record<string,string>;
 
   constructor(input: {
     catalog?: GiftCatalogRecord[];
@@ -251,6 +254,7 @@ export class InMemoryGiftStore implements GiftStore {
     staffTasks?: GiftStaffTaskRecord[];
     externalUserIds?: Record<string, string>;
     displayNames?: Record<string, string>;
+    guildIdsByOrder?:Record<string,string>;
   } = {}) {
     this.catalog = clone(input.catalog ?? []);
     this.requests = clone(input.requests ?? []);
@@ -258,6 +262,7 @@ export class InMemoryGiftStore implements GiftStore {
     this.staffTasks = clone(input.staffTasks ?? []);
     this.externalUserIds = clone(input.externalUserIds ?? {});
     this.displayNames = clone(input.displayNames ?? {});
+    this.guildIdsByOrder=clone(input.guildIdsByOrder??{});
   }
 
   listActiveCatalog(): GiftCatalogRecord[] {
@@ -359,7 +364,7 @@ export class InMemoryGiftStore implements GiftStore {
     const reservation = this.requireReservation(giftRequestId);
     const externalUserId = this.externalUserIds[request.senderId];
     if (!externalUserId) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
-    return clone({ request, reservation, externalUserId,
+    return clone({ request, reservation, externalUserId,guildId:this.guildIdsByOrder[request.orderId]??null,
       senderDisplayName: this.displayNames[request.senderId] ?? request.senderId,
       receiverDisplayName: this.displayNames[request.receiverId] ?? request.receiverId });
   }
@@ -651,6 +656,7 @@ ORDER BY ea.verified_at DESC LIMIT 1`, [snapshot.request.senderId, snapshot.rese
       if (!account.rows[0]) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
       await client.query('COMMIT');
       return { request: snapshot.request, reservation: snapshot.reservation, externalUserId: account.rows[0].external_user_id,
+        guildId:snapshot.guildId,
         senderDisplayName: account.rows[0].sender_display_name, receiverDisplayName: account.rows[0].receiver_display_name };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -787,6 +793,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance' | 'captureHold' | 'createReservationDebit' | 'releaseHold'> & OrderFundingAdapter;
   providerKey: string;
   broadcastChannelId: string;
+  botConfigStore?:BotConfigStore;
   now?: () => Date;
   policyReader?: PolicyReader;
 }): void {
@@ -853,7 +860,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
           throw new GiftError('CONFLICT', 'Gift approval version is stale.');
         }
         const recovered = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
-          providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,
+          providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
           giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
         return { data: recovered, statusCode: 200, commit: () => undefined };
       }
@@ -864,7 +871,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
         return { data, statusCode: 202, commit: () => undefined };
       }
       const captured = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
-        providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,
+        providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
         giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
       return { data: captured, statusCode: 200, commit: () => undefined };
     },
@@ -935,6 +942,7 @@ export async function captureApprovedGift(input: {
   fundingAdapter: GiftCaptureFundingAdapter;
   providerKey: string;
   broadcastChannelId: string;
+  botConfigStore?:BotConfigStore;
   giftRequestId: string;
   actorStaffId?: string;
   now: Date;
@@ -942,6 +950,7 @@ export async function captureApprovedGift(input: {
   const existing = await input.store.findCapture(input.giftRequestId);
   if (existing) return existing;
   const context = await input.store.getCaptureContext(input.giftRequestId);
+  const broadcastChannelId=await resolveBotConfigString(input.botConfigStore,context.guildId,'gift_broadcast_channel_id',input.broadcastChannelId);
   const { request, reservation } = context;
   if (request.status !== 'APPROVED' || reservation.status !== 'ACTIVE'
     || reservation.amountMinor !== request.priceMinor || reservation.currency !== request.currency) {
@@ -971,7 +980,7 @@ export async function captureApprovedGift(input: {
     expectedReservationVersion: reservation.version, provider: reservation.provider ?? input.providerKey,
     providerTransactionRef, providerIdempotencyKey,
     actorStaffId: input.actorStaffId ?? request.approvedByStaffId ?? request.verifiedByStaffId ?? request.senderId,
-    broadcastChannelId: input.broadcastChannelId,
+    broadcastChannelId,
     senderDisplayName: context.senderDisplayName,
     receiverDisplayName: context.receiverDisplayName,
     now: input.now });
@@ -1343,7 +1352,7 @@ SELECT gr.id AS gr_id, gr.public_id, gr.order_id, gr.gift_catalog_version_id, gr
   gr.price_minor, gr.currency, gr.broadcast_template_snapshot, gr.verified_by_staff_id, gr.verified_at,
   gr.verification_note, gr.verification_payload_hash, gr.execution_credential_expires_at,
   gr.approved_by_staff_id, gr.approved_at, gr.rejected_reason, gr.expires_at AS gr_expires_at,
-  gr.created_at AS gr_created_at, gr.updated_at AS gr_updated_at,
+  gr.created_at AS gr_created_at, gr.updated_at AS gr_updated_at, o.guild_id,
   fr.id AS fr_id, fr.user_id AS fr_user_id, fr.mode AS fr_mode, fr.provider, fr.provider_hold_ref,
   fr.amount_minor AS fr_amount_minor, fr.currency AS fr_currency, fr.status AS fr_status,
   fr.row_version AS fr_version, fr.idempotency_key, fr.expires_at AS fr_expires_at,
@@ -1351,6 +1360,7 @@ SELECT gr.id AS gr_id, gr.public_id, gr.order_id, gr.gift_catalog_version_id, gr
   st.id AS st_id, st.public_id AS st_public_id, st.status AS st_status, st.row_version AS st_version,
   st.claimed_by_staff_id, st.voice_channel_id, st.context_snapshot, st.created_at AS st_created_at, st.updated_at AS st_updated_at
 FROM gift_requests gr
+JOIN orders o ON o.id=gr.order_id
 JOIN fund_reservations fr ON fr.gift_request_id = gr.id
 JOIN staff_tasks st ON st.gift_request_id = gr.id
 WHERE ${selector.taskId ? 'st.id = $1' : 'gr.id = $1'}
@@ -1380,7 +1390,7 @@ FOR UPDATE OF gr, fr, st`, [selector.taskId ?? selector.giftRequestId]);
     voiceChannelId: row.voice_channel_id, contextSnapshot: row.context_snapshot as GiftStaffTaskRecord['contextSnapshot'],
     createdAt: toIso(row.st_created_at), updatedAt: toIso(row.st_updated_at)
   };
-  return { request, reservation, task };
+  return { request, reservation, task, guildId:row.guild_id };
 }
 
 async function insertGiftApproval(client: PoolClient, approval: GiftApprovalRecord, staffTaskId: string): Promise<void> {
@@ -1418,6 +1428,7 @@ interface GiftReviewRow {
   st_id: string; st_public_id: string; st_status: GiftStaffTaskRecord['status']; st_version: number;
   claimed_by_staff_id: string | null; voice_channel_id: string | null; context_snapshot: unknown;
   st_created_at: Date | string; st_updated_at: Date | string;
+  guild_id:string|null;
 }
 
 function mapGiftCatalogRow(row: GiftCatalogRow): GiftCatalogRecord {

@@ -12,6 +12,7 @@
     "./authorization-policy": "./src/authorization-policy.ts",
     "./transaction-timeline": "./src/transaction-timeline.ts",
     "./dashboard-metrics": "./src/dashboard-metrics.ts",
+    "./bot-config": "./src/bot-config.ts",
     "./payment-adapter": "./src/payment-adapter.ts",
     "./outbox": "./src/outbox.ts",
     "./catalog": "./src/catalog.ts",

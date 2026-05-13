@@ -23,6 +23,7 @@ import { PostgresAccessStore } from './access.js';
 import { PostgresOperationsStore } from './operations.js';
 import { PostgresTransactionTimelineStore } from './transaction-timeline.js';
 import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
+import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -81,6 +82,11 @@ const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
     })
   : undefined;
 const accessStore = new PostgresAccessStore(databasePool);
+const discordBotToken = process.env.DISCORD_BOT_TOKEN?.trim();
+const botConfigValidationSecret = process.env.BOT_CONFIG_VALIDATION_SECRET?.trim();
+if (discordBotToken && (!botConfigValidationSecret || botConfigValidationSecret.length < 32)) {
+  throw new Error('BOT_CONFIG_VALIDATION_SECRET must be at least 32 characters when Discord Bot configuration is enabled.');
+}
 const bootstrapOwnerDiscordUserId = process.env.BOOTSTRAP_L4_DISCORD_USER_ID?.trim();
 if (bootstrapOwnerDiscordUserId) {
   if (!dashboardOAuthConfig.guildId) throw new Error('DISCORD_GUILD_ID is required for L4 bootstrap.');
@@ -190,7 +196,12 @@ const server = buildApiServer({
   },
   operations: {
     store: operationsStore
-  }
+  },
+  botConfig: discordBotToken && botConfigValidationSecret ? {
+    store: new PostgresBotConfigStore(databasePool),
+    discord: new DiscordHttpBotConfigAdapter(discordBotToken),
+    validationSecret: botConfigValidationSecret
+  } : undefined
 });
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(

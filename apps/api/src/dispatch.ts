@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { PolicyReader } from './operations.js';
+import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { registerSecureWriteRoute } from './security.js';
 import type { OutboxJob } from './outbox.js';
 import type { OrderRecord, OrderStatus, OrderStore } from './orders.js';
@@ -702,13 +703,15 @@ export async function dispatchOrder(input: {
   expectedVersion: number;
   trigger: DispatchTrigger;
   dispatchChannelId: string;
+  botConfigStore?: BotConfigStore;
   idempotencyKey: string;
   now: Date;
   timeoutMinutes?: number;
 }): Promise<DispatchResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
+  const dispatchChannelId=await resolveBotConfigString(input.botConfigStore,order.guildId,'dispatch_channel_id',input.dispatchChannelId);
   const requirement = requireOrderRequirement(order);
-  const pool = await input.playerPool.listProfiles({ guildId: null });
+  const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
   const candidates = selectEligibleDispatchCandidates(pool, requirement);
   const round = await input.dispatchStore.nextRound(order.id);
   const attemptId = crypto.randomUUID();
@@ -718,11 +721,11 @@ export async function dispatchOrder(input: {
     orderId: order.id,
     round,
     status: 'ACTIVE',
-    dispatchChannelId: input.dispatchChannelId,
+    dispatchChannelId,
     dispatchMessageId: null,
     candidateCriteria: {
       ...requirement,
-      guildId: null,
+      guildId: order.guildId ?? null,
       trigger: input.trigger
     },
     acceptedPlayerId: null,
@@ -866,6 +869,7 @@ export function registerDispatchRoutes(
     dispatchChannelId: string;
     now?: () => Date;
     policyReader?: PolicyReader;
+    botConfigStore?: BotConfigStore;
   }
 ): void {
   const security = server.securityOptions;
@@ -892,6 +896,7 @@ export function registerDispatchRoutes(
         expectedVersion: body.expectedVersion,
         trigger: body.trigger,
         dispatchChannelId: options.dispatchChannelId,
+        botConfigStore:options.botConfigStore,
         idempotencyKey: idempotencyKey(request),
         now: now(),
         timeoutMinutes

@@ -68,6 +68,7 @@ export interface OrderRecord {
   id: string;
   publicId: string;
   customerId: string;
+  guildId?: string | null;
   playerId: string | null;
   status: OrderStatus;
   version: number;
@@ -2104,6 +2105,7 @@ function buildDraftOrder(input: {
     id: crypto.randomUUID(),
     publicId: `P-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
     customerId: input.binding.userId,
+    guildId: input.binding.guildId,
     playerId: null,
     status: 'DRAFT',
     version: 1,
@@ -3198,6 +3200,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     id: row.id,
     publicId: row.public_id,
     customerId: row.customer_id,
+    guildId: row.guild_id,
     playerId: row.player_id,
     status: row.status,
     version: row.row_version,
@@ -3291,14 +3294,15 @@ function mapPostgresOrderError(error: unknown): unknown {
   return error;
 }
 
-function inferGuildIdFromOrder(_order: OrderRecord): string | null {
-  return null;
+function inferGuildIdFromOrder(order: OrderRecord): string | null {
+  return order.guildId ?? null;
 }
 
 interface OrderRow {
   id: string;
   public_id: string;
   customer_id: string;
+  guild_id: string | null;
   player_id: string | null;
   status: OrderStatus;
   row_version: number;
