@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 import { buildSupportWorkbench, type SupportTaskCardInput } from './support-workbench.js';
+import { formatMinorCurrency } from './admin-business.js';
 
 interface StaffTaskPayload extends SupportTaskCardInput {
   version: number;
@@ -16,10 +17,17 @@ interface OrderContext {
 
 interface DashboardMetrics {
   todayOrderCount: number;
-  inServiceOrderCount: number;
+  inProgressOrderCount: number;
   pendingStaffTaskCount: number;
+  completedOrderNetConsumptionMinor: number | null;
+  giftNetConsumptionMinor: number | null;
+  activeReservedMinor: number | null;
+  dispatchSuccessRateBps: number;
   exceptionCount: number;
 }
+
+interface DashboardSummaryData { windowStart:string;windowEnd:string;timeZone:string;currency:string;metrics:DashboardMetrics }
+export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:string|null;data:DashboardSummaryData|null};
 
 export function SupportWorkbenchPage({ capabilities }: { capabilities: DashboardCapabilities }) {
   const [tasks, setTasks] = useState<StaffTaskPayload[]>([]);
@@ -27,7 +35,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [metricState, setMetricState] = useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
   const client = useMemo(() => createDashboardApiClient(), []);
   const load = useCallback(async () => {
     const response = await client.get('/api/v1/admin/staff-tasks');
@@ -47,9 +55,9 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    void client.get('/api/v1/admin/dashboard/summary').then(async (response) => {
-      if (response.ok) setMetrics((await response.json() as { data: { metrics: DashboardMetrics } }).data.metrics);
-    });
+    void client.get('/api/v1/admin/dashboard/summary').then(async(response)=>{const payload=await response.json().catch(()=>null) as {requestId?:string;data?:DashboardSummaryData}|null;
+      setMetricState(response.ok&&payload?.data?{kind:'READY',requestId:payload.requestId??null,data:payload.data}:{kind:'ERROR',requestId:payload?.requestId??null,data:null});
+    }).catch(()=>setMetricState({kind:'ERROR',requestId:null,data:null}));
   }, [client]);
 
   const view = buildSupportWorkbench({
@@ -99,11 +107,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     <section style={{ padding: 24, minWidth: 0 }}>
       <header><h1 style={{ fontSize: 24 }}>客服工作台</h1><p>待认领任务与我的任务</p></header>
       {error && <p role="alert" style={{ color: '#9b2c2c' }}>{error}</p>}
-      {metrics && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(100px, 1fr))', gap: 8, marginBottom: 16 }}>
-        {[['今日订单', metrics.todayOrderCount], ['服务中', metrics.inServiceOrderCount], ['待处理', metrics.pendingStaffTaskCount], ['异常', metrics.exceptionCount]].map(([label, value]) => (
-          <div key={String(label)} style={{ background: '#fff', border: '1px solid #d9e1e3', padding: 12 }}><small>{label}</small><strong style={{ display: 'block', fontSize: 20 }}>{value}</strong></div>
-        ))}
-      </div>}
+      <DashboardMetricSummary state={metricState}/>
       <div role="tablist" aria-label="任务筛选" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
       </div>
@@ -145,3 +149,19 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     </section>
   );
 }
+
+export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
+  if(state.kind==='LOADING')return <section aria-label="运营指标" aria-busy="true"><p>正在载入运营指标...</p></section>;
+  if(state.kind==='ERROR'||!state.data)return <section aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` request_id: ${state.requestId}`:''}</p></section>;
+  const {metrics,currency,timeZone}=state.data;
+  const values:Array<[string,string|number]>=[
+    ['今日订单',metrics.todayOrderCount],['进行中订单',metrics.inProgressOrderCount],['待处理任务',metrics.pendingStaffTaskCount],
+    ['已完成净消费',moneyOrHidden(metrics.completedOrderNetConsumptionMinor,currency)],['礼物净消费',moneyOrHidden(metrics.giftNetConsumptionMinor,currency)],
+    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency)],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`],['异常数',metrics.exceptionCount]
+  ];
+  return <section aria-label="运营指标" style={{marginBottom:16}}><div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'baseline',flexWrap:'wrap'}}><h2 style={{fontSize:18}}>运营概览</h2><small>{timeZone}</small></div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:8}}>{values.map(([label,value])=><div key={label} style={{background:'#fff',border:'1px solid #d9e1e3',borderRadius:6,padding:12,minHeight:72}}><small>{label}</small><strong style={{display:'block',fontSize:20,marginTop:6}}>{value}</strong></div>)}</div>
+  </section>;
+}
+
+function moneyOrHidden(value:number|null,currency:string){return value===null?'无权限':formatMinorCurrency(value,currency);}

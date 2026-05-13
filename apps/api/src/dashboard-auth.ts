@@ -19,6 +19,7 @@ import {
   type StaffLevel
 } from './security.js';
 import type { PolicyReader } from './operations.js';
+import { InMemoryDashboardMetricsStore, type DashboardMetricsStore } from './dashboard-metrics.js';
 import { resolveStaffPolicy } from './authorization-policy.js';
 
 export interface DiscordOAuthProvider {
@@ -586,6 +587,9 @@ export interface DashboardAuthOptions {
   secureCookies?: boolean;
   now?: () => Date;
   policyReader?: PolicyReader;
+  metricsStore?: DashboardMetricsStore;
+  metricsTimeZone?: 'Asia/Shanghai';
+  metricsCurrency?: 'CNY';
 }
 
 export function registerDashboardAuthRoutes(server: FastifyInstance, options: DashboardAuthOptions): void {
@@ -741,7 +745,10 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
     action: 'GET_DASHBOARD_SUMMARY',
     targetType: 'dashboard',
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
-    handler: () => buildEmptySummary(now())
+    handler: (_request, actor) => (options.metricsStore ?? new InMemoryDashboardMetricsStore({})).getSummary({
+      actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId,
+      now: now(), timeZone: options.metricsTimeZone ?? 'Asia/Shanghai', currency: options.metricsCurrency ?? 'CNY'
+    })
   });
 }
 
@@ -792,27 +799,6 @@ function mapDashboardAuthError(error: unknown) {
   if (error.code === 'VALIDATION_ERROR') return { statusCode: 400, code: error.code, message: error.message };
   if (error.code === 'AUTH_REQUIRED' || error.code === 'SESSION_REVOKED') return { statusCode: 401, code: error.code, message: error.message };
   return { statusCode: 409, code: error.code, message: error.message };
-}
-
-function buildEmptySummary(current: Date) {
-  const start = new Date(current);
-  start.setUTCHours(0, 0, 0, 0);
-  const end = new Date(start.getTime() + 86_400_000);
-  return {
-    windowStart: start.toISOString(),
-    windowEnd: end.toISOString(),
-    currency: 'CNY',
-    metrics: {
-      todayOrderCount: 0,
-      inServiceOrderCount: 0,
-      pendingStaffTaskCount: 0,
-      completedNetConsumptionMinor: 0,
-      giftNetConsumptionMinor: 0,
-      reservedMinor: 0,
-      dispatchSuccessRate: 0,
-      exceptionCount: 0
-    }
-  };
 }
 
 function serializeCookie(name: string, value: string, options: { httpOnly: boolean; maxAge: number; secure: boolean }): string {

@@ -22,6 +22,7 @@ import { PostgresAdminDirectoryStore } from './admin-directory.js';
 import { PostgresAccessStore } from './access.js';
 import { PostgresOperationsStore } from './operations.js';
 import { PostgresTransactionTimelineStore } from './transaction-timeline.js';
+import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -171,6 +172,11 @@ const server = buildApiServer({
     guildId: dashboardOAuthConfig.guildId!,
     dashboardUrl: dashboardOAuthConfig.dashboardUrl!,
     secureCookies: process.env.NODE_ENV === 'production'
+  } : undefined,
+  dashboardMetrics: dashboardAuthStore ? {
+    store: new PostgresDashboardMetricsStore(databasePool),
+    timeZone: 'Asia/Shanghai',
+    currency: 'CNY'
   } : undefined,
   supportWorkbench: {
     store: new PostgresSupportWorkbenchStore(databasePool)

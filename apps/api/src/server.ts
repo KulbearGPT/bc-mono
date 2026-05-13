@@ -34,6 +34,7 @@ import { registerAdminDirectoryRoutes, type AdminDirectoryStore } from './admin-
 import { registerAccessRoutes, type AccessStore } from './access.js';
 import { registerOperationsRoutes, type OperationsStore } from './operations.js';
 import type { TransactionTimelineStore } from './transaction-timeline.js';
+import type { DashboardMetricsStore } from './dashboard-metrics.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -110,6 +111,7 @@ export interface ApiServerOptions {
   commissions?: { store: CommissionStore; now?: () => Date };
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
+  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
@@ -292,7 +294,8 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     registerCommissionRoutes(server, options.commissions);
   }
   if(options.referrals){if(!server.securityOptions)throw new Error('Referral routes require buildApiServer({ security, referrals })');registerReferralAttributionRoutes(server,options.referrals);}
-  if (options.dashboardAuth) registerDashboardAuthRoutes(server, { ...options.dashboardAuth, policyReader: options.operations?.store });
+  if (options.dashboardAuth) registerDashboardAuthRoutes(server, { ...options.dashboardAuth, policyReader: options.operations?.store,
+    metricsStore: options.dashboardMetrics?.store, metricsTimeZone: options.dashboardMetrics?.timeZone, metricsCurrency: options.dashboardMetrics?.currency });
   if (options.access) registerAccessRoutes(server, options.access);
   if (options.supportWorkbench) registerSupportWorkbenchRoutes(server, {
     ...options.supportWorkbench,
