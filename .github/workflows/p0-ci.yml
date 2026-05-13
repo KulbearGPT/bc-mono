@@ -1,0 +1,71 @@
+name: P0 candidate regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql
+          pg_config --bindir >> "$GITHUB_PATH"
+
+      - name: Verify acceptance matrix is current
+        run: |
+          node scripts/build-p0-acceptance-matrix.mjs
+          git diff --exit-code -- evidence/P0/acceptance-matrix.csv
+
+      - name: Run full automated regression
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build TypeScript candidate
+        run: npm run build
+
+      - name: Build Dashboard candidate
+        run: npx vite build apps/dashboard --config apps/dashboard/vite.config.ts
+
+      - name: Validate Prisma schema
+        run: npm run db:validate
+
+      - name: Apply and probe baseline migration
+        run: npm run db:verify:migration
+
+      - name: Discover Sapphire pieces
+        run: npm run pieces -w @blackcat/bot
+
+      - name: Verify contract mirrors and clean patch
+        run: |
+          cmp -s docs/P0开发交付包/02-API/openapi.yaml outputs/P0开发交付包/02-API/openapi.yaml
+          cmp -s database/prisma/schema.prisma docs/P0开发交付包/03-数据模型/schema.prisma
+          cmp -s database/prisma/schema.prisma outputs/P0开发交付包/03-数据模型/schema.prisma
+          git diff --check
