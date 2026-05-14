@@ -16,15 +16,15 @@ import {
   type FundReservationMode,
   type FundReservationStatus
 } from './funding.js';
-import { AdapterError, type Hold, type MockFundingAdapter } from './payment-adapter.js';
+import { AdapterError, type FundingAdapter, type Hold } from './payment-adapter.js';
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
   type StaffTaskStore
 } from './staff-tasks.js';
 
-export type OrderFundingAdapter = Pick<MockFundingAdapter, 'getProviderBalance' | 'createHold' | 'getHold' | 'releaseHold'> &
-  Partial<Pick<MockFundingAdapter, 'discoverCapabilities'>>;
+export type OrderFundingAdapter = Pick<FundingAdapter, 'getProviderBalance' | 'createHold' | 'getHold' | 'releaseHold'> &
+  Partial<Pick<FundingAdapter, 'discoverCapabilities'>>;
 
 export type OrderStatus =
   | 'DRAFT'
@@ -1105,16 +1105,16 @@ function buildSubmitAuditSnapshot(prepared: PreparedSubmitOrderWrite): unknown {
   };
 }
 
-function releaseSubmitHoldAfterCommitFailure(input: {
+async function releaseSubmitHoldAfterCommitFailure(input: {
   fundingAdapter: OrderFundingAdapter;
   prepared: PreparedSubmitOrderWrite;
   reasonCode: string;
-}): void {
+}): Promise<void> {
   const holdRef = input.prepared.reservation.providerHoldRef;
   if (!holdRef) {
     return;
   }
-  input.fundingAdapter.releaseHold({
+  await input.fundingAdapter.releaseHold({
     holdRef,
     idempotencyKey: `${input.prepared.reservation.id}:release-after-commit-failure`,
     fundReservationId: input.prepared.reservation.id,
@@ -1276,7 +1276,7 @@ export async function prepareSubmitOrder(input: {
   validateSubmittableDraft(order);
   await validateCurrentCatalogSnapshot(input.catalogStore, order);
 
-  const providerBalance = input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
+  const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
   if (providerBalance.currency !== order.currency) {
     throw new OrderError('VALIDATION_ERROR', 'Provider balance currency does not match order currency.');
   }
@@ -1289,7 +1289,7 @@ export async function prepareSubmitOrder(input: {
     throw new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
   }
 
-  const reservationMode = resolveFundReservationMode(input.fundingAdapter);
+  const reservationMode = await resolveFundReservationMode(input.fundingAdapter);
   const reservation = buildOrderReservation({
     order,
     binding,
@@ -1299,7 +1299,7 @@ export async function prepareSubmitOrder(input: {
     now: input.now
   });
   const hold = reservationMode === 'PROVIDER_NATIVE_HOLD'
-    ? createOrderProviderHold({
+    ? await createOrderProviderHold({
         fundingAdapter: input.fundingAdapter,
         reservation,
         binding,
@@ -1432,7 +1432,7 @@ export async function prepareCancelOrder(input: {
   }
 
   const releasedReservation = reservation
-    ? releaseOrderReservation({
+    ? await releaseOrderReservation({
         fundingAdapter: input.fundingAdapter,
         reservation,
         idempotencyKey: input.idempotencyKey,
@@ -1957,7 +1957,7 @@ export function registerOrderRoutes(
               auditSink
             });
           } catch (error) {
-            releaseSubmitHoldAfterCommitFailure({
+            await releaseSubmitHoldAfterCommitFailure({
               fundingAdapter,
               prepared,
               reasonCode: mapOrderError(error)?.code ?? 'COMMIT_FAILED'
@@ -2397,20 +2397,20 @@ function applyCancelOrder(order: OrderRecord, now: Date): OrderRecord {
   };
 }
 
-function releaseOrderReservation(input: {
+async function releaseOrderReservation(input: {
   fundingAdapter: OrderFundingAdapter;
   reservation: FundReservationRecord;
   idempotencyKey: string;
   reasonCode: string;
   now: Date;
-}): FundReservationRecord | null {
+}): Promise<FundReservationRecord | null> {
   if (input.reservation.mode === 'PROVIDER_NATIVE_HOLD') {
     if (!input.reservation.providerHoldRef) {
       throw new OrderError('CONFLICT', 'Provider hold reference is missing.');
     }
     let releasedHold: Hold;
     try {
-      releasedHold = input.fundingAdapter.releaseHold({
+      releasedHold = await input.fundingAdapter.releaseHold({
         holdRef: input.reservation.providerHoldRef,
         idempotencyKey: input.idempotencyKey,
         fundReservationId: input.reservation.id,
@@ -2423,7 +2423,7 @@ function releaseOrderReservation(input: {
         throw mapAdapterOrderError(error);
       }
       try {
-        releasedHold = input.fundingAdapter.getHold({
+        releasedHold = await input.fundingAdapter.getHold({
           lookupType: 'IDEMPOTENCY_KEY',
           lookupValue: input.idempotencyKey
         });
@@ -2494,16 +2494,16 @@ function buildOrderReservation(input: {
   };
 }
 
-function createOrderProviderHold(input: {
+async function createOrderProviderHold(input: {
   fundingAdapter: OrderFundingAdapter;
   reservation: FundReservationRecord;
   binding: AccountBindingRecord;
   order: OrderRecord;
   idempotencyKey: string;
-}): Hold {
+}): Promise<Hold> {
   let hold: Hold;
   try {
-    hold = input.fundingAdapter.createHold({
+    hold = await input.fundingAdapter.createHold({
       idempotencyKey: input.idempotencyKey,
       fundReservationId: input.reservation.id,
       fundReservationVersion: input.reservation.version,
@@ -2514,7 +2514,7 @@ function createOrderProviderHold(input: {
       expiresAt: input.reservation.expiresAt
     });
   } catch (error) {
-    hold = recoverTimedOutHold({
+    hold = await recoverTimedOutHold({
       error,
       fundingAdapter: input.fundingAdapter,
       reservation: input.reservation,
@@ -2687,21 +2687,21 @@ function mapAdapterOrderError(error: unknown): OrderError {
   return new OrderError('BUSINESS_RULE_VIOLATION', 'Funding adapter failed.');
 }
 
-function recoverTimedOutHold(input: {
+async function recoverTimedOutHold(input: {
   error: unknown;
   fundingAdapter: OrderFundingAdapter;
   reservation: FundReservationRecord;
   binding: AccountBindingRecord;
   order: OrderRecord;
   idempotencyKey: string;
-}): Hold {
+}): Promise<Hold> {
   if (!(input.error instanceof AdapterError) || input.error.code !== 'PROVIDER_TIMEOUT') {
     throw mapAdapterOrderError(input.error);
   }
 
   let hold: Hold;
   try {
-    hold = input.fundingAdapter.getHold({
+    hold = await input.fundingAdapter.getHold({
       lookupType: 'IDEMPOTENCY_KEY',
       lookupValue: input.idempotencyKey
     });

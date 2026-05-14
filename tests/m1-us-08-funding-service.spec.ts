@@ -50,7 +50,7 @@ describe('M1-US-08 reusable funding reservation helpers', () => {
     expect(buildFundReservationDraft({ ...orderReservation, businessSource: { type: 'ORDER', referenceId: orderReservation.orderId ?? '' }, ttlMinutes: 30, now }).id).toBe(orderReservation.id);
   });
 
-  test('resolves provider native hold preference but falls back when capability discovery says native hold is unsupported', () => {
+  test('resolves provider native hold preference but falls back when capability discovery says native hold is unsupported', async () => {
     const nativeAdapter: FundingAdapterCapabilitiesSource = {
       discoverCapabilities: () => ({ nativeHold: { supported: true } })
     };
@@ -58,8 +58,8 @@ describe('M1-US-08 reusable funding reservation helpers', () => {
       discoverCapabilities: () => ({ nativeHold: { supported: false } })
     };
 
-    expect(resolveFundReservationMode(nativeAdapter)).toBe('PROVIDER_NATIVE_HOLD');
-    expect(resolveFundReservationMode(fallbackAdapter)).toBe('LOCAL_RESERVATION_FALLBACK');
-    expect(resolveFundReservationMode({})).toBe('PROVIDER_NATIVE_HOLD');
+    await expect(resolveFundReservationMode(nativeAdapter)).resolves.toBe('PROVIDER_NATIVE_HOLD');
+    await expect(resolveFundReservationMode(fallbackAdapter)).resolves.toBe('LOCAL_RESERVATION_FALLBACK');
+    await expect(resolveFundReservationMode({})).resolves.toBe('PROVIDER_NATIVE_HOLD');
   });
 });

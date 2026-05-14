@@ -10,7 +10,7 @@ import { PostgresServiceLifecycleStore } from './service-lifecycle.js';
 import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
-import { MockFundingAdapter } from './payment-adapter.js';
+import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
 import { InMemoryIdempotencyStore, PostgresAuditSink, PostgresStaffDirectory } from './security.js';
 import { PostgresGiftStore } from './gifts.js';
 import { PostgresPlayerEarningStore } from './player-earnings.js';
@@ -60,7 +60,7 @@ const giftStore = new PostgresGiftStore(databasePool);
 const playerEarningStore = new PostgresPlayerEarningStore(databasePool);
 const commissionStore = new PostgresCommissionStore(databasePool);
 const referralStore = new PostgresReferralAttributionStore(databasePool);
-const fundingAdapter = new MockFundingAdapter();
+const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
@@ -111,14 +111,14 @@ const server = buildApiServer({
   account: {
     store: accountStore,
     fundingAdapter,
-    providerKey: 'mock-provider'
+    providerKey
   },
   order: {
     orderStore,
     accountStore,
     catalogStore,
     fundingAdapter,
-    providerKey: 'mock-provider',
+    providerKey,
     staffTaskStore
   },
   player: {
@@ -144,18 +144,18 @@ const server = buildApiServer({
   adminOrders: {
     orderStore: adminOrderActionStore,
     fundingAdapter,
-    providerKey: 'mock-provider'
+    providerKey
   },
   paymentWebhook: {
     fundingAdapter,
-    providerKey: 'mock-provider'
+    providerKey
   },
   gift: {
     store: giftStore,
     orderStore,
     accountStore,
     fundingAdapter,
-    providerKey: 'mock-provider',
+    providerKey,
     broadcastChannelId: giftBroadcastChannelId
   },
   playerEarnings: {

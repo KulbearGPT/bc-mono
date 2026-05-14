@@ -8,7 +8,7 @@ import {
   type AuditRecord,
   type AuditSink
 } from './security.js';
-import { AdapterError, type MockFundingAdapter } from './payment-adapter.js';
+import { AdapterError, type FundingAdapter, type MaybePromise } from './payment-adapter.js';
 
 type UserStatus = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
 type ExternalAccountStatus = 'ACTIVE' | 'REVOKED';
@@ -399,7 +399,7 @@ WHERE user_id = $1
 
 export async function createBinding(input: {
   store: AccountStore;
-  fundingAdapter: Pick<MockFundingAdapter, 'resolveUser'>;
+  fundingAdapter: Pick<FundingAdapter, 'resolveUser'>;
   providerKey: string;
   actor: ActorContext;
   input: CreateBindingInput;
@@ -412,7 +412,7 @@ export async function createBinding(input: {
 
 export async function prepareCreateBinding(input: {
   store: AccountStore;
-  fundingAdapter: Pick<MockFundingAdapter, 'resolveUser'>;
+  fundingAdapter: Pick<FundingAdapter, 'resolveUser'>;
   providerKey: string;
   actor: ActorContext;
   input: CreateBindingInput;
@@ -425,7 +425,7 @@ export async function prepareCreateBinding(input: {
     throw new AccountError('BINDING_CONFLICT', 'Discord account is already bound.');
   }
 
-  const providerUser = callProvider(() =>
+  const providerUser = await callProvider(() =>
     input.fundingAdapter.resolveUser({
       credentialType: input.input.credentialType,
       credentialValue: input.input.credentialValue,
@@ -508,11 +508,11 @@ export async function getCurrentUser(input: {
 
 export async function getCurrentBalance(input: {
   store: AccountStore;
-  fundingAdapter: Pick<MockFundingAdapter, 'getProviderBalance'>;
+  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>;
   actor: ActorContext;
 }): Promise<BalanceResult> {
   const binding = await requireCurrentBinding(input.store, input.actor);
-  const providerBalance = callProvider(() =>
+  const providerBalance = await callProvider(() =>
     input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId })
   );
   const reservedMinor = await input.store.sumActiveReservations({
@@ -554,7 +554,7 @@ export function registerAccountRoutes(
   server: FastifyInstance,
   options: {
     store: AccountStore;
-    fundingAdapter: Pick<MockFundingAdapter, 'resolveUser' | 'getProviderBalance'>;
+    fundingAdapter: Pick<FundingAdapter, 'resolveUser' | 'getProviderBalance'>;
     providerKey: string;
     now?: () => Date;
     auditSink?: AuditSink;
@@ -696,9 +696,9 @@ function requireDiscordActor(actor: ActorContext): { guildId: string; discordUse
   };
 }
 
-function callProvider<T>(fn: () => T): T {
+async function callProvider<T>(fn: () => MaybePromise<T>): Promise<T> {
   try {
-    return fn();
+    return await fn();
   } catch (error) {
     if (error instanceof AdapterError) {
       throw new AccountError(

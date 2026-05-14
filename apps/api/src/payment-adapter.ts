@@ -68,6 +68,7 @@ export interface CreateRefundInput {
 
 export type HoldStatus = 'UNKNOWN' | 'PENDING' | 'ACTIVE' | 'PARTIALLY_CAPTURED' | 'CAPTURED' | 'RELEASED' | 'EXPIRED' | 'FAILED';
 export type TransactionStatus = 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+export type MaybePromise<T> = T | Promise<T>;
 
 export interface Hold {
   status: HoldStatus;
@@ -110,6 +111,20 @@ export interface OperationFailure {
   code: AdapterErrorCode;
   retryable: boolean;
   safeMessage: string;
+}
+
+export interface FundingAdapter {
+  discoverCapabilities(input?: { scenario?: MockScenario }): MaybePromise<ReturnType<MockFundingAdapter['discoverCapabilities']>>;
+  resolveUser(input: Parameters<MockFundingAdapter['resolveUser']>[0]): MaybePromise<ReturnType<MockFundingAdapter['resolveUser']>>;
+  getProviderBalance(input: Parameters<MockFundingAdapter['getProviderBalance']>[0]): MaybePromise<ReturnType<MockFundingAdapter['getProviderBalance']>>;
+  createHold(input: CreateHoldInput, options?: { scenario?: MockScenario }): MaybePromise<Hold>;
+  getHold(input: Parameters<MockFundingAdapter['getHold']>[0]): MaybePromise<Hold>;
+  captureHold(input: CaptureHoldInput): MaybePromise<Hold>;
+  releaseHold(input: ReleaseHoldInput): MaybePromise<Hold>;
+  createReservationDebit(input: CreateReservationDebitInput): MaybePromise<Transaction>;
+  createRefund(input: CreateRefundInput): MaybePromise<Transaction>;
+  getTransaction(input: Parameters<MockFundingAdapter['getTransaction']>[0]): MaybePromise<Transaction>;
+  verifyWebhook(input: Parameters<MockFundingAdapter['verifyWebhook']>[0]): MaybePromise<ReturnType<MockFundingAdapter['verifyWebhook']>>;
 }
 
 export type AdapterErrorCode =
@@ -173,7 +188,7 @@ export class AdapterError extends Error {
   }
 }
 
-export class MockFundingAdapter {
+export class MockFundingAdapter implements FundingAdapter {
   private readonly now: Date;
   private readonly users = new Map<string, MockUser>();
   private readonly usersByExternalId = new Map<string, MockUser>();

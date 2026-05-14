@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
-import { AdapterError, type MockFundingAdapter } from './payment-adapter.js';
+import { AdapterError, type FundingAdapter } from './payment-adapter.js';
 
-export type PaymentWebhookFundingAdapter = Pick<MockFundingAdapter, 'verifyWebhook'>;
+export type PaymentWebhookFundingAdapter = Pick<FundingAdapter, 'verifyWebhook'>;
 
 export interface PaymentWebhookStore {
   get(providerKey: string, providerEventId: string): PaymentWebhookAcknowledgement | null;
@@ -160,7 +160,7 @@ export function registerPaymentWebhookRoutes(
     }
 
     try {
-      const verified = options.fundingAdapter.verifyWebhook({
+      const verified = await options.fundingAdapter.verifyWebhook({
         headers: normalizeHeaders(request.headers),
         rawBodyBase64: (rawWebhookBodies.get(request) ?? normalizeRawBody(request.body)).toString('base64'),
         receivedAt: now().toISOString()

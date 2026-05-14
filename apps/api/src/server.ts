@@ -22,7 +22,7 @@ import {
   type AdminRefundOrderStore,
   type RefundFundingAdapter
 } from './admin-order-actions.js';
-import type { MockFundingAdapter } from './payment-adapter.js';
+import type { FundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
 import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
@@ -47,7 +47,7 @@ export interface ApiServerOptions {
   };
   account?: {
     store: AccountStore;
-    fundingAdapter: Pick<MockFundingAdapter, 'resolveUser' | 'getProviderBalance'>;
+    fundingAdapter: Pick<FundingAdapter, 'resolveUser' | 'getProviderBalance'>;
     providerKey: string;
     now?: () => Date;
   };

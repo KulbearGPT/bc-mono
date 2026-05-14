@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type { Currency, MockFundingAdapter, Transaction } from './payment-adapter.js';
+import type { Currency, FundingAdapter, Transaction } from './payment-adapter.js';
 import type { ActorContext, AuditRecord } from './security.js';
 import {
   PostgresOrderStore,
@@ -16,8 +16,8 @@ import type { PolicyReader } from './operations.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
 
 type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
-export type RefundFundingAdapter = Pick<MockFundingAdapter, 'createRefund'> &
-  Partial<Pick<MockFundingAdapter, 'getTransaction' | 'createReservationDebit' | 'captureHold' | 'releaseHold' | 'getHold'>>;
+export type RefundFundingAdapter = Pick<FundingAdapter, 'createRefund'> &
+  Partial<Pick<FundingAdapter, 'getTransaction' | 'createReservationDebit' | 'captureHold' | 'releaseHold' | 'getHold'>>;
 const resolutionReasonCodes = new Set([
   'USER_REQUEST',
   'DISPATCH_TIMEOUT',
@@ -239,7 +239,7 @@ export async function refundOrder(input: {
 
   let refund: Transaction;
   try {
-    refund = input.fundingAdapter.createRefund({
+    refund = await input.fundingAdapter.createRefund({
       idempotencyKey: `${input.idempotencyKey}:provider`,
       originalTransactionRef: sourceTransaction.externalRef,
       amount: input.amount,
@@ -250,7 +250,7 @@ export async function refundOrder(input: {
         providerKey: input.providerKey
       }
     });
-    refund = recoverRefundTransaction(input.fundingAdapter, refund, `${input.idempotencyKey}:provider`);
+    refund = await recoverRefundTransaction(input.fundingAdapter, refund, `${input.idempotencyKey}:provider`);
   } catch (error) {
     throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
   }
@@ -358,7 +358,7 @@ export async function resolveOrder(input: {
       throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge must have an external reference.');
     }
     try {
-      providerRefund = input.fundingAdapter.createRefund({
+      providerRefund = await input.fundingAdapter.createRefund({
         idempotencyKey: `${input.idempotencyKey}:provider`,
         originalTransactionRef: sourceTransaction.externalRef,
         amount: input.refund,
@@ -369,7 +369,7 @@ export async function resolveOrder(input: {
           providerKey: input.providerKey
         }
       });
-      providerRefund = recoverRefundTransaction(input.fundingAdapter, providerRefund, `${input.idempotencyKey}:provider`);
+      providerRefund = await recoverRefundTransaction(input.fundingAdapter, providerRefund, `${input.idempotencyKey}:provider`);
     } catch (error) {
       throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
     }
@@ -995,16 +995,16 @@ function buildRefundPersistenceRecord(input: {
   };
 }
 
-function recoverRefundTransaction(
+async function recoverRefundTransaction(
   adapter: RefundFundingAdapter,
   transaction: Transaction,
   providerIdempotencyKey: string
-): Transaction {
+): Promise<Transaction> {
   if (transaction.status === 'SUCCEEDED') {
     return transaction;
   }
   if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
-    const recovered = adapter.getTransaction({
+    const recovered = await adapter.getTransaction({
       lookupType: 'IDEMPOTENCY_KEY',
       lookupValue: providerIdempotencyKey
     });
@@ -1118,7 +1118,7 @@ FOR UPDATE OF fr
     }
     try {
       if (input.captureMinor > 0) {
-        const captured = input.fundingAdapter.captureHold({
+        const captured = await input.fundingAdapter.captureHold({
           holdRef: reservation.provider_hold_ref,
           idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
           fundReservationId: reservation.id,
@@ -1130,9 +1130,9 @@ FOR UPDATE OF fr
         if (!captured.captureTransactionRef || !input.fundingAdapter.getTransaction) {
           throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Provider did not return a recoverable capture transaction.');
         }
-        providerCharge = recoverReservationDebit(
+        providerCharge = await recoverReservationDebit(
           input.fundingAdapter,
-          input.fundingAdapter.getTransaction({
+          await input.fundingAdapter.getTransaction({
             lookupType: 'PROVIDER_REF',
             lookupValue: captured.captureTransactionRef
           }),
@@ -1140,7 +1140,7 @@ FOR UPDATE OF fr
         );
       }
       if (input.releaseMinor > 0) {
-        input.fundingAdapter.releaseHold({
+        await input.fundingAdapter.releaseHold({
           holdRef: reservation.provider_hold_ref,
           idempotencyKey: `${input.resolution.idempotencyKey}:provider-release`,
           fundReservationId: reservation.id,
@@ -1160,7 +1160,7 @@ FOR UPDATE OF fr
       throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Reservation debit capability or external account binding is unavailable.');
     }
     try {
-      providerCharge = input.fundingAdapter.createReservationDebit({
+      providerCharge = await input.fundingAdapter.createReservationDebit({
         idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
         fundReservationId: reservation.id,
         fundReservationVersion: reservation.row_version,
@@ -1170,7 +1170,7 @@ FOR UPDATE OF fr
         businessReference: input.order.id,
         metadata: { resolutionId: input.resolution.resolutionId }
       });
-      providerCharge = recoverReservationDebit(
+      providerCharge = await recoverReservationDebit(
         input.fundingAdapter,
         providerCharge,
         `${input.resolution.idempotencyKey}:provider-capture`
@@ -1246,16 +1246,16 @@ FOR UPDATE OF fr
   }
 }
 
-function recoverReservationDebit(
+async function recoverReservationDebit(
   adapter: RefundFundingAdapter,
   transaction: Transaction,
   providerIdempotencyKey: string
-): Transaction {
+): Promise<Transaction> {
   if (transaction.status === 'SUCCEEDED') {
     return transaction;
   }
   if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
-    const recovered = adapter.getTransaction({ lookupType: 'IDEMPOTENCY_KEY', lookupValue: providerIdempotencyKey });
+    const recovered = await adapter.getTransaction({ lookupType: 'IDEMPOTENCY_KEY', lookupValue: providerIdempotencyKey });
     if (recovered.status === 'SUCCEEDED') {
       return recovered;
     }

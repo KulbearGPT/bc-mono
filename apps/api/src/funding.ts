@@ -1,14 +1,15 @@
 import crypto from 'node:crypto';
 import type { Currency } from './catalog.js';
+import type { MaybePromise } from './payment-adapter.js';
 
 export type FundReservationSourceType = 'ORDER' | 'GIFT';
 export type FundReservationMode = 'PROVIDER_NATIVE_HOLD' | 'LOCAL_RESERVATION_FALLBACK';
 export type FundReservationStatus = 'PENDING' | 'ACTIVE' | 'DISPUTED' | 'PARTIALLY_SETTLED' | 'CAPTURED' | 'RELEASED' | 'EXPIRED' | 'FAILED';
 
 export interface FundingAdapterCapabilitiesSource {
-  discoverCapabilities?: () => {
+  discoverCapabilities?: () => MaybePromise<{
     nativeHold: { supported: boolean };
-  };
+  }>;
 }
 
 export interface FundReservationDraft {
@@ -32,8 +33,8 @@ export interface FundReservationDraft {
   updatedAt: string;
 }
 
-export function resolveFundReservationMode(adapter: FundingAdapterCapabilitiesSource): FundReservationMode {
-  const capabilities = adapter.discoverCapabilities?.();
+export async function resolveFundReservationMode(adapter: FundingAdapterCapabilitiesSource): Promise<FundReservationMode> {
+  const capabilities = await adapter.discoverCapabilities?.();
   return capabilities && !capabilities.nativeHold.supported ? 'LOCAL_RESERVATION_FALLBACK' : 'PROVIDER_NATIVE_HOLD';
 }
 
