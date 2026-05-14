@@ -43,6 +43,9 @@ describe('M5-US-02 production-like recovery candidate', () => {
     for (const service of ['postgres:', 'migrate:', 'api:', 'worker:', 'bot:', 'dashboard:']) expect(compose).toContain(service);
     expect(compose).toContain('condition: service_completed_successfully');
     expect(compose).toContain('restart: unless-stopped');
+    expect(compose).toContain('profiles: ["worker-runtime-pending"]');
+    expect(compose).toContain('release is blocked');
+    expect(compose).not.toContain('npm run worker');
     expect(compose).not.toContain('change-me');
   });
 
