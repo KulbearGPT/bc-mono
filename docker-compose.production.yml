@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blackcat
+      POSTGRES_USER: blackcat_migrate
+      POSTGRES_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:?required}
+    volumes:
+      - blackcat-postgres:/var/lib/postgresql/data
+      - ./database/bootstrap:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blackcat_migrate -d blackcat"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: ${BLACKCAT_APP_IMAGE:?required}
+    env_file: [.env.production]
+    command: npm run db:migrate:deploy
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: ${BLACKCAT_APP_IMAGE:?required}
+    env_file: [.env.production]
+    command: npm run start -w @blackcat/api
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: ${BLACKCAT_APP_IMAGE:?required}
+    env_file: [.env.production]
+    command: npm run worker -w @blackcat/api
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  bot:
+    image: ${BLACKCAT_APP_IMAGE:?required}
+    env_file: [.env.production]
+    command: npm run start -w @blackcat/bot
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  dashboard:
+    image: ${BLACKCAT_APP_IMAGE:?required}
+    env_file: [.env.production]
+    command: npx vite preview apps/dashboard --host 0.0.0.0 --port 5173
+    restart: unless-stopped
+    ports: ["5173:5173"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  blackcat-postgres:
