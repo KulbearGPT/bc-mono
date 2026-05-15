@@ -45,6 +45,7 @@ export interface OutboxStore {
   }): Promise<OutboxJob>;
   retryFailedJob(input: { jobId: string; expectedVersion: number; now: Date }): Promise<OutboxJob>;
   recoverStaleProcessingJobs(input: { lockedBefore: Date; now: Date; error: string }): Promise<OutboxJob[]>;
+  renewProcessingJob?(input: { jobId: string; workerId: string; now: Date }): Promise<void>;
   getJob(jobId: string): Promise<OutboxJob | null>;
 }
 
@@ -57,6 +58,7 @@ export interface OutboxWorkerOptions {
   workerId: string;
   now?: () => Date;
   backoffMs?: number[];
+  heartbeatMs?: number;
   logger?: (entry: Record<string, unknown>) => void;
   metric?: (name: string, tags: Record<string, string>) => void;
 }
@@ -221,6 +223,15 @@ export class InMemoryOutboxStore implements OutboxStore {
     }
     return job;
   }
+
+  async renewProcessingJob(input: { jobId: string; workerId: string; now: Date }): Promise<void> {
+    const job = this.jobs.get(input.jobId);
+    if (!job || job.status !== 'PROCESSING' || job.lockedBy !== input.workerId) {
+      throw new OutboxError('CONFLICT', 'Job processing lease is no longer owned by this worker.');
+    }
+    job.lockedAt = input.now.toISOString();
+    job.updatedAt = input.now.toISOString();
+  }
 }
 
 export class PostgresOutboxStore implements OutboxStore {
@@ -376,6 +387,17 @@ WHERE id = $1
     );
     return result.rows[0] ? mapOutboxRow(result.rows[0]) : null;
   }
+
+  async renewProcessingJob(input: { jobId: string; workerId: string; now: Date }): Promise<void> {
+    const result = await this.client.query<{ id: string }>(
+      `UPDATE outbox_events
+       SET locked_at = $3, updated_at = $3
+       WHERE id = $1 AND status = 'PROCESSING' AND locked_by = $2
+       RETURNING id`,
+      [input.jobId, input.workerId, input.now]
+    );
+    if (!result.rows[0]) throw new OutboxError('CONFLICT', 'Job processing lease is no longer owned by this worker.');
+  }
 }
 
 export class OutboxWorker {
@@ -383,6 +405,7 @@ export class OutboxWorker {
   private readonly workerId: string;
   private readonly now: () => Date;
   private readonly backoffMs: number[];
+  private readonly heartbeatMs: number;
   private readonly logger: (entry: Record<string, unknown>) => void;
   private readonly metric: (name: string, tags: Record<string, string>) => void;
 
@@ -391,6 +414,7 @@ export class OutboxWorker {
     this.workerId = options.workerId;
     this.now = options.now ?? (() => new Date());
     this.backoffMs = options.backoffMs ?? [1_000, 5_000, 30_000];
+    this.heartbeatMs = options.heartbeatMs ?? 60_000;
     this.logger = options.logger ?? (() => undefined);
     this.metric = options.metric ?? (() => undefined);
   }
@@ -417,7 +441,7 @@ export class OutboxWorker {
         if (!handler) {
           throw new Error(`No handler registered for ${job.type}`);
         }
-        await handler(job);
+        await this.runWithHeartbeat(job, handler);
         const completed = await this.store.markSucceeded({ jobId: job.id, workerId: this.workerId, now: this.now() });
         this.metric('outbox_job_succeeded_total', { type: job.type, status: completed.status });
         this.logger({
@@ -431,7 +455,8 @@ export class OutboxWorker {
       } catch (error) {
         const failedAt = this.now();
         const message = error instanceof Error ? error.message : String(error);
-        const retryAt = job.attempts >= job.maxAttempts ? null : new Date(failedAt.getTime() + this.backoffForAttempt(job.attempts));
+        const retryDelayMs = retryAfterMs(error) ?? this.backoffForAttempt(job.attempts);
+        const retryAt = job.attempts >= job.maxAttempts ? null : new Date(failedAt.getTime() + retryDelayMs);
         const failed = await this.store.markFailed({
           jobId: job.id,
           workerId: this.workerId,
@@ -458,6 +483,27 @@ export class OutboxWorker {
     return results;
   }
 
+  private async runWithHeartbeat(job: OutboxJob, handler: (job: OutboxJob) => Promise<void> | void): Promise<void> {
+    const renew = this.store.renewProcessingJob?.bind(this.store);
+    if (!renew) { await handler(job); return; }
+    let pending: Promise<void> | null = null;
+    let heartbeatError: unknown = null;
+    const timer = setInterval(() => {
+      if (pending) return;
+      pending = renew({ jobId: job.id, workerId: this.workerId, now: this.now() })
+        .catch((error) => { heartbeatError = error; })
+        .finally(() => { pending = null; });
+    }, this.heartbeatMs);
+    try {
+      await handler(job);
+      if (pending) await pending;
+      if (heartbeatError) throw heartbeatError;
+    } finally {
+      clearInterval(timer);
+      if (pending) await pending;
+    }
+  }
+
   private backoffForAttempt(attempt: number): number {
     return this.backoffMs[Math.min(Math.max(attempt - 1, 0), this.backoffMs.length - 1)] ?? 1_000;
   }
@@ -465,6 +511,11 @@ export class OutboxWorker {
 
 function storedDeliveryFailure(requestId: string): string {
   return `DELIVERY_FAILED; requestId=${requestId}`;
+}
+
+function retryAfterMs(error: unknown): number | null {
+  const value = error && typeof error === 'object' ? (error as { retryAfterMs?: unknown }).retryAfterMs : null;
+  return Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 86_400_000 ? Number(value) : null;
 }
 
 export async function retryJob(input: {

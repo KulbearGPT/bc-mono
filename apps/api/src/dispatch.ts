@@ -972,6 +972,7 @@ function buildDispatchOutboxJobs(input: {
 }): OutboxJob[] {
   const basePayload = {
     dispatchAttemptId: input.attempt.id,
+    dispatchChannelId: input.attempt.dispatchChannelId,
     orderId: input.order.id,
     orderPublicId: input.order.publicId,
     orderVersion: input.order.version,

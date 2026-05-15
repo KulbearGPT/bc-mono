@@ -65,6 +65,7 @@ export interface OperationsStore extends PolicyReader {
   getPolicySettings(): Promise<PolicySettingRecord[]> | PolicySettingRecord[];
   updatePolicySetting(input: { key: string; expectedVersion: number; integerValue: number; currency: string | null; actorStaffId: string; now: Date }): Promise<StagedWrite<PolicySettingRecord>> | StagedWrite<PolicySettingRecord>;
   recordChannelCreationFailure(input: { requestId: string; guildId: string; discordUserId: string; interactionId: string; now: Date }): Promise<StagedWrite<OperationsJobRecord>> | StagedWrite<OperationsJobRecord>;
+  queuePanelRepair(input: { orderId: string; guildId: string; generation: string; actorStaffId: string; now: Date }): Promise<StagedWrite<OperationsJobRecord>> | StagedWrite<OperationsJobRecord>;
 }
 
 const levelRank: Record<StaffLevel, number> = {
@@ -100,13 +101,15 @@ export class InMemoryOperationsStore implements OperationsStore, AuditSink {
   private readonly guildStaffIds: Record<string, string[]>;
   private readonly teamStaffIdsBySupervisorId: Record<string, string[]>;
   private readonly settingHistory = new Map<string, PolicySettingRecord[]>();
+  private readonly repairableOrders: Array<{ id: string; guildId: string; panelMessageId: string; version: number }>;
 
-  constructor(input: { audits?: AuditRecord[]; jobs?: OutboxJob[]; settings?: PolicySettingRecord[]; guildStaffIds?: Record<string, string[]>; teamStaffIdsBySupervisorId?: Record<string, string[]> } = {}) {
+  constructor(input: { audits?: AuditRecord[]; jobs?: OutboxJob[]; settings?: PolicySettingRecord[]; guildStaffIds?: Record<string, string[]>; teamStaffIdsBySupervisorId?: Record<string, string[]>; repairableOrders?: Array<{ id: string; guildId: string; panelMessageId: string; version: number }> } = {}) {
     this.audits = clone(input.audits ?? []);
     this.jobs = clone(input.jobs ?? []);
     this.settings = clone(input.settings ?? []);
     this.guildStaffIds = clone(input.guildStaffIds ?? {});
     this.teamStaffIdsBySupervisorId = clone(input.teamStaffIdsBySupervisorId ?? {});
+    this.repairableOrders = clone(input.repairableOrders ?? []);
     for (const setting of this.settings) this.settingHistory.set(setting.key, [clone(setting)]);
   }
 
@@ -185,6 +188,19 @@ export class InMemoryOperationsStore implements OperationsStore, AuditSink {
 
   recordChannelCreationFailure(input: { requestId: string; guildId: string; discordUserId: string; interactionId: string; now: Date }): StagedWrite<OperationsJobRecord> {
     const job = channelFailureJob(input);
+    return { data: mapJob(job), commit: async (auditRecord, auditSink) => {
+      const existing = this.jobs.find((item) => item.dedupeKey === job.dedupeKey);
+      if (existing) return;
+      this.jobs.push(clone(job));
+      try { await auditSink.append({ ...auditRecord, beforeSnapshot: null, afterSnapshot: jobSnapshot(job) }); }
+      catch (error) { this.jobs.splice(this.jobs.findIndex((item) => item.id === job.id), 1); throw error; }
+    } };
+  }
+
+  queuePanelRepair(input: { orderId: string; guildId: string; generation: string; actorStaffId: string; now: Date }): StagedWrite<OperationsJobRecord> {
+    const order = this.repairableOrders.find((item) => item.id === input.orderId && item.guildId === input.guildId);
+    if (!order) throw new OperationsError('NOT_FOUND', 'Order was not found.');
+    const job = panelRepairJob({ ...input, panelMessageId: order.panelMessageId, orderVersion: order.version });
     return { data: mapJob(job), commit: async (auditRecord, auditSink) => {
       const existing = this.jobs.find((item) => item.dedupeKey === job.dedupeKey);
       if (existing) return;
@@ -301,9 +317,38 @@ export class PostgresOperationsStore implements OperationsStore {
       await insertPostgresAuditRecord(client, { ...auditRecord, beforeSnapshot: before, afterSnapshot: data });
     });
   }
+
+  async queuePanelRepair(input: { orderId: string; guildId: string; generation: string; actorStaffId: string; now: Date }): Promise<StagedWrite<OperationsJobRecord>> {
+    const result = await this.pool.query<{ panel_message_id: string; row_version: number }>(
+      'SELECT panel_message_id, row_version FROM orders WHERE id = $1::uuid AND guild_id = $2', [input.orderId, input.guildId]
+    );
+    const order = result.rows[0];
+    if (!order?.panel_message_id) throw new OperationsError('NOT_FOUND', 'Order was not found or has no panel message.');
+    const job = panelRepairJob({ ...input, panelMessageId: order.panel_message_id, orderVersion: order.row_version });
+    return { data: mapJob(job), commit: async (auditRecord) => {
+      await inTransaction(this.pool, async (client) => {
+        const current = await client.query<{ panel_message_id: string; row_version: number }>(
+          'SELECT panel_message_id, row_version FROM orders WHERE id = $1::uuid FOR UPDATE', [input.orderId]
+        );
+        if (!current.rows[0]) throw new OperationsError('NOT_FOUND', 'Order was not found.');
+        if (current.rows[0].panel_message_id !== order.panel_message_id || current.rows[0].row_version !== order.row_version) {
+          throw new OperationsError('CONFLICT', 'Order panel projection changed before repair was queued.');
+        }
+        await client.query(
+          `INSERT INTO outbox_events
+             (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,
+              attempt_count,max_attempts,available_at,created_at,updated_at)
+           VALUES ($1::uuid,'PANEL_SYNC','order',$2::uuid,$2::uuid,$3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5)
+           ON CONFLICT (dedupe_key) DO NOTHING`,
+          [job.id, input.orderId, job.dedupeKey, JSON.stringify(job.payload), input.now]
+        );
+        await insertPostgresAuditRecord(client, { ...auditRecord, beforeSnapshot: null, afterSnapshot: jobSnapshot(job) });
+      });
+    } };
+  }
 }
 
-export function registerOperationsRoutes(server: FastifyInstance, options: { store: OperationsStore; now?: () => Date }) {
+export function registerOperationsRoutes(server: FastifyInstance, options: { store: OperationsStore; guildId?: string; now?: () => Date }) {
   if (!server.securityOptions) throw new Error('Operations routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
@@ -321,6 +366,8 @@ export function registerOperationsRoutes(server: FastifyInstance, options: { sto
 
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/jobs/:jobId/retry', permission: 'job.retry', action: 'RETRY_JOB', targetType: 'outbox_event', targetId: (request) => param(request, 'jobId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
     successReason: (request) => retryAuditReason(parseRetry(request.body)), handler: async (request, actor) => { const staff = requireStaff(actor); const body = parseRetry(request.body); return bindAudit(await options.store.retryJob({ jobId: uuidParam(request, 'jobId'), expectedVersion: body.expectedVersion, actorStaffId: staff.staffId, now: now() }), auditSink); } });
+  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/orders/:orderId/panel-repair', permission: 'job.retry', action: 'QUEUE_PANEL_REPAIR', targetType: 'order', targetId: (request) => param(request, 'orderId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
+    successReason: (request) => retryAuditReason(parsePanelRepair(request.body)), handler: async (request, actor) => { const staff = requireStaff(actor); const guildId=actor.guildId??options.guildId;if(!guildId)throw new OperationsError('VALIDATION_ERROR','Guild scope is required.');const write = await options.store.queuePanelRepair({ orderId: uuidParam(request, 'orderId'), guildId, generation: request.id, actorStaffId: staff.staffId, now: now() }); return { data: write.data, statusCode: 202, commit: (record: AuditRecord) => write.commit(record, auditSink) }; } });
   registerSecureWriteRoute(server, security, { method: 'PUT', url: '/api/v1/admin/policy-settings/:policyKey', permission: 'policy.manage', action: 'UPDATE_POLICY_SETTING', targetType: 'policy_setting', targetId: (request) => param(request, 'policyKey'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError,
     successReason: (request) => parsePolicy(request.body).reasonCode, handler: async (request, actor) => { const staff = requireStaff(actor); const body = parsePolicy(request.body); return bindAudit(await options.store.updatePolicySetting({ key: param(request, 'policyKey'), expectedVersion: body.expectedVersion, integerValue: body.integerValue, currency: body.currency, actorStaffId: staff.staffId, now: now() }), auditSink); } });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/internal/discord/channel-failures', permission: 'operations.failure.report', action: 'RECORD_CHANNEL_CREATION_FAILURE', targetType: 'outbox_event',
@@ -354,6 +401,7 @@ function pageQuery(request: FastifyRequest): PageInput { const query=request.que
 function queryText(request: FastifyRequest,key:string){const value=(request.query as Record<string,unknown>)[key];if(value===undefined)return undefined;if(typeof value!=='string'||!value.trim()||value.length>100)throw new OperationsError('VALIDATION_ERROR',`${key} is invalid.`);const result=value.trim();if(key==='targetType'&&!/^[A-Z][A-Z0-9_]{1,63}$/.test(result))throw new OperationsError('VALIDATION_ERROR','targetType is invalid.');return result;}
 function jobTypeQuery(request: FastifyRequest): JobType|undefined { const value=queryText(request,'type'); if(!value)return undefined; assertListedJobType(value); return value; }
 function parseRetry(body:unknown){const input=exactObject(body,['expectedVersion','reasonCode','note']);return {expectedVersion:positiveInteger(input.expectedVersion,'expectedVersion'),reasonCode:reason(input.reasonCode),note:nullableText(input.note,1000)};}
+function parsePanelRepair(body:unknown){const input=exactObject(body,['reasonCode','note']);return {reasonCode:reason(input.reasonCode),note:nullableText(input.note,1000)};}
 function parsePolicy(body:unknown){const input=exactObject(body,['expectedVersion','integerValue','currency','reasonCode']);const integerValue=nonNegativeInteger(input.integerValue,'integerValue');if(integerValue>1_000_000_000)throw new OperationsError('VALIDATION_ERROR','integerValue is invalid.');return {expectedVersion:positiveInteger(input.expectedVersion,'expectedVersion'),integerValue,currency:nullableCurrency(input.currency),reasonCode:reason(input.reasonCode)};}
 function parseChannelFailure(body:unknown){const input=exactObject(body,['requestId','failureCode']);if(input.failureCode!=='CHANNEL_CREATE_FAILED'||typeof input.requestId!=='string'||!/^req_[A-Za-z0-9_-]{8,120}$/.test(input.requestId))throw new OperationsError('VALIDATION_ERROR','Channel failure payload is invalid.');return {requestId:input.requestId};}
 function object(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw new OperationsError('VALIDATION_ERROR','Object payload is required.');return value as Record<string,unknown>;}
@@ -381,6 +429,7 @@ function assertPolicyValue(key:string,value:number,currency:string|null){
   if(time&&(value<1||value>10_080||currency!==null))throw new OperationsError('VALIDATION_ERROR','Time policies require 1-10080 minutes and no currency.');
 }
 function channelFailureJob(input:{requestId:string;guildId:string;discordUserId:string;interactionId:string;now:Date}):OutboxJob{const id=deterministicUuid(`channel-create-failure:${input.requestId}`);return{id,type:'CHANNEL_CREATE_FAILURE',status:'FAILED',payload:{guildId:input.guildId,discordUserId:input.discordUserId,interactionId:input.interactionId},aggregateType:'DISCORD_INTERACTION',aggregateId:deterministicUuid(`discord-interaction:${input.guildId}:${input.interactionId}`),dedupeKey:`channel-create-failure:${input.guildId}:${input.interactionId}`,attempts:1,maxAttempts:1,runAfter:input.now.toISOString(),lockedAt:null,lockedBy:null,completedAt:null,lastError:`CHANNEL_CREATE_FAILED; requestId=${input.requestId}`,version:1,createdAt:input.now.toISOString(),updatedAt:input.now.toISOString()};}
+function panelRepairJob(input:{orderId:string;panelMessageId:string;orderVersion:number;generation:string;now:Date}):OutboxJob{const dedupeKey=`panel-repair:${input.orderId}:v${input.orderVersion}:${input.panelMessageId}:${input.generation}`;return{id:deterministicUuid(dedupeKey),type:'PANEL_SYNC',status:'PENDING',payload:{orderId:input.orderId,kind:'MANUAL_REPAIR'},aggregateType:'order',aggregateId:input.orderId,dedupeKey,attempts:0,maxAttempts:8,runAfter:input.now.toISOString(),lockedAt:null,lockedBy:null,completedAt:null,lastError:null,version:1,createdAt:input.now.toISOString(),updatedAt:input.now.toISOString()};}
 function deterministicUuid(value:string){const hex=createHash('sha256').update(value).digest('hex').slice(0,32);return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;}
 function iso(value:string|Date){return value instanceof Date?value.toISOString():new Date(value).toISOString();}
 function clone<T>(value:T):T{return JSON.parse(JSON.stringify(value)) as T;}

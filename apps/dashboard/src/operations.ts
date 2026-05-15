@@ -155,6 +155,30 @@ export function buildRetryJobRequest(
   };
 }
 
+export function buildPanelRepairControl(permissions: ReadonlyArray<string>, submitting: boolean) {
+  const visible = permissions.includes('job.retry');
+  return { visible, enabled: visible && !submitting };
+}
+
+export function buildPanelRepairRequest(
+  orderId: string,
+  reasonCode: string,
+  note: string | null = null
+): OperationsWriteRequest {
+  const normalizedOrderId = requireText(orderId, 'orderId');
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(normalizedOrderId)) {
+    throw new TypeError('orderId must be a valid UUID.');
+  }
+  return {
+    method: 'POST',
+    path: `/api/v1/admin/orders/${encodeURIComponent(normalizedOrderId)}/panel-repair`,
+    body: {
+      reasonCode: requireText(reasonCode, 'reasonCode'),
+      note: optionalText(note)
+    }
+  };
+}
+
 export function buildUpdatePolicySettingRequest(
   setting: PolicySettingRow,
   update: { integerValue: number; currency: string | null; reasonCode: string }

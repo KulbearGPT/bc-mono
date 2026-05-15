@@ -117,7 +117,7 @@ export interface ApiServerOptions {
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
-  operations?: { store: OperationsStore; now?: () => Date };
+  operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
 }
 
 export interface HealthPayload {

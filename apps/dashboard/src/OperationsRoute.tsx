@@ -3,7 +3,7 @@ import { createDashboardApiClient, type DashboardCapabilities } from './dashboar
 import { OperationsPage } from './OperationsPage.js';
 import {
   buildAuditLogView, buildFailedJobsView, buildPolicySettingsView,
-  buildRetryJobRequest, buildUpdatePolicySettingRequest,
+  buildPanelRepairControl, buildPanelRepairRequest, buildRetryJobRequest, buildUpdatePolicySettingRequest,
   type AuditLogRow, type FailedJobRow, type OperationsLoadStatus, type PolicySettingRow
 } from './operations.js';
 
@@ -17,6 +17,7 @@ export function OperationsRoute({ capabilities }: { capabilities: DashboardCapab
   const [jobs, setJobs] = useState<ListState<FailedJobRow>>(empty);
   const [policies, setPolicies] = useState<ListState<PolicySettingRow>>(empty);
   const [retrying, setRetrying] = useState<string[]>([]);
+  const [repairingPanel, setRepairingPanel] = useState(false);
 
   const load = useCallback(async <T,>(path: string, setter: React.Dispatch<React.SetStateAction<ListState<T>>>, cursor: string | null = null) => {
     setter((current) => ({ ...current, status: 'LOADING', requestId: null }));
@@ -76,11 +77,35 @@ export function OperationsRoute({ capabilities }: { capabilities: DashboardCapab
     } catch (error) { window.alert(error instanceof Error ? error.message : '输入值无效。'); }
   }
 
+  async function repairPanel() {
+    const orderId = window.prompt('请输入订单 UUID')?.trim();
+    if (!orderId) return;
+    const reasonCode = window.prompt('请输入修复原因码', 'PANEL_MESSAGE_DELETED')?.trim();
+    if (!reasonCode) return;
+    setRepairingPanel(true);
+    try {
+      const request = buildPanelRepairRequest(orderId, reasonCode);
+      const response = await client.post(request.path, request.body);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { requestId?: string; error?: { message?: string } } | null;
+        window.alert(`${body?.error?.message ?? '面板修复任务创建失败。'}${body?.requestId ? ` request_id: ${body.requestId}` : ''}`);
+        return;
+      }
+      window.alert('面板修复任务已进入队列。');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : '面板修复请求未送达，请稍后重试。');
+    } finally {
+      setRepairingPanel(false);
+    }
+  }
+
   return <OperationsPage
     audit={buildAuditLogView({ permissions, ...audit })}
     jobs={buildFailedJobsView({ permissions, ...jobs, retryingJobIds: retrying })}
     policies={buildPolicySettingsView({ permissions, ...policies })}
+    panelRepair={buildPanelRepairControl(permissions, repairingPanel)}
     onReload={(section) => { if (section === 'audit') void loadAudit(); else if (section === 'jobs') void loadJobs(); else void loadPolicies(); }}
     onNextAudit={(cursor) => void loadAudit(cursor)} onNextJobs={(cursor) => void loadJobs(cursor)}
-    onRetryJob={(job) => void retryJob(job)} onUpdatePolicy={(setting) => void updatePolicy(setting)} />;
+    onRetryJob={(job) => void retryJob(job)} onRepairPanel={() => void repairPanel()}
+    onUpdatePolicy={(setting) => void updatePolicy(setting)} />;
 }

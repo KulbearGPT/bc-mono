@@ -7,14 +7,20 @@ export function OperationsPage(props: {
   audit: { kind: ViewKind; rows: ReadonlyArray<AuditLogRow & { readOnly: true }>; error: ErrorView | null; pagination: { hasNext: boolean; nextCursor: string | null } };
   jobs: { kind: ViewKind; rows: ReadonlyArray<FailedJobRow & { retry: { visible: boolean; enabled: boolean; state: string } }>; error: ErrorView | null; pagination: { hasNext: boolean; nextCursor: string | null } };
   policies: { kind: ViewKind; rows: ReadonlyArray<PolicySettingRow & { edit: { visible: boolean; enabled: boolean } }>; error: ErrorView | null };
+  panelRepair: { visible: boolean; enabled: boolean };
   onReload: (section: 'audit' | 'jobs' | 'policies') => void;
   onNextAudit: (cursor: string) => void;
   onNextJobs: (cursor: string) => void;
   onRetryJob: (job: FailedJobRow) => void;
+  onRepairPanel: () => void;
   onUpdatePolicy: (setting: PolicySettingRow) => void;
 }) {
   return <section aria-labelledby="operations-title" style={{ padding: 24, minWidth: 0 }}>
     <h1 id="operations-title" style={{ fontSize: 24 }}>系统运营</h1>
+    {props.panelRepair.visible && <section aria-labelledby="operations-panel-repair" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #d9e1e3' }}>
+      <h2 id="operations-panel-repair" style={{ fontSize: 18 }}>订单面板修复</h2>
+      <button type="button" disabled={!props.panelRepair.enabled} onClick={props.onRepairPanel}>修复已删除面板</button>
+    </section>}
     <OperationsSection title="审计记录" kind={props.audit.kind} error={props.audit.error} onReload={() => props.onReload('audit')}>
       {props.audit.kind === 'READY' && <DataTable rows={props.audit.rows} />}
       {props.audit.pagination.hasNext && props.audit.pagination.nextCursor && <button type="button" onClick={() => props.onNextAudit(props.audit.pagination.nextCursor!)}>下一页</button>}

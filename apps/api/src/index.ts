@@ -195,7 +195,8 @@ const server = buildApiServer({
     store: accessStore
   },
   operations: {
-    store: operationsStore
+    store: operationsStore,
+    guildId: dashboardOAuthConfig.guildId
   },
   botConfig: discordBotToken && botConfigValidationSecret ? {
     store: new PostgresBotConfigStore(databasePool),

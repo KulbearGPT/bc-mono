@@ -37,6 +37,7 @@ const failedJobId = '00000000-0000-0000-0000-000000006501';
 const completedJobId = '00000000-0000-0000-0000-000000006502';
 const timeoutJobId = '00000000-0000-0000-0000-000000006503';
 const reconciliationJobId = '00000000-0000-0000-0000-000000006504';
+const repairOrderId = '00000000-0000-0000-0000-000000006701';
 
 function account(staffId: string, discordUserId: string, level: StaffLevel) {
   return { staffId, discordUserId, level, permissionsVersion: 1, status: 'ACTIVE' as const };
@@ -84,7 +85,8 @@ function fixture() {
     settings: [
       setting('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000, 'CNY'),
       setting('DISPATCH_TIMEOUT_MINUTES', 5, null)
-    ]
+    ],
+    repairableOrders: [{ id: repairOrderId, guildId, panelMessageId: '900000000000006701', version: 8 }]
   });
   const server = buildApiServer({
     env,
@@ -105,7 +107,7 @@ function fixture() {
         verify: ({ request }) => request.headers['x-test-step-up'] === 'valid'
       }
     },
-    operations: { store, now: () => now }
+    operations: { store, guildId, now: () => now }
   });
   return { server, store };
 }
@@ -154,7 +156,7 @@ describe('M4-US-06 operational API', () => {
       readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8')
     ]);
     expect(docs).toBe(outputs);
-    for (const operationId of ['listAuditLogs', 'listFailedJobs', 'retryJob', 'getPolicySettings', 'updatePolicySetting']) {
+    for (const operationId of ['listAuditLogs', 'listFailedJobs', 'retryJob', 'queueOrderPanelRepair', 'getPolicySettings', 'updatePolicySetting']) {
       expect(docs).toContain(`operationId: ${operationId}`);
     }
     expect(docs).toContain('operationId: reportDiscordChannelCreationFailure');
@@ -331,6 +333,50 @@ describe('M4-US-06 operational API', () => {
       requestId: 'req_retry_rejected',
       error: { code: 'VALIDATION_ERROR' }
     });
+  });
+
+  test('lets L2 queue an idempotent panel repair while L1 remains denied', async () => {
+    const { server, store } = fixture();
+    const request = {
+      method: 'POST' as const,
+      url: `/api/v1/admin/orders/${repairOrderId}/panel-repair`,
+      headers: headers(staff.l2, { key: 'operations:panel-repair:P-6701', requestId: 'req_panel_repair' }),
+      payload: { reasonCode: 'PANEL_MESSAGE_DELETED', note: 'Rebuild from current database state.' }
+    };
+    const denied = await server.inject({ ...request, headers: headers(staff.l1, { key: 'operations:panel-repair:denied' }) });
+    const crossGuild = await server.inject({ ...request, headers: {
+      ...headers(staff.l2, { key: 'operations:panel-repair:cross-guild' }),
+      'x-actor-guild-id': '900000000000006999'
+    } });
+    const first = await server.inject(request);
+    const replay = await server.inject(request);
+
+    expect(denied.statusCode).toBe(403);
+    expect(crossGuild.statusCode).toBe(404);
+    expect(first.statusCode).toBe(202);
+    expect(replay.json()).toEqual(first.json());
+    expect(first.json()).toMatchObject({ data: { type: 'PANEL_SYNC', status: 'PENDING', attempts: 0, version: 1 } });
+    expect(store.jobs.filter((item) => item.type === 'PANEL_SYNC')).toEqual([
+      expect.objectContaining({ aggregateId: repairOrderId, payload: { orderId: repairOrderId, kind: 'MANUAL_REPAIR' } })
+    ]);
+    expect(store.audits.find((record) => record.action === 'QUEUE_PANEL_REPAIR' && record.outcome === 'SUCCEEDED')?.reason)
+      .toBe('PANEL_MESSAGE_DELETED: Rebuild from current database state.');
+  });
+
+  test('queues a new generation after an earlier repair completed for the same panel id', async () => {
+    const { server, store } = fixture();
+    const send = (key: string) => server.inject({
+      method: 'POST', url: `/api/v1/admin/orders/${repairOrderId}/panel-repair`,
+      headers: headers(staff.l2, { key }), payload: { reasonCode: 'PANEL_MESSAGE_DELETED' }
+    });
+    const first = await send('operations:panel-repair:generation-1');
+    const firstJob = store.jobs.find((job) => job.type === 'PANEL_SYNC')!;
+    firstJob.status = 'COMPLETED';
+    const second = await send('operations:panel-repair:generation-2');
+
+    expect([first.statusCode, second.statusCode]).toEqual([202, 202]);
+    expect(store.jobs.filter((job) => job.type === 'PANEL_SYNC')).toHaveLength(2);
+    expect(second.json().data.id).not.toBe(first.json().data.id);
   });
 
   test('limits policy reads to L3 and returns current amount and timeout versions', async () => {

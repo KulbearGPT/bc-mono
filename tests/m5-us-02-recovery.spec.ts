@@ -38,14 +38,15 @@ describe('M5-US-02 production-like recovery candidate', () => {
     expect(JSON.stringify([invalid.json(), expired.json()])).not.toContain('mock-webhook-secret');
   });
 
-  test('defines isolated migration, healthy runtime services, and restart policies', async () => {
+  test('defines isolated migration, healthy runtime services, and an enabled Worker runtime', async () => {
     const compose = await readFile('docker-compose.production.yml', 'utf8');
     for (const service of ['postgres:', 'migrate:', 'api:', 'worker:', 'bot:', 'dashboard:']) expect(compose).toContain(service);
     expect(compose).toContain('condition: service_completed_successfully');
     expect(compose).toContain('restart: unless-stopped');
-    expect(compose).toContain('profiles: ["worker-runtime-pending"]');
-    expect(compose).toContain('release is blocked');
-    expect(compose).not.toContain('npm run worker');
+    expect(compose).toContain('npm run worker -w @blackcat/api');
+    expect(compose).toContain("test -f /tmp/blackcat-worker-ready");
+    expect(compose).not.toContain('worker-runtime-pending');
+    expect(compose).not.toContain('release is blocked');
     expect(compose).not.toContain('change-me');
   });
 

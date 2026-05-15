@@ -988,7 +988,7 @@ export async function captureApprovedGift(input: {
 
 export function createGiftAnnouncementHandler(input: {
   store: Pick<GiftStore, 'markAnnounced'>;
-  send: (message: { channelId: string; content: string; dedupeKey: string }) => Promise<{ messageId: string }>;
+  send: (message: { channelId: string; content: string; dedupeKey: string; notBefore: string }) => Promise<{ messageId: string }>;
   now?: () => Date;
 }) {
   const now = input.now ?? (() => new Date());
@@ -998,7 +998,7 @@ export function createGiftAnnouncementHandler(input: {
       || typeof payload.channelId !== 'string' || typeof payload.content !== 'string') {
       throw new GiftError('VALIDATION_ERROR', 'Gift announcement payload is invalid.');
     }
-    const delivered = await input.send({ channelId: payload.channelId, content: payload.content, dedupeKey: job.dedupeKey });
+    const delivered = await input.send({ channelId: payload.channelId, content: payload.content, dedupeKey: job.dedupeKey, notBefore: job.createdAt });
     await input.store.markAnnounced({ giftRequestId: payload.giftRequestId, channelId: payload.channelId,
       messageId: delivered.messageId, now: now() });
   };

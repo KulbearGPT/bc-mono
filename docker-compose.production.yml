@@ -42,9 +42,13 @@ services:
   worker:
     image: ${BLACKCAT_APP_IMAGE:?required}
     env_file: [.env.production]
-    profiles: ["worker-runtime-pending"]
-    command: ["node", "-e", "console.error('Worker runtime handlers are not configured; release is blocked.'); process.exit(78)"]
-    restart: "no"
+    command: npm run worker -w @blackcat/api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/blackcat-worker-ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
     depends_on:
       migrate:
         condition: service_completed_successfully
