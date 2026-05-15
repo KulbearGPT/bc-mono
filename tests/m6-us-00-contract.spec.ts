@@ -52,4 +52,24 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
       expect(read(`${docsRoot}/${relative}`)).toBe(read(`${outputRoot}/${relative}`));
     }
   });
+
+  test('keeps OpenAPI operation IDs unique and local references resolvable', () => {
+    const openapi = read(`${outputRoot}/02-API/openapi.yaml`);
+    const operationIds = [...openapi.matchAll(/^\s+operationId:\s+([^\s]+)$/gm)].map((match) => match[1]);
+    expect(new Set(operationIds).size).toBe(operationIds.length);
+
+    const componentKeys = new Set<string>();
+    let componentGroup: string | null = null;
+    for (const line of openapi.split('\n')) {
+      const group = line.match(/^  ([A-Za-z][A-Za-z0-9]*):$/);
+      if (group) {
+        componentGroup = group[1];
+        continue;
+      }
+      const key = line.match(/^    ([A-Za-z][A-Za-z0-9]*):(?:\s|$)/);
+      if (componentGroup && key) componentKeys.add(`#/components/${componentGroup}/${key[1]}`);
+    }
+    const refs = [...openapi.matchAll(/\$ref:\s*['"]?(#\/components\/[A-Za-z0-9/]+)['"]?/g)].map((match) => match[1]);
+    expect([...new Set(refs)].filter((ref) => !componentKeys.has(ref))).toEqual([]);
+  });
 });
