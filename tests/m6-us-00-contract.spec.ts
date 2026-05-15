@@ -29,6 +29,8 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     for (const model of ['SettlementBatch', 'SettlementItem', 'SettlementItemEntry', 'SettlementPaymentResult', 'PlayerWeeklyReport', 'WeeklyReportSummary', 'WeeklyReportRevision']) {
       expect(schema).toContain(`model ${model}`);
     }
+    expect(openapi).toContain('deferredAdjustmentMinor');
+    expect(openapi).toMatch(/netAmountMinor:\s*\{type: integer, minimum: 0\}/);
     for (const operationId of [
       'previewSettlementBatch', 'createSettlementBatch', 'listSettlementBatches', 'getSettlementBatch',
       'submitSettlementBatch', 'approveSettlementBatch', 'exportSettlementBatch',
