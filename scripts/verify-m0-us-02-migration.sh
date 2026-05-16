@@ -19,6 +19,8 @@ pg_ctl -D "$DATA_DIR" -o "-p $PORT -k $TMP_ROOT" -l "$LOG_FILE" start >/tmp/blac
 createdb -h "$TMP_ROOT" -p "$PORT" "$DB_NAME"
 psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000001_p0_baseline/migration.sql >/tmp/blackcat-migration-apply.out
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000002_m6_settlements/migration.sql >>/tmp/blackcat-migration-apply.out
 
 psql_db() {
   psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
@@ -46,6 +48,15 @@ trigger_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
   'trg_external_transaction_reservation_guard',
   'trg_guild_bot_config_event_immutable'
 )")"
+settlement_table_count="$(psql_db -Atc "select count(*) from information_schema.tables where table_schema='public' and table_name in (
+  'settlement_batches','settlement_items','settlement_item_entries','settlement_payment_results'
+)")"
+settlement_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
+  'trg_settlement_item_consistency','trg_settlement_entry_membership','trg_settlement_replacement',
+  'trg_settlement_item_snapshot_immutable','trg_settlement_batch_snapshot_immutable',
+  'trg_settlement_entries_append_only','trg_settlement_payment_results_append_only',
+  'trg_settlement_items_no_delete','trg_settlement_batches_no_delete'
+)")"
 
 if [[ "$table_count" -lt 40 ]]; then
   echo "expected at least 40 public tables, got $table_count" >&2
@@ -59,6 +70,16 @@ fi
 
 if [[ "$trigger_count" != "7" ]]; then
   echo "expected 7 sampled guard triggers, got $trigger_count" >&2
+  exit 1
+fi
+
+if [[ "$settlement_table_count" != "4" ]]; then
+  echo "expected 4 settlement tables, got $settlement_table_count" >&2
+  exit 1
+fi
+
+if [[ "$settlement_guard_count" != "9" ]]; then
+  echo "expected 9 settlement guard triggers, got $settlement_guard_count" >&2
   exit 1
 fi
 
@@ -560,7 +581,58 @@ psql_db -qAtc "
 
 expect_sql_failure "append-only-update-rejected" "SET ROLE blackcat_app; UPDATE audit_logs SET reason = 'mutated' WHERE id = '00000000-0000-0000-0000-000000000401';"
 
+psql_db -qAtc "
+  INSERT INTO orders (
+    id, public_id, customer_id, player_id, status, currency, amount_minor, updated_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY',
+    '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
+    'COMPLETED', 'CNY', 1000, now()
+  );
+  INSERT INTO player_earnings (
+    id, order_id, player_user_id, base_units, unit_payout_minor, amount_minor, currency,
+    status, confirmed_by_staff_id, confirmed_at, updated_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000701',
+    '00000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'CNY', 'CONFIRMED',
+    '00000000-0000-0000-0000-000000000501', now(), now()
+  );
+  INSERT INTO settlement_batches (
+    id, public_id, source, period_start, period_end, time_zone, currency,
+    gross_amount_minor, adjustment_amount_minor, net_amount_minor, created_by_staff_id, updated_at
+  ) VALUES
+    ('00000000-0000-0000-0000-000000000703', 'SET-VERIFY-A', 'MANUAL', now()-interval '7 days', now(),
+      'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
+    ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', 'MANUAL', now()-interval '7 days', now(),
+      'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
+  INSERT INTO settlement_items (
+    id, settlement_batch_id, player_user_id, gross_amount_minor, adjustment_amount_minor,
+    net_amount_minor, currency, updated_at
+  ) VALUES
+    ('00000000-0000-0000-0000-000000000705', '00000000-0000-0000-0000-000000000703',
+      '00000000-0000-0000-0000-000000000001', 1000, 0, 1000, 'CNY', now()),
+    ('00000000-0000-0000-0000-000000000706', '00000000-0000-0000-0000-000000000704',
+      '00000000-0000-0000-0000-000000000001', 1000, 0, 1000, 'CNY', now());
+  INSERT INTO settlement_item_entries (
+    id, settlement_item_id, entry_type, player_earning_id, amount_minor, currency, occurred_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000707', '00000000-0000-0000-0000-000000000705',
+    'PLAYER_EARNING', '00000000-0000-0000-0000-000000000702', 1000, 'CNY', now()
+  );
+"
+
+expect_sql_failure "settlement-negative-net-rejected" "SET ROLE blackcat_app; UPDATE settlement_items SET net_amount_minor=-1 WHERE id='00000000-0000-0000-0000-000000000705';"
+expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,source,schedule_key,period_start,period_end,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','SCHEDULED','',now()-interval '7 days',now(),'Asia/Shanghai','CNY',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'CNY',now());"
+expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'CNY','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-entry-update-rejected" "SET ROLE blackcat_app; UPDATE settlement_item_entries SET amount_minor=999 WHERE id='00000000-0000-0000-0000-000000000707';"
+expect_sql_failure "settlement-entry-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_item_entries WHERE id='00000000-0000-0000-0000-000000000707';"
+expect_sql_failure "settlement-item-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_items WHERE id='00000000-0000-0000-0000-000000000705';"
+expect_sql_failure "settlement-batch-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_batches WHERE id='00000000-0000-0000-0000-000000000703';"
+
 echo "migration-apply-ok"
 echo "table_count=$table_count"
 echo "constraint_count=$constraint_count"
 echo "trigger_count=$trigger_count"
+echo "settlement_table_count=$settlement_table_count"
+echo "settlement_guard_count=$settlement_guard_count"

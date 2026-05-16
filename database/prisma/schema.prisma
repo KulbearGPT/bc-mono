@@ -311,6 +311,37 @@ enum PlayerEarningStatus {
   REVERSED
 }
 
+enum SettlementBatchStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  EXPORTED
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+}
+
+enum SettlementBatchSource {
+  SCHEDULED
+  MANUAL
+}
+
+enum SettlementItemPaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum SettlementPaymentResultStatus {
+  SUCCEEDED
+  FAILED
+}
+
+enum SettlementEntryType {
+  PLAYER_EARNING
+  EARNING_ADJUSTMENT
+}
+
 enum EarningAdjustmentType {
   REVERSAL_DEBIT
   CORRECTION_DEBIT
@@ -448,6 +479,7 @@ model User {
   referralAttributions ReferralAttribution[] @relation("ReferralReferredUser")
   commissions          Commission[]          @relation("CommissionBeneficiary")
   playerEarnings       PlayerEarning[]       @relation("EarningPlayer")
+  settlementItems      SettlementItem[]
   riskEvents           RiskEvent[]
   idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
   auditLogs            AuditLog[]            @relation("AuditActorUser")
@@ -548,6 +580,12 @@ model StaffAccount {
   orderEvents            OrderEvent[]              @relation("OrderEventActorStaff")
   botConfigsUpdated      GuildBotConfig[]           @relation("BotConfigUpdatedBy")
   botConfigEvents        GuildBotConfigEvent[]      @relation("BotConfigEventActor")
+  settlementBatchesCreated   SettlementBatch[]      @relation("SettlementCreatedBy")
+  settlementBatchesSubmitted SettlementBatch[]      @relation("SettlementSubmittedBy")
+  settlementBatchesApproved  SettlementBatch[]      @relation("SettlementApprovedBy")
+  settlementBatchesVoided    SettlementBatch[]      @relation("SettlementVoidedBy")
+  settlementPaymentsRecorded SettlementItem[]       @relation("SettlementPaymentRecordedBy")
+  settlementPaymentResults   SettlementPaymentResult[] @relation("SettlementPaymentResultRecordedBy")
 
   @@index([level, status])
   @@map("staff_accounts")
@@ -1458,6 +1496,7 @@ model PlayerEarning {
   player      User                      @relation("EarningPlayer", fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   confirmedBy StaffAccount?             @relation("EarningConfirmedBy", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   adjustments PlayerEarningAdjustment[]
+  settlementEntries SettlementItemEntry[]
 
   @@index([playerUserId, status, createdAt])
   @@map("player_earnings")
@@ -1481,10 +1520,121 @@ model PlayerEarningAdjustment {
   sourceRefund     Refund?          @relation(fields: [sourceRefundId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sourceResolution OrderResolution? @relation(fields: [sourceResolutionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdBy        StaffAccount?    @relation("EarningAdjustmentCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  settlementEntries SettlementItemEntry[]
 
   @@index([playerEarningId, createdAt])
   @@index([sourceRefundId])
   @@map("player_earning_adjustments")
+}
+
+model SettlementBatch {
+  id                    String                @id @default(uuid()) @db.Uuid
+  publicId              String                @unique @map("public_id") @db.VarChar(30)
+  source                SettlementBatchSource
+  scheduleKey           String?               @map("schedule_key") @db.VarChar(120)
+  periodStart           DateTime              @map("period_start") @db.Timestamptz(3)
+  periodEnd             DateTime              @map("period_end") @db.Timestamptz(3)
+  timeZone              String                @map("time_zone") @db.VarChar(80)
+  currency              String                @db.Char(3)
+  grossAmountMinor      BigInt                @map("gross_amount_minor")
+  adjustmentAmountMinor BigInt                @map("adjustment_amount_minor")
+  netAmountMinor        BigInt                @map("net_amount_minor")
+  status                SettlementBatchStatus @default(DRAFT)
+  rowVersion            Int                   @default(1) @map("row_version")
+  createdByStaffId      String?               @map("created_by_staff_id") @db.Uuid
+  submittedByStaffId    String?               @map("submitted_by_staff_id") @db.Uuid
+  approvedByStaffId     String?               @map("approved_by_staff_id") @db.Uuid
+  voidedByStaffId       String?               @map("voided_by_staff_id") @db.Uuid
+  submittedAt           DateTime?             @map("submitted_at") @db.Timestamptz(3)
+  approvedAt            DateTime?             @map("approved_at") @db.Timestamptz(3)
+  exportedAt            DateTime?             @map("exported_at") @db.Timestamptz(3)
+  voidedAt              DateTime?             @map("voided_at") @db.Timestamptz(3)
+  voidReason            String?               @map("void_reason") @db.VarChar(1000)
+  replacementBatchId    String?               @unique @map("replacement_batch_id") @db.Uuid
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy     StaffAccount?    @relation("SettlementCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  submittedBy   StaffAccount?    @relation("SettlementSubmittedBy", fields: [submittedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  approvedBy    StaffAccount?    @relation("SettlementApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  voidedBy      StaffAccount?    @relation("SettlementVoidedBy", fields: [voidedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replacement   SettlementBatch? @relation("SettlementReplacement", fields: [replacementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacedBatch SettlementBatch? @relation("SettlementReplacement")
+  items         SettlementItem[]
+
+  @@unique([scheduleKey, periodStart, periodEnd, currency])
+  @@index([status, periodEnd])
+  @@index([currency, periodStart, periodEnd])
+  @@map("settlement_batches")
+}
+
+model SettlementItem {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  settlementBatchId        String                      @map("settlement_batch_id") @db.Uuid
+  playerUserId             String                      @map("player_user_id") @db.Uuid
+  grossAmountMinor         BigInt                      @map("gross_amount_minor")
+  adjustmentAmountMinor    BigInt                      @map("adjustment_amount_minor")
+  netAmountMinor           BigInt                      @map("net_amount_minor")
+  currency                 String                      @db.Char(3)
+  paymentStatus            SettlementItemPaymentStatus @default(PENDING) @map("payment_status")
+  externalBatchReference   String?                     @map("external_batch_reference") @db.VarChar(255)
+  paymentNote              String?                     @map("payment_note") @db.VarChar(1000)
+  paymentRecordedByStaffId String?                     @map("payment_recorded_by_staff_id") @db.Uuid
+  paymentRecordedAt        DateTime?                   @map("payment_recorded_at") @db.Timestamptz(3)
+  rowVersion               Int                         @default(1) @map("row_version")
+  createdAt                DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  batch             SettlementBatch @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player            User            @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentRecordedBy StaffAccount?   @relation("SettlementPaymentRecordedBy", fields: [paymentRecordedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  entries           SettlementItemEntry[]
+  paymentResults    SettlementPaymentResult[]
+
+  @@unique([settlementBatchId, playerUserId])
+  @@index([playerUserId, paymentStatus, createdAt])
+  @@map("settlement_items")
+}
+
+model SettlementPaymentResult {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  settlementItemId         String                      @map("settlement_item_id") @db.Uuid
+  result                   SettlementPaymentResultStatus
+  amountMinor              BigInt                      @map("amount_minor")
+  currency                 String                      @db.Char(3)
+  externalBatchReference   String?                     @map("external_batch_reference") @db.VarChar(255)
+  note                     String?                     @db.VarChar(1000)
+  idempotencyKey           String                      @unique @map("idempotency_key") @db.VarChar(200)
+  recordedByStaffId        String                      @map("recorded_by_staff_id") @db.Uuid
+  recordedAt               DateTime                    @map("recorded_at") @db.Timestamptz(3)
+  createdAt                DateTime                    @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  settlementItem SettlementItem @relation(fields: [settlementItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  recordedBy     StaffAccount   @relation("SettlementPaymentResultRecordedBy", fields: [recordedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([settlementItemId, recordedAt])
+  @@map("settlement_payment_results")
+}
+
+model SettlementItemEntry {
+  id                        String              @id @default(uuid()) @db.Uuid
+  settlementItemId          String              @map("settlement_item_id") @db.Uuid
+  entryType                 SettlementEntryType @map("entry_type")
+  playerEarningId           String?             @map("player_earning_id") @db.Uuid
+  playerEarningAdjustmentId String?             @map("player_earning_adjustment_id") @db.Uuid
+  amountMinor               BigInt              @map("amount_minor")
+  currency                  String              @db.Char(3)
+  occurredAt                DateTime            @map("occurred_at") @db.Timestamptz(3)
+  createdAt                 DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  settlementItem SettlementItem          @relation(fields: [settlementItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  playerEarning  PlayerEarning?           @relation(fields: [playerEarningId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  adjustment     PlayerEarningAdjustment? @relation(fields: [playerEarningAdjustmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([settlementItemId, occurredAt])
+  @@index([playerEarningId])
+  @@index([playerEarningAdjustmentId])
+  @@map("settlement_item_entries")
 }
 
 model ReferralProgramVersion {

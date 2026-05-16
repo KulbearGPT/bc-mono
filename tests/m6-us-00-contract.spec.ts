@@ -65,7 +65,12 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
       expect(openapi).toContain(`operationId: ${operationId}`);
     }
     expect(schema).toContain('enum SettlementPaymentResultStatus');
+    const constraints = read(`${outputRoot}/03-数据模型/m6-database-constraints.sql`);
+    expect(constraints).toContain('settlement_batches_schedule_source_chk');
+    expect(constraints).toContain('trg_active_settlement_source_membership');
+    expect(constraints).toContain('weekly_report_revisions_target_chk');
     expect(openapi).toContain('x-recharge-url-source: guild-business-configuration');
+    expect(openapi).toContain('- recharge_url');
     expect(openapi).not.toContain('getRechargeUrl');
     expect(read(`${outputRoot}/03-数据模型/状态枚举与约束.md`)).toContain('PARTIALLY_PAID -> PARTIALLY_PAID | PAID');
   });
@@ -74,6 +79,7 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     for (const relative of [
       '02-API/openapi.yaml',
       '03-数据模型/schema.prisma',
+      '03-数据模型/m6-database-constraints.sql',
       '03-数据模型/状态枚举与约束.md',
       '06-开发计划/backlog.csv',
       '07-验收测试/acceptance-cases.csv'
