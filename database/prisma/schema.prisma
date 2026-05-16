@@ -342,6 +342,16 @@ enum SettlementEntryType {
   EARNING_ADJUSTMENT
 }
 
+enum WeeklyReportStatus {
+  READY
+  NEEDS_REVIEW
+}
+
+enum WeeklyReportRevisionType {
+  PLAYER
+  SUMMARY
+}
+
 enum EarningAdjustmentType {
   REVERSAL_DEBIT
   CORRECTION_DEBIT
@@ -480,6 +490,7 @@ model User {
   commissions          Commission[]          @relation("CommissionBeneficiary")
   playerEarnings       PlayerEarning[]       @relation("EarningPlayer")
   settlementItems      SettlementItem[]
+  playerWeeklyReports  PlayerWeeklyReport[]
   riskEvents           RiskEvent[]
   idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
   auditLogs            AuditLog[]            @relation("AuditActorUser")
@@ -586,6 +597,7 @@ model StaffAccount {
   settlementBatchesVoided    SettlementBatch[]      @relation("SettlementVoidedBy")
   settlementPaymentsRecorded SettlementItem[]       @relation("SettlementPaymentRecordedBy")
   settlementPaymentResults   SettlementPaymentResult[] @relation("SettlementPaymentResultRecordedBy")
+  weeklyReportRevisions      WeeklyReportRevision[] @relation("WeeklyReportRevisionCreatedBy")
 
   @@index([level, status])
   @@map("staff_accounts")
@@ -1531,6 +1543,7 @@ model SettlementBatch {
   id                    String                @id @default(uuid()) @db.Uuid
   publicId              String                @unique @map("public_id") @db.VarChar(30)
   source                SettlementBatchSource
+  /// Required for SCHEDULED batches by API validation and database CHECK; null only for MANUAL batches.
   scheduleKey           String?               @map("schedule_key") @db.VarChar(120)
   periodStart           DateTime              @map("period_start") @db.Timestamptz(3)
   periodEnd             DateTime              @map("period_end") @db.Timestamptz(3)
@@ -1554,13 +1567,15 @@ model SettlementBatch {
   createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  createdBy     StaffAccount?    @relation("SettlementCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  submittedBy   StaffAccount?    @relation("SettlementSubmittedBy", fields: [submittedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  approvedBy    StaffAccount?    @relation("SettlementApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  voidedBy      StaffAccount?    @relation("SettlementVoidedBy", fields: [voidedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  replacement   SettlementBatch? @relation("SettlementReplacement", fields: [replacementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  replacedBatch SettlementBatch? @relation("SettlementReplacement")
-  items         SettlementItem[]
+  createdBy        StaffAccount?    @relation("SettlementCreatedBy", fields: [createdByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  submittedBy      StaffAccount?    @relation("SettlementSubmittedBy", fields: [submittedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  approvedBy       StaffAccount?    @relation("SettlementApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  voidedBy         StaffAccount?    @relation("SettlementVoidedBy", fields: [voidedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replacement      SettlementBatch? @relation("SettlementReplacement", fields: [replacementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacedBatch    SettlementBatch? @relation("SettlementReplacement")
+  items            SettlementItem[]
+  playerReports    PlayerWeeklyReport[]
+  summaryReports   WeeklyReportSummary[]
 
   @@unique([scheduleKey, periodStart, periodEnd, currency])
   @@index([status, periodEnd])
@@ -1620,6 +1635,7 @@ model SettlementItemEntry {
   id                        String              @id @default(uuid()) @db.Uuid
   settlementItemId          String              @map("settlement_item_id") @db.Uuid
   entryType                 SettlementEntryType @map("entry_type")
+  /// Migration CHECK requires exactly one source ID and requires it to match entryType.
   playerEarningId           String?             @map("player_earning_id") @db.Uuid
   playerEarningAdjustmentId String?             @map("player_earning_adjustment_id") @db.Uuid
   amountMinor               BigInt              @map("amount_minor")
@@ -1627,14 +1643,99 @@ model SettlementItemEntry {
   occurredAt                DateTime            @map("occurred_at") @db.Timestamptz(3)
   createdAt                 DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  settlementItem SettlementItem          @relation(fields: [settlementItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  playerEarning  PlayerEarning?           @relation(fields: [playerEarningId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  adjustment     PlayerEarningAdjustment? @relation(fields: [playerEarningAdjustmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  settlementItem SettlementItem            @relation(fields: [settlementItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  playerEarning  PlayerEarning?             @relation(fields: [playerEarningId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  adjustment     PlayerEarningAdjustment?   @relation(fields: [playerEarningAdjustmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([settlementItemId, occurredAt])
   @@index([playerEarningId])
   @@index([playerEarningAdjustmentId])
   @@map("settlement_item_entries")
+}
+
+model PlayerWeeklyReport {
+  id                       String             @id @default(uuid()) @db.Uuid
+  reportKey                String             @unique @map("report_key") @db.VarChar(200)
+  playerUserId             String             @map("player_user_id") @db.Uuid
+  settlementBatchId        String?            @map("settlement_batch_id") @db.Uuid
+  periodStart              DateTime           @map("period_start") @db.Timestamptz(3)
+  periodEnd                DateTime           @map("period_end") @db.Timestamptz(3)
+  timeZone                 String             @map("time_zone") @db.VarChar(80)
+  currency                 String             @db.Char(3)
+  status                   WeeklyReportStatus @default(READY)
+  completedOrderCount      Int                @map("completed_order_count")
+  cancelledOrderCount      Int                @map("cancelled_order_count")
+  serviceMinutes           Int                @map("service_minutes")
+  orderEarningMinor        BigInt             @map("order_earning_minor")
+  giftEarningMinor         BigInt             @map("gift_earning_minor")
+  adjustmentMinor          BigInt             @map("adjustment_minor")
+  pendingMinor             BigInt             @map("pending_minor")
+  settlementReadyMinor     BigInt             @map("settlement_ready_minor")
+  batchedMinor             BigInt             @map("batched_minor")
+  detailSnapshot           Json               @map("detail_snapshot") @db.JsonB
+  currentRevision          Int                @default(1) @map("current_revision")
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  player       User                     @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  batch        SettlementBatch?         @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  revisions    WeeklyReportRevision[]
+
+  @@index([playerUserId, periodEnd])
+  @@index([status, periodEnd])
+  @@map("player_weekly_reports")
+}
+
+model WeeklyReportSummary {
+  id                       String             @id @default(uuid()) @db.Uuid
+  reportKey                String             @unique @map("report_key") @db.VarChar(200)
+  settlementBatchId        String?            @map("settlement_batch_id") @db.Uuid
+  periodStart              DateTime           @map("period_start") @db.Timestamptz(3)
+  periodEnd                DateTime           @map("period_end") @db.Timestamptz(3)
+  timeZone                 String             @map("time_zone") @db.VarChar(80)
+  currency                 String             @db.Char(3)
+  status                   WeeklyReportStatus @default(READY)
+  activePlayerCount        Int                @map("active_player_count")
+  completedOrderCount      Int                @map("completed_order_count")
+  cancelledOrderCount      Int                @map("cancelled_order_count")
+  exceptionCount           Int                @map("exception_count")
+  serviceMinutes           Int                @map("service_minutes")
+  grossAmountMinor         BigInt             @map("gross_amount_minor")
+  adjustmentMinor          BigInt             @map("adjustment_minor")
+  pendingMinor             BigInt             @map("pending_minor")
+  netPayableMinor          BigInt             @map("net_payable_minor")
+  detailSnapshot           Json               @map("detail_snapshot") @db.JsonB
+  currentRevision          Int                @default(1) @map("current_revision")
+  createdAt                DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  batch     SettlementBatch?       @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  revisions WeeklyReportRevision[]
+
+  @@index([status, periodEnd])
+  @@map("weekly_report_summaries")
+}
+
+model WeeklyReportRevision {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  revisionType          WeeklyReportRevisionType @map("revision_type")
+  /// Migration CHECK requires exactly one target and requires it to match revisionType.
+  playerWeeklyReportId  String?                  @map("player_weekly_report_id") @db.Uuid
+  weeklyReportSummaryId String?                  @map("weekly_report_summary_id") @db.Uuid
+  revision              Int
+  snapshot              Json                     @db.JsonB
+  reason                String                   @db.VarChar(1000)
+  createdByStaffId      String                   @map("created_by_staff_id") @db.Uuid
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  playerReport  PlayerWeeklyReport?  @relation(fields: [playerWeeklyReportId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  summaryReport WeeklyReportSummary? @relation(fields: [weeklyReportSummaryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     StaffAccount         @relation("WeeklyReportRevisionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([playerWeeklyReportId, revision])
+  @@unique([weeklyReportSummaryId, revision])
+  @@index([createdAt])
+  @@map("weekly_report_revisions")
 }
 
 model ReferralProgramVersion {

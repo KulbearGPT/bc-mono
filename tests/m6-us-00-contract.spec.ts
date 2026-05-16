@@ -81,11 +81,30 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
       '03-数据模型/schema.prisma',
       '03-数据模型/m6-database-constraints.sql',
       '03-数据模型/状态枚举与约束.md',
+      '05-业务配置/business-config.example.yaml',
+      '05-业务配置/business-config.schema.json',
+      '05-业务配置/业务配置说明.html',
       '06-开发计划/backlog.csv',
       '07-验收测试/acceptance-cases.csv'
     ]) {
       expect(read(`${docsRoot}/${relative}`)).toBe(read(`${outputRoot}/${relative}`));
     }
+  });
+
+  test('binds report metric families and preserves settlement audit provenance', () => {
+    const openapi = read(`${outputRoot}/02-API/openapi.yaml`);
+    const businessConfig = read(`${outputRoot}/05-业务配置/business-config.example.yaml`);
+    const businessSchema = read(`${outputRoot}/05-业务配置/business-config.schema.json`);
+
+    for (const schemaName of [
+      'PlayerWeeklyReportRevision', 'SummaryWeeklyReportRevision',
+      'PlayerWeeklyReportRevisionInput', 'SummaryWeeklyReportRevisionInput'
+    ]) expect(openapi).toContain(`    ${schemaName}:`);
+    expect(openapi).toMatch(/entryType: \{const: PLAYER_EARNING\}[\s\S]*required: \[playerEarningId\]/);
+    expect(openapi).toMatch(/entryType: \{const: EARNING_ADJUSTMENT\}[\s\S]*required: \[playerEarningAdjustmentId\]/);
+    expect(openapi).toMatch(/SettlementPaymentResult:[\s\S]*anyOf:[\s\S]*required: \[externalBatchReference\][\s\S]*required: \[note\]/);
+    expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- stale/);
+    expect(businessSchema).toContain('"fetchedAt", "stale"');
   });
 
   test('keeps OpenAPI operation IDs unique and local references resolvable', () => {
