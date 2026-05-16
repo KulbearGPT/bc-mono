@@ -95,6 +95,7 @@ export interface IdempotencyStore {
 
 export interface SecurityOptions {
   env?: RuntimeEnvInput;
+  now?: () => Date;
   auditSink?: AuditSink;
   idempotencyStore?: IdempotencyStore;
   staffDirectory?: StaffDirectory;
@@ -683,7 +684,10 @@ async function hasRecentStepUp(request: FastifyRequest, actor: ActorContext, sec
   if (explicitVerification !== undefined) return explicitVerification;
   const sessionToken = actor.actorSource === 'DASHBOARD' ? parseCookie(request, 'p0_session') : null;
   return Boolean(sessionToken && securityOptions.dashboardSessions?.verifyRecentStepUp
-    && await securityOptions.dashboardSessions.verifyRecentStepUp(sessionToken));
+    && await securityOptions.dashboardSessions.verifyRecentStepUp(
+      sessionToken,
+      securityOptions.now?.() ?? new Date()
+    ));
 }
 
 export function registerSecurityProbeRoutes(server: FastifyInstance): void {
@@ -782,7 +786,7 @@ async function authenticateActor(
     if (!sessionToken || !securityOptions.dashboardSessions) {
       return { ok: false, reason: 'AUTH_REQUIRED' };
     }
-    const session = await securityOptions.dashboardSessions.resolve(sessionToken);
+    const session = await securityOptions.dashboardSessions.resolve(sessionToken, securityOptions.now?.() ?? new Date());
     if (!session.ok) return { ok: false, reason: session.reason };
     const staff = session.staff;
     return {

@@ -197,7 +197,9 @@ export async function getReadinessPayload(
 export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance {
   const env = options.env ?? process.env;
   const server = Fastify({ logger: false });
-  server.securityOptions = options.security ? { env, ...options.security } : undefined;
+  server.securityOptions = options.security
+    ? { env, now: options.dashboardAuth?.now, ...options.security }
+    : undefined;
 
   server.get('/health', async (request) => {
     return getHealthPayload(getRequestId(request.headers['x-request-id']));
