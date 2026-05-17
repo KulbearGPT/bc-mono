@@ -1547,6 +1547,7 @@ model SettlementBatch {
   scheduleKey           String?               @map("schedule_key") @db.VarChar(120)
   periodStart           DateTime              @map("period_start") @db.Timestamptz(3)
   periodEnd             DateTime              @map("period_end") @db.Timestamptz(3)
+  cutoffAt              DateTime              @map("cutoff_at") @db.Timestamptz(3)
   timeZone              String                @map("time_zone") @db.VarChar(80)
   currency              String                @db.Char(3)
   grossAmountMinor      BigInt                @map("gross_amount_minor")
@@ -1564,6 +1565,7 @@ model SettlementBatch {
   voidedAt              DateTime?             @map("voided_at") @db.Timestamptz(3)
   voidReason            String?               @map("void_reason") @db.VarChar(1000)
   replacementBatchId    String?               @unique @map("replacement_batch_id") @db.Uuid
+  snapshotFinalizedAt   DateTime?             @map("snapshot_finalized_at") @db.Timestamptz(3)
   createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 

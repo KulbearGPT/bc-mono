@@ -84,7 +84,7 @@ export interface SettlementPreview {
   items: SettlementItemRecord[];
 }
 
-export interface SettlementBatchRecord extends Omit<SettlementPreview, 'cutoffAt' | 'deferredAdjustmentMinor'> {
+export interface SettlementBatchRecord extends Omit<SettlementPreview, 'deferredAdjustmentMinor'> {
   id: string;
   publicId: string;
   source: SettlementBatchSource;
@@ -156,6 +156,7 @@ export class InMemorySettlementStore implements SettlementStore {
     const batch: SettlementBatchRecord = {
       periodStart: preview.periodStart,
       periodEnd: preview.periodEnd,
+      cutoffAt: preview.cutoffAt,
       timeZone: preview.timeZone,
       currency: preview.currency,
       grossAmountMinor: preview.grossAmountMinor,
@@ -170,7 +171,7 @@ export class InMemorySettlementStore implements SettlementStore {
       version: 1,
       createdByStaffId: input.createdByStaffId,
       replacementBatchId: null,
-      createdAt: input.cutoffAt
+      createdAt: new Date().toISOString()
     };
     this.batches.push(clone(batch));
     if (input.replacementForBatchId) {
@@ -386,7 +387,21 @@ async function assertPostgresReplacementAvailable(client: SettlementDatabaseClie
 }
 
 function sum(values: number[]): number {
-  return values.reduce((total, value) => total + value, 0);
+  return values.reduce((total, value) => {
+    const next = total + value;
+    if (!Number.isSafeInteger(value) || !Number.isSafeInteger(next)) {
+      throw new SettlementError('VALIDATION_ERROR', 'Settlement amount exceeds the supported safe integer range.');
+    }
+    return next;
+  }, 0);
+}
+
+function toSafeMinor(value: string, field: string): number {
+  const parsed = BigInt(value);
+  if (parsed > BigInt(Number.MAX_SAFE_INTEGER) || parsed < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new SettlementError('VALIDATION_ERROR', `${field} exceeds the supported safe integer range.`);
+  }
+  return Number(parsed);
 }
 
 function automaticIdentity(input: Pick<SettlementCreateInput | SettlementBatchRecord, 'source' | 'scheduleKey' | 'periodStart' | 'periodEnd' | 'currency'>): string | null {
@@ -438,10 +453,10 @@ async function loadPostgresCandidates(client: SettlementDatabaseClient, input: S
     [input.currency, input.cutoffAt, input.playerUserIds]
   );
   return rows.rows.map((row) => ({
-    id: row.id, orderId: row.order_id, playerUserId: row.player_user_id, amountMinor: Number(row.amount_minor),
+    id: row.id, orderId: row.order_id, playerUserId: row.player_user_id, amountMinor: toSafeMinor(row.amount_minor, 'earning amount'),
     currency: row.currency, status: row.status, confirmedAt: iso(row.confirmed_at), paidAt: iso(row.paid_at),
     createdAt: iso(row.created_at)!, adjustments: row.adjustments.map((adjustment) => ({
-      ...adjustment, amountMinor: Number(adjustment.amountMinor), createdAt: iso(adjustment.createdAt)!
+      ...adjustment, amountMinor: toSafeMinor(adjustment.amountMinor, 'adjustment amount'), createdAt: iso(adjustment.createdAt)!
     }))
   }));
 }
@@ -481,34 +496,36 @@ async function insertPostgresBatch(client: PoolClient, input: SettlementCreateIn
   const publicId = `SET-${batchId.replaceAll('-', '').slice(0, 12).toUpperCase()}`;
   const items = materializeItemIds(preview.items, batchId);
   await client.query(
-    `INSERT INTO settlement_batches (id,public_id,source,schedule_key,period_start,period_end,time_zone,currency,
+    `INSERT INTO settlement_batches (id,public_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,
        gross_amount_minor,adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,replacement_batch_id,created_at,updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'DRAFT',1,$12,NULL,$13,$13)`,
-    [batchId, publicId, input.source, input.scheduleKey, input.periodStart, input.periodEnd, input.timeZone, input.currency,
-      preview.grossAmountMinor, preview.adjustmentAmountMinor, preview.netAmountMinor, input.createdByStaffId, input.cutoffAt]
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'DRAFT',1,$13,NULL,now(),now())`,
+    [batchId, publicId, input.source, input.scheduleKey, input.periodStart, input.periodEnd, input.cutoffAt,
+      input.timeZone, input.currency, preview.grossAmountMinor, preview.adjustmentAmountMinor,
+      preview.netAmountMinor, input.createdByStaffId]
   );
   for (const item of items) {
     await client.query(
       `INSERT INTO settlement_items (id,settlement_batch_id,player_user_id,gross_amount_minor,adjustment_amount_minor,
          net_amount_minor,currency,payment_status,row_version,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDING',1,$8,$8)`,
-      [item.id, batchId, item.playerUserId, item.grossAmountMinor, item.adjustmentAmountMinor, item.netAmountMinor, item.currency, input.cutoffAt]
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDING',1,now(),now())`,
+      [item.id, batchId, item.playerUserId, item.grossAmountMinor, item.adjustmentAmountMinor, item.netAmountMinor, item.currency]
     );
     for (const entry of item.entries) {
       await client.query(
         `INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,
            player_earning_adjustment_id,amount_minor,currency,occurred_at,created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
         [entry.id, item.id, entry.entryType, entry.playerEarningId, entry.playerEarningAdjustmentId,
-          entry.amountMinor, entry.currency, entry.occurredAt, input.cutoffAt]
+          entry.amountMinor, entry.currency, entry.occurredAt]
       );
     }
   }
+  await client.query('UPDATE settlement_batches SET snapshot_finalized_at=now(),updated_at=now() WHERE id=$1', [batchId]);
   if (input.replacementForBatchId) {
     const update = await client.query(
       `UPDATE settlement_batches SET replacement_batch_id=$1,row_version=row_version+1,updated_at=$2
        WHERE id=$3 AND status='VOIDED' AND replacement_batch_id IS NULL`,
-      [batchId, input.cutoffAt, input.replacementForBatchId]
+      [batchId, new Date().toISOString(), input.replacementForBatchId]
     );
     if (update.rowCount !== 1) throw new SettlementError('CONFLICT', 'Replacement requires a voided batch without an existing replacement.');
   }
@@ -534,23 +551,26 @@ async function loadPostgresBatch(client: SettlementDatabaseClient, id: string): 
   const items: SettlementItemRecord[] = [];
   for (const item of itemResult.rows) {
     const entries = await client.query<PostgresEntryRow>('SELECT * FROM settlement_item_entries WHERE settlement_item_id=$1 ORDER BY occurred_at,id', [item.id]);
-    items.push({ id: item.id, playerUserId: item.player_user_id, grossAmountMinor: Number(item.gross_amount_minor),
-      adjustmentAmountMinor: Number(item.adjustment_amount_minor), netAmountMinor: Number(item.net_amount_minor),
+    items.push({ id: item.id, playerUserId: item.player_user_id,
+      grossAmountMinor: toSafeMinor(item.gross_amount_minor, 'item gross amount'),
+      adjustmentAmountMinor: toSafeMinor(item.adjustment_amount_minor, 'item adjustment amount'),
+      netAmountMinor: toSafeMinor(item.net_amount_minor, 'item net amount'),
       currency: item.currency, paymentStatus: item.payment_status, version: item.row_version,
       entries: entries.rows.map((entry) => ({ id: entry.id, entryType: entry.entry_type,
         playerEarningId: entry.player_earning_id, playerEarningAdjustmentId: entry.player_earning_adjustment_id,
-        amountMinor: Number(entry.amount_minor), currency: entry.currency, occurredAt: iso(entry.occurred_at)! })) });
+        amountMinor: toSafeMinor(entry.amount_minor, 'entry amount'), currency: entry.currency, occurredAt: iso(entry.occurred_at)! })) });
   }
   return { id: batch.id, publicId: batch.public_id, source: batch.source, scheduleKey: batch.schedule_key,
-    periodStart: iso(batch.period_start)!, periodEnd: iso(batch.period_end)!, timeZone: batch.time_zone,
-    currency: batch.currency, grossAmountMinor: Number(batch.gross_amount_minor),
-    adjustmentAmountMinor: Number(batch.adjustment_amount_minor), netAmountMinor: Number(batch.net_amount_minor),
+    periodStart: iso(batch.period_start)!, periodEnd: iso(batch.period_end)!, cutoffAt: iso(batch.cutoff_at)!, timeZone: batch.time_zone,
+    currency: batch.currency, grossAmountMinor: toSafeMinor(batch.gross_amount_minor, 'batch gross amount'),
+    adjustmentAmountMinor: toSafeMinor(batch.adjustment_amount_minor, 'batch adjustment amount'),
+    netAmountMinor: toSafeMinor(batch.net_amount_minor, 'batch net amount'),
     status: batch.status, version: batch.row_version, createdByStaffId: batch.created_by_staff_id,
     replacementBatchId: batch.replacement_batch_id, createdAt: iso(batch.created_at)!, items };
 }
 
 function emptyMembershipBatch(id: string, status: SettlementBatchStatus): SettlementBatchRecord {
-  return { id, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', timeZone: '', currency: 'CNY',
+  return { id, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'CNY',
     grossAmountMinor: 0, adjustmentAmountMinor: 0, netAmountMinor: 0, status, version: 1, createdByStaffId: null,
     replacementBatchId: null, createdAt: '', items: [{ id: '', playerUserId: '', grossAmountMinor: 0,
       adjustmentAmountMinor: 0, netAmountMinor: 0, currency: 'CNY', paymentStatus: 'PENDING', version: 1, entries: [] }] };
@@ -562,12 +582,13 @@ function iso(value: Date | string | null): string | null {
 }
 
 function isPostgresConflict(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && ['23505', '23514', '23P01'].includes(String(error.code));
+  return typeof error === 'object' && error !== null && 'message' in error
+    && /settlement source already belongs to an active settlement batch/i.test(String(error.message));
 }
 
 interface PostgresAdjustmentJson { id: string; playerEarningId: string; type: SettlementAdjustmentType; amountMinor: string; currency: string; createdAt: Date | string; }
 interface PostgresCandidateRow extends Record<string, unknown> { id: string; order_id: string; player_user_id: string; amount_minor: string; currency: string; status: SettlementCandidateEarning['status']; confirmed_at: Date | null; paid_at: Date | null; created_at: Date; adjustments: PostgresAdjustmentJson[]; }
 interface PostgresMembershipRow extends Record<string, unknown> { id: string; status: SettlementBatchStatus; entry_type: SettlementEntryType; player_earning_id: string | null; player_earning_adjustment_id: string | null; }
-interface PostgresBatchRow extends Record<string, unknown> { id: string; public_id: string; source: SettlementBatchSource; schedule_key: string | null; period_start: Date; period_end: Date; time_zone: string; currency: string; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; status: SettlementBatchStatus; row_version: number; created_by_staff_id: string | null; replacement_batch_id: string | null; created_at: Date; }
+interface PostgresBatchRow extends Record<string, unknown> { id: string; public_id: string; source: SettlementBatchSource; schedule_key: string | null; period_start: Date; period_end: Date; cutoff_at: Date; time_zone: string; currency: string; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; status: SettlementBatchStatus; row_version: number; created_by_staff_id: string | null; replacement_batch_id: string | null; created_at: Date; }
 interface PostgresItemRow extends Record<string, unknown> { id: string; player_user_id: string; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; currency: string; payment_status: SettlementItemPaymentStatus; row_version: number; }
 interface PostgresEntryRow extends Record<string, unknown> { id: string; entry_type: SettlementEntryType; player_earning_id: string | null; player_earning_adjustment_id: string | null; amount_minor: string; currency: string; occurred_at: Date; }

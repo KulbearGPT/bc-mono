@@ -176,4 +176,33 @@ describe('M6-US-01 settlement domain', () => {
     ]);
     expect(batch.items[0]?.entries.some((entry) => entry.playerEarningId === paid.id)).toBe(false);
   });
+
+  test('keeps an uncovered debit deferred until a later period can absorb it in full', async () => {
+    const paid = earning({
+      id: '00000000-0000-0000-0000-000000006181',
+      status: 'PAID',
+      paidAt: '2026-07-18T16:00:00.000Z',
+      adjustments: [{
+        id: '00000000-0000-0000-0000-000000006182',
+        playerEarningId: '00000000-0000-0000-0000-000000006181',
+        type: 'CORRECTION_DEBIT', amountMinor: 1_200, currency: 'CNY',
+        createdAt: '2026-07-19T15:00:00.000Z'
+      }]
+    });
+    const firstPositive = earning({ id: '00000000-0000-0000-0000-000000006183', amountMinor: 1_000 });
+    const store = new InMemorySettlementStore({ earnings: [paid, firstPositive] });
+
+    expect(await previewSettlement({ store, input: createInput() })).toMatchObject({
+      items: [], deferredAdjustmentMinor: -1_200
+    });
+
+    store.earnings.push(earning({
+      id: '00000000-0000-0000-0000-000000006184', amountMinor: 500,
+      confirmedAt: '2026-07-20T12:00:00.000Z', createdAt: '2026-07-20T11:00:00.000Z'
+    }));
+    const later = await createSettlementBatch({ store, input: createInput({
+      periodEnd: '2026-07-20T16:00:00.000Z', cutoffAt: '2026-07-20T16:00:00.000Z'
+    }) });
+    expect(later.items[0]).toMatchObject({ grossAmountMinor: 1_500, adjustmentAmountMinor: -1_200, netAmountMinor: 300 });
+  });
 });

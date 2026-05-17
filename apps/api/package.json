@@ -35,7 +35,8 @@
     "./gifts": "./src/gifts.ts",
     "./player-earnings": "./src/player-earnings.ts",
     "./commissions": "./src/commissions.ts",
-    "./referrals": "./src/referrals.ts"
+    "./referrals": "./src/referrals.ts",
+    "./settlements": "./src/settlements.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

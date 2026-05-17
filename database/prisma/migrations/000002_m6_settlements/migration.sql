@@ -11,6 +11,7 @@ CREATE TABLE settlement_batches (
   schedule_key varchar(120),
   period_start timestamptz(3) NOT NULL,
   period_end timestamptz(3) NOT NULL,
+  cutoff_at timestamptz(3) NOT NULL,
   time_zone varchar(80) NOT NULL,
   currency char(3) NOT NULL,
   gross_amount_minor bigint NOT NULL,
@@ -28,9 +29,11 @@ CREATE TABLE settlement_batches (
   voided_at timestamptz(3),
   void_reason varchar(1000),
   replacement_batch_id uuid UNIQUE,
+  snapshot_finalized_at timestamptz(3),
   created_at timestamptz(3) NOT NULL DEFAULT now(),
   updated_at timestamptz(3) NOT NULL,
   CONSTRAINT settlement_batches_period_chk CHECK (period_start < period_end),
+  CONSTRAINT settlement_batches_cutoff_chk CHECK (cutoff_at >= period_end),
   CONSTRAINT settlement_batches_currency_chk CHECK (currency = 'CNY'),
   CONSTRAINT settlement_batches_amounts_chk CHECK (
     gross_amount_minor >= 0
@@ -135,13 +138,19 @@ CREATE OR REPLACE FUNCTION enforce_settlement_item_consistency()
 RETURNS trigger AS $$
 DECLARE
   batch_currency char(3);
+  batch_status "SettlementBatchStatus";
+  finalized_at timestamptz;
 BEGIN
-  SELECT currency INTO batch_currency FROM settlement_batches WHERE id=NEW.settlement_batch_id FOR UPDATE;
+  SELECT currency,status,snapshot_finalized_at INTO batch_currency,batch_status,finalized_at
+  FROM settlement_batches WHERE id=NEW.settlement_batch_id FOR UPDATE;
   IF batch_currency IS NULL THEN
     RAISE EXCEPTION 'settlement item batch does not exist';
   END IF;
   IF NEW.currency <> batch_currency THEN
     RAISE EXCEPTION 'settlement item currency must match batch currency';
+  END IF;
+  IF TG_OP='INSERT' AND (batch_status <> 'DRAFT' OR finalized_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'settlement item cannot be added to a finalized snapshot';
   END IF;
   RETURN NEW;
 END;
@@ -172,12 +181,27 @@ FOR EACH ROW EXECUTE FUNCTION enforce_settlement_item_snapshot_immutable();
 CREATE OR REPLACE FUNCTION enforce_settlement_batch_snapshot_immutable()
 RETURNS trigger AS $$
 BEGIN
-  IF ROW(NEW.public_id,NEW.source,NEW.schedule_key,NEW.period_start,NEW.period_end,NEW.time_zone,NEW.currency,
+  IF ROW(NEW.public_id,NEW.source,NEW.schedule_key,NEW.period_start,NEW.period_end,NEW.cutoff_at,NEW.time_zone,NEW.currency,
       NEW.gross_amount_minor,NEW.adjustment_amount_minor,NEW.net_amount_minor,NEW.created_by_staff_id,NEW.created_at)
     IS DISTINCT FROM
-    ROW(OLD.public_id,OLD.source,OLD.schedule_key,OLD.period_start,OLD.period_end,OLD.time_zone,OLD.currency,
+    ROW(OLD.public_id,OLD.source,OLD.schedule_key,OLD.period_start,OLD.period_end,OLD.cutoff_at,OLD.time_zone,OLD.currency,
       OLD.gross_amount_minor,OLD.adjustment_amount_minor,OLD.net_amount_minor,OLD.created_by_staff_id,OLD.created_at) THEN
     RAISE EXCEPTION 'settlement batch identity and amount snapshot fields are immutable';
+  END IF;
+  IF OLD.snapshot_finalized_at IS NOT NULL AND NEW.snapshot_finalized_at IS DISTINCT FROM OLD.snapshot_finalized_at THEN
+    RAISE EXCEPTION 'settlement snapshot finalization is immutable';
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status AND NOT (
+    (OLD.status='DRAFT' AND NEW.status IN ('PENDING_REVIEW','VOIDED')) OR
+    (OLD.status='PENDING_REVIEW' AND NEW.status IN ('APPROVED','VOIDED')) OR
+    (OLD.status='APPROVED' AND NEW.status IN ('EXPORTED','VOIDED')) OR
+    (OLD.status='EXPORTED' AND NEW.status IN ('PARTIALLY_PAID','PAID','VOIDED')) OR
+    (OLD.status='PARTIALLY_PAID' AND NEW.status IN ('PARTIALLY_PAID','PAID','VOIDED'))
+  ) THEN
+    RAISE EXCEPTION 'invalid settlement status transition from % to %',OLD.status,NEW.status;
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status AND OLD.snapshot_finalized_at IS NULL THEN
+    RAISE EXCEPTION 'settlement snapshot must be finalized before status transition';
   END IF;
   RETURN NEW;
 END;
@@ -195,27 +219,50 @@ DECLARE
   source_amount bigint;
   source_type "EarningAdjustmentType";
   item_currency char(3);
+  item_player_user_id uuid;
   parent_status "SettlementBatchStatus";
+  parent_cutoff_at timestamptz;
+  finalized_at timestamptz;
+  source_player_user_id uuid;
+  source_status "PlayerEarningStatus";
+  source_occurred_at timestamptz;
 BEGIN
   source_id := COALESCE(NEW.player_earning_id,NEW.player_earning_adjustment_id);
   PERFORM pg_advisory_xact_lock(hashtextextended(source_id::text,0));
 
-  SELECT si.currency,sb.status INTO item_currency,parent_status
+  SELECT si.currency,si.player_user_id,sb.status,sb.cutoff_at,sb.snapshot_finalized_at
+  INTO item_currency,item_player_user_id,parent_status,parent_cutoff_at,finalized_at
   FROM settlement_items si JOIN settlement_batches sb ON sb.id=si.settlement_batch_id
   WHERE si.id=NEW.settlement_item_id FOR UPDATE OF si,sb;
-  IF item_currency IS NULL OR parent_status='VOIDED' THEN
-    RAISE EXCEPTION 'settlement entry requires an active settlement item';
+  IF item_currency IS NULL OR parent_status<>'DRAFT' OR finalized_at IS NOT NULL THEN
+    RAISE EXCEPTION 'settlement entry cannot modify a finalized or inactive snapshot';
   END IF;
   IF NEW.currency <> item_currency THEN
     RAISE EXCEPTION 'settlement entry currency must match item and batch currency';
   END IF;
 
   IF NEW.entry_type='PLAYER_EARNING' THEN
-    SELECT currency,amount_minor INTO source_currency,source_amount FROM player_earnings WHERE id=NEW.player_earning_id FOR UPDATE;
+    SELECT currency,amount_minor,player_user_id,status,confirmed_at
+    INTO source_currency,source_amount,source_player_user_id,source_status,source_occurred_at
+    FROM player_earnings WHERE id=NEW.player_earning_id FOR UPDATE;
+    IF source_status <> 'CONFIRMED' OR source_occurred_at IS NULL THEN
+      RAISE EXCEPTION 'settlement earning source must be confirmed';
+    END IF;
   ELSE
-    SELECT currency,amount_minor,type INTO source_currency,source_amount,source_type
-    FROM player_earning_adjustments WHERE id=NEW.player_earning_adjustment_id FOR UPDATE;
+    SELECT pea.currency,pea.amount_minor,pea.type,pe.player_user_id,pea.created_at
+    INTO source_currency,source_amount,source_type,source_player_user_id,source_occurred_at
+    FROM player_earning_adjustments pea JOIN player_earnings pe ON pe.id=pea.player_earning_id
+    WHERE pea.id=NEW.player_earning_adjustment_id FOR UPDATE OF pea,pe;
     IF source_type <> 'CORRECTION_CREDIT' THEN source_amount := -source_amount; END IF;
+  END IF;
+  IF source_player_user_id IS DISTINCT FROM item_player_user_id THEN
+    RAISE EXCEPTION 'settlement source player must match settlement item player';
+  END IF;
+  IF source_occurred_at > parent_cutoff_at THEN
+    RAISE EXCEPTION 'settlement source occurred after batch cutoff';
+  END IF;
+  IF NEW.occurred_at IS DISTINCT FROM source_occurred_at THEN
+    RAISE EXCEPTION 'settlement entry occurrence must match source occurrence';
   END IF;
   IF source_currency IS NULL OR source_currency <> NEW.currency OR source_amount <> NEW.amount_minor THEN
     RAISE EXCEPTION 'settlement entry must preserve source amount and currency snapshot';
@@ -244,6 +291,9 @@ RETURNS trigger AS $$
 DECLARE
   replacement_currency char(3);
 BEGIN
+  IF OLD.replacement_batch_id IS NOT NULL AND NEW.replacement_batch_id IS DISTINCT FROM OLD.replacement_batch_id THEN
+    RAISE EXCEPTION 'settlement replacement relationship is immutable';
+  END IF;
   IF NEW.replacement_batch_id IS NOT NULL AND NEW.replacement_batch_id IS DISTINCT FROM OLD.replacement_batch_id THEN
     IF NEW.status <> 'VOIDED' THEN
       RAISE EXCEPTION 'only a voided settlement batch can have a replacement';
@@ -260,6 +310,55 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_settlement_replacement
 BEFORE UPDATE ON settlement_batches
 FOR EACH ROW EXECUTE FUNCTION enforce_settlement_replacement();
+
+CREATE OR REPLACE FUNCTION validate_settlement_snapshot(target_batch_id uuid)
+RETURNS void AS $$
+DECLARE
+  batch_row settlement_batches%ROWTYPE;
+  item_row settlement_items%ROWTYPE;
+  item_gross bigint;
+  item_adjustment bigint;
+  batch_gross bigint;
+  batch_adjustment bigint;
+  batch_net bigint;
+BEGIN
+  SELECT * INTO batch_row FROM settlement_batches WHERE id=target_batch_id FOR UPDATE;
+  FOR item_row IN SELECT * FROM settlement_items WHERE settlement_batch_id=target_batch_id LOOP
+    SELECT
+      COALESCE(sum(amount_minor) FILTER (WHERE entry_type='PLAYER_EARNING'),0),
+      COALESCE(sum(amount_minor) FILTER (WHERE entry_type='EARNING_ADJUSTMENT'),0)
+    INTO item_gross,item_adjustment
+    FROM settlement_item_entries WHERE settlement_item_id=item_row.id;
+    IF item_row.gross_amount_minor<>item_gross
+      OR item_row.adjustment_amount_minor<>item_adjustment
+      OR item_row.net_amount_minor<>item_gross+item_adjustment THEN
+      RAISE EXCEPTION 'settlement item totals do not match entry snapshot';
+    END IF;
+  END LOOP;
+  SELECT COALESCE(sum(gross_amount_minor),0),COALESCE(sum(adjustment_amount_minor),0),COALESCE(sum(net_amount_minor),0)
+  INTO batch_gross,batch_adjustment,batch_net
+  FROM settlement_items WHERE settlement_batch_id=target_batch_id;
+  IF batch_row.gross_amount_minor<>batch_gross
+    OR batch_row.adjustment_amount_minor<>batch_adjustment
+    OR batch_row.net_amount_minor<>batch_net THEN
+    RAISE EXCEPTION 'settlement batch totals do not match item snapshot';
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION finalize_settlement_snapshot()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.snapshot_finalized_at IS NULL AND NEW.snapshot_finalized_at IS NOT NULL THEN
+    PERFORM validate_settlement_snapshot(NEW.id);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_finalize_settlement_snapshot
+BEFORE UPDATE OF snapshot_finalized_at ON settlement_batches
+FOR EACH ROW EXECUTE FUNCTION finalize_settlement_snapshot();
 
 CREATE OR REPLACE FUNCTION deny_settlement_delete()
 RETURNS trigger AS $$
@@ -284,7 +383,7 @@ FOR EACH ROW EXECUTE FUNCTION deny_settlement_delete();
 GRANT SELECT,INSERT,UPDATE,DELETE ON settlement_batches,settlement_items,settlement_payment_results,settlement_item_entries TO blackcat_app;
 REVOKE DELETE ON settlement_batches,settlement_items,settlement_payment_results,settlement_item_entries FROM blackcat_app;
 REVOKE UPDATE ON settlement_item_entries,settlement_payment_results FROM blackcat_app;
-REVOKE UPDATE (public_id,source,schedule_key,period_start,period_end,time_zone,currency,gross_amount_minor,
+REVOKE UPDATE (public_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,
   adjustment_amount_minor,net_amount_minor,created_by_staff_id,created_at) ON settlement_batches FROM blackcat_app;
 REVOKE UPDATE (settlement_batch_id,player_user_id,gross_amount_minor,adjustment_amount_minor,
   net_amount_minor,currency,created_at) ON settlement_items FROM blackcat_app;

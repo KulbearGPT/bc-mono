@@ -102,7 +102,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
       VALUES ('00000000-0000-0000-0000-000000006233',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
-      [secondItemId, earningId, cutoffAt])).rejects.toThrow(/active settlement batch/i);
+      [secondItemId, earningId, '2026-07-19T12:00:00.000Z'])).rejects.toThrow(/active settlement batch/i);
 
     await pool.query(`UPDATE settlement_batches SET status='VOIDED',voided_at=$2,void_reason='operator correction' WHERE id=$1`, [original.id, cutoffAt]);
     const replacement = await createSettlementBatch({ store, input: input({ replacementForBatchId: original.id }) });
@@ -157,19 +157,19 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,amount_minor,currency,occurred_at)
       VALUES ('00000000-0000-0000-0000-000000006253',$1,'PLAYER_EARNING',1,'CNY',$2)`, [itemId, cutoffAt]))
-      .rejects.toThrow(/source|check constraint/i);
+      .rejects.toThrow(/source|check constraint|finalized/i);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
       VALUES ('00000000-0000-0000-0000-000000006254',$1,'EARNING_ADJUSTMENT',$2,10000,'CNY',$3)`,
-    [itemId, earningId, cutoffAt])).rejects.toThrow(/source|check constraint/i);
+    [itemId, earningId, cutoffAt])).rejects.toThrow(/source|check constraint|finalized/i);
   });
 
   test('rejects an empty scheduled key at the database boundary', async () => {
     await expect(pool.query(`INSERT INTO settlement_batches
-      (id,public_id,source,schedule_key,period_start,period_end,time_zone,currency,
+      (id,public_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,
        gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at)
       VALUES ('00000000-0000-0000-0000-000000006251','SET-EMPTY-KEY','SCHEDULED','',
-       '2026-07-13T16:00:00.000Z',$1,'Asia/Shanghai','CNY',0,0,0,$2,$1)`, [cutoffAt, staffId]))
+       '2026-07-13T16:00:00.000Z',$1,$1,'Asia/Shanghai','CNY',0,0,0,$2,$1)`, [cutoffAt, staffId]))
       .rejects.toThrow(/schedule|check constraint/i);
   });
 
@@ -210,7 +210,86 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_adjustment_id,amount_minor,currency,occurred_at)
       VALUES ('00000000-0000-0000-0000-000000006263',$1,'EARNING_ADJUSTMENT',$2,-1200,'CNY',$3)`,
-    [duplicateItemId, adjustmentId, cutoffAt])).rejects.toThrow(/active settlement batch/i);
+    [duplicateItemId, adjustmentId, '2026-07-19T15:00:00.000Z'])).rejects.toThrow(/active settlement batch/i);
+  });
+
+  test('rejects source ownership, state, and cutoff mismatches at the database boundary', async () => {
+    await insertEarning({ id: earningId, orderId });
+    const otherPlayerId = '00000000-0000-0000-0000-000000006204';
+    await pool.query(`INSERT INTO users (id,display_name,status,row_version,created_at,updated_at)
+      VALUES ($1,'Other Player','ACTIVE',1,now(),now())`, [otherPlayerId]);
+    const batchId = '00000000-0000-0000-0000-000000006271';
+    const itemId = '00000000-0000-0000-0000-000000006272';
+    await insertEmptyBatch(batchId, itemId, otherPlayerId);
+    await expect(pool.query(`INSERT INTO settlement_item_entries
+      (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
+      VALUES ('00000000-0000-0000-0000-000000006273',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+    [itemId, earningId, cutoffAt])).rejects.toThrow(/player/i);
+
+    const pendingId = '00000000-0000-0000-0000-000000006274';
+    const pendingOrderId = '00000000-0000-0000-0000-000000006275';
+    await insertOrder(pendingOrderId, 'P-6275');
+    await insertEarning({ id: pendingId, orderId: pendingOrderId, status: 'PENDING', confirmedAt: null });
+    await expect(pool.query(`INSERT INTO settlement_item_entries
+      (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
+      VALUES ('00000000-0000-0000-0000-000000006276',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+    [itemId, pendingId, cutoffAt])).rejects.toThrow(/confirmed/i);
+
+    const cutoffBatchId = '00000000-0000-0000-0000-000000006280';
+    const cutoffItemId = '00000000-0000-0000-0000-000000006286';
+    await insertEmptyBatch(cutoffBatchId, cutoffItemId);
+    const lateId = '00000000-0000-0000-0000-000000006277';
+    const lateOrderId = '00000000-0000-0000-0000-000000006278';
+    await insertOrder(lateOrderId, 'P-6278');
+    await insertEarning({ id: lateId, orderId: lateOrderId, confirmedAt: '2026-07-19T16:00:00.001Z' });
+    await expect(pool.query(`INSERT INTO settlement_item_entries
+      (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
+      VALUES ('00000000-0000-0000-0000-000000006279',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+    [cutoffItemId, lateId, '2026-07-19T16:00:00.001Z'])).rejects.toThrow(/cutoff/i);
+  });
+
+  test('finalizes exact entry, item, and batch totals and freezes the snapshot', async () => {
+    await insertEarning({ id: earningId, orderId });
+    const batch = await createSettlementBatch({ store: new PostgresSettlementStore(pool), input: input() });
+    const persisted = await pool.query('SELECT cutoff_at,snapshot_finalized_at,created_at FROM settlement_batches WHERE id=$1', [batch.id]);
+    expect(new Date(persisted.rows[0].cutoff_at).toISOString()).toBe(cutoffAt);
+    expect(persisted.rows[0].snapshot_finalized_at).not.toBeNull();
+    expect(new Date(persisted.rows[0].created_at).toISOString()).not.toBe(cutoffAt);
+
+    const extraOrderId = '00000000-0000-0000-0000-000000006281';
+    const extraEarningId = '00000000-0000-0000-0000-000000006282';
+    await insertOrder(extraOrderId, 'P-6281');
+    await insertEarning({ id: extraEarningId, orderId: extraOrderId });
+    await expect(pool.query(`INSERT INTO settlement_item_entries
+      (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
+      VALUES ('00000000-0000-0000-0000-000000006283',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+    [batch.items[0]!.id, extraEarningId, cutoffAt])).rejects.toThrow(/finalized|snapshot/i);
+
+    const malformedBatchId = '00000000-0000-0000-0000-000000006284';
+    const malformedItemId = '00000000-0000-0000-0000-000000006285';
+    await insertEmptyBatch(malformedBatchId, malformedItemId);
+    await expect(pool.query('UPDATE settlement_batches SET snapshot_finalized_at=now() WHERE id=$1', [malformedBatchId]))
+      .rejects.toThrow(/total|snapshot/i);
+  });
+
+  test('keeps void terminal and replacement history immutable', async () => {
+    await insertEarning({ id: earningId, orderId });
+    const store = new PostgresSettlementStore(pool);
+    const original = await createSettlementBatch({ store, input: input() });
+    await pool.query(`UPDATE settlement_batches SET status='VOIDED',voided_at=now(),void_reason='replace' WHERE id=$1`, [original.id]);
+    const replacement = await createSettlementBatch({ store, input: input({ replacementForBatchId: original.id }) });
+
+    await expect(pool.query(`UPDATE settlement_batches SET status='DRAFT',voided_at=NULL,void_reason=NULL WHERE id=$1`, [original.id]))
+      .rejects.toThrow(/transition|terminal/i);
+    await expect(pool.query('UPDATE settlement_batches SET replacement_batch_id=NULL WHERE id=$1', [original.id]))
+      .rejects.toThrow(/replacement|immutable/i);
+    expect(replacement.id).toBeTruthy();
+  });
+
+  test('rejects values outside the JavaScript safe minor-unit boundary', async () => {
+    await insertEarning({ id: earningId, orderId, amountMinor: Number.MAX_SAFE_INTEGER + 1 });
+    await expect(previewSettlement({ store: new PostgresSettlementStore(pool), input: input() }))
+      .rejects.toThrow(/safe integer|supported range/i);
   });
 });
 
@@ -245,13 +324,13 @@ async function insertEarning(options: {
     options.confirmedAt ?? '2026-07-19T12:00:00.000Z', options.paidAt ?? null]);
 }
 
-async function insertEmptyBatch(batchId: string, itemId: string): Promise<void> {
+async function insertEmptyBatch(batchId: string, itemId: string, itemPlayerId = playerId): Promise<void> {
   await pool.query(`INSERT INTO settlement_batches
-    (id,public_id,source,period_start,period_end,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,created_at,updated_at)
-    VALUES ($1,'SET-DIRECT','MANUAL',$2,$3,'Asia/Shanghai','CNY',10000,0,10000,'DRAFT',1,$4,$3,$3)`,
-  [batchId, '2026-07-12T16:00:00.000Z', cutoffAt, staffId]);
+    (id,public_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,created_at,updated_at)
+    VALUES ($1,$5,'MANUAL',$2,$3,$3,'Asia/Shanghai','CNY',10000,0,10000,'DRAFT',1,$4,now(),now())`,
+  [batchId, '2026-07-12T16:00:00.000Z', cutoffAt, staffId, `SET-${batchId.slice(-12)}`]);
   await pool.query(`INSERT INTO settlement_items
     (id,settlement_batch_id,player_user_id,gross_amount_minor,adjustment_amount_minor,net_amount_minor,currency,payment_status,row_version,created_at,updated_at)
     VALUES ($1,$2,$3,10000,0,10000,'CNY','PENDING',1,$4,$4)`,
-  [itemId, batchId, playerId, cutoffAt]);
+  [itemId, batchId, itemPlayerId, cutoffAt]);
 }
