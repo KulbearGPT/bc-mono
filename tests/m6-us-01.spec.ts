@@ -205,4 +205,19 @@ describe('M6-US-01 settlement domain', () => {
     }) });
     expect(later.items[0]).toMatchObject({ grossAmountMinor: 1_500, adjustmentAmountMinor: -1_200, netAmountMinor: 300 });
   });
+
+  test('rejects a safe-looking pair whose computed net exceeds the safe minor-unit range', async () => {
+    const source = earning({
+      id: '00000000-0000-0000-0000-000000006185',
+      amountMinor: Number.MAX_SAFE_INTEGER,
+      adjustments: [{
+        id: '00000000-0000-0000-0000-000000006186',
+        playerEarningId: '00000000-0000-0000-0000-000000006185',
+        type: 'CORRECTION_CREDIT', amountMinor: 1, currency: 'CNY',
+        createdAt: '2026-07-19T13:00:00.000Z'
+      }]
+    });
+    await expect(previewSettlement({ store: new InMemorySettlementStore({ earnings: [source] }), input: createInput() }))
+      .rejects.toThrow(/safe integer|supported range/i);
+  });
 });

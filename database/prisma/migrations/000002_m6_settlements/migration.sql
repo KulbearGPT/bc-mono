@@ -196,7 +196,7 @@ BEGIN
     (OLD.status='PENDING_REVIEW' AND NEW.status IN ('APPROVED','VOIDED')) OR
     (OLD.status='APPROVED' AND NEW.status IN ('EXPORTED','VOIDED')) OR
     (OLD.status='EXPORTED' AND NEW.status IN ('PARTIALLY_PAID','PAID','VOIDED')) OR
-    (OLD.status='PARTIALLY_PAID' AND NEW.status IN ('PARTIALLY_PAID','PAID','VOIDED'))
+    (OLD.status='PARTIALLY_PAID' AND NEW.status IN ('PARTIALLY_PAID','PAID'))
   ) THEN
     RAISE EXCEPTION 'invalid settlement status transition from % to %',OLD.status,NEW.status;
   END IF;
@@ -225,6 +225,7 @@ DECLARE
   finalized_at timestamptz;
   source_player_user_id uuid;
   source_status "PlayerEarningStatus";
+  adjustment_earning_status "PlayerEarningStatus";
   source_occurred_at timestamptz;
 BEGIN
   source_id := COALESCE(NEW.player_earning_id,NEW.player_earning_adjustment_id);
@@ -249,10 +250,13 @@ BEGIN
       RAISE EXCEPTION 'settlement earning source must be confirmed';
     END IF;
   ELSE
-    SELECT pea.currency,pea.amount_minor,pea.type,pe.player_user_id,pea.created_at
-    INTO source_currency,source_amount,source_type,source_player_user_id,source_occurred_at
+    SELECT pea.currency,pea.amount_minor,pea.type,pe.player_user_id,pe.status,pea.created_at
+    INTO source_currency,source_amount,source_type,source_player_user_id,adjustment_earning_status,source_occurred_at
     FROM player_earning_adjustments pea JOIN player_earnings pe ON pe.id=pea.player_earning_id
     WHERE pea.id=NEW.player_earning_adjustment_id FOR UPDATE OF pea,pe;
+    IF adjustment_earning_status NOT IN ('CONFIRMED','PAID') THEN
+      RAISE EXCEPTION 'settlement adjustment source earning must be confirmed or paid';
+    END IF;
     IF source_type <> 'CORRECTION_CREDIT' THEN source_amount := -source_amount; END IF;
   END IF;
   IF source_player_user_id IS DISTINCT FROM item_player_user_id THEN
@@ -290,6 +294,8 @@ CREATE OR REPLACE FUNCTION enforce_settlement_replacement()
 RETURNS trigger AS $$
 DECLARE
   replacement_currency char(3);
+  replacement_status "SettlementBatchStatus";
+  replacement_finalized_at timestamptz;
 BEGIN
   IF OLD.replacement_batch_id IS NOT NULL AND NEW.replacement_batch_id IS DISTINCT FROM OLD.replacement_batch_id THEN
     RAISE EXCEPTION 'settlement replacement relationship is immutable';
@@ -298,9 +304,23 @@ BEGIN
     IF NEW.status <> 'VOIDED' THEN
       RAISE EXCEPTION 'only a voided settlement batch can have a replacement';
     END IF;
-    SELECT currency INTO replacement_currency FROM settlement_batches WHERE id=NEW.replacement_batch_id;
-    IF replacement_currency IS NULL OR replacement_currency <> NEW.currency THEN
-      RAISE EXCEPTION 'replacement settlement batch must exist and use the same currency';
+    SELECT currency,status,snapshot_finalized_at
+    INTO replacement_currency,replacement_status,replacement_finalized_at
+    FROM settlement_batches WHERE id=NEW.replacement_batch_id;
+    IF replacement_currency IS NULL OR replacement_currency <> NEW.currency
+      OR replacement_status='VOIDED' OR replacement_finalized_at IS NULL THEN
+      RAISE EXCEPTION 'replacement settlement batch must be finalized, active, and use the same currency';
+    END IF;
+    IF EXISTS (
+      WITH RECURSIVE replacement_chain(id,replacement_batch_id) AS (
+        SELECT id,replacement_batch_id FROM settlement_batches WHERE id=NEW.replacement_batch_id
+        UNION ALL
+        SELECT sb.id,sb.replacement_batch_id FROM settlement_batches sb
+        JOIN replacement_chain chain ON sb.id=chain.replacement_batch_id
+      )
+      SELECT 1 FROM replacement_chain WHERE id=NEW.id OR replacement_batch_id=NEW.id
+    ) THEN
+      RAISE EXCEPTION 'settlement replacement cycle is forbidden';
     END IF;
   END IF;
   RETURN NEW;
@@ -310,6 +330,20 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_settlement_replacement
 BEFORE UPDATE ON settlement_batches
 FOR EACH ROW EXECUTE FUNCTION enforce_settlement_replacement();
+
+CREATE OR REPLACE FUNCTION enforce_settlement_batch_insert_state()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.status<>'DRAFT' OR NEW.snapshot_finalized_at IS NOT NULL THEN
+    RAISE EXCEPTION 'settlement batch insert must start as an unfinalized draft';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_settlement_batch_insert_state
+BEFORE INSERT ON settlement_batches
+FOR EACH ROW EXECUTE FUNCTION enforce_settlement_batch_insert_state();
 
 CREATE OR REPLACE FUNCTION validate_settlement_snapshot(target_batch_id uuid)
 RETURNS void AS $$
@@ -321,9 +355,19 @@ DECLARE
   batch_gross bigint;
   batch_adjustment bigint;
   batch_net bigint;
+  item_count integer;
+  entry_count integer;
 BEGIN
   SELECT * INTO batch_row FROM settlement_batches WHERE id=target_batch_id FOR UPDATE;
+  SELECT count(*) INTO item_count FROM settlement_items WHERE settlement_batch_id=target_batch_id;
+  IF item_count=0 THEN
+    RAISE EXCEPTION 'settlement snapshot cannot finalize without an item';
+  END IF;
   FOR item_row IN SELECT * FROM settlement_items WHERE settlement_batch_id=target_batch_id LOOP
+    SELECT count(*) INTO entry_count FROM settlement_item_entries WHERE settlement_item_id=item_row.id;
+    IF entry_count=0 THEN
+      RAISE EXCEPTION 'settlement snapshot item cannot finalize without an entry';
+    END IF;
     SELECT
       COALESCE(sum(amount_minor) FILTER (WHERE entry_type='PLAYER_EARNING'),0),
       COALESCE(sum(amount_minor) FILTER (WHERE entry_type='EARNING_ADJUSTMENT'),0)

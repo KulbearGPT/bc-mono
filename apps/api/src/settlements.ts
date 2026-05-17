@@ -312,7 +312,7 @@ function buildPreview(
       playerUserId,
       grossAmountMinor,
       adjustmentAmountMinor,
-      netAmountMinor: grossAmountMinor + adjustmentAmountMinor,
+      netAmountMinor: sum([grossAmountMinor, adjustmentAmountMinor]),
       currency: input.currency,
       paymentStatus: 'PENDING' as const,
       version: 1,
@@ -333,7 +333,7 @@ function buildPreview(
     currency: input.currency,
     grossAmountMinor,
     adjustmentAmountMinor,
-    netAmountMinor: grossAmountMinor + adjustmentAmountMinor,
+    netAmountMinor: sum([grossAmountMinor, adjustmentAmountMinor]),
     deferredAdjustmentMinor,
     items
   };
@@ -465,7 +465,8 @@ async function loadPostgresMemberships(client: SettlementDatabaseClient): Promis
   const rows = await client.query<PostgresMembershipRow>(
     `SELECT sb.id,sb.status,sie.entry_type,sie.player_earning_id,sie.player_earning_adjustment_id
      FROM settlement_item_entries sie JOIN settlement_items si ON si.id=sie.settlement_item_id
-     JOIN settlement_batches sb ON sb.id=si.settlement_batch_id`
+     JOIN settlement_batches sb ON sb.id=si.settlement_batch_id
+     WHERE sb.status<>'VOIDED'`
   );
   const grouped = new Map<string, SettlementBatchRecord>();
   for (const row of rows.rows) {

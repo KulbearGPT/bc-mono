@@ -291,6 +291,76 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await expect(previewSettlement({ store: new PostgresSettlementStore(pool), input: input() }))
       .rejects.toThrow(/safe integer|supported range/i);
   });
+
+  test('rejects partially paid voids and direct finalized batch inserts', async () => {
+    await insertEarning({ id: earningId, orderId });
+    const batch = await createSettlementBatch({ store: new PostgresSettlementStore(pool), input: input() });
+    await pool.query(`UPDATE settlement_batches SET status='PENDING_REVIEW' WHERE id=$1`, [batch.id]);
+    await pool.query(`UPDATE settlement_batches SET status='APPROVED' WHERE id=$1`, [batch.id]);
+    await pool.query(`UPDATE settlement_batches SET status='EXPORTED' WHERE id=$1`, [batch.id]);
+    await pool.query(`UPDATE settlement_batches SET status='PARTIALLY_PAID' WHERE id=$1`, [batch.id]);
+    await expect(pool.query(`UPDATE settlement_batches SET status='VOIDED',voided_at=now(),void_reason='bad void' WHERE id=$1`, [batch.id]))
+      .rejects.toThrow(/transition|partially/i);
+
+    await expect(pool.query(`INSERT INTO settlement_batches
+      (id,public_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,
+       adjustment_amount_minor,net_amount_minor,status,row_version,snapshot_finalized_at,created_by_staff_id,updated_at)
+      VALUES ('00000000-0000-0000-0000-000000006291','SET-DIRECT-FINAL','MANUAL',
+       '2026-07-12T16:00:00.000Z',$1,$1,'Asia/Shanghai','CNY',0,0,0,'APPROVED',1,now(),$2,now())`,
+    [cutoffAt, staffId])).rejects.toThrow(/insert|draft|finalized/i);
+  });
+
+  test('rejects empty snapshot finalization and adjustment from a pending earning', async () => {
+    const emptyBatchId = '00000000-0000-0000-0000-000000006292';
+    await pool.query(`INSERT INTO settlement_batches
+      (id,public_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,
+       adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,updated_at)
+      VALUES ($1,'SET-EMPTY-SNAPSHOT','MANUAL','2026-07-12T16:00:00.000Z',$2,$2,'Asia/Shanghai','CNY',0,0,0,'DRAFT',1,$3,now())`,
+    [emptyBatchId, cutoffAt, staffId]);
+    await expect(pool.query('UPDATE settlement_batches SET snapshot_finalized_at=now() WHERE id=$1', [emptyBatchId]))
+      .rejects.toThrow(/empty|item|snapshot/i);
+
+    const pendingId = '00000000-0000-0000-0000-000000006293';
+    const pendingOrderId = '00000000-0000-0000-0000-000000006294';
+    const adjustmentId = '00000000-0000-0000-0000-000000006295';
+    await insertOrder(pendingOrderId, 'P-6294');
+    await insertEarning({ id: pendingId, orderId: pendingOrderId, status: 'PENDING', confirmedAt: null });
+    await pool.query(`INSERT INTO player_earning_adjustments
+      (id,player_earning_id,type,amount_minor,currency,reason,idempotency_key,created_at)
+      VALUES ($1,$2,'CORRECTION_CREDIT',100,'CNY','premature credit','m6:pending-credit',$3)`,
+    [adjustmentId, pendingId, '2026-07-19T14:00:00.000Z']);
+    const batchId = '00000000-0000-0000-0000-000000006296';
+    const itemId = '00000000-0000-0000-0000-000000006297';
+    await insertEmptyBatch(batchId, itemId);
+    await expect(pool.query(`INSERT INTO settlement_item_entries
+      (id,settlement_item_id,entry_type,player_earning_adjustment_id,amount_minor,currency,occurred_at)
+      VALUES ('00000000-0000-0000-0000-000000006298',$1,'EARNING_ADJUSTMENT',$2,100,'CNY',$3)`,
+    [itemId, adjustmentId, '2026-07-19T14:00:00.000Z'])).rejects.toThrow(/confirmed|paid|status/i);
+  });
+
+  test('requires replacement targets to be finalized and non-void', async () => {
+    await insertEarning({ id: earningId, orderId });
+    const original = await createSettlementBatch({ store: new PostgresSettlementStore(pool), input: input() });
+    await pool.query(`UPDATE settlement_batches SET status='VOIDED',voided_at=now(),void_reason='replace' WHERE id=$1`, [original.id]);
+    const targetId = '00000000-0000-0000-0000-000000006301';
+    const targetItemId = '00000000-0000-0000-0000-000000006302';
+    await insertEmptyBatch(targetId, targetItemId);
+    await expect(pool.query(`UPDATE settlement_batches SET replacement_batch_id=$2 WHERE id=$1`, [original.id, targetId]))
+      .rejects.toThrow(/finalized|replacement/i);
+  });
+
+  test('does not relabel an unrelated database check failure as a source conflict', async () => {
+    await insertEarning({ id: earningId, orderId });
+    await pool.query(`CREATE FUNCTION fail_settlement_batch_check() RETURNS trigger AS $$ BEGIN
+      RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='injected unrelated check failure';
+    END; $$ LANGUAGE plpgsql;
+    CREATE TRIGGER test_fail_settlement_batch_check BEFORE INSERT ON settlement_batches
+    FOR EACH ROW EXECUTE FUNCTION fail_settlement_batch_check()`);
+
+    await expect(createSettlementBatch({ store: new PostgresSettlementStore(pool), input: input() }))
+      .rejects.toMatchObject({ code: '23514', message: 'injected unrelated check failure' });
+    await pool.query('DROP TRIGGER test_fail_settlement_batch_check ON settlement_batches; DROP FUNCTION fail_settlement_batch_check()');
+  });
 });
 
 async function seedBase(): Promise<void> {
