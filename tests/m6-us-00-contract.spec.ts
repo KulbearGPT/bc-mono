@@ -103,6 +103,8 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(openapi).toMatch(/entryType: \{const: PLAYER_EARNING\}[\s\S]*required: \[playerEarningId\]/);
     expect(openapi).toMatch(/entryType: \{const: EARNING_ADJUSTMENT\}[\s\S]*required: \[playerEarningAdjustmentId\]/);
     expect(openapi).toMatch(/SettlementPaymentResult:[\s\S]*anyOf:[\s\S]*required: \[externalBatchReference\][\s\S]*required: \[note\]/);
+    expect(openapi).toContain('x-invariant: request.reportType == storedReport.reportType');
+    expect(openapi).toContain('x-conflict-code: REPORT_TYPE_MISMATCH');
     expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- stale/);
     expect(businessSchema).toContain('"fetchedAt", "stale"');
   });
