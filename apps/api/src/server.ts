@@ -39,6 +39,7 @@ import { registerBotConfigRoutes, type BotConfigRouteOptions } from './bot-confi
 import { registerSettlementRoutes, type SettlementRouteOptions } from './settlements.js';
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
+import { configureCursorSigningSecret } from './signed-cursor.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -53,6 +54,8 @@ export interface ApiServerOptions {
     fundingAdapter: Pick<FundingAdapter, 'resolveUser' | 'getProviderBalance'>;
     providerKey: string;
     now?: () => Date;
+    profileStore?: CustomerProfileStore;
+    rechargeUrl?: string;
   };
   order?: {
     orderStore: OrderStore;
@@ -202,6 +205,8 @@ export async function getReadinessPayload(
 
 export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance {
   const env = options.env ?? process.env;
+  const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
+  configureCursorSigningSecret(validation.values.paginationCursorSigningSecret);
   const server = Fastify({ logger: false });
   server.securityOptions = options.security
     ? { env, now: options.dashboardAuth?.now, dashboardGuildId: options.dashboardAuth?.guildId, ...options.security }

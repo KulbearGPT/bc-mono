@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import type { OutboxJob } from './outbox.js';
+import { decodeOffsetCursor, encodeOffsetCursor } from './signed-cursor.js';
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -113,6 +114,18 @@ export interface SummaryWeeklyReport extends WeeklyReportBase {
 }
 
 export type WeeklyReport = PlayerWeeklyReport | SummaryWeeklyReport;
+
+export interface CurrentPlayerWeeklyReportDto {
+  id: string;
+  reportType: 'PLAYER';
+  periodStart: string;
+  periodEnd: string;
+  timeZone: string;
+  currency: string;
+  status: WeeklyReportStatus;
+  currentRevision: number;
+  metrics: PlayerWeeklyReportMetrics;
+}
 
 export interface WeeklyReportGenerationResult {
   playerReports: PlayerWeeklyReport[];
@@ -510,7 +523,7 @@ export function registerWeeklyReportRoutes(server: FastifyInstance, options: { s
   security.auditSink = auditSink;
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports', permission: 'weekly_report.read',
     action: 'LIST_ADMIN_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], mapError: mapWeeklyReportError,
-    handler: async (request, actor) => ({ items: await options.store.list({ guildId: requireGuild(actor), limit: pageLimit(request) }), nextCursor: null }) });
+    handler: async (request, actor) => weeklyReportPage(request, (limit) => options.store.list({ guildId: requireGuild(actor), limit })) });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports/:weeklyReportId', permission: 'weekly_report.read',
     action: 'GET_ADMIN_WEEKLY_REPORT', targetType: 'weekly_report', targetId: reportIdParam, acceptedSources: ['DASHBOARD'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => requireReport(await options.store.getInGuild(reportIdParam(request), requireGuild(actor))) });
@@ -535,15 +548,18 @@ export function registerWeeklyReportRoutes(server: FastifyInstance, options: { s
     } });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports', permission: 'player.workspace.read',
     action: 'LIST_MY_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DISCORD_BOT'], mapError: mapWeeklyReportError,
-    handler: async (request, actor) => ({ items: await options.store.list({ guildId: requireGuild(actor),
-      playerUserId: await resolveCurrentPlayer(options.store, actor), limit: pageLimit(request) }), nextCursor: null }) });
+    handler: async (request, actor) => {
+      const playerUserId = await resolveCurrentPlayer(options.store, actor);
+      const page = await weeklyReportPage(request, (limit) => options.store.list({ guildId: requireGuild(actor), playerUserId, limit }));
+      return { items: page.items.map(mapCurrentPlayerWeeklyReport), nextCursor: page.nextCursor };
+    } });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports/:weeklyReportId', permission: 'player.workspace.read',
     action: 'GET_MY_WEEKLY_REPORT', targetType: 'weekly_report', targetId: reportIdParam, acceptedSources: ['DISCORD_BOT'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => {
       const report = await options.store.getInGuild(reportIdParam(request), requireGuild(actor));
       const playerUserId = await resolveCurrentPlayer(options.store, actor);
       if (!report || report.reportType !== 'PLAYER' || report.playerUserId !== playerUserId) throw new WeeklyReportError('NOT_FOUND', 'Weekly report was not found.');
-      return report;
+      return mapCurrentPlayerWeeklyReport(report);
     } });
 }
 
@@ -899,6 +915,36 @@ function pageLimit(request: FastifyRequest): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1 || value > 100) throw new WeeklyReportError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
   return value;
+}
+
+async function weeklyReportPage(request: FastifyRequest, load: (limit: number) => Promise<WeeklyReport[]> | WeeklyReport[]) {
+  const limit = pageLimit(request);
+  const rawCursor = (request.query as { cursor?: unknown }).cursor;
+  let offset = 0;
+  if (rawCursor !== undefined) {
+    try { offset = decodeOffsetCursor(String(rawCursor), 'weekly-reports'); }
+    catch { throw new WeeklyReportError('VALIDATION_ERROR', 'cursor is invalid.'); }
+  }
+  const loaded = await load(offset + limit + 1);
+  const items = loaded.slice(offset, offset + limit);
+  const nextCursor = loaded.length > offset + limit
+    ? encodeOffsetCursor('weekly-reports', offset + limit) : null;
+  return { items, nextCursor };
+}
+
+function mapCurrentPlayerWeeklyReport(report: WeeklyReport): CurrentPlayerWeeklyReportDto {
+  if (report.reportType !== 'PLAYER') throw new WeeklyReportError('NOT_FOUND', 'Weekly report was not found.');
+  const metrics = report.metrics;
+  return {
+    id: report.id, reportType: 'PLAYER', periodStart: report.periodStart, periodEnd: report.periodEnd,
+    timeZone: report.timeZone, currency: report.currency, status: report.status, currentRevision: report.currentRevision,
+    metrics: {
+      completedOrderCount: metrics.completedOrderCount, cancelledOrderCount: metrics.cancelledOrderCount,
+      serviceMinutes: metrics.serviceMinutes, orderEarningMinor: metrics.orderEarningMinor,
+      giftEarningMinor: metrics.giftEarningMinor, adjustmentMinor: metrics.adjustmentMinor,
+      pendingMinor: metrics.pendingMinor, settlementReadyMinor: metrics.settlementReadyMinor, batchedMinor: metrics.batchedMinor
+    }
+  };
 }
 
 function mapWeeklyReportError(error: unknown) {

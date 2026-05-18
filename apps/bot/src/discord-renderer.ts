@@ -32,6 +32,9 @@ function toDiscordActionRow(row: ActionRowSpec): ActionRowBuilder<ButtonBuilder 
 }
 
 function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSelectMenuBuilder {
+  if (component.type === 'LINK_BUTTON') {
+    return new ButtonBuilder().setLabel(component.label).setURL(component.url).setStyle(ButtonStyle.Link).setDisabled(component.disabled ?? false);
+  }
   if (component.type === 'BUTTON') {
     return new ButtonBuilder()
       .setCustomId(component.customId)

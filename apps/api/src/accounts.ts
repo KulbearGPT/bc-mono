@@ -9,6 +9,8 @@ import {
   type AuditSink
 } from './security.js';
 import { AdapterError, type FundingAdapter, type MaybePromise } from './payment-adapter.js';
+import { CustomerProfileError, consumptionGuildPredicate, type CustomerProfileStore, type CustomerStatistics } from './customer-profiles.js';
+import { decodeKeysetCursor, encodeKeysetCursor, type CursorScope } from './signed-cursor.js';
 
 type UserStatus = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
 type ExternalAccountStatus = 'ACTIVE' | 'REVOKED';
@@ -70,6 +72,18 @@ export interface BalanceResult {
   fetchedAt: string;
 }
 
+export interface CurrentUserProfileResult {
+  user: { userId: string; discordUserId: string; displayName: string; status: string };
+  balance: {
+    providerBalanceMinor: number | null; reservedMinor: number | null; availableMinor: number | null;
+    currency: string | null; fetchedAt: string | null; stale: boolean;
+    providerError: { code: 'PROVIDER_UNAVAILABLE' | 'PROVIDER_TIMEOUT'; retryable: boolean; requestId: string } | null;
+  };
+  statistics: CustomerStatistics;
+  activeReservationCount: number;
+  rechargeUrl: string;
+}
+
 export interface ConsumptionPageResult {
   items: ConsumptionRecord[];
   nextCursor: string | null;
@@ -99,7 +113,7 @@ export interface AccountStore {
   createBinding(input: AccountBindingRecord): Promise<AccountBindingRecord>;
   commitBinding?(input: { binding: AccountBindingRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
   sumActiveReservations(input: { userId: string; currency: string }): Promise<number>;
-  listConsumptions?(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult>;
+  listConsumptions?(input: { userId: string; guildId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult>;
   listBeneficiaryCommissions?(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult>;
 }
 
@@ -148,19 +162,25 @@ export class InMemoryAccountStore implements AccountStore {
   private readonly externalIndex = new Map<string, string>();
   private readonly reservations: FundReservationBalanceRecord[];
   private readonly reservationSource: (() => FundReservationBalanceRecord[]) | null;
-  private readonly consumptions: Array<ConsumptionRecord & { userId: string }>;
+  private readonly consumptions: Array<ConsumptionRecord & { userId: string; guildId: string }>;
   private readonly commissions: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>;
 
   constructor(input: {
     bindings?: AccountBindingRecord[];
     reservations?: FundReservationBalanceRecord[];
     reservationSource?: () => FundReservationBalanceRecord[];
-    consumptions?: Array<ConsumptionRecord & { userId: string }>;
+    consumptions?: Array<ConsumptionRecord & { userId: string; guildId?: string }>;
     commissions?: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>;
   }) {
     this.reservations = input.reservations ?? [];
     this.reservationSource = input.reservationSource ?? null;
-    this.consumptions = clone(input.consumptions ?? []);
+    const guildsByUser = new Map<string, Set<string>>();
+    for (const item of input.bindings ?? []) {
+      const guilds = guildsByUser.get(item.userId) ?? new Set<string>();
+      guilds.add(item.guildId); guildsByUser.set(item.userId, guilds);
+    }
+    this.consumptions = clone(input.consumptions ?? []).map((item) => ({ ...item,
+      guildId: item.guildId ?? (guildsByUser.get(item.userId)?.size === 1 ? [...guildsByUser.get(item.userId)!][0]! : '') }));
     this.commissions = clone(input.commissions ?? []);
     for (const binding of input.bindings ?? []) {
       this.bindings.set(discordKey(binding), clone(binding));
@@ -219,14 +239,15 @@ export class InMemoryAccountStore implements AccountStore {
       .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
   }
 
-  async listConsumptions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
-    const page = paginate(this.consumptions.filter((item) => item.userId === input.userId), input.cursor, input.limit);
-    return { items: page.items.map(({ userId: _hidden, ...item }) => item), nextCursor: page.nextCursor };
+  async listConsumptions(input: { userId: string; guildId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
+    const page = paginate(this.consumptions.filter((item) => item.userId === input.userId && item.guildId === input.guildId),
+      input.cursor, input.limit, 'account-consumptions');
+    return { items: page.items.map(({ userId: _hidden, guildId: _guildId, ...item }) => item), nextCursor: page.nextCursor };
   }
 
   async listBeneficiaryCommissions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult> {
     const owned = this.commissions.filter((item) => item.beneficiaryUserId === input.userId);
-    const page = paginate(owned, input.cursor, input.limit);
+    const page = paginate(owned, input.cursor, input.limit, 'account-commissions');
     return { summary: commissionSummary(owned), items: page.items.map(({ beneficiaryUserId: _hidden, ...item }) => item), nextCursor: page.nextCursor };
   }
 }
@@ -305,18 +326,19 @@ LIMIT 1
     return result.rows[0] ? mapAccountBindingRow(result.rows[0]) : null;
   }
 
-  async listConsumptions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
+  async listConsumptions(input: { userId: string; guildId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
     const result = await this.client.query<ConsumptionRow>(`SELECT ce.id,ce.entry_type,ce.source_id,ce.amount_minor,
       ce.currency,ce.direction,ce.occurred_at,ce.reversal_of_entry_id,o.public_id AS order_public_id,
       gr.gift_name_snapshot
       FROM consumption_entries ce LEFT JOIN orders o ON o.id=ce.order_id
       LEFT JOIN gift_requests gr ON gr.id=ce.gift_request_id
-      WHERE ce.user_id=$1 AND ($2::timestamptz IS NULL OR (ce.occurred_at,ce.id) < ($2,$3::uuid))
-      ORDER BY ce.occurred_at DESC,ce.id DESC LIMIT $4`, [input.userId, input.cursor?.occurredAt ?? null,
+      WHERE ce.user_id=$1 AND ${consumptionGuildPredicate('ce', '$2')}
+      AND ($3::timestamptz IS NULL OR (ce.occurred_at,ce.id) < ($3,$4::uuid))
+      ORDER BY ce.occurred_at DESC,ce.id DESC LIMIT $5`, [input.userId, input.guildId, input.cursor?.occurredAt ?? null,
       input.cursor?.id ?? null, input.limit + 1]);
     const items = result.rows.slice(0, input.limit).map(mapConsumption);
     return { items, nextCursor: result.rows.length > input.limit && items.length
-      ? encodeCursor({ occurredAt: items.at(-1)!.occurredAt, id: items.at(-1)!.id }) : null };
+      ? encodeCursor({ occurredAt: items.at(-1)!.occurredAt, id: items.at(-1)!.id }, 'account-consumptions') : null };
   }
 
   async listBeneficiaryCommissions(input: { userId: string; cursor: PageCursor | null; limit: number }): Promise<CurrentCommissionPageResult> {
@@ -345,7 +367,7 @@ LIMIT 1
       if (row.status === 'PAID') summary.paidMinor = Number(row.amount);
     }
     return { summary, items, nextCursor: result.rows.length > input.limit && items.length
-      ? encodeCursor({ occurredAt: items.at(-1)!.createdAt, id: items.at(-1)!.id }) : null };
+      ? encodeCursor({ occurredAt: items.at(-1)!.createdAt, id: items.at(-1)!.id }, 'account-commissions') : null };
   }
 
   async createBinding(input: AccountBindingRecord): Promise<AccountBindingRecord> {
@@ -535,8 +557,10 @@ export async function listCurrentUserConsumptions(input: {
   limit?: number;
 }): Promise<ConsumptionPageResult> {
   const binding = await requireCurrentBinding(input.store, input.actor);
+  const actorIds = requireDiscordActor(input.actor);
   if (!input.store.listConsumptions) return { items: [], nextCursor: null };
-  return input.store.listConsumptions({ userId: binding.userId, cursor: decodeCursor(input.cursor), limit: input.limit ?? 50 });
+  return input.store.listConsumptions({ userId: binding.userId, guildId: actorIds.guildId,
+    cursor: decodeCursor(input.cursor, 'account-consumptions'), limit: input.limit ?? 50 });
 }
 
 export async function listCurrentUserCommissions(input: {
@@ -547,7 +571,61 @@ export async function listCurrentUserCommissions(input: {
 }): Promise<CurrentCommissionPageResult> {
   const binding = await requireCurrentBinding(input.store, input.actor);
   if (!input.store.listBeneficiaryCommissions) return { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' }, items: [], nextCursor: null };
-  return input.store.listBeneficiaryCommissions({ userId: binding.userId, cursor: decodeCursor(input.cursor), limit: input.limit ?? 50 });
+  return input.store.listBeneficiaryCommissions({ userId: binding.userId, cursor: decodeCursor(input.cursor, 'account-commissions'), limit: input.limit ?? 50 });
+}
+
+export async function getCurrentUserProfileSummary(input: {
+  store: AccountStore;
+  profileStore: CustomerProfileStore;
+  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>;
+  actor: ActorContext;
+  rechargeUrl: string;
+  now: Date;
+}): Promise<CurrentUserProfileResult> {
+  const binding = await requireCurrentBinding(input.store, input.actor);
+  const actorIds = requireDiscordActor(input.actor);
+  const scope = selfProfileScope(binding.userId, actorIds.guildId);
+  const summary = await input.profileStore.getSummaryData({ ...scope, window: 'ALL', now: input.now });
+  if (!summary || summary.user.discordUserId !== actorIds.discordUserId) {
+    throw new AccountError('ACCOUNT_NOT_BOUND', 'Current Discord actor is not bound.');
+  }
+  let snapshot = null as Awaited<ReturnType<CustomerProfileStore['getLatestBalanceSnapshot']>>;
+  let providerStale = false;
+  let providerError: CurrentUserProfileResult['balance']['providerError'] = null;
+  try {
+    const balance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
+    snapshot = { id: crypto.randomUUID(), userId: binding.userId, provider: binding.provider,
+      providerBalanceMinor: balance.providerBalanceMinor, currency: balance.currency, fetchedAt: balance.fetchedAt };
+    providerStale = balance.stale;
+    if (!balance.stale) await input.profileStore.appendBalanceSnapshot(snapshot);
+  } catch (error) {
+    snapshot = await input.profileStore.getLatestBalanceSnapshot({ userId: binding.userId, provider: binding.provider });
+    providerError = { code: error instanceof AdapterError && error.code === 'PROVIDER_TIMEOUT' ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNAVAILABLE',
+      retryable: error instanceof AdapterError ? error.retryable : true,
+      requestId: error instanceof AdapterError ? error.requestId : 'req_provider_unavailable' };
+  }
+  const reservedMinor = snapshot ? await input.profileStore.sumActiveReservations({ userId: binding.userId, currency: snapshot.currency }) : null;
+  return {
+    user: { userId: binding.userId, discordUserId: actorIds.discordUserId, displayName: binding.displayName, status: binding.userStatus },
+    balance: snapshot ? { providerBalanceMinor: snapshot.providerBalanceMinor, reservedMinor,
+      availableMinor: snapshot.providerBalanceMinor - reservedMinor!, currency: snapshot.currency, fetchedAt: snapshot.fetchedAt,
+      stale: providerStale || providerError !== null, providerError } : { providerBalanceMinor: null, reservedMinor: null,
+      availableMinor: null, currency: null, fetchedAt: null, stale: true, providerError },
+    statistics: summary.statistics,
+    activeReservationCount: await input.profileStore.countActiveReservations({ userId: binding.userId }),
+    rechargeUrl: input.rechargeUrl
+  };
+}
+
+export async function listCurrentUserOrders(input: { store: AccountStore; profileStore: CustomerProfileStore;
+  actor: ActorContext; cursor?: string; limit?: number }) {
+  const binding = await requireCurrentBinding(input.store, input.actor);
+  const actorIds = requireDiscordActor(input.actor);
+  const page = await input.profileStore.listOrders({ ...selfProfileScope(binding.userId, actorIds.guildId), cursor: input.cursor ?? null, limit: input.limit ?? 50 });
+  return { items: page.items.map((order) => ({ id: order.id, publicId: order.publicId, status: order.status,
+    gameKey: order.gameKey, serviceKey: order.serviceKey, playerDisplayName: order.playerDisplayName,
+    amountMinor: order.amountMinor, currency: order.currency, createdAt: order.createdAt, completedAt: order.completedAt })),
+    nextCursor: page.nextCursor };
 }
 
 export function registerAccountRoutes(
@@ -558,6 +636,8 @@ export function registerAccountRoutes(
     providerKey: string;
     now?: () => Date;
     auditSink?: AuditSink;
+    profileStore?: CustomerProfileStore;
+    rechargeUrl?: string;
   }
 ): void {
   const security = server.securityOptions;
@@ -604,6 +684,20 @@ export function registerAccountRoutes(
     handler: (_request, actor) => getCurrentUser({ store: options.store, actor }),
     mapError: mapAccountError
   });
+
+  if (options.profileStore && options.rechargeUrl) {
+    registerSecureReadRoute(server, security, {
+      method: 'GET', url: '/api/v1/me/profile', permission: 'account.self.read', action: 'GET_CURRENT_USER_PROFILE',
+      targetType: 'user', acceptedSources: ['DISCORD_BOT'], mapError: mapSelfProfileError,
+      handler: (_request, actor) => getCurrentUserProfileSummary({ store: options.store, profileStore: options.profileStore!,
+        fundingAdapter: options.fundingAdapter, actor, rechargeUrl: options.rechargeUrl!, now: now() })
+    });
+    registerSecureReadRoute(server, security, {
+      method: 'GET', url: '/api/v1/me/orders', permission: 'order.read', action: 'LIST_CURRENT_USER_ORDERS',
+      targetType: 'order', acceptedSources: ['DISCORD_BOT'], mapError: mapSelfProfileError,
+      handler: (request, actor) => listCurrentUserOrders({ store: options.store, profileStore: options.profileStore!, actor, ...pageQuery(request) })
+    });
+  }
 
   registerSecureReadRoute(server, security, {
     method: 'GET',
@@ -696,6 +790,10 @@ function requireDiscordActor(actor: ActorContext): { guildId: string; discordUse
   };
 }
 
+function selfProfileScope(userId: string, guildId: string) {
+  return { userId, guildId, actorStaffId: userId, actorLevel: 'L2_SUPERVISOR' as const };
+}
+
 async function callProvider<T>(fn: () => MaybePromise<T>): Promise<T> {
   try {
     return await fn();
@@ -726,6 +824,16 @@ function mapAccountError(error: unknown): { statusCode: number; code: string; me
     code: error.code,
     message: error.message
   };
+}
+
+function mapSelfProfileError(error: unknown): { statusCode: number; code: string; message: string } | null {
+  if (error instanceof CustomerProfileError) {
+    return { statusCode: error.code === 'NOT_FOUND' ? 404 : 400, code: error.code, message: error.message };
+  }
+  const mapped = mapAccountError(error);
+  return error instanceof AccountError && error.code === 'ACCOUNT_NOT_BOUND'
+    ? { statusCode: 404, code: 'NOT_FOUND', message: 'The requested resource was not found.' }
+    : mapped;
 }
 
 function maskExternalUser(value: string): string {
@@ -902,22 +1010,22 @@ function pageQuery(request: FastifyRequest): { cursor?: string; limit: number } 
   return { cursor: query.cursor, limit };
 }
 
-function encodeCursor(cursor: PageCursor): string { return Buffer.from(JSON.stringify(cursor)).toString('base64url'); }
+function encodeCursor(cursor: PageCursor, scope: Extract<CursorScope, 'account-consumptions' | 'account-commissions'>): string {
+  return encodeKeysetCursor(scope, { id: cursor.id, at: cursor.occurredAt });
+}
 
-function decodeCursor(value?: string): PageCursor | null {
+function decodeCursor(value: string | undefined, scope: Extract<CursorScope, 'account-consumptions' | 'account-commissions'>): PageCursor | null {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as PageCursor;
-    if (!parsed || !Number.isFinite(Date.parse(parsed.occurredAt)) || !isUuidLike(parsed.id)) throw new Error('invalid');
-    return parsed;
+    const parsed = decodeKeysetCursor(value, scope);
+    return { occurredAt: parsed.at, id: parsed.id };
   } catch {
     throw new AccountError('VALIDATION_ERROR', 'cursor is invalid.');
   }
 }
 
-function isUuidLike(value: string): boolean { return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value); }
-
-function paginate<T extends { id: string; occurredAt?: string; createdAt?: string }>(records: T[], cursor: PageCursor | null, limit: number) {
+function paginate<T extends { id: string; occurredAt?: string; createdAt?: string }>(records: T[], cursor: PageCursor | null, limit: number,
+  scope: Extract<CursorScope, 'account-consumptions' | 'account-commissions'>) {
   const sorted = clone(records).sort((left, right) => {
     const leftAt = left.occurredAt ?? left.createdAt!;
     const rightAt = right.occurredAt ?? right.createdAt!;
@@ -930,7 +1038,7 @@ function paginate<T extends { id: string; occurredAt?: string; createdAt?: strin
   const items = filtered.slice(0, limit);
   const last = items.at(-1);
   return { items, nextCursor: filtered.length > limit && last
-    ? encodeCursor({ occurredAt: last.occurredAt ?? last.createdAt!, id: last.id }) : null };
+    ? encodeCursor({ occurredAt: last.occurredAt ?? last.createdAt!, id: last.id }, scope) : null };
 }
 
 function commissionSummary(records: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>) {

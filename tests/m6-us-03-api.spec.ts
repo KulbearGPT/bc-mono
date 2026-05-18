@@ -124,11 +124,48 @@ describe('M6-US-03 weekly report shared API', () => {
     const list = await f.server.inject({ method: 'GET', url: '/api/v1/players/me/weekly-reports', headers: headers('player-a', 'DISCORD_BOT') });
     expect(list.statusCode).toBe(200);
     expect(list.json().data.items.map((item: { id: string }) => item.id)).toEqual([own.id]);
+    expect(Object.keys(list.json().data.items[0]).sort()).toEqual([
+      'currency', 'currentRevision', 'id', 'metrics', 'periodEnd', 'periodStart', 'reportType', 'status', 'timeZone'
+    ]);
+
+    const detail = await f.server.inject({ method: 'GET', url: `/api/v1/players/me/weekly-reports/${own.id}`, headers: headers('player-a', 'DISCORD_BOT') });
+    expect(detail.statusCode).toBe(200);
+    expect(Object.keys(detail.json().data).sort()).toEqual([
+      'currency', 'currentRevision', 'id', 'metrics', 'periodEnd', 'periodStart', 'reportType', 'status', 'timeZone'
+    ]);
+    expect(JSON.stringify(detail.json().data).toLowerCase()).not.toMatch(
+      /guildid|playeruserid|schedulekey|revisions|staff|reason|detailsnapshot|orderid|issues/u
+    );
 
     const forbidden = await f.server.inject({ method: 'GET', url: `/api/v1/players/me/weekly-reports/${other.id}`, headers: headers('player-a', 'DISCORD_BOT') });
     const missing = await f.server.inject({ method: 'GET', url: '/api/v1/players/me/weekly-reports/00000000-0000-0000-0000-000000009999', headers: headers('player-a', 'DISCORD_BOT') });
     expect(forbidden.statusCode).toBe(404);
     expect(forbidden.json().error).toEqual(missing.json().error);
     expect(JSON.stringify(forbidden.json())).not.toContain(playerB);
+  });
+
+  test('signs weekly-report offset cursors and rejects tampering across server instances', async () => {
+    const f = await fixture();
+    f.store.facts.push({ ...fact(playerA, 'previous'), id: 'fact-previous', orderId: 'order-previous', occurredAt: '2026-07-10T12:00:00.000Z' });
+    await generateWeeklyReports({ store: f.store, input: {
+      ...generation(), scheduleKey: 'weekly-cny-previous', periodStart: '2026-07-05T16:00:00.000Z',
+      periodEnd: '2026-07-12T16:00:00.000Z', cutoffAt: '2026-07-12T16:00:00.000Z'
+    } });
+    const first = await f.server.inject({ method: 'GET', url: '/api/v1/players/me/weekly-reports?limit=1', headers: headers('player-a', 'DISCORD_BOT') });
+    const cursor = first.json().data.nextCursor as string;
+    expect(cursor).toMatch(/^c1_[A-Za-z0-9_-]+$/u);
+    expect(cursor.length).toBeLessThanOrEqual(70);
+
+    const restarted = buildApiServer({ env, security: {}, weeklyReports: { store: f.store, now: () => now } });
+    const second = await restarted.inject({ method: 'GET', url: `/api/v1/players/me/weekly-reports?limit=1&cursor=${encodeURIComponent(cursor)}`,
+      headers: headers('player-a', 'DISCORD_BOT') });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().data.items[0].id).not.toBe(first.json().data.items[0].id);
+
+    const tampered = `${cursor.slice(0, -1)}${cursor.endsWith('A') ? 'B' : 'A'}`;
+    const rejected = await restarted.inject({ method: 'GET', url: `/api/v1/players/me/weekly-reports?limit=1&cursor=${encodeURIComponent(tampered)}`,
+      headers: headers('player-a', 'DISCORD_BOT') });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
   });
 });

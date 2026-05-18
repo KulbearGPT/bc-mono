@@ -1,6 +1,6 @@
 export type RuntimeEnvInput = Record<string, string | undefined>;
 
-export type RuntimeEnvErrorCode = 'REQUIRED' | 'INVALID_PORT' | 'INVALID_URL';
+export type RuntimeEnvErrorCode = 'REQUIRED' | 'INVALID_PORT' | 'INVALID_URL' | 'INVALID_SECRET';
 
 export interface RuntimeEnvError {
   field: string;
@@ -17,6 +17,7 @@ export interface RuntimeEnvValidation {
     apiBaseUrl: string;
     databaseUrl: string;
     botServiceToken: string;
+    paginationCursorSigningSecret: string;
     discordBotToken?: string;
   };
 }
@@ -37,6 +38,12 @@ export function validateRuntimeEnv(
   const apiBaseUrl = requireUrl(env.API_BASE_URL, 'API_BASE_URL', errors);
   const databaseUrl = requireString(env.DATABASE_URL, 'DATABASE_URL', errors);
   const botServiceToken = requireString(env.BOT_SERVICE_TOKEN, 'BOT_SERVICE_TOKEN', errors);
+  const configuredCursorSecret = env.PAGINATION_CURSOR_SIGNING_SECRET?.trim();
+  if (configuredCursorSecret && configuredCursorSecret.length < 32) {
+    errors.push({ field: 'PAGINATION_CURSOR_SIGNING_SECRET', code: 'INVALID_SECRET',
+      message: 'PAGINATION_CURSOR_SIGNING_SECRET must be at least 32 characters.' });
+  }
+  const paginationCursorSigningSecret = configuredCursorSecret || botServiceToken || '';
   const discordBotToken = env.DISCORD_BOT_TOKEN?.trim();
 
   if (!options.allowMissingDiscordToken && !discordBotToken) {
@@ -56,6 +63,7 @@ export function validateRuntimeEnv(
       apiBaseUrl: apiBaseUrl ?? '',
       databaseUrl: databaseUrl ?? '',
       botServiceToken: botServiceToken ?? '',
+      paginationCursorSigningSecret,
       discordBotToken
     }
   };

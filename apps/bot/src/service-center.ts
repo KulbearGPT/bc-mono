@@ -68,9 +68,32 @@ export interface BalanceSummary {
 }
 
 export interface ConsumptionPage {
-  items: [];
-  nextCursor: null;
+  items: Array<{ id: string; type: 'ORDER' | 'GIFT' | 'REVERSAL'; sourceId: string; amountMinor: number; currency: string;
+    status: 'SUCCEEDED' | 'REVERSED'; targetDisplay: string; occurredAt: string; reversalOf: string | null }>;
+  nextCursor: string | null;
 }
+
+export interface CurrentUserProfileSummary {
+  user: { userId: string; discordUserId: string; displayName: string; status: string };
+  balance: { providerBalanceMinor: number | null; reservedMinor: number | null; availableMinor: number | null; currency: string | null;
+    fetchedAt: string | null; stale: boolean; providerError: { code: string; retryable: boolean; requestId: string } | null };
+  statistics: { orderCount: number; activeOrderCount: number; orderSpendMinor: number; giftSpendMinor: number; totalConsumptionMinor: number; currency: string };
+  activeReservationCount: number;
+  rechargeUrl: string;
+}
+
+export interface CurrentUserOrderPage {
+  items: Array<{ id: string; publicId: string; status: string; gameKey: string | null; serviceKey: string | null;
+    playerDisplayName: string | null; amountMinor: number; currency: string; createdAt: string; completedAt: string | null }>;
+  nextCursor: string | null;
+}
+
+export interface CurrentPlayerWeeklyReport {
+  id: string; reportType: 'PLAYER'; periodStart: string; periodEnd: string; timeZone: string; currency: string; status: string;
+  currentRevision: number; metrics: { completedOrderCount: number; cancelledOrderCount: number; serviceMinutes: number;
+    orderEarningMinor: number; giftEarningMinor: number; adjustmentMinor: number; pendingMinor: number; settlementReadyMinor: number; batchedMinor: number };
+}
+export interface CurrentPlayerWeeklyReportPage { items: CurrentPlayerWeeklyReport[]; nextCursor: string | null }
 
 export interface CurrentCommissionPage {
   summary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
@@ -282,7 +305,11 @@ export interface BotApiClient {
   ): Promise<OrderSummary>;
   getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary>;
   getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary>;
-  listCurrentUserConsumptions(actor: BotActorContext): Promise<ConsumptionPage>;
+  getCurrentUserProfileSummary(actor: BotActorContext): Promise<CurrentUserProfileSummary>;
+  listCurrentUserOrders(actor: BotActorContext, cursor?: string, limit?: number): Promise<CurrentUserOrderPage>;
+  listCurrentUserConsumptions(actor: BotActorContext, cursor?: string, limit?: number): Promise<ConsumptionPage>;
+  listCurrentPlayerWeeklyReports(actor: BotActorContext, cursor?: string, limit?: number): Promise<CurrentPlayerWeeklyReportPage>;
+  getCurrentPlayerWeeklyReport(reportId: string, actor: BotActorContext): Promise<CurrentPlayerWeeklyReport>;
   listCurrentUserCommissions(actor: BotActorContext): Promise<CurrentCommissionPage>;
   estimateOrder(
     orderId: string,
@@ -452,6 +479,14 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
+  public async getCurrentUserProfileSummary(actor: BotActorContext): Promise<CurrentUserProfileSummary> {
+    return this.request<CurrentUserProfileSummary>('/api/v1/me/profile', { method: 'GET', actor });
+  }
+
+  public async listCurrentUserOrders(actor: BotActorContext, cursor?: string, limit = 5): Promise<CurrentUserOrderPage> {
+    return this.request<CurrentUserOrderPage>(pagePath('/api/v1/me/orders', cursor, limit), { method: 'GET', actor });
+  }
+
   public async listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData> {
     return this.request<GiftPanelData>(`/api/v1/gifts?orderId=${encodeURIComponent(orderId)}`, {
       method: 'GET', actor
@@ -469,11 +504,20 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
-  public async listCurrentUserConsumptions(actor: BotActorContext): Promise<ConsumptionPage> {
-    return this.request<ConsumptionPage>('/api/v1/me/consumptions', {
+  public async listCurrentUserConsumptions(actor: BotActorContext, cursor?: string, limit?: number): Promise<ConsumptionPage> {
+    const path = cursor !== undefined || limit !== undefined ? pagePath('/api/v1/me/consumptions', cursor, limit ?? 5) : '/api/v1/me/consumptions';
+    return this.request<ConsumptionPage>(path, {
       method: 'GET',
       actor
     });
+  }
+
+  public async listCurrentPlayerWeeklyReports(actor: BotActorContext, cursor?: string, limit = 5): Promise<CurrentPlayerWeeklyReportPage> {
+    return this.request<CurrentPlayerWeeklyReportPage>(pagePath('/api/v1/players/me/weekly-reports', cursor, limit), { method: 'GET', actor });
+  }
+
+  public async getCurrentPlayerWeeklyReport(reportId: string, actor: BotActorContext): Promise<CurrentPlayerWeeklyReport> {
+    return this.request<CurrentPlayerWeeklyReport>(`/api/v1/players/me/weekly-reports/${encodeURIComponent(reportId)}`, { method: 'GET', actor });
   }
 
   public async listCurrentUserCommissions(actor: BotActorContext): Promise<CurrentCommissionPage> {
@@ -707,6 +751,20 @@ interface ApiEnvelope<T> {
   };
 }
 
+function pagePath(path: string, cursor: string | undefined, limit: number): string {
+  const query = new URLSearchParams();
+  if (cursor) query.set('cursor', cursor);
+  query.set('limit', String(limit));
+  return `${path}?${query.toString()}`;
+}
+
+function paginationCustomId(prefix: string, cursor: string): string {
+  if (!/^c1_[A-Za-z0-9_-]{20,70}$/u.test(cursor)) throw new Error('API pagination cursor is invalid.');
+  const customId = `${prefix}:${cursor}`;
+  if (customId.length > 100) throw new Error('Discord pagination custom ID exceeds 100 characters.');
+  return customId;
+}
+
 export interface ActionRowSpec {
   type: 'ACTION_ROW';
   components: ComponentSpec[];
@@ -717,6 +775,13 @@ export type ComponentSpec =
       type: 'BUTTON';
       style: 'PRIMARY' | 'SECONDARY' | 'DANGER';
       customId: string;
+      label: string;
+      disabled?: boolean;
+    }
+  | {
+      type: 'LINK_BUTTON';
+      style: 'LINK';
+      url: string;
       label: string;
       disabled?: boolean;
     }
@@ -789,6 +854,9 @@ export type ServiceCenterRoute =
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
   | { area: 'binding-modal'; sessionId: string }
+  | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
+  | { area: 'reports'; action: 'list'; cursor?: string }
+  | { area: 'reports'; action: 'detail'; reportId: string }
   | { area: 'unknown' };
 
 export function buildPublicServiceEntryMessage(): MessageSpec {
@@ -1055,12 +1123,90 @@ export function buildServiceCenterMessage(input: {
             label: '当前订单',
             disabled: !input.activeOrder
           },
-          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:consumptions', label: '消费记录' },
+          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:profile:open', label: '个人中心' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:consumptions:first', label: '消费记录' },
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:commissions', label: '我的收益' }
         ]
       }
     ]
   };
+}
+
+export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary): MessageSpec {
+  const balance = input.balance;
+  const currency = balance.currency ?? input.statistics.currency;
+  const unavailable = balance.providerBalanceMinor === null;
+  return {
+    title: '个人中心',
+    body: [
+      `账户：${input.user.displayName}`,
+      unavailable ? '总余额：暂不可用' : `总余额：${formatMoney(balance.providerBalanceMinor!, currency)}`,
+      unavailable ? '预留：暂不可用' : `预留：${formatMoney(balance.reservedMinor!, currency)}`,
+      unavailable ? '可用：暂不可用' : `可用：${formatMoney(balance.availableMinor!, currency)}`,
+      `进行中订单：${input.statistics.activeOrderCount}`,
+      `累计订单消费：${formatMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
+      `累计礼物消费：${formatMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
+      balance.fetchedAt ? `余额时间：${balance.fetchedAt}${balance.stale ? '（陈旧）' : ''}` : '余额时间：暂无成功快照',
+      balance.providerError ? `余额刷新失败 · request_id: ${balance.providerError.requestId}` : null
+    ].filter(Boolean).join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [
+      { type: 'ACTION_ROW', components: [
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:refresh', label: '刷新余额' },
+        { type: 'LINK_BUTTON', style: 'LINK', url: input.rechargeUrl, label: '前往充值' }
+      ] },
+      { type: 'ACTION_ROW', components: [
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:orders:first', label: '我的订单' },
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:consumptions:first', label: '消费记录' }
+      ] }
+    ]
+  };
+}
+
+export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): MessageSpec {
+  return { title: '我的订单', body: page.items.length ? page.items.map((item) =>
+    `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatMoney(item.amountMinor, item.currency)}\n${item.createdAt}`).join('\n\n') : '暂无订单。',
+    visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
+      { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:orders', page.nextCursor) : 'bc:profile:orders:end', label: '下一页', disabled: !page.nextCursor }
+    ] }] };
+}
+
+export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): MessageSpec {
+  return { title: '消费记录', body: page.items.length ? page.items.map((item) =>
+    `${item.type} · ${item.targetDisplay} · ${formatMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`).join('\n\n') : '暂无消费记录。',
+    visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
+      { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:consumptions', page.nextCursor) : 'bc:profile:consumptions:end', label: '下一页', disabled: !page.nextCursor }
+    ] }] };
+}
+
+export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWeeklyReportPage): MessageSpec {
+  return { title: '我的周报', body: page.items.length ? page.items.map((item) =>
+    `${item.periodStart} 至 ${item.periodEnd} · ${item.status}`).join('\n') : '暂无周报。', visibility: 'EPHEMERAL',
+    components: [
+      ...page.items.slice(0, 4).map((item): ActionRowSpec => ({ type: 'ACTION_ROW', components: [
+        { type: 'BUTTON', style: 'SECONDARY', customId: `bc:reports:detail:${item.id}`, label: `${item.periodStart.slice(0, 10)} 周报` }
+      ] })),
+      { type: 'ACTION_ROW', components: [
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:player-workbench', label: '返回工作台' },
+        { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:reports:list', page.nextCursor) : 'bc:reports:list:end', label: '下一页', disabled: !page.nextCursor }
+      ] }
+    ] };
+}
+
+export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlayerWeeklyReport): MessageSpec {
+  const metrics = report.metrics;
+  return { title: '我的周报详情', body: [
+    `${report.periodStart} 至 ${report.periodEnd} · ${report.status}`,
+    `完成订单：${metrics.completedOrderCount} · 取消：${metrics.cancelledOrderCount} · 服务：${metrics.serviceMinutes} 分钟`,
+    `订单收益：${formatMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatMoney(metrics.giftEarningMinor, report.currency)}`,
+    `调整：${formatMoney(metrics.adjustmentMinor, report.currency)}`,
+    `待确认：${formatMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatMoney(metrics.settlementReadyMinor, report.currency)}`,
+    `已入批次：${formatMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
+  ].join('\n'), visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
+    { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:reports:list:first', label: '返回周报' }
+  ] }] };
 }
 
 export function buildCancellationPreviewMessage(preview: CancellationPreviewSummary): MessageSpec {
@@ -1104,7 +1250,10 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
   const components: MessageSpec['components'] = [{
     type: 'ACTION_ROW',
-    components: [{ type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:player-workbench', label: '刷新' }]
+    components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:player-workbench', label: '刷新' },
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:reports:list:first', label: '我的周报' }
+    ]
   }];
   const firstMatch = workbench.matchingOrders[0];
   if (firstMatch && workbench.nextActions.includes('ACCEPT_ORDER')) {
@@ -1775,6 +1924,20 @@ export async function handleOrderNotesSubmit(input: {
 }
 
 export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute {
+  if (customId === 'bc:profile:open' || customId === 'bc:profile:refresh') {
+    return { area: 'profile', action: customId.endsWith('refresh') ? 'refresh' : 'open' };
+  }
+  const profilePage = /^bc:profile:(orders|consumptions):(first|end|c1_[A-Za-z0-9_-]{20,70})$/u.exec(customId);
+  if (profilePage) {
+    return { area: 'profile', action: profilePage[1] as 'orders' | 'consumptions',
+      cursor: profilePage[2] === 'first' || profilePage[2] === 'end' ? undefined : profilePage[2] };
+  }
+  const reportList = /^bc:reports:list:(first|end|c1_[A-Za-z0-9_-]{20,70})$/u.exec(customId);
+  if (reportList) {
+    return { area: 'reports', action: 'list', cursor: reportList[1] === 'first' || reportList[1] === 'end' ? undefined : reportList[1] };
+  }
+  const reportDetail = /^bc:reports:detail:([0-9a-f-]{36})$/u.exec(customId);
+  if (reportDetail) return { area: 'reports', action: 'detail', reportId: reportDetail[1] };
   if (customId === 'bc:entry:create-order') {
     return { area: 'entry', action: 'create-order' };
   }

@@ -39,6 +39,13 @@ describe('M0-US-01 local workspace skeleton', () => {
     expect(result.errors).not.toContainEqual(expect.objectContaining({ field: 'DISCORD_BOT_TOKEN' }));
   });
 
+  test('rejects an explicitly configured short pagination cursor signing secret', () => {
+    const result = validateRuntimeEnv({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://db/test', API_PORT: '3000',
+      API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'service-token', PAGINATION_CURSOR_SIGNING_SECRET: 'too-short' },
+    { allowMissingDiscordToken: true });
+    expect(result.errors).toContainEqual(expect.objectContaining({ field: 'PAGINATION_CURSOR_SIGNING_SECRET', code: 'INVALID_SECRET' }));
+  });
+
   test('health is liveness-only and readiness reports dependency state', async () => {
     const health = getHealthPayload('req_test_health');
     const readiness = await getReadinessPayload(

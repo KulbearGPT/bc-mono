@@ -115,7 +115,9 @@ const server = buildApiServer({
   account: {
     store: accountStore,
     fundingAdapter,
-    providerKey
+    providerKey,
+    profileStore: customerProfileStore,
+    rechargeUrl: process.env.RECHARGE_URL?.trim() || 'https://payments.example.invalid/recharge'
   },
   order: {
     orderStore,

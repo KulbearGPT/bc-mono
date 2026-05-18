@@ -3,6 +3,12 @@ import type { ButtonInteraction, Interaction } from 'discord.js';
 import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
 import {
   HttpBotApiClient,
+  BotApiError,
+  buildCurrentPlayerWeeklyReportDetailMessage,
+  buildCurrentPlayerWeeklyReportListMessage,
+  buildCurrentUserConsumptionsMessage,
+  buildCurrentUserOrdersMessage,
+  buildCurrentUserProfileMessage,
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
   handleOpenCancellationPreview,
@@ -26,13 +32,22 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports'
       ? this.some(route)
       : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
     if (!interaction.isButton() || !parsedData || parsedData.area === 'unknown') {
+      return;
+    }
+
+    if (parsedData.area === 'profile') {
+      await this.handleProfile(interaction, parsedData);
+      return;
+    }
+    if (parsedData.area === 'reports') {
+      await this.handleReports(interaction, parsedData);
       return;
     }
 
@@ -117,6 +132,40 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.reply({ content: '暂时无法处理订单状态。request_id: local-unhandled-result', ephemeral: true });
+  }
+
+  private async handleProfile(interaction: ButtonInteraction, route: Extract<ServiceCenterRoute, { area: 'profile' }>): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) { await interaction.reply({ content: '请在服务器内打开个人中心。request_id: local-guild-required', ephemeral: true }); return; }
+    try {
+      const api = createBotApiClient();
+      const message = route.action === 'orders'
+        ? buildCurrentUserOrdersMessage(await api.listCurrentUserOrders(actor, route.cursor, 5))
+        : route.action === 'consumptions'
+          ? buildCurrentUserConsumptionsMessage(await api.listCurrentUserConsumptions(actor, route.cursor, 5))
+          : buildCurrentUserProfileMessage(await api.getCurrentUserProfileSummary(actor));
+      const reply = toDiscordReply(message);
+      await interaction.update({ content: reply.content, components: reply.components });
+    } catch (error) {
+      const requestId = error instanceof BotApiError ? error.requestId : 'local-profile-fallback';
+      await interaction.reply({ content: `个人中心暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
+    }
+  }
+
+  private async handleReports(interaction: ButtonInteraction, route: Extract<ServiceCenterRoute, { area: 'reports' }>): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) { await interaction.reply({ content: '请在服务器内打开我的周报。request_id: local-guild-required', ephemeral: true }); return; }
+    try {
+      const api = createBotApiClient();
+      const message = route.action === 'detail'
+        ? buildCurrentPlayerWeeklyReportDetailMessage(await api.getCurrentPlayerWeeklyReport(route.reportId, actor))
+        : buildCurrentPlayerWeeklyReportListMessage(await api.listCurrentPlayerWeeklyReports(actor, route.cursor, 4));
+      const reply = toDiscordReply(message);
+      await interaction.update({ content: reply.content, components: reply.components });
+    } catch (error) {
+      const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
+      await interaction.reply({ content: `我的周报暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
+    }
   }
 
   private async openPrivateServiceCenter(interaction: ButtonInteraction): Promise<void> {

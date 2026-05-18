@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { AdapterError, type FundingAdapter } from './payment-adapter.js';
 import { registerSecureReadRoute, type ActorContext, type StaffLevel } from './security.js';
+import { decodeKeysetCursor, encodeKeysetCursor } from './signed-cursor.js';
 
 export type CustomerProfileWindow = 'DAYS_30' | 'DAYS_90' | 'ALL';
 export type CustomerProfileConsumptionType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
@@ -37,14 +38,15 @@ export interface CustomerProfileSummaryData {
   internalNotes: Array<{ id: string; text: string; createdAt: string }>;
   riskFlags: string[];
 }
-interface Page<T> { items: T[]; nextCursor: string | null }
+export interface Page<T> { items: T[]; nextCursor: string | null }
 
 export interface CustomerProfileStore extends CustomerProfileScope {
   getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null>;
   listOrders(input: CustomerProfileScopeInput & { cursor: string | null; limit: number }): Promise<Page<CustomerProfileOrder>>;
-  sumActiveReservations(input: { userId: string; currency: string }): Promise<number>;
+  sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number>;
   appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): Promise<void> | void;
   getLatestBalanceSnapshot(input: { userId: string; provider: string }): Promise<CustomerProfileBalanceSnapshot | null> | CustomerProfileBalanceSnapshot | null;
+  countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> | number;
 }
 
 export class CustomerProfileError extends Error {
@@ -56,12 +58,12 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
   readonly orders: CustomerProfileOrder[];
   readonly consumptions: CustomerProfileConsumption[];
   readonly balanceSnapshots: CustomerProfileBalanceSnapshot[];
-  private readonly reservations: Array<{ userId: string; currency: string; remainingMinor: number }>;
+  private readonly reservations: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
   private readonly notes: Array<{ id: string; userId: string; text: string; authorStaffId: string; createdAt: string }>;
   private readonly riskFlags: Array<{ userId: string; value: string }>;
 
   constructor(input: { users?: CustomerProfileUser[]; orders?: CustomerProfileOrder[]; consumptions?: CustomerProfileConsumption[];
-    balanceSnapshots?: CustomerProfileBalanceSnapshot[]; reservations?: Array<{ userId: string; currency: string; remainingMinor: number }>;
+    balanceSnapshots?: CustomerProfileBalanceSnapshot[]; reservations?: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
     notes?: Array<{ id: string; userId: string; text: string; authorStaffId: string; createdAt: string }>;
     riskFlags?: Array<{ userId: string; value: string }> } = {}) {
     this.users = clone(input.users ?? []); this.orders = clone(input.orders ?? []); this.consumptions = clone(input.consumptions ?? []);
@@ -99,8 +101,13 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
     return page(items, input.cursor, input.limit, 'customer_orders');
   }
 
-  async sumActiveReservations(input: { userId: string; currency: string }): Promise<number> {
-    return sum(this.reservations.filter((item) => item.userId === input.userId && item.currency === input.currency).map((item) => item.remainingMinor));
+  async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
+    return sum(this.reservations.filter((item) => item.userId === input.userId && item.currency === input.currency
+      && (!input.guildId || !item.guildId || item.guildId === input.guildId)).map((item) => item.remainingMinor));
+  }
+  countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): number {
+    return this.reservations.filter((item) => item.userId === input.userId && (!input.currency || item.currency === input.currency)
+      && (!input.guildId || !item.guildId || item.guildId === input.guildId) && item.remainingMinor > 0).length;
   }
   appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): void { this.balanceSnapshots.push(clone(snapshot)); }
   getLatestBalanceSnapshot(input: { userId: string; provider: string }): CustomerProfileBalanceSnapshot | null {
@@ -172,14 +179,25 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     return pageFromSorted(items, input.limit, 'customer_orders');
   }
 
-  async sumActiveReservations(input: { userId: string; currency: string }): Promise<number> {
+  async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
     const result = await this.pool.query(`SELECT COALESCE(sum(GREATEST(fr.amount_minor-COALESCE(events.settled_minor,0),0)),0) total
       FROM fund_reservations fr LEFT JOIN LATERAL (
         SELECT sum(CASE WHEN event_type IN ('CAPTURED','RELEASED','EXPIRED') THEN amount_minor ELSE 0 END) settled_minor
         FROM fund_reservation_events WHERE fund_reservation_id=fr.id
-      ) events ON true WHERE fr.user_id=$1 AND fr.currency=$2 AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')`,
-    [input.userId, input.currency]);
+      ) events ON true WHERE fr.user_id=$1 AND fr.currency=$2 AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')
+      AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM orders scoped_order LEFT JOIN gift_requests scoped_gift ON scoped_gift.order_id=scoped_order.id
+        WHERE scoped_order.guild_id=$3 AND (fr.order_id=scoped_order.id OR fr.gift_request_id=scoped_gift.id)))`,
+    [input.userId, input.currency, input.guildId ?? null]);
     return safeInteger(result.rows[0]?.total ?? 0);
+  }
+  async countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> {
+    const result = await this.pool.query(`SELECT count(*)::int total FROM fund_reservations fr
+      WHERE fr.user_id=$1 AND ($2::text IS NULL OR fr.currency=$2)
+      AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')
+      AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM orders scoped_order LEFT JOIN gift_requests scoped_gift ON scoped_gift.order_id=scoped_order.id
+        WHERE scoped_order.guild_id=$3 AND (fr.order_id=scoped_order.id OR fr.gift_request_id=scoped_gift.id)))`,
+      [input.userId, input.currency ?? null, input.guildId ?? null]);
+    return Number(result.rows[0]?.total ?? 0);
   }
   async appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): Promise<void> {
     await this.pool.query(`INSERT INTO provider_balance_snapshots
@@ -255,7 +273,7 @@ function pageQuery(request: FastifyRequest) { const query = request.query as { c
   return { cursor: query.cursor as string | undefined ?? null, limit }; }
 function param(request: FastifyRequest, key: string) { return String((request.params as Record<string, unknown>)[key] ?? ''); }
 function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : error.code === 'PROVIDER_UNAVAILABLE' ? 503 : 400, code: error.code, message: error.message }; }
-function consumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (
+export function consumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (
   SELECT 1 FROM orders scoped_order WHERE scoped_order.guild_id=${guildParameter} AND (
     scoped_order.id=${alias}.order_id
     OR EXISTS (SELECT 1 FROM gift_requests scoped_gift WHERE scoped_gift.id=${alias}.gift_request_id AND scoped_gift.order_id=scoped_order.id)
@@ -293,9 +311,18 @@ function page<T extends { id: string; createdAt: string }>(items: T[], cursor: s
   if (decoded && start === 0) throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.'); return pageFromSorted(items.slice(start), limit, resource); }
 function pageFromSorted<T extends { id: string; createdAt: string }>(items: T[], limit: number, resource: string): Page<T> { const pageItems = items.slice(0, limit); const last = pageItems.at(-1);
   return { items: clone(pageItems), nextCursor: items.length > limit && last ? encodeCursor(resource, last) : null }; }
-function encodeCursor(resource: string, item: { id: string; createdAt: string }) { return Buffer.from(JSON.stringify({ version: 1, resource, id: item.id, createdAt: item.createdAt })).toString('base64url'); }
-function decodeCursor(value: string | null, resource: string): { id: string; createdAt: string } | null { if (!value) return null; try { const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-  if (parsed.version !== 1 || parsed.resource !== resource || typeof parsed.id !== 'string' || typeof parsed.createdAt !== 'string') throw new Error(); return parsed; } catch { throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.'); } }
+function encodeCursor(resource: string, item: { id: string; createdAt: string }) {
+  if (resource !== 'customer_orders') throw new CustomerProfileError('VALIDATION_ERROR', 'cursor resource is invalid.');
+  return encodeKeysetCursor('customer-orders', { id: item.id, at: item.createdAt });
+}
+function decodeCursor(value: string | null, resource: string): { id: string; createdAt: string } | null {
+  if (!value) return null;
+  try {
+    if (resource !== 'customer_orders') throw new Error('invalid resource');
+    const parsed = decodeKeysetCursor(value, 'customer-orders');
+    return { id: parsed.id, createdAt: parsed.at };
+  } catch { throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.'); }
+}
 function mapOrder(row: Record<string, unknown>, customerId: string, guildId: string): CustomerProfileOrder { return { id: String(row.id), publicId: String(row.public_id ?? ''), customerId, guildId,
   status: String(row.status), gameKey: nullable(row.game_code_snapshot), serviceKey: nullable(row.service_code_snapshot), playerUserId: nullable(row.player_id),
   playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'CNY'),

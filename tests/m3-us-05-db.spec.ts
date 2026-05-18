@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresAccountStore } from '@blackcat/api/accounts';
 import { PostgresCommissionStore } from '@blackcat/api/commissions';
+import { decodeKeysetCursor } from '../apps/api/src/signed-cursor';
 
 const execFile = promisify(execFileCallback);
 let root = ''; let data = ''; let pool: Pool;
@@ -15,6 +16,7 @@ const otherBeneficiaryId = '00000000-0000-0000-0000-000000004211';
 const customerId = '00000000-0000-0000-0000-000000004212';
 const staffId = '00000000-0000-0000-0000-000000004213';
 const commissionId = '00000000-0000-0000-0000-000000004214';
+const guildId = '900000000000004200';
 
 describe('M3-US-05 PostgreSQL private financial history', () => {
   beforeAll(async () => {
@@ -29,9 +31,9 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
 
   test('paginates consumption facts without duplicates', async () => {
     const store = new PostgresAccountStore({ pool });
-    const first = await store.listConsumptions({ userId: customerId, cursor: null, limit: 2 });
+    const first = await store.listConsumptions({ userId: customerId, guildId, cursor: null, limit: 2 });
     expect(first.items.map((item) => item.type)).toEqual(['REVERSAL', 'GIFT']); expect(first.nextCursor).toBeTruthy();
-    const second = await store.listConsumptions({ userId: customerId, cursor: decode(first.nextCursor!), limit: 2 });
+    const second = await store.listConsumptions({ userId: customerId, guildId, cursor: decode(first.nextCursor!), limit: 2 });
     expect(second.items.map((item) => item.type)).toEqual(['ORDER']);
     expect(new Set([...first.items, ...second.items].map((item) => item.id)).size).toBe(3);
   });
@@ -69,7 +71,8 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
 });
 
 function decode(value: string): { occurredAt: string; id: string } {
-  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { occurredAt: string; id: string };
+  const cursor = decodeKeysetCursor(value, 'account-consumptions');
+  return { occurredAt: cursor.at, id: cursor.id };
 }
 
 function decodeCreatedCursor(value: string): { createdAt: string; id: string } {
@@ -82,11 +85,13 @@ async function seed() {
     ('${customerId}','Hidden Customer','ACTIVE',1,now(),now()),('${staffId}','Operator','ACTIVE',1,now(),now());
     INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
     VALUES ('${staffId}','${staffId}','L3_OPERATIONS','ACTIVE','MANUAL',1,now(),now());
-    INSERT INTO consumption_entries (id,user_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at) VALUES
-    ('00000000-0000-0000-0000-000000004220','${customerId}','ORDER_CHARGE','DEBIT',10000,'CNY','ORDER','00000000-0000-0000-0000-000000004230','history:order','2026-07-18T10:00:00Z'),
-    ('00000000-0000-0000-0000-000000004221','${customerId}','GIFT_CHARGE','DEBIT',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004231','history:gift','2026-07-18T11:00:00Z'),
-    ('00000000-0000-0000-0000-000000004222','${customerId}','REFUND_REVERSAL','CREDIT',1000,'CNY','REFUND','00000000-0000-0000-0000-000000004232','history:refund','2026-07-18T12:00:00Z'),
-    ('00000000-0000-0000-0000-000000004223','${beneficiaryId}','GIFT_CHARGE','DEBIT',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004233','history:other-gift','2026-07-18T12:30:00Z');
+    INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,amount_minor,currency,guild_id,completed_at,created_at,updated_at)
+    VALUES ('00000000-0000-0000-0000-000000004230','P-4230','${customerId}','${beneficiaryId}','COMPLETED',1,10000,'CNY','${guildId}','2026-07-18T10:00:00Z','2026-07-18T09:00:00Z','2026-07-18T10:00:00Z');
+    INSERT INTO consumption_entries (id,user_id,entry_type,direction,order_id,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at) VALUES
+    ('00000000-0000-0000-0000-000000004220','${customerId}','ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',10000,'CNY','ORDER','00000000-0000-0000-0000-000000004230','history:order','2026-07-18T10:00:00Z'),
+    ('00000000-0000-0000-0000-000000004221','${customerId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004231','history:gift','2026-07-18T11:00:00Z'),
+    ('00000000-0000-0000-0000-000000004222','${customerId}','REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000004230',1000,'CNY','REFUND','00000000-0000-0000-0000-000000004232','history:refund','2026-07-18T12:00:00Z'),
+    ('00000000-0000-0000-0000-000000004223','${beneficiaryId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004233','history:other-gift','2026-07-18T12:30:00Z');
     INSERT INTO referral_program_versions (id,program_type,version,status,active_program_key,award_mode,rate_bps,currency,eligible_order_spend,eligible_gift_spend,created_by_staff_id,activated_at,created_at)
     VALUES ('00000000-0000-0000-0000-000000004240','PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME','NET_SPEND_BPS',200,'CNY',true,true,'${staffId}',now(),now());
     INSERT INTO referral_attributions (id,program_version_id,beneficiary_user_id,referred_user_id,status,row_version,active_attribution_key,source_type,bound_by_staff_id,eligibility_checked_at,bound_at,created_at) VALUES
