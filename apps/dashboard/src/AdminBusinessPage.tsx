@@ -183,7 +183,7 @@ function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: 
       {detail.kind === 'LOADING' && <p aria-busy="true">正在载入详情...</p>}
       {detail.kind === 'FORBIDDEN' && <p role="alert">{detail.page === 'orders' ? '当前订单不在你的任务权限范围内。' : '当前账号无权查看此详情。'}{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
       {detail.kind === 'ERROR' && <p role="alert">详情暂时无法载入。{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
-      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
+      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
     </aside>
   );
 }

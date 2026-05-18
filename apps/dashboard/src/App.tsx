@@ -10,6 +10,9 @@ import { AdminBusinessRoute } from './AdminBusinessRoute.js';
 import { buildAdminBusinessNavigation, resolveAdminBusinessPage } from './admin-business.js';
 import { SecurityPage } from './SecurityPage.js';
 import { OperationsRoute } from './OperationsRoute.js';
+import { SettlementRoute } from './SettlementRoute.js';
+import { CustomerProfileRoute } from './CustomerProfileRoute.js';
+import { buildSettlementNavigation } from './settlements.js';
 
 export function App() {
   const manifest = buildDashboardManifest();
@@ -25,6 +28,8 @@ export function App() {
   const state = result ? buildDashboardState(result) : null;
   const adminNavigation = result?.capabilities ? buildAdminBusinessNavigation(result.capabilities.permissions) : [];
   const activeAdminPage = resolveAdminBusinessPage(window.location.pathname);
+  const profileMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/profile$/u);
+  const m6Navigation = result?.capabilities ? buildSettlementNavigation(result.capabilities.permissions) : [];
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f4f7f8', color: '#18282d' }}>
@@ -42,12 +47,17 @@ export function App() {
         <section style={{ padding: 24 }}><h1>暂时无法载入</h1><p>请稍后重试或向管理员提供请求编号。</p></section>
       )}
       {state?.kind === 'READY' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', minHeight: 'calc(100vh - 57px)' }}>
-          <nav aria-label="管理导航" style={{ padding: 16, background: '#fff', borderRight: '1px solid #d9e1e3' }}>
-            {state.navigation.map((item) => <a key={item.id} href={item.href} style={{ display: 'block', padding: '10px 8px', color: '#173238' }}>{item.label}</a>)}
-            {adminNavigation.map((item) => <a key={item.id} href={item.href} style={{ display: 'block', padding: '10px 8px', color: '#173238' }}>{item.label}</a>)}
+        <div className="dashboard-layout">
+          <nav className="dashboard-nav" aria-label="管理导航">
+            {[...state.navigation, ...adminNavigation, ...m6Navigation].filter((item,index,all) => all.findIndex((candidate) => candidate.href === item.href) === index).map((item) => <a key={item.id} href={item.href}>{item.label}</a>)}
           </nav>
-          {activeAdminPage
+          {profileMatch
+            ? <CustomerProfileRoute userId={decodeURIComponent(profileMatch[1]!)} capabilities={result!.capabilities!} />
+            : window.location.pathname === '/settlements'
+            ? <SettlementRoute section="settlements" capabilities={result!.capabilities!} />
+            : window.location.pathname === '/reports'
+            ? <SettlementRoute section="reports" capabilities={result!.capabilities!} />
+            : activeAdminPage
             ? <AdminBusinessRoute page={activeAdminPage} capabilities={result!.capabilities!} />
             : window.location.pathname === '/support'
             ? <SupportWorkbenchPage capabilities={result!.capabilities!} />

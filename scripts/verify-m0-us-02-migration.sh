@@ -27,6 +27,8 @@ psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000004_m6_weekly_reports/migration.sql >>/tmp/blackcat-migration-apply.out
 psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000005_m6_weekly_report_review_fixes/migration.sql >>/tmp/blackcat-migration-apply.out
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000006_m6_customer_profiles/migration.sql >>/tmp/blackcat-migration-apply.out
 
 psql_db() {
   psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
@@ -75,6 +77,9 @@ weekly_report_scope_constraint_count="$(psql_db -Atc "select count(*) from pg_co
   'player_weekly_reports_scope_key','weekly_report_summaries_scope_key','weekly_report_revisions_target_chk',
   'weekly_report_revisions_fingerprint_chk'
 )")"
+customer_profile_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
+  'trg_provider_balance_snapshots_append_only','trg_customer_profile_notes_append_only'
+)")"
 
 if [[ "$table_count" -lt 40 ]]; then
   echo "expected at least 40 public tables, got $table_count" >&2
@@ -113,6 +118,11 @@ fi
 
 if [[ "$weekly_report_scope_constraint_count" != "4" ]]; then
   echo "expected 4 weekly report scope/target/fingerprint constraints, got $weekly_report_scope_constraint_count" >&2
+  exit 1
+fi
+
+if [[ "$customer_profile_guard_count" != "2" ]]; then
+  echo "expected 2 customer profile append-only guards, got $customer_profile_guard_count" >&2
   exit 1
 fi
 
@@ -673,3 +683,4 @@ echo "settlement_guard_count=$settlement_guard_count"
 echo "weekly_report_table_count=$weekly_report_table_count"
 echo "weekly_report_guard_count=$weekly_report_guard_count"
 echo "weekly_report_scope_constraint_count=$weekly_report_scope_constraint_count"
+echo "customer_profile_guard_count=$customer_profile_guard_count"

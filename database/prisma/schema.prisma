@@ -495,6 +495,8 @@ model User {
   idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
   auditLogs            AuditLog[]            @relation("AuditActorUser")
   orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
+  providerBalanceSnapshots ProviderBalanceSnapshot[]
+  customerProfileNotes CustomerProfileNote[]
 
   @@index([status])
   @@map("users")
@@ -536,6 +538,37 @@ model ExternalAccount {
   @@unique([provider, externalUserId])
   @@index([userId, status])
   @@map("external_accounts")
+}
+
+/// Last-successful Provider observations only. Reserved and available values are never persisted here.
+model ProviderBalanceSnapshot {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  provider             String   @db.VarChar(50)
+  providerBalanceMinor BigInt   @map("provider_balance_minor")
+  currency             String   @db.Char(3)
+  fetchedAt            DateTime @map("fetched_at") @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, currency, fetchedAt])
+  @@map("provider_balance_snapshots")
+}
+
+/// Staff-only, append-only customer context. API projections never expose author identity below L3.
+model CustomerProfileNote {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  authorStaffId String   @map("author_staff_id") @db.Uuid
+  body          String   @db.VarChar(2000)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  author StaffAccount @relation("CustomerProfileNoteAuthor", fields: [authorStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("customer_profile_notes")
 }
 
 model StaffAccount {
@@ -588,6 +621,7 @@ model StaffAccount {
   idempotencyRecords     IdempotencyRecord[]       @relation("IdempotencyActorStaff")
   auditLogs              AuditLog[]                @relation("AuditActorStaff")
   riskEventsCreated      RiskEvent[]               @relation("RiskCreatedBy")
+  customerProfileNotes   CustomerProfileNote[]     @relation("CustomerProfileNoteAuthor")
   orderEvents            OrderEvent[]              @relation("OrderEventActorStaff")
   botConfigsUpdated      GuildBotConfig[]           @relation("BotConfigUpdatedBy")
   botConfigEvents        GuildBotConfigEvent[]      @relation("BotConfigEventActor")

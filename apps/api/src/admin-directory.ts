@@ -12,12 +12,13 @@ import {
 } from './security.js';
 import { PostgresOrderStore, type OrderRecord } from './orders.js';
 import { TransactionTimelineError, type TransactionTimelineStore } from './transaction-timeline.js';
+import type { CustomerProfileScope } from './customer-profiles.js';
 
 export type AdminOrderListItem = OrderRecord;
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 export interface AdminUserRecord { id: string; displayName: string; status: string; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number }
 export interface AdminPlayerRecord { playerId: string; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; activeOrderId: string | null; version: number }
-export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null }
+export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null; guildId?: string }
 export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; version: number; broadcastTemplate: string; createdAt: string }
 export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; senderId: string; receiverId: string; status: string; rowVersion: number; giftName: string; amountMinor: number; currency: string; announcementStatus: string; createdAt: string }
 interface Page<T> { items: T[]; nextCursor: string | null }
@@ -30,7 +31,7 @@ export interface AdminDirectoryStore {
   listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string }): Promise<Page<AdminOrderListItem>> | Page<AdminOrderListItem>;
   listUsers(input: PageInput & { query?: string }): Promise<Page<AdminUserRecord>> | Page<AdminUserRecord>;
   getUser(userId: string): Promise<AdminUserRecord | null> | AdminUserRecord | null;
-  listUserConsumptions(input: PageInput & { userId: string; type?: AdminConsumptionMirrorType }): Promise<Page<AdminConsumptionRecord>> | Page<AdminConsumptionRecord>;
+  listUserConsumptions(input: PageInput & { userId: string; guildId?: string; type?: AdminConsumptionMirrorType }): Promise<Page<AdminConsumptionRecord>> | Page<AdminConsumptionRecord>;
   setUserStatus(input: { userId: string; expectedVersion: number; status: string; reasonCode: string; note: string | null; actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminUserRecord>> | StagedAdminWrite<AdminUserRecord>;
   listPlayers(input: PageInput & { reviewStatus?: string }): Promise<Page<AdminPlayerRecord>> | Page<AdminPlayerRecord>;
   getPlayer(playerId: string): Promise<AdminPlayerRecord | null> | AdminPlayerRecord | null;
@@ -77,7 +78,10 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
   }
   listUsers(input: PageInput & { query?: string }) { return page(this.users.filter((item) => !input.query || `${item.displayName} ${item.id}`.toLowerCase().includes(input.query.toLowerCase())), input, 'users', userCursorKeys); }
   getUser(userId: string) { return clone(this.users.find((item) => item.id === userId) ?? null); }
-  listUserConsumptions(input: PageInput & { userId: string; type?: AdminConsumptionMirrorType }) { return page(this.consumptions.filter((item) => item.userId === input.userId && (!input.type || item.type === input.type)), input, 'user_consumptions', consumptionCursorKeys); }
+  listUserConsumptions(input: PageInput & { userId: string; guildId?: string; type?: AdminConsumptionMirrorType }) {
+    const scoped = this.consumptions.filter((item) => item.userId === input.userId && (!input.guildId || item.guildId === input.guildId) && (!input.type || item.type === input.type));
+    return page(scoped.map(({ guildId: _guildId, ...item }) => item), input, 'user_consumptions', consumptionCursorKeys);
+  }
   listPlayers(input: PageInput & { reviewStatus?: string }) { return page(this.players.filter((item) => !input.reviewStatus || item.reviewStatus === input.reviewStatus), input, 'players', playerCursorKeys); }
   getPlayer(playerId: string) { return clone(this.players.find((item) => item.playerId === playerId) ?? null); }
   listGiftCatalog(input: PageInput) { return page(this.gifts, input, 'gift_catalog', giftCatalogCursorKeys); }
@@ -184,13 +188,14 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
     return rows.rows[0] ? mapUser(rows.rows[0]) : null;
   }
 
-  async listUserConsumptions(input: PageInput & { userId: string; type?: AdminConsumptionMirrorType }) {
+  async listUserConsumptions(input: PageInput & { userId: string; guildId?: string; type?: AdminConsumptionMirrorType }) {
     const entryType = input.type ? consumptionEntryTypeByMirrorType[input.type] : null;
     const keys = cursorKeys(input.cursor, 'user_consumptions');
     const rows = await this.pool.query<ConsumptionRow>(`SELECT id, user_id, entry_type::text, source_id, amount_minor, currency, direction::text, occurred_at, reversal_of_entry_id
-      FROM consumption_entries WHERE user_id = $1 AND ($2::text IS NULL OR entry_type::text = $2)
-      AND ($3::timestamptz IS NULL OR (occurred_at, id) < ($3::timestamptz, $4::uuid))
-      ORDER BY occurred_at DESC, id DESC LIMIT $5`, [input.userId, entryType, keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1]);
+      FROM consumption_entries ce WHERE ce.user_id = $1 AND ($2::text IS NULL OR ce.entry_type::text = $2)
+      AND ($3::timestamptz IS NULL OR (ce.occurred_at, ce.id) < ($3::timestamptz, $4::uuid))
+      AND ($6::text IS NULL OR ${adminConsumptionGuildPredicate('ce', '$6')})
+      ORDER BY ce.occurred_at DESC, ce.id DESC LIMIT $5`, [input.userId, entryType, keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1, input.guildId ?? null]);
     const records = rows.rows.map((row) => ({ id: row.id, userId: row.user_id, type: mapConsumptionEntryType(row.entry_type), sourceId: row.source_id,
       amountMinor: (row.direction === 'DEBIT' ? 1 : -1) * safeMinorInteger(row.amount_minor), currency: row.currency, status: row.direction === 'DEBIT' ? 'SUCCEEDED' : 'REVERSED',
       occurredAt: new Date(row.occurred_at).toISOString(), reversalOf: row.reversal_of_entry_id }));
@@ -327,7 +332,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
       AND task.status IN ('CLAIMED', 'VERIFIED', 'PENDING_APPROVAL')))`, [input.giftRequestId, input.actorLevel, input.actorStaffId]); return rows.rows[0] ? mapGiftRequest(rows.rows[0]) : null; }
 }
 
-export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date }) {
+export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date }) {
   if (!server.securityOptions) throw new Error('Admin directory routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
@@ -345,9 +350,12 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
   });
   read('/api/v1/admin/users', 'user.read', 'LIST_ADMIN_USERS', 'user', (request) => options.store.listUsers({ ...pageQuery(request), query: queryString(request, 'query') }));
   read('/api/v1/admin/users/:userId', 'user.read', 'GET_ADMIN_USER', 'user', async (request) => required(await options.store.getUser(param(request, 'userId')), 'User'));
-  read('/api/v1/admin/users/:userId/consumptions', 'user.read', 'LIST_ADMIN_USER_CONSUMPTIONS', 'consumption_entry', async (request) => {
+  read('/api/v1/admin/users/:userId/consumptions', 'customer_profile.read', 'LIST_ADMIN_USER_CONSUMPTIONS', 'consumption_entry', async (request, actor) => {
     const userId = param(request, 'userId');
-    return { userId, ...await options.store.listUserConsumptions({ ...pageQuery(request), userId, type: consumptionType(request) }) };
+    if (!actor.guildId || !options.customerScope || !await options.customerScope.canReadCustomer({ userId, actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId })) {
+      throw new AdminDirectoryError('NOT_FOUND', 'Customer was not found.');
+    }
+    return { userId, ...await options.store.listUserConsumptions({ ...pageQuery(request), userId, guildId: actor.guildId, type: consumptionType(request) }) };
   });
   read('/api/v1/admin/players', 'player.read', 'LIST_ADMIN_PLAYERS', 'player_profile', (request) => options.store.listPlayers({ ...pageQuery(request), reviewStatus: enumQuery(request, 'reviewStatus', ['PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'SUSPENDED']) }));
   read('/api/v1/admin/players/:playerId', 'player.read', 'GET_ADMIN_PLAYER', 'player_profile', async (request) => required(await options.store.getPlayer(param(request, 'playerId')), 'Player'));
@@ -372,6 +380,18 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
 function bindAudit<T>(write: StagedAdminWrite<T>, auditSink: AuditSink) {
   return { data: write.data, commit: (auditRecord: AuditRecord) => write.commit(auditRecord, auditSink) };
 }
+
+function adminConsumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (
+  SELECT 1 FROM orders scoped_order WHERE scoped_order.guild_id=${guildParameter} AND (
+    scoped_order.id=${alias}.order_id
+    OR EXISTS (SELECT 1 FROM gift_requests scoped_gift WHERE scoped_gift.id=${alias}.gift_request_id AND scoped_gift.order_id=scoped_order.id)
+    OR EXISTS (SELECT 1 FROM refunds scoped_refund LEFT JOIN gift_requests refund_gift ON refund_gift.id=scoped_refund.gift_request_id
+      WHERE scoped_refund.id=${alias}.refund_id AND (scoped_refund.order_id=scoped_order.id OR refund_gift.order_id=scoped_order.id))
+    OR EXISTS (SELECT 1 FROM consumption_entries original LEFT JOIN gift_requests original_gift ON original_gift.id=original.gift_request_id
+      LEFT JOIN refunds original_refund ON original_refund.id=original.refund_id LEFT JOIN gift_requests original_refund_gift ON original_refund_gift.id=original_refund.gift_request_id
+      WHERE original.id=${alias}.reversal_of_entry_id AND (original.order_id=scoped_order.id OR original_gift.order_id=scoped_order.id
+        OR original_refund.order_id=scoped_order.id OR original_refund_gift.order_id=scoped_order.id))
+  ))`; }
 
 function buildUpdatedGift(
   current: AdminGiftCatalogRecord,

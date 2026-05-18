@@ -38,6 +38,7 @@ import type { DashboardMetricsStore } from './dashboard-metrics.js';
 import { registerBotConfigRoutes, type BotConfigRouteOptions } from './bot-config.js';
 import { registerSettlementRoutes, type SettlementRouteOptions } from './settlements.js';
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
+import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -118,8 +119,9 @@ export interface ApiServerOptions {
   botConfig?: BotConfigRouteOptions;
   settlements?: SettlementRouteOptions;
   weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
+  customerProfiles?: { store: CustomerProfileStore; fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; now?: () => Date };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
-  adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
+  adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
 }
@@ -319,6 +321,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.weeklyReports) {
     if (!server.securityOptions) throw new Error('Weekly report routes require buildApiServer({ security, weeklyReports })');
     registerWeeklyReportRoutes(server, options.weeklyReports);
+  }
+  if (options.customerProfiles) {
+    if (!server.securityOptions) throw new Error('Customer profile routes require buildApiServer({ security, customerProfiles })');
+    registerCustomerProfileRoutes(server, options.customerProfiles);
   }
 
   return server;

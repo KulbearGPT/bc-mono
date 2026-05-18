@@ -1,0 +1,14 @@
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, select, textarea { font: inherit; }
+input, select, textarea { min-width: 0; border: 1px solid #9aabad; border-radius: 4px; padding: 8px; background: #fff; }
+.dashboard-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 57px); }
+.dashboard-nav { padding: 16px; background: #fff; border-right: 1px solid #d9e1e3; min-width: 0; }
+.dashboard-nav a { display: block; padding: 10px 8px; color: #173238; }
+@media (max-width: 720px) {
+  .dashboard-layout { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-nav { display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #d9e1e3; padding: 8px 12px; }
+  .dashboard-nav a { flex: 0 0 auto; }
+  h1 { font-size: 22px !important; }
+  section { max-width: 100%; }
+}

@@ -8,15 +8,19 @@
     "./gift-review": "./src/gift-review.ts",
     "./dashboard-shell": "./src/dashboard-shell.ts",
     "./support-workbench": "./src/support-workbench.ts",
-    "./operations": "./src/operations.ts"
+    "./operations": "./src/operations.ts",
+    "./settlements": "./src/settlements.ts",
+    "./customer-profile": "./src/customer-profile.ts"
   },
   "scripts": {
+    "build": "vite build",
     "dev": "vite --host 0.0.0.0 --port 5173",
     "start": "vite --host 0.0.0.0 --port 5173",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.3",
+    "lucide-react": "^0.468.0",
     "vite": "^8.1.5"
   },
   "devDependencies": {
