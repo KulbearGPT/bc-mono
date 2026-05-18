@@ -36,6 +36,7 @@ import { registerOperationsRoutes, type OperationsStore } from './operations.js'
 import type { TransactionTimelineStore } from './transaction-timeline.js';
 import type { DashboardMetricsStore } from './dashboard-metrics.js';
 import { registerBotConfigRoutes, type BotConfigRouteOptions } from './bot-config.js';
+import { registerSettlementRoutes, type SettlementRouteOptions } from './settlements.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -114,6 +115,7 @@ export interface ApiServerOptions {
   dashboardAuth?: DashboardAuthOptions;
   dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
   botConfig?: BotConfigRouteOptions;
+  settlements?: SettlementRouteOptions;
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
@@ -308,6 +310,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.adminDirectory) registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);
   if (options.botConfig) registerBotConfigRoutes(server, options.botConfig);
+  if (options.settlements) {
+    if (!server.securityOptions) throw new Error('Settlement routes require buildApiServer({ security, settlements })');
+    registerSettlementRoutes(server, options.settlements);
+  }
 
   return server;
 }

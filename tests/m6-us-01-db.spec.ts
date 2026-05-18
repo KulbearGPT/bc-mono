@@ -42,7 +42,8 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_settlements']);
     for (const migration of [
       'database/prisma/migrations/000001_p0_baseline/migration.sql',
-      'database/prisma/migrations/000002_m6_settlements/migration.sql'
+      'database/prisma/migrations/000002_m6_settlements/migration.sql',
+      'database/prisma/migrations/000003_m6_settlement_review/migration.sql'
     ]) {
       await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_settlements', '-v', 'ON_ERROR_STOP=1', '-f', migration]);
     }
@@ -400,7 +401,7 @@ async function insertEmptyBatch(batchId: string, itemId: string, itemPlayerId = 
     VALUES ($1,$5,'MANUAL',$2,$3,$3,'Asia/Shanghai','CNY',10000,0,10000,'DRAFT',1,$4,now(),now())`,
   [batchId, '2026-07-12T16:00:00.000Z', cutoffAt, staffId, `SET-${batchId.slice(-12)}`]);
   await pool.query(`INSERT INTO settlement_items
-    (id,settlement_batch_id,player_user_id,gross_amount_minor,adjustment_amount_minor,net_amount_minor,currency,payment_status,row_version,created_at,updated_at)
-    VALUES ($1,$2,$3,10000,0,10000,'CNY','PENDING',1,$4,$4)`,
+    (id,settlement_batch_id,player_user_id,player_display_name,gross_amount_minor,adjustment_amount_minor,net_amount_minor,currency,payment_status,row_version,created_at,updated_at)
+    VALUES ($1,$2,$3,'Test Player',10000,0,10000,'CNY','PENDING',1,$4,$4)`,
   [itemId, batchId, itemPlayerId, cutoffAt]);
 }

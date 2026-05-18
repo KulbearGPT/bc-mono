@@ -1589,6 +1589,9 @@ model SettlementItem {
   id                       String                      @id @default(uuid()) @db.Uuid
   settlementBatchId        String                      @map("settlement_batch_id") @db.Uuid
   playerUserId             String                      @map("player_user_id") @db.Uuid
+  playerDisplayName        String                      @map("player_display_name") @db.VarChar(200)
+  playerDiscordUserId      String?                     @map("player_discord_user_id") @db.VarChar(32)
+  externalAccountDisplay   String?                     @map("external_account_display") @db.VarChar(200)
   grossAmountMinor         BigInt                      @map("gross_amount_minor")
   adjustmentAmountMinor    BigInt                      @map("adjustment_amount_minor")
   netAmountMinor           BigInt                      @map("net_amount_minor")

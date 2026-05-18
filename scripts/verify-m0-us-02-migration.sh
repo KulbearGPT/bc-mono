@@ -21,6 +21,8 @@ psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000001_p0_baseline/migration.sql >/tmp/blackcat-migration-apply.out
 psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000002_m6_settlements/migration.sql >>/tmp/blackcat-migration-apply.out
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000003_m6_settlement_review/migration.sql >>/tmp/blackcat-migration-apply.out
 
 psql_db() {
   psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
@@ -606,13 +608,13 @@ psql_db -qAtc "
     ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', 'MANUAL', now()-interval '7 days', now(), now(),
       'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
   INSERT INTO settlement_items (
-    id, settlement_batch_id, player_user_id, gross_amount_minor, adjustment_amount_minor,
+    id, settlement_batch_id, player_user_id, player_display_name, gross_amount_minor, adjustment_amount_minor,
     net_amount_minor, currency, updated_at
   ) VALUES
     ('00000000-0000-0000-0000-000000000705', '00000000-0000-0000-0000-000000000703',
-      '00000000-0000-0000-0000-000000000001', 1000, 0, 1000, 'CNY', now()),
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CNY', now()),
     ('00000000-0000-0000-0000-000000000706', '00000000-0000-0000-0000-000000000704',
-      '00000000-0000-0000-0000-000000000001', 1000, 0, 1000, 'CNY', now());
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CNY', now());
   INSERT INTO settlement_item_entries (
     id, settlement_item_id, entry_type, player_earning_id, amount_minor, currency, occurred_at
   ) VALUES (

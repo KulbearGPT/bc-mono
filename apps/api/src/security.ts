@@ -123,6 +123,7 @@ export interface SecureRouteOptions {
     actor: ActorContext,
     payload: unknown
   ) => Pick<AuditRecord, 'beforeSnapshot' | 'afterSnapshot'>;
+  rawResponse?: (payload: unknown, reply: FastifyReply) => unknown;
 }
 
 type SecureHandler = (request: FastifyRequest, actor: ActorContext) => Promise<unknown> | unknown;
@@ -332,7 +333,7 @@ export function registerSecureReadRoute(
   server: FastifyInstance,
   securityOptions: SecurityOptions,
   route: SecureRouteOptions & {
-    method: 'GET';
+    method: 'GET' | 'POST';
     url: string;
     handler: SecureHandler;
   }
@@ -409,6 +410,7 @@ export function registerSecureReadRoute(
           reason: route.successReason?.(request) ?? null
         });
         reply.code(route.successStatusCode ?? 200);
+        if (route.rawResponse) return route.rawResponse(payload, reply);
         return {
           requestId,
           data: payload
