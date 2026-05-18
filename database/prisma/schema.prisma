@@ -1660,11 +1660,14 @@ model SettlementItemEntry {
 
 model PlayerWeeklyReport {
   id                       String             @id @default(uuid()) @db.Uuid
-  reportKey                String             @unique @map("report_key") @db.VarChar(200)
+  reportKey                String             @unique @map("report_key") @db.VarChar(500)
+  guildId                  String             @map("guild_id") @db.VarChar(32)
+  scheduleKey              String             @map("schedule_key") @db.VarChar(120)
   playerUserId             String             @map("player_user_id") @db.Uuid
   settlementBatchId        String?            @map("settlement_batch_id") @db.Uuid
   periodStart              DateTime           @map("period_start") @db.Timestamptz(3)
   periodEnd                DateTime           @map("period_end") @db.Timestamptz(3)
+  cutoffAt                 DateTime           @map("cutoff_at") @db.Timestamptz(3)
   timeZone                 String             @map("time_zone") @db.VarChar(80)
   currency                 String             @db.Char(3)
   status                   WeeklyReportStatus @default(READY)
@@ -1686,17 +1689,22 @@ model PlayerWeeklyReport {
   batch        SettlementBatch?         @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   revisions    WeeklyReportRevision[]
 
-  @@index([playerUserId, periodEnd])
-  @@index([status, periodEnd])
+  @@unique([guildId, scheduleKey, periodStart, periodEnd, currency, playerUserId])
+  @@index([guildId, periodEnd, id])
+  @@index([guildId, playerUserId, periodEnd, id])
+  @@index([guildId, status, periodEnd])
   @@map("player_weekly_reports")
 }
 
 model WeeklyReportSummary {
   id                       String             @id @default(uuid()) @db.Uuid
-  reportKey                String             @unique @map("report_key") @db.VarChar(200)
+  reportKey                String             @unique @map("report_key") @db.VarChar(500)
+  guildId                  String             @map("guild_id") @db.VarChar(32)
+  scheduleKey              String             @map("schedule_key") @db.VarChar(120)
   settlementBatchId        String?            @map("settlement_batch_id") @db.Uuid
   periodStart              DateTime           @map("period_start") @db.Timestamptz(3)
   periodEnd                DateTime           @map("period_end") @db.Timestamptz(3)
+  cutoffAt                 DateTime           @map("cutoff_at") @db.Timestamptz(3)
   timeZone                 String             @map("time_zone") @db.VarChar(80)
   currency                 String             @db.Char(3)
   status                   WeeklyReportStatus @default(READY)
@@ -1717,7 +1725,9 @@ model WeeklyReportSummary {
   batch     SettlementBatch?       @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   revisions WeeklyReportRevision[]
 
-  @@index([status, periodEnd])
+  @@unique([guildId, scheduleKey, periodStart, periodEnd, currency])
+  @@index([guildId, periodEnd, id])
+  @@index([guildId, status, periodEnd])
   @@map("weekly_report_summaries")
 }
 
@@ -1730,6 +1740,8 @@ model WeeklyReportRevision {
   revision              Int
   snapshot              Json                     @db.JsonB
   reason                String                   @db.VarChar(1000)
+  idempotencyKey        String                   @unique @map("idempotency_key") @db.VarChar(200)
+  requestFingerprint    String                   @map("request_fingerprint") @db.VarChar(64)
   createdByStaffId      String                   @map("created_by_staff_id") @db.Uuid
   createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
 

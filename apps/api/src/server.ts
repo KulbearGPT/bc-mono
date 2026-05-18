@@ -37,6 +37,7 @@ import type { TransactionTimelineStore } from './transaction-timeline.js';
 import type { DashboardMetricsStore } from './dashboard-metrics.js';
 import { registerBotConfigRoutes, type BotConfigRouteOptions } from './bot-config.js';
 import { registerSettlementRoutes, type SettlementRouteOptions } from './settlements.js';
+import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -116,6 +117,7 @@ export interface ApiServerOptions {
   dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
   botConfig?: BotConfigRouteOptions;
   settlements?: SettlementRouteOptions;
+  weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
@@ -200,7 +202,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   const env = options.env ?? process.env;
   const server = Fastify({ logger: false });
   server.securityOptions = options.security
-    ? { env, now: options.dashboardAuth?.now, ...options.security }
+    ? { env, now: options.dashboardAuth?.now, dashboardGuildId: options.dashboardAuth?.guildId, ...options.security }
     : undefined;
 
   server.get('/health', async (request) => {
@@ -313,6 +315,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.settlements) {
     if (!server.securityOptions) throw new Error('Settlement routes require buildApiServer({ security, settlements })');
     registerSettlementRoutes(server, options.settlements);
+  }
+  if (options.weeklyReports) {
+    if (!server.securityOptions) throw new Error('Weekly report routes require buildApiServer({ security, weeklyReports })');
+    registerWeeklyReportRoutes(server, options.weeklyReports);
   }
 
   return server;

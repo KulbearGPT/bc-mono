@@ -114,6 +114,12 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
     return { messageId: requiredString(response.id, 'message.id') };
   }
 
+  async sendDirectMessage(input: { discordUserId: string; content: string; dedupeKey: string; notBefore: string }): Promise<{ messageId: string }> {
+    const channel = await this.request('/users/@me/channels', { method: 'POST', body: { recipient_id: input.discordUserId } });
+    return this.sendMessage({ channelId: requiredString(channel.id, 'dm_channel.id'), content: input.content,
+      dedupeKey: input.dedupeKey, notBefore: input.notBefore });
+  }
+
   async archiveChannel(channelId: string): Promise<void> {
     const channel = await this.request(`/channels/${encodeURIComponent(channelId)}`, { method: 'GET' });
     const guildId = requiredString(channel.guild_id, 'channel.guild_id');

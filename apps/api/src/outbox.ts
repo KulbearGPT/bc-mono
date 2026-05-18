@@ -9,7 +9,9 @@ export type JobType =
   | 'CHANNEL_ARCHIVE'
   | 'PANEL_SYNC'
   | 'CHANNEL_CREATE_FAILURE'
-  | 'ROLE_RECONCILIATION';
+  | 'ROLE_RECONCILIATION'
+  | 'WEEKLY_REPORT_GENERATE'
+  | 'WEEKLY_REPORT_NOTIFY';
 
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -80,7 +82,9 @@ const deliveryJobTypes = new Set<JobType>([
   'READINESS_TIMEOUT',
   'CHANNEL_ARCHIVE',
   'PANEL_SYNC',
-  'ROLE_RECONCILIATION'
+  'ROLE_RECONCILIATION',
+  'WEEKLY_REPORT_GENERATE',
+  'WEEKLY_REPORT_NOTIFY'
 ]);
 
 export class OutboxError extends Error {

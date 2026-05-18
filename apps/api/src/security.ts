@@ -100,6 +100,7 @@ export interface SecurityOptions {
   idempotencyStore?: IdempotencyStore;
   staffDirectory?: StaffDirectory;
   dashboardSessions?: DashboardSessionResolver;
+  dashboardGuildId?: string;
   stepUpVerifier?: {
     verify(input: { request: FastifyRequest; actor: ActorContext }): boolean | Promise<boolean>;
   };
@@ -799,7 +800,7 @@ async function authenticateActor(
         actorLevel: staff.level,
         actorSource: 'DASHBOARD',
         clientId: 'DASHBOARD',
-        guildId: null,
+        guildId: securityOptions.dashboardGuildId?.trim() || null,
         discordUserId: null,
         interactionId: null,
         permissionsVersion: staff.permissionsVersion

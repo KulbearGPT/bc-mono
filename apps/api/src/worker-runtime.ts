@@ -11,7 +11,9 @@ export const productionJobTypes = [
   'READINESS_TIMEOUT',
   'CHANNEL_ARCHIVE',
   'PANEL_SYNC',
-  'ROLE_RECONCILIATION'
+  'ROLE_RECONCILIATION',
+  'WEEKLY_REPORT_GENERATE',
+  'WEEKLY_REPORT_NOTIFY'
 ] as const satisfies readonly JobType[];
 
 export function createProductionHandlerMap(input: {
@@ -23,6 +25,8 @@ export function createProductionHandlerMap(input: {
   channelArchive: OutboxHandler;
   panelSync: OutboxHandler;
   roleReconciliation: OutboxHandler;
+  weeklyReportGenerate: OutboxHandler;
+  weeklyReportNotify: OutboxHandler;
 }): Record<(typeof productionJobTypes)[number], OutboxHandler> {
   return {
     GIFT_ANNOUNCEMENT: input.giftAnnouncement,
@@ -32,7 +36,9 @@ export function createProductionHandlerMap(input: {
     READINESS_TIMEOUT: input.readinessTimeout,
     CHANNEL_ARCHIVE: input.channelArchive,
     PANEL_SYNC: input.panelSync,
-    ROLE_RECONCILIATION: input.roleReconciliation
+    ROLE_RECONCILIATION: input.roleReconciliation,
+    WEEKLY_REPORT_GENERATE: input.weeklyReportGenerate,
+    WEEKLY_REPORT_NOTIFY: input.weeklyReportNotify
   };
 }
 

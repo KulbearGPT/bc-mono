@@ -24,6 +24,7 @@ import { PostgresOperationsStore } from './operations.js';
 import { PostgresTransactionTimelineStore } from './transaction-timeline.js';
 import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
+import { PostgresWeeklyReportStore } from './weekly-reports.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -60,6 +61,7 @@ const giftStore = new PostgresGiftStore(databasePool);
 const playerEarningStore = new PostgresPlayerEarningStore(databasePool);
 const commissionStore = new PostgresCommissionStore(databasePool);
 const referralStore = new PostgresReferralAttributionStore(databasePool);
+const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
@@ -166,6 +168,9 @@ const server = buildApiServer({
   },
   referrals: {
     store: referralStore
+  },
+  weeklyReports: {
+    store: weeklyReportStore
   },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,

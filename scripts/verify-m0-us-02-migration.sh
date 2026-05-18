@@ -23,6 +23,10 @@ psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000002_m6_settlements/migration.sql >>/tmp/blackcat-migration-apply.out
 psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
   -f database/prisma/migrations/000003_m6_settlement_review/migration.sql >>/tmp/blackcat-migration-apply.out
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000004_m6_weekly_reports/migration.sql >>/tmp/blackcat-migration-apply.out
+psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+  -f database/prisma/migrations/000005_m6_weekly_report_review_fixes/migration.sql >>/tmp/blackcat-migration-apply.out
 
 psql_db() {
   psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
@@ -59,6 +63,18 @@ settlement_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tg
   'trg_settlement_entries_append_only','trg_settlement_payment_results_append_only',
   'trg_settlement_items_no_delete','trg_settlement_batches_no_delete'
 )")"
+weekly_report_table_count="$(psql_db -Atc "select count(*) from information_schema.tables where table_schema='public' and table_name in (
+  'player_weekly_reports','weekly_report_summaries','weekly_report_revisions'
+)")"
+weekly_report_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
+  'trg_player_weekly_report_projection','trg_summary_weekly_report_projection',
+  'trg_weekly_report_revisions_append_only','trg_player_weekly_reports_no_delete',
+  'trg_weekly_report_summaries_no_delete'
+)")"
+weekly_report_scope_constraint_count="$(psql_db -Atc "select count(*) from pg_constraint where conname in (
+  'player_weekly_reports_scope_key','weekly_report_summaries_scope_key','weekly_report_revisions_target_chk',
+  'weekly_report_revisions_fingerprint_chk'
+)")"
 
 if [[ "$table_count" -lt 40 ]]; then
   echo "expected at least 40 public tables, got $table_count" >&2
@@ -82,6 +98,21 @@ fi
 
 if [[ "$settlement_guard_count" != "9" ]]; then
   echo "expected 9 settlement guard triggers, got $settlement_guard_count" >&2
+  exit 1
+fi
+
+if [[ "$weekly_report_table_count" != "3" ]]; then
+  echo "expected 3 weekly report tables, got $weekly_report_table_count" >&2
+  exit 1
+fi
+
+if [[ "$weekly_report_guard_count" != "5" ]]; then
+  echo "expected 5 weekly report guard triggers, got $weekly_report_guard_count" >&2
+  exit 1
+fi
+
+if [[ "$weekly_report_scope_constraint_count" != "4" ]]; then
+  echo "expected 4 weekly report scope/target/fingerprint constraints, got $weekly_report_scope_constraint_count" >&2
   exit 1
 fi
 
@@ -639,3 +670,6 @@ echo "constraint_count=$constraint_count"
 echo "trigger_count=$trigger_count"
 echo "settlement_table_count=$settlement_table_count"
 echo "settlement_guard_count=$settlement_guard_count"
+echo "weekly_report_table_count=$weekly_report_table_count"
+echo "weekly_report_guard_count=$weekly_report_guard_count"
+echo "weekly_report_scope_constraint_count=$weekly_report_scope_constraint_count"

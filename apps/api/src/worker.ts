@@ -18,6 +18,7 @@ import {
   createRoleReconciliationHandler
 } from './worker-handlers.js';
 import { ProductionOutboxRuntime, createPanelSyncHandler, createProductionHandlerMap } from './worker-runtime.js';
+import { PostgresWeeklyReportStore, createWeeklyReportGenerationHandler, createWeeklyReportNotificationHandler } from './weekly-reports.js';
 
 const READY_FILE = '/tmp/blackcat-worker-ready';
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: false });
@@ -36,6 +37,7 @@ const lifecycleStore = new PostgresServiceLifecycleStore({ pool });
 const giftStore = new PostgresGiftStore(pool);
 const dispatchMessageStore = new PostgresDispatchMessageStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);
+const weeklyReportStore = new PostgresWeeklyReportStore(pool);
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
@@ -70,7 +72,10 @@ const runtime = new ProductionOutboxRuntime({
     panelSync: createPanelSyncHandler({ store: panelStore, discord: panelDiscord }),
     roleReconciliation: createRoleReconciliationHandler({
       reconcile: (guildId, mappingVersion, observedAt) => delivery.reconcileRoles(guildId, mappingVersion, observedAt)
-    })
+    }),
+    weeklyReportGenerate: createWeeklyReportGenerationHandler({ store: weeklyReportStore }),
+    weeklyReportNotify: createWeeklyReportNotificationHandler({ store: weeklyReportStore,
+      sendDirectMessage: (message) => delivery.sendDirectMessage(message) })
   })
 });
 
@@ -84,7 +89,15 @@ try {
   await writeFile(READY_FILE, new Date().toISOString(), 'utf8');
   console.log(JSON.stringify({ level: 'info', event: 'worker.started', recoveredJobs: recovered.length }));
   const pollIntervalMs = positiveInteger(process.env.WORKER_POLL_INTERVAL_MS, 500);
+  const reportGuildId = process.env.DISCORD_GUILD_ID?.trim();
+  let nextReportScheduleCheckAt = 0;
   while (!stopping) {
+    const loopNow = Date.now();
+    if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
+      await weeklyReportStore.enqueueScheduledGeneration({ guildId: reportGuildId, scheduleKey: 'weekly-cny',
+        timeZone: process.env.WEEKLY_REPORT_TIME_ZONE?.trim() || 'Asia/Shanghai', now: new Date(loopNow), weekStartsOn: 1 });
+      nextReportScheduleCheckAt = loopNow + 60_000;
+    }
     const completed = await runtime.runOnce();
     if (completed.length === 0) await sleep(pollIntervalMs);
   }
