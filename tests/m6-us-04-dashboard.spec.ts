@@ -66,6 +66,15 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     }
   });
 
+  test('requires explicit per-item payment outcomes instead of fabricating failed facts', () => {
+    const source = readFileSync('apps/dashboard/src/SettlementPage.tsx', 'utf8');
+    expect(source).not.toContain('MANUAL_REVIEW_REQUIRED');
+    expect(source).not.toMatch(/action === 'PAYMENT_RESULTS'[\s\S]*result: 'FAILED'/u);
+    expect(source).toContain('请选择结果');
+    expect(source).toContain('第三方批次号');
+    expect(source).toContain('确认登记');
+  });
+
   test('builds independent Profile requests and keeps a balance failure from hiding statistics or orders', () => {
     expect(buildCustomerProfileRequests('customer/1', 'DAYS_90')).toEqual({
       summary: '/api/v1/admin/users/customer%2F1/profile-summary?window=DAYS_90',

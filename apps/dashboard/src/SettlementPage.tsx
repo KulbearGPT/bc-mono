@@ -30,6 +30,8 @@ export function SettlementPage(props: { model: SettlementPageModel; onRetry: () 
 }
 
 function RowActions({ model, item, onAction }: { model: SettlementPageModel; item: Record<string, unknown>; onAction: (action: SettlementAction, item?: Record<string, unknown>, fields?: Record<string, unknown>) => void }) {
+  const [showPaymentEditor, setShowPaymentEditor] = useState(false);
+  const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
   if (model.section === 'reports') return <button style={button} onClick={() => onAction('EXPORT', item, { exportType: 'CURRENT' })}><Download size={15} />CSV</button>;
   const status = String(item.status); const actions: Array<[SettlementAction, string, typeof Send]> = [];
   if (status === 'DRAFT' && model.actions.includes('SUBMIT')) actions.push(['SUBMIT','提交复核',Send]);
@@ -37,7 +39,38 @@ function RowActions({ model, item, onAction }: { model: SettlementPageModel; ite
   if (['APPROVED','EXPORTED','PARTIALLY_PAID'].includes(status) && model.actions.includes('EXPORT')) actions.push(['EXPORT','清单',Download]);
   if (['APPROVED','EXPORTED','PARTIALLY_PAID'].includes(status) && model.actions.includes('PAYMENT_RESULTS')) actions.push(['PAYMENT_RESULTS','登记结果',FileText]);
   if (model.actions.includes('VOID') && ['DRAFT','PENDING_REVIEW','APPROVED','EXPORTED'].includes(status)) actions.push(['VOID','作废',XCircle]);
-  return <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{actions.map(([action,label,Icon]) => <button key={action} style={button} onClick={() => onAction(action, item, defaultFields(action, item))}><Icon size={15} />{label}</button>)}</div>;
+  const unpaidItems = Array.isArray(item.items) ? item.items.filter((value) => (value as Record<string, unknown>).paymentStatus !== 'SUCCEEDED') as Record<string, unknown>[] : [];
+  const results = unpaidItems.flatMap((row) => {
+    const draft = paymentDrafts[String(row.id)];
+    if (!draft?.result) return [];
+    return [{ settlementItemId: row.id, expectedVersion: row.version, result: draft.result,
+      amountMinor: draft.result === 'SUCCEEDED' ? Number(row.netAmountMinor ?? 0) : 0, currency: item.currency,
+      externalBatchReference: draft.externalBatchReference, note: draft.note }];
+  });
+  const canSubmitResults = results.length > 0 && results.every((result) => result.externalBatchReference.trim() || result.note.trim());
+  return <div style={{ display: 'grid', gap: 8, minWidth: 260 }}>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{actions.map(([action,label,Icon]) => <button key={action} type="button" style={button} onClick={() => {
+      if (action === 'PAYMENT_RESULTS') setShowPaymentEditor((visible) => !visible);
+      else onAction(action, item, defaultFields(action));
+    }}><Icon size={15} />{label}</button>)}</div>
+    {showPaymentEditor && <div style={{ ...panel, padding: 10, display: 'grid', gap: 10, minWidth: 360 }}>
+      {unpaidItems.length === 0 && <span>没有待登记的结算条目。</span>}
+      {unpaidItems.map((row) => {
+        const id = String(row.id); const draft = paymentDrafts[id] ?? emptyPaymentDraft;
+        const update = (fields: Partial<PaymentDraft>) => setPaymentDrafts((current) => ({ ...current, [id]: { ...draft, ...fields } }));
+        return <fieldset key={id} style={{ border: '1px solid #d8e1e3', borderRadius: 6, padding: 10, display: 'grid', gap: 7 }}>
+          <legend>{String(row.playerDisplayName ?? row.externalAccountDisplay ?? row.id)}</legend>
+          <label style={{ display: 'grid', gap: 4 }}>付款结果<select value={draft.result} onChange={(event) => update({ result: event.target.value as PaymentDraft['result'] })}>
+            <option value="">请选择结果</option><option value="SUCCEEDED">已支付</option><option value="FAILED">支付失败</option>
+          </select></label>
+          <label style={{ display: 'grid', gap: 4 }}>第三方批次号<input value={draft.externalBatchReference} onChange={(event) => update({ externalBatchReference: event.target.value })} placeholder="成功时建议填写" /></label>
+          <label style={{ display: 'grid', gap: 4 }}>登记说明<input value={draft.note} onChange={(event) => update({ note: event.target.value })} placeholder="失败原因或人工核对说明" /></label>
+        </fieldset>;
+      })}
+      <div><button type="button" style={{ ...button, opacity: canSubmitResults ? 1 : 0.55 }} disabled={!canSubmitResults}
+        onClick={() => onAction('PAYMENT_RESULTS', item, { results })}><Check size={15} />确认登记</button></div>
+    </div>}
+  </div>;
 }
 const cell = { textAlign: 'left', padding: '11px 12px', borderBottom: '1px solid #e4eaeb', fontSize: 13, verticalAlign: 'top' } as const;
 function date(value: unknown) { return typeof value === 'string' ? new Date(value).toLocaleString('zh-CN') : '—'; }
@@ -45,7 +78,8 @@ function settlementAmount(item: Record<string, unknown>) { const metrics = item.
   return Number(item.netAmountMinor ?? metrics?.netPayableMinor ?? 0); }
 function isoPeriod(period: Record<string, string>) { const convert = (value: string) => value ? new Date(value).toISOString() : value; return { ...period,
   periodStart: convert(period.periodStart), periodEnd: convert(period.periodEnd), cutoffAt: convert(period.cutoffAt) }; }
-function defaultFields(action: SettlementAction, item: Record<string, unknown>) { if (action === 'EXPORT') return { exportType: 'TRANSFER_LIST' };
-  if (action === 'PAYMENT_RESULTS') return { results: Array.isArray(item.items) ? item.items.filter((value) => (value as Record<string, unknown>).paymentStatus !== 'SUCCEEDED').map((value) => {
-    const row = value as Record<string, unknown>; return { settlementItemId: row.id, expectedVersion: row.version, result: 'FAILED', amountMinor: 0, currency: item.currency, externalBatchReference: '', note: 'MANUAL_REVIEW_REQUIRED' }; }) : [] };
+function defaultFields(action: SettlementAction) { if (action === 'EXPORT') return { exportType: 'TRANSFER_LIST' };
   return { reasonCode: action === 'VOID' ? 'OPERATIONS_VOID' : 'WEEKLY_REVIEW' }; }
+
+type PaymentDraft = { result: '' | 'SUCCEEDED' | 'FAILED'; externalBatchReference: string; note: string };
+const emptyPaymentDraft: PaymentDraft = { result: '', externalBatchReference: '', note: '' };
