@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { GiftPanelData, GiftRequestResult } from './gifts.js';
+import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 
 export type ClientSource = 'DISCORD_BOT';
 
@@ -377,9 +377,10 @@ export interface BotApiClient {
     idempotencyKey: string
   ): Promise<unknown>;
   listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData>;
+  checkGiftAffordability(orderId: string, giftCatalogVersionId: string, actor: BotActorContext): Promise<GiftAffordabilityResult>;
   createOrderGiftRequest(
     orderId: string,
-    input: { expectedOrderVersion: number; giftCatalogVersionId: string },
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<GiftRequestResult>;
@@ -493,9 +494,16 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
+  public async checkGiftAffordability(orderId: string, giftCatalogVersionId: string,
+    actor: BotActorContext): Promise<GiftAffordabilityResult> {
+    return this.request<GiftAffordabilityResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-affordability`, {
+      method: 'POST', actor, body: { giftCatalogVersionId }
+    });
+  }
+
   public async createOrderGiftRequest(
     orderId: string,
-    input: { expectedOrderVersion: number; giftCatalogVersionId: string },
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<GiftRequestResult> {
@@ -856,6 +864,8 @@ export type ServiceCenterRoute =
   | { area: 'binding-modal'; sessionId: string }
   | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
   | { area: 'reports'; action: 'list'; cursor?: string }
+  | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
+  | { area: 'gift'; action: 'select' | 'refresh' | 'confirm' | 'back'; token: string }
   | { area: 'reports'; action: 'detail'; reportId: string }
   | { area: 'unknown' };
 
@@ -1391,7 +1401,9 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
               style: 'SECONDARY',
               customId: `bc:service:support:${order.orderId}:v${order.version}`,
               label: '联系客服'
-            }
+            },
+            ...(order.actorRole === 'CUSTOMER' ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
+              customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' }] : [])
           ]
         }
       ]
@@ -1414,6 +1426,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         label: '申请完成'
       });
     }
+    if (order.actorRole === 'CUSTOMER') components.unshift({ type: 'BUTTON', style: 'SECONDARY',
+      customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     return {
       title: `订单 #${order.publicId} · 服务中`,
       body: order.readiness.startedAt ? `开始时间：${order.readiness.startedAt}` : '服务已开始。',
@@ -1437,6 +1451,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
         label: '确认完成'
       });
+      components.push({ type: 'BUTTON', style: 'SECONDARY',
+        customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     }
     return {
       title: `订单 #${order.publicId} · 等待用户确认`,
@@ -1924,6 +1940,10 @@ export async function handleOrderNotesSubmit(input: {
 }
 
 export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute {
+  const giftOpen = /^bc:gift:open:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
+  if (giftOpen) return { area: 'gift', action: 'open', orderId: giftOpen[1]!, expectedVersion: Number(giftOpen[2]) };
+  const giftAction = /^bc:gift:(select|refresh|confirm|back):(g1_[A-Za-z0-9_-]{80})$/u.exec(customId);
+  if (giftAction) return { area: 'gift', action: giftAction[1] as 'select'|'refresh'|'confirm'|'back', token: giftAction[2]! };
   if (customId === 'bc:profile:open' || customId === 'bc:profile:refresh') {
     return { area: 'profile', action: customId.endsWith('refresh') ? 'refresh' : 'open' };
   }

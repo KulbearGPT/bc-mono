@@ -28,7 +28,7 @@ function binding(externalUserId = 'mock-user-ok'): AccountBindingRecord {
 
 function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
   return {
-    id: orderId, publicId: 'P-3101', customerId, playerId, status: 'IN_SERVICE', version: 7,
+    id: orderId, publicId: 'P-3101', customerId, playerId, guildId, status: 'IN_SERVICE', version: 7,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
     amountMinor: 12000, playerEarningMinor: 8400, currency: 'CNY', notes: null,
@@ -90,7 +90,7 @@ describe('M3-US-01 gift catalog and order gift request', () => {
     const { server, gifts } = fixture({ order: order({ status }) });
     const response = await server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`, headers: headers(`gift:P-3101:${status}`),
-      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, receiverId: '00000000-0000-0000-0000-00000000ffff' }
+      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, expectedCatalogVersion: 2, expectedPriceMinor: 199900 }
     });
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({ data: {
@@ -111,14 +111,14 @@ describe('M3-US-01 gift catalog and order gift request', () => {
     const allowed = fixture({ order: order({ status: 'COMPLETED', completedAt: boundary }) });
     const ok = await allowed.server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`, headers: headers('gift:P-3101:boundary'),
-      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id }
+      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, expectedCatalogVersion: 2, expectedPriceMinor: 199900 }
     });
     expect(ok.statusCode).toBe(201);
 
     const expired = fixture({ order: order({ status: 'COMPLETED', completedAt: new Date(Date.parse(boundary) - 1).toISOString() }) });
     const rejected = await expired.server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`, headers: headers('gift:P-3101:expired'),
-      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id }
+      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, expectedCatalogVersion: 2, expectedPriceMinor: 199900 }
     });
     expect(rejected.statusCode).toBe(409);
     expect(rejected.json()).toMatchObject({ error: { code: 'GIFT_WINDOW_CLOSED' } });
@@ -128,7 +128,7 @@ describe('M3-US-01 gift catalog and order gift request', () => {
     const { server, gifts } = fixture({ externalUserId: 'mock-user-low' });
     const response = await server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`, headers: headers('gift:P-3101:insufficient'),
-      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id }
+      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, expectedCatalogVersion: 2, expectedPriceMinor: 199900 }
     });
     expect(response.statusCode).toBe(422);
     expect(response.json()).toMatchObject({ error: { code: 'INSUFFICIENT_AVAILABLE_BALANCE', details: [
@@ -143,7 +143,7 @@ describe('M3-US-01 gift catalog and order gift request', () => {
     const { server, gifts } = fixture();
     const request = {
       method: 'POST' as const, url: `/api/v1/orders/${orderId}/gift-requests`, headers: headers('gift:P-3101:retry'),
-      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id }
+      payload: { expectedOrderVersion: 7, giftCatalogVersionId: gift().id, expectedCatalogVersion: 2, expectedPriceMinor: 199900 }
     };
     const first = await server.inject(request);
     const second = await server.inject(request);
@@ -157,7 +157,7 @@ describe('M3-US-01 gift catalog and order gift request', () => {
 
   test('releases the provider-native gift hold when the sender withdraws', async () => {
     const {server,gifts,adapter}=fixture();const created=await server.inject({method:'POST',url:`/api/v1/orders/${orderId}/gift-requests`,
-      headers:headers('gift:P-3101:native-release'),payload:{expectedOrderVersion:7,giftCatalogVersionId:gift().id}});
+      headers:headers('gift:P-3101:native-release'),payload:{expectedOrderVersion:7,giftCatalogVersionId:gift().id,expectedCatalogVersion:2,expectedPriceMinor:199900}});
     const giftRequestId=created.json().data.id as string;const holdRef=gifts.reservations[0]!.providerHoldRef!;
     const cancelled=await server.inject({method:'POST',url:`/api/v1/gift-requests/${giftRequestId}/cancel`,headers:headers('gift:P-3101:native-cancel'),
       payload:{expectedVersion:1,reasonCode:'CUSTOMER_WITHDREW_REQUEST'}});

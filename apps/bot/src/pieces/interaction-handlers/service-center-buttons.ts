@@ -1,6 +1,8 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction, Interaction } from 'discord.js';
 import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
+import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftRequestMessage,
+  createGiftContinuationToken, readGiftContinuationToken } from '../../gifts.js';
 import {
   HttpBotApiClient,
   BotApiError,
@@ -32,7 +34,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
       ? this.some(route)
       : this.none();
   }
@@ -48,6 +50,10 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
     if (parsedData.area === 'reports') {
       await this.handleReports(interaction, parsedData);
+      return;
+    }
+    if (parsedData.area === 'gift') {
+      await this.handleGift(interaction, parsedData);
       return;
     }
 
@@ -165,6 +171,46 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
       await interaction.reply({ content: `我的周报暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
+    }
+  }
+
+  private async handleGift(interaction: ButtonInteraction, route: Extract<ServiceCenterRoute, { area: 'gift' }>): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) { await interaction.reply({ content: '请在服务器内赠送礼物。request_id: local-guild-required', ephemeral: true }); return; }
+    try {
+      const secret = giftContinuationSecret();
+      const api = createBotApiClient();
+      if (route.action === 'open') {
+        const [order, catalog] = await Promise.all([api.getOrder(route.orderId, actor), api.listGifts(route.orderId, actor)]);
+        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret));
+        await interaction.reply(reply);
+        return;
+      }
+      const context = readGiftContinuationToken(route.token, actor, secret);
+      if (route.action === 'back') {
+        const [order, catalog] = await Promise.all([api.getOrder(context.orderId, actor), api.listGifts(context.orderId, actor)]);
+        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret));
+        await interaction.update({ content: reply.content, components: reply.components });
+        return;
+      }
+      const affordability = await api.checkGiftAffordability(context.orderId, context.giftCatalogVersionId, actor);
+      const currentToken = createGiftContinuationToken({ orderId: context.orderId, orderVersion: context.orderVersion,
+        giftCatalogVersionId: affordability.giftCatalogVersionId, catalogVersion: affordability.catalogVersion,
+        priceMinor: affordability.priceMinor }, actor, secret);
+      const changed = affordability.catalogVersion !== context.catalogVersion || affordability.priceMinor !== context.priceMinor;
+      if (route.action !== 'confirm' || changed || !affordability.canAfford || affordability.stale) {
+        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken));
+        await interaction.update({ content: reply.content, components: reply.components });
+        return;
+      }
+      const created = await api.createOrderGiftRequest(context.orderId, { expectedOrderVersion: context.orderVersion,
+        giftCatalogVersionId: context.giftCatalogVersionId, expectedCatalogVersion: context.catalogVersion,
+        expectedPriceMinor: context.priceMinor }, actor, buildDiscordIdempotencyKey('gift:confirm', interaction.id));
+      const reply = toDiscordReply(buildGiftRequestMessage(created));
+      await interaction.update({ content: reply.content, components: reply.components });
+    } catch (error) {
+      const requestId = error instanceof BotApiError ? error.requestId : 'local-gift-context';
+      await interaction.reply({ content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`, ephemeral: true });
     }
   }
 
@@ -342,6 +388,12 @@ function createBotApiClient(): HttpBotApiClient {
     apiBaseUrl: process.env.API_BASE_URL ?? '',
     botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
   });
+}
+
+function giftContinuationSecret(): string {
+  const secret = process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '';
+  if (secret.length < 32) throw new Error('Gift continuation signing secret is not configured.');
+  return secret;
 }
 
 function actorFromInteraction(interaction: ButtonInteraction): BotActorContext | null {

@@ -7,14 +7,14 @@ describe('M3-US-01 Discord gift panel', () => {
       orderId: 'order-1', orderPublicId: 'P-1', receiver: { userId: 'player-1', displayName: '阿岚' },
       balance: { providerBalanceMinor: 5000, reservedMinor: 3000, availableMinor: 2000, currency: 'CNY', fetchedAt: '2026-07-18T12:00:00.000Z' },
       items: [
-        { id: 'gift-18', code: 'SMALL', name: '小心意', priceMinor: 1800, currency: 'CNY', affordable: true },
-        { id: 'gift-88', code: 'BOX', name: '礼盒', priceMinor: 8800, currency: 'CNY', affordable: false }
+        { id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1800, currency: 'CNY', affordable: true },
+        { id: 'gift-88', code: 'BOX', name: '礼盒', version: 1, priceMinor: 8800, currency: 'CNY', affordable: false }
       ]
     });
     expect(panel.targetLabel).toBe('阿岚');
     expect(panel.options).toEqual([
       expect.objectContaining({ value: 'gift-18', disabled: false }),
-      expect.objectContaining({ value: 'gift-88', disabled: true })
+      expect.objectContaining({ value: 'gift-88', disabled: false })
     ]);
     expect(panel.actions).toContain('RECHARGE');
     expect(panel).not.toHaveProperty('receiverInput');

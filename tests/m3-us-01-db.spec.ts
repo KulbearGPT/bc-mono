@@ -91,6 +91,51 @@ SELECT
       await pool.query(`UPDATE orders SET row_version = 7 WHERE id = $1`, [orderId]);
     }
   });
+
+  test('M6-US-06 rejects a catalog price change inside the transaction with zero writes', async () => {
+    const store = new PostgresGiftStore(pool);
+    const changedRequest = request('00000000-0000-0000-0000-000000003240');
+    const changedReservation = reservation('00000000-0000-0000-0000-000000003241', changedRequest.id);
+    const changedTask = task('00000000-0000-0000-0000-000000003242', changedRequest.id);
+    await pool.query('UPDATE gift_catalog_versions SET price_minor=200000 WHERE id=$1', [catalogVersionId]);
+    try {
+      await expect(store.commitCreate({ request: changedRequest, reservation: changedReservation, staffTask: changedTask,
+        providerBalanceMinor: 1_000_000, expectedOrderVersion: 7, now,
+        auditRecord: audit(), auditSink: new InMemoryAuditSink() })).rejects.toThrowError(expect.objectContaining({ code: 'GIFT_CATALOG_CHANGED' }));
+      const rows = await pool.query(`SELECT
+        (SELECT count(*) FROM gift_requests WHERE id=$1)::int requests,
+        (SELECT count(*) FROM fund_reservations WHERE id=$2)::int reservations,
+        (SELECT count(*) FROM staff_tasks WHERE id=$3)::int tasks,
+        (SELECT count(*) FROM outbox_events WHERE aggregate_id=$1)::int outbox`, [changedRequest.id, changedReservation.id, changedTask.id]);
+      expect(rows.rows[0]).toEqual({ requests: 0, reservations: 0, tasks: 0, outbox: 0 });
+    } finally {
+      await pool.query('UPDATE gift_catalog_versions SET price_minor=199900 WHERE id=$1', [catalogVersionId]);
+    }
+  });
+
+  test('M6-US-06 serializes a competing reservation from another Guild and leaves no bad gift facts', async () => {
+    const competingOrderId = '00000000-0000-0000-0000-000000003250';
+    const competingReservationId = '00000000-0000-0000-0000-000000003251';
+    await pool.query(`INSERT INTO orders (id,public_id,customer_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at)
+      VALUES ($1,'P-3250',$2,'CANCELLED',1,'CNY',100000,'900000000000009999','900000000000009997','900000000000009998',now(),now())`, [competingOrderId, customerId]);
+    await pool.query(`INSERT INTO fund_reservations (id,user_id,source_type,order_id,mode,provider,amount_minor,currency,status,row_version,idempotency_key,created_at,updated_at)
+      VALUES ($1,$2,'ORDER',$3,'LOCAL_RESERVATION_FALLBACK','mock-provider',100000,'CNY','ACTIVE',2,'m6-us-06-competing',now(),now())`,
+    [competingReservationId, customerId, competingOrderId]);
+    const store = new PostgresGiftStore(pool);
+    const racedRequest = request('00000000-0000-0000-0000-000000003252');
+    const racedReservation = reservation('00000000-0000-0000-0000-000000003253', racedRequest.id);
+    const racedTask = task('00000000-0000-0000-0000-000000003254', racedRequest.id);
+    await expect(store.commitCreate({ request: racedRequest, reservation: racedReservation, staffTask: racedTask,
+      providerBalanceMinor: 350_000, expectedOrderVersion: 7, now,
+      auditRecord: audit(), auditSink: new InMemoryAuditSink() })).rejects.toThrowError(expect.objectContaining({ code: 'INSUFFICIENT_AVAILABLE_BALANCE' }));
+    const rows = await pool.query(`SELECT
+      (SELECT count(*) FROM gift_requests WHERE id=$1)::int requests,
+      (SELECT count(*) FROM fund_reservations WHERE id=$2)::int reservations,
+      (SELECT count(*) FROM staff_tasks WHERE id=$3)::int tasks,
+      (SELECT count(*) FROM consumption_entries WHERE gift_request_id=$1)::int consumptions,
+      (SELECT count(*) FROM outbox_events WHERE aggregate_id=$1)::int outbox`, [racedRequest.id, racedReservation.id, racedTask.id]);
+    expect(rows.rows[0]).toEqual({ requests: 0, reservations: 0, tasks: 0, consumptions: 0, outbox: 0 });
+  });
 });
 
 function request(id = '00000000-0000-0000-0000-000000003210'): GiftRequestRecord {

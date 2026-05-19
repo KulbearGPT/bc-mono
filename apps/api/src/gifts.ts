@@ -110,6 +110,7 @@ export interface GiftStore {
     staffTask: GiftStaffTaskRecord;
     providerBalanceMinor: number;
     expectedOrderVersion: number;
+    expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
@@ -223,6 +224,9 @@ export class GiftError extends Error {
     | 'CONFLICT'
     | 'GIFT_WINDOW_CLOSED'
     | 'GIFT_NOT_AVAILABLE'
+    | 'GIFT_CATALOG_CHANGED'
+    | 'PROVIDER_BALANCE_STALE'
+    | 'RECHARGE_CONFIGURATION_UNAVAILABLE'
     | 'EXECUTION_CREDENTIAL_STALE'
     | 'INSUFFICIENT_AVAILABLE_BALANCE';
 
@@ -280,11 +284,16 @@ export class InMemoryGiftStore implements GiftStore {
     staffTask: GiftStaffTaskRecord;
     providerBalanceMinor: number;
     expectedOrderVersion: number;
+    expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
     if (this.requests.some((request) => request.id === input.request.id)) return;
+    const catalog = this.catalog.find((item) => item.id === input.request.giftCatalogVersionId);
+    if (!catalog || catalog.status !== 'ACTIVE' || catalog.priceMinor !== input.request.priceMinor || catalog.currency !== input.request.currency) {
+      throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
+    }
     const activeReservedMinor = this.reservations
       .filter((reservation) => reservation.userId === input.request.senderId && reservation.currency === input.request.currency && ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED'].includes(reservation.status))
       .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
@@ -479,6 +488,7 @@ WHERE versions.id = $1`, [id]);
     staffTask: GiftStaffTaskRecord;
     providerBalanceMinor: number;
     expectedOrderVersion: number;
+    expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
@@ -487,24 +497,31 @@ WHERE versions.id = $1`, [id]);
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${input.request.senderId}:${input.request.currency}`]);
-      const order = await client.query<{ customer_id: string; player_id: string | null; status: string; completed_at: Date | null; row_version: number }>(
-        `SELECT customer_id, player_id, status, completed_at, row_version FROM orders WHERE id = $1 FOR UPDATE`,
+      const order = await client.query<{ customer_id: string; player_id: string | null; guild_id: string; status: string; completed_at: Date | null; row_version: number }>(
+        `SELECT customer_id, player_id, guild_id, status, completed_at, row_version FROM orders WHERE id = $1 FOR UPDATE`,
         [input.request.orderId]
       );
       const currentOrder = order.rows[0];
       const completedWithinWindow = currentOrder?.status === 'COMPLETED' && currentOrder.completed_at
         && input.now.getTime() - currentOrder.completed_at.getTime() <= 24 * 60 * 60_000;
       if (!currentOrder || currentOrder.customer_id !== input.request.senderId || currentOrder.player_id !== input.request.receiverId
+        || (input.expectedGuildId !== undefined && currentOrder.guild_id !== input.expectedGuildId)
         || currentOrder.row_version !== input.expectedOrderVersion
         || (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(currentOrder.status) && !completedWithinWindow)) {
         throw new GiftError('CONFLICT', 'Order changed; refresh before retrying.');
       }
-      const catalog = await client.query<{ status: string }>(`SELECT status FROM gift_catalog_versions WHERE id = $1 FOR SHARE`, [input.request.giftCatalogVersionId]);
-      if (catalog.rows[0]?.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+      const catalog = await client.query<{ status: string; version: number; price_minor: string; currency: string }>(
+        `SELECT status,version,price_minor,currency FROM gift_catalog_versions WHERE id = $1 FOR SHARE`, [input.request.giftCatalogVersionId]);
+      const currentCatalog = catalog.rows[0];
+      if (!currentCatalog || currentCatalog.status !== 'ACTIVE'
+        || Number(currentCatalog.price_minor) !== input.request.priceMinor || currentCatalog.currency !== input.request.currency) {
+        throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
+      }
       const reserved = await client.query<{ amount: string }>(`
 SELECT COALESCE(SUM(amount_minor), 0)::text AS amount FROM fund_reservations
 WHERE user_id = $1 AND currency = $2
-AND status = ANY($3::"FundReservationStatus"[])`, [input.request.senderId, input.request.currency, ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED']]);
+AND status = ANY($3::"FundReservationStatus"[])`,
+      [input.request.senderId, input.request.currency, ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED']]);
       if (input.providerBalanceMinor - Number(reserved.rows[0]?.amount ?? 0) < input.request.priceMinor) {
         throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
       }
@@ -809,6 +826,15 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     mapError: mapGiftError
   });
 
+  registerSecureReadRoute(server, security, {
+    method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request',
+    action: 'CHECK_GIFT_AFFORDABILITY', targetType: 'order', targetId: giftOrderIdParam,
+    acceptedSources: ['DISCORD_BOT'],
+    handler: async (request, actor) => checkGiftAffordability({ ...options, actor,
+      orderId: giftOrderIdParam(request), body: parseGiftAffordabilityBody(request.body), now: now() }),
+    mapError: mapGiftError
+  });
+
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/orders/:orderId/gift-requests', permission: 'gift.request',
     action: 'CREATE_GIFT_REQUEST', targetType: 'order', targetId: giftOrderIdParam,
@@ -1016,16 +1042,44 @@ export async function listGifts(input: {
   fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; actor: ActorContext; orderId: string; now: Date;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
-  const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, input.now);
+  const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
   const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
   const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: providerBalance.currency });
   const availableMinor = Math.max(0, providerBalance.providerBalanceMinor - reservedMinor);
   const items = (await input.store.listActiveCatalog()).filter((item) => item.currency === providerBalance.currency);
   return {
-    orderId: order.id, orderPublicId: order.publicId, receiver: { userId: order.playerId },
+    orderId: order.id, orderPublicId: order.publicId, receiver: { userId: order.playerId, displayName: '当前订单陪玩' },
     balance: { providerBalanceMinor: providerBalance.providerBalanceMinor, reservedMinor, availableMinor, currency: providerBalance.currency, fetchedAt: providerBalance.fetchedAt },
-    items: items.map((item) => ({ id: item.id, code: item.code, name: item.name, priceMinor: item.priceMinor, currency: item.currency, affordable: item.priceMinor <= availableMinor }))
+    items: items.map((item) => ({ id: item.id, code: item.code, name: item.name, version: item.version,
+      priceMinor: item.priceMinor, currency: item.currency, affordable: item.priceMinor <= availableMinor }))
   };
+}
+
+export interface GiftAffordabilityResult {
+  giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
+  providerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
+  currency: string; fetchedAt: string; stale: boolean; canAfford: boolean; rechargeUrl: string;
+}
+
+export async function checkGiftAffordability(input: {
+  store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
+  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; botConfigStore?: BotConfigStore;
+  actor: ActorContext; orderId: string; body: { giftCatalogVersionId: string }; now: Date;
+}): Promise<GiftAffordabilityResult> {
+  const binding = await requireBinding(input.accountStore, input.actor);
+  await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
+  const catalog = await input.store.findCatalogVersion(input.body.giftCatalogVersionId);
+  if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  const rechargeUrl = await resolveGiftRechargeUrl(input.botConfigStore, binding.guildId);
+  const balance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
+  if (balance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
+  const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: balance.currency });
+  const availableMinor = balance.providerBalanceMinor - reservedMinor;
+  const shortfallMinor = Math.max(0, catalog.priceMinor - availableMinor);
+  const stale = balance.stale === true;
+  return { giftCatalogVersionId: catalog.id, catalogVersion: catalog.version, priceMinor: catalog.priceMinor,
+    providerBalanceMinor: balance.providerBalanceMinor, reservedMinor, availableMinor, shortfallMinor,
+    currency: balance.currency, fetchedAt: balance.fetchedAt, stale, canAfford: !stale && shortfallMinor === 0, rechargeUrl };
 }
 
 async function prepareGiftRequest(input: {
@@ -1033,15 +1087,20 @@ async function prepareGiftRequest(input: {
   fundingAdapter: Pick<FundingAdapter, 'getProviderBalance' | 'createHold'> & Partial<Pick<FundingAdapter, 'discoverCapabilities'>>;
   providerKey: string; actor: ActorContext; orderId: string;
   auditSink: AuditSink;
-  body: { expectedOrderVersion: number; giftCatalogVersionId: string; receiverId?: string };
+  body: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion?: number; expectedPriceMinor?: number };
   idempotencyKey: string; now: Date;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
-  const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, input.now);
+  const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
   if (order.version !== input.body.expectedOrderVersion) throw new GiftError('CONFLICT', 'Order changed; refresh before retrying.');
   const catalog = await input.store.findCatalogVersion(input.body.giftCatalogVersionId);
   if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  if (input.body.expectedCatalogVersion !== undefined && (catalog.version !== input.body.expectedCatalogVersion
+    || catalog.priceMinor !== input.body.expectedPriceMinor)) {
+    throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
+  }
   const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
+  if (providerBalance.stale === true) throw new GiftError('PROVIDER_BALANCE_STALE', 'A fresh Provider balance is required.');
   if (providerBalance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
   const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: catalog.currency });
   if (providerBalance.providerBalanceMinor - reservedMinor < catalog.priceMinor) {
@@ -1090,11 +1149,21 @@ async function prepareGiftRequest(input: {
   };
   return {
     data: toGiftRequestResult(request, reservation, task, providerBalance, reservedMinor), statusCode: 201,
-    commit: (auditRecord: AuditRecord) => input.store.commitCreate({
-      request, reservation, staffTask: task, providerBalanceMinor: providerBalance.providerBalanceMinor,
-      expectedOrderVersion: input.body.expectedOrderVersion, now: input.now,
-      auditRecord, auditSink: input.auditSink
-    })
+    commit: async (auditRecord: AuditRecord) => {
+      try {
+        await input.store.commitCreate({ request, reservation, staffTask: task,
+          providerBalanceMinor: providerBalance.providerBalanceMinor, expectedOrderVersion: input.body.expectedOrderVersion,
+          expectedGuildId: binding.guildId,
+          now: input.now, auditRecord, auditSink: input.auditSink });
+      } catch (error) {
+        if (hold?.holdRef && 'releaseHold' in input.fundingAdapter && typeof input.fundingAdapter.releaseHold === 'function') {
+          await input.fundingAdapter.releaseHold({ holdRef: hold.holdRef, idempotencyKey: `release:gift:${request.id}:commit-failed:v1`,
+            fundReservationId: reservation.id, fundReservationVersion: reservation.version, reasonCode: 'LOCAL_COMMIT_FAILED',
+            amount: { amountMinor: reservation.amountMinor, currency: reservation.currency } }).catch(() => undefined);
+        }
+        throw error;
+      }
+    }
   };
 }
 
@@ -1119,9 +1188,9 @@ async function requireBinding(store: AccountStore, actor: ActorContext) {
   return binding;
 }
 
-async function requireEligibleOrder(store: OrderStore, orderId: string, customerId: string, now: Date): Promise<OrderRecord> {
+async function requireEligibleOrder(store: OrderStore, orderId: string, customerId: string, guildId: string, now: Date): Promise<OrderRecord> {
   const order = await store.findById(orderId);
-  if (!order || order.customerId !== customerId) throw new GiftError('NOT_FOUND', 'Order was not found.');
+  if (!order || order.customerId !== customerId || order.guildId !== guildId) throw new GiftError('NOT_FOUND', 'Order was not found.');
   if (!order.playerId) throw new GiftError('GIFT_WINDOW_CLOSED', 'The order has no assigned player.');
   if (['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status)) return order;
   if (order.status === 'COMPLETED' && order.completedAt && now.getTime() - Date.parse(order.completedAt) <= 24 * 60 * 60_000) return order;
@@ -1130,10 +1199,28 @@ async function requireEligibleOrder(store: OrderStore, orderId: string, customer
 
 function parseGiftRequestBody(value: unknown) {
   const body = value as Record<string, unknown>;
-  if (!body || !Number.isInteger(body.expectedOrderVersion) || typeof body.giftCatalogVersionId !== 'string') {
-    throw new GiftError('VALIDATION_ERROR', 'expectedOrderVersion and giftCatalogVersionId are required.');
+  if (!body || !Number.isInteger(body.expectedOrderVersion) || typeof body.giftCatalogVersionId !== 'string'
+    || !Number.isSafeInteger(body.expectedCatalogVersion) || !Number.isSafeInteger(body.expectedPriceMinor)
+    || Object.keys(body).some((key) => !['expectedOrderVersion','giftCatalogVersionId','expectedCatalogVersion','expectedPriceMinor'].includes(key))) {
+    throw new GiftError('VALIDATION_ERROR', 'Current order, catalog version, and price confirmation are required.');
   }
-  return { expectedOrderVersion: body.expectedOrderVersion as number, giftCatalogVersionId: body.giftCatalogVersionId, receiverId: typeof body.receiverId === 'string' ? body.receiverId : undefined };
+  return { expectedOrderVersion: body.expectedOrderVersion as number, giftCatalogVersionId: body.giftCatalogVersionId,
+    expectedCatalogVersion: body.expectedCatalogVersion as number | undefined, expectedPriceMinor: body.expectedPriceMinor as number | undefined };
+}
+
+function parseGiftAffordabilityBody(value: unknown) {
+  const body = value as Record<string, unknown>;
+  if (!body || typeof body.giftCatalogVersionId !== 'string' || Object.keys(body).some((key) => key !== 'giftCatalogVersionId')) {
+    throw new GiftError('VALIDATION_ERROR', 'giftCatalogVersionId is required.');
+  }
+  return { giftCatalogVersionId: body.giftCatalogVersionId };
+}
+
+async function resolveGiftRechargeUrl(store: BotConfigStore | undefined, guildId: string): Promise<string> {
+  const value = (await store?.get(guildId))?.values.recharge_url;
+  if (typeof value !== 'string') throw new GiftError('RECHARGE_CONFIGURATION_UNAVAILABLE', 'Recharge is not configured for this Guild.');
+  try { const url = new URL(value); if (url.protocol !== 'https:') throw new Error(); return url.toString(); }
+  catch { throw new GiftError('RECHARGE_CONFIGURATION_UNAVAILABLE', 'Recharge is not configured for this Guild.'); }
 }
 
 function parseVerifyBody(value: unknown) {
@@ -1194,7 +1281,9 @@ function mapGiftError(error: unknown) {
     return { statusCode: error.retryable ? 503 : 409, code: error.code, message: error.message };
   }
   if (!(error instanceof GiftError)) return null;
-  const statusCode = error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'VALIDATION_ERROR' ? 400 : error.code === 'INSUFFICIENT_AVAILABLE_BALANCE' ? 422 : 409;
+  const statusCode = error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'VALIDATION_ERROR' ? 400
+    : error.code === 'INSUFFICIENT_AVAILABLE_BALANCE' ? 422
+      : ['PROVIDER_BALANCE_STALE','RECHARGE_CONFIGURATION_UNAVAILABLE'].includes(error.code) ? 503 : 409;
   return { statusCode, code: error.code, message: error.message, details: error.details };
 }
 
