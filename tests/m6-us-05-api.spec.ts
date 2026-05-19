@@ -54,7 +54,7 @@ async function fixture(input: { providerFails?: boolean; providerStale?: boolean
       { userId: userA, currency: 'CNY', remainingMinor: 3_000, guildId },
       { userId: userA, currency: 'CNY', remainingMinor: 2_000, guildId: otherGuildId }
     ],
-    notes: [{ id: crypto.randomUUID(), userId: userA, text: 'internal', authorStaffId: crypto.randomUUID(), createdAt: now.toISOString() }],
+    notes: [{ id: crypto.randomUUID(), userId: userA, guildId, text: 'internal', authorStaffId: crypto.randomUUID(), createdAt: now.toISOString() }],
     riskFlags: [{ userId: userA, value: 'RISK' }],
     balanceSnapshots: input.noSnapshot ? [] : [{ id: crypto.randomUUID(), userId: userA, provider: 'mock', providerBalanceMinor: 8_000,
       currency: 'CNY', fetchedAt: '2026-07-18T10:00:00.000Z' }]

@@ -93,7 +93,7 @@ async function fixture(input: { level?: StaffAccount['level']; providerFails?: b
     ],
     orders, consumptions,
     reservations: [{ userId: customerA, currency: 'CNY', remainingMinor: 12_000 }],
-    notes: [{ id: '00000000-0000-0000-0000-000000006441', userId: customerA, text: '仅供客服跟进', authorStaffId: l2Id, createdAt: '2026-07-18T13:00:00.000Z' }],
+    notes: [{ id: '00000000-0000-0000-0000-000000006441', userId: customerA, guildId, text: '仅供客服跟进', authorStaffId: l2Id, createdAt: '2026-07-18T13:00:00.000Z' }],
     riskFlags: [{ userId: customerA, value: 'PAYMENT_ANOMALY' }],
     balanceSnapshots: input.noSnapshot ? [] : [{ id: '00000000-0000-0000-0000-000000006451', userId: customerA, provider: 'mock', providerBalanceMinor: 8_000,
       currency: 'CNY', fetchedAt: '2026-07-18T10:00:00.000Z' }]

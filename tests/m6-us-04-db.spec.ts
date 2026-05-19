@@ -24,6 +24,7 @@ describe('M6-US-04 customer profile persistence contract', () => {
       const schema = readFileSync(path, 'utf8');
       expect(schema).toContain('model ProviderBalanceSnapshot');
       expect(schema).toContain('model CustomerProfileNote');
+      expect(schema).toMatch(/model CustomerProfileNote[\s\S]*guildId\s+String\?/u);
       expect(schema).not.toMatch(/model ProviderBalanceSnapshot[\s\S]*availableMinor/u);
     }
   });
@@ -38,12 +39,20 @@ describe('M6-US-04 customer profile persistence contract', () => {
     expect(migration).toContain('trg_customer_profile_notes_append_only');
   });
 
+  test('ships a fail-closed Guild provenance migration for profile notes', () => {
+    const path = 'database/prisma/migrations/000008_m6_profile_note_guild/migration.sql';
+    expect(existsSync(path)).toBe(true);
+    const migration = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    expect(migration).toContain('ADD COLUMN guild_id');
+    expect(migration).not.toMatch(/UPDATE customer_profile_notes SET guild_id/u);
+  });
+
   beforeAll(async () => {
     const port = 62_000 + (process.pid % 200); root = await mkdtemp(join(tmpdir(), 'blackcat-m6-profile-')); data = join(root, 'data');
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_profile']);
-    for (const migration of ['000001_p0_baseline','000002_m6_settlements','000003_m6_settlement_review','000004_m6_weekly_reports','000005_m6_weekly_report_review_fixes','000006_m6_customer_profiles']) {
+    for (const migration of ['000001_p0_baseline','000002_m6_settlements','000003_m6_settlement_review','000004_m6_weekly_reports','000005_m6_weekly_report_review_fixes','000006_m6_customer_profiles','000008_m6_profile_note_guild']) {
       await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_profile', '-v', 'ON_ERROR_STOP=1', '-f', `database/prisma/migrations/${migration}/migration.sql`]);
     }
     pool = new Pool({ host: root, port, database: 'blackcat_m6_profile', max: 6 });
@@ -66,6 +75,8 @@ describe('M6-US-04 customer profile persistence contract', () => {
     expect(summary?.statistics).toMatchObject({ orderCount: 2, completedOrderCount: 1, cancelledOrderCount: 1, refundCount: 1,
       orderSpendMinor: 10_001, giftSpendMinor: 2_500, refundMinor: 1_500, totalConsumptionMinor: 11_001, averageOrderAmountMinor: 10_001 });
     expect(summary?.internalNotes).toEqual([{ id: '00000000-0000-0000-0000-000000006651', text: 'DB note', createdAt: '2026-07-18T13:00:00.000Z' }]);
+    const otherGuildSummary = await store.getSummaryData({ ...scope, guildId: '900000000000006699', actorLevel: 'L2_SUPERVISOR', window: 'DAYS_30', now });
+    expect(otherGuildSummary?.internalNotes).toEqual([{ id: '00000000-0000-0000-0000-000000006652', text: 'Other Guild note', createdAt: '2026-07-18T14:00:00.000Z' }]);
     const first = await store.listOrders({ ...scope, cursor: null, limit: 1 });
     expect(first.items).toHaveLength(1); expect(first.nextCursor).toEqual(expect.any(String));
     const second = await store.listOrders({ ...scope, cursor: first.nextCursor, limit: 1 });
@@ -109,6 +120,7 @@ async function seed() {
     ('00000000-0000-0000-0000-000000006672',$1,'GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000006631','GIFT','00000000-0000-0000-0000-000000006681','profile:gift',2500,'CNY','2026-07-18T12:06:00Z',now()),
     ('00000000-0000-0000-0000-000000006673',$1,'REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000006631','REFUND','00000000-0000-0000-0000-000000006682','profile:refund',1500,'CNY','2026-07-18T12:07:00Z',now()),
     ('00000000-0000-0000-0000-000000006674',$1,'ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000006633','ORDER','00000000-0000-0000-0000-000000006633','profile:cross-guild',90000,'CNY','2026-07-18T14:05:00Z',now())`, [customerId]);
-  await pool.query(`INSERT INTO customer_profile_notes (id,user_id,author_staff_id,body,created_at) VALUES
-    ('00000000-0000-0000-0000-000000006651',$1,$2,'DB note','2026-07-18T13:00:00Z')`, [customerId, staffId]);
+  await pool.query(`INSERT INTO customer_profile_notes (id,user_id,guild_id,author_staff_id,body,created_at) VALUES
+    ('00000000-0000-0000-0000-000000006651',$1,$2,$3,'DB note','2026-07-18T13:00:00Z'),
+    ('00000000-0000-0000-0000-000000006652',$1,'900000000000006699',$3,'Other Guild note','2026-07-18T14:00:00Z')`, [customerId, guildId, staffId]);
 }

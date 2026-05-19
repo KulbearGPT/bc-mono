@@ -59,12 +59,12 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
   readonly consumptions: CustomerProfileConsumption[];
   readonly balanceSnapshots: CustomerProfileBalanceSnapshot[];
   private readonly reservations: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
-  private readonly notes: Array<{ id: string; userId: string; text: string; authorStaffId: string; createdAt: string }>;
+  private readonly notes: Array<{ id: string; userId: string; guildId?: string; text: string; authorStaffId: string; createdAt: string }>;
   private readonly riskFlags: Array<{ userId: string; value: string }>;
 
   constructor(input: { users?: CustomerProfileUser[]; orders?: CustomerProfileOrder[]; consumptions?: CustomerProfileConsumption[];
     balanceSnapshots?: CustomerProfileBalanceSnapshot[]; reservations?: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
-    notes?: Array<{ id: string; userId: string; text: string; authorStaffId: string; createdAt: string }>;
+    notes?: Array<{ id: string; userId: string; guildId?: string; text: string; authorStaffId: string; createdAt: string }>;
     riskFlags?: Array<{ userId: string; value: string }> } = {}) {
     this.users = clone(input.users ?? []); this.orders = clone(input.orders ?? []); this.consumptions = clone(input.consumptions ?? []);
     this.balanceSnapshots = clone(input.balanceSnapshots ?? []); this.reservations = clone(input.reservations ?? []);
@@ -89,7 +89,7 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
     return {
       user: clone(user), statistics: buildStatistics(input.window, orders, entries),
       preferences: buildPreferences(this.orders.filter((item) => item.customerId === input.userId && item.guildId === input.guildId)),
-      internalNotes: this.notes.filter((item) => item.userId === input.userId).sort(descCreated).slice(0, 100)
+      internalNotes: this.notes.filter((item) => item.userId === input.userId && item.guildId === input.guildId).sort(descCreated).slice(0, 100)
         .map(({ id, text, createdAt }) => ({ id, text, createdAt })),
       riskFlags: this.riskFlags.filter((item) => item.userId === input.userId).map((item) => item.value)
     };
@@ -152,7 +152,7 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
       [input.userId, input.guildId, lowerBound, input.now]),
       this.pool.query(`SELECT o.game_code_snapshot,o.service_code_snapshot,o.player_id,o.created_at
         FROM orders o WHERE o.customer_id=$1 AND o.guild_id=$2 ORDER BY o.created_at DESC LIMIT 100`, [input.userId, input.guildId]),
-      this.pool.query(`SELECT id,body,created_at FROM customer_profile_notes WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100`, [input.userId]),
+      this.pool.query(`SELECT id,body,created_at FROM customer_profile_notes WHERE user_id=$1 AND guild_id=$2 ORDER BY created_at DESC,id DESC LIMIT 100`, [input.userId, input.guildId]),
       this.pool.query(`SELECT type::text FROM risk_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50`, [input.userId])
     ]);
     const orders = orderRows.rows.map((item) => mapOrder(item, input.userId, input.guildId));
