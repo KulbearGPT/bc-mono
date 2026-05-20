@@ -37,7 +37,7 @@ function headers(discordUserId: string, key?: string, source = 'DASHBOARD') {
 
 function earning(id: string, playerUserId: string, amountMinor: number): SettlementCandidateEarning {
   return {
-    id, orderId: id, playerUserId, amountMinor, currency: 'CNY', status: 'CONFIRMED',
+    id, orderId: id, guildId, playerUserId, amountMinor, currency: 'CNY', status: 'CONFIRMED',
     playerDisplayName: playerUserId === playerA ? '陪玩甲' : '陪玩乙',
     playerDiscordUserId: playerUserId === playerA ? '900000000000006201' : '900000000000006202',
     externalAccountDisplay: playerUserId === playerA ? 'provider:***1001' : 'provider:***1002',
@@ -48,6 +48,7 @@ function earning(id: string, playerUserId: string, amountMinor: number): Settlem
 
 function batchInput(source: 'MANUAL' | 'SCHEDULED' = 'MANUAL'): SettlementCreateInput {
   return {
+    guildId,
     source, scheduleKey: source === 'SCHEDULED' ? 'weekly-cny' : null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CNY',

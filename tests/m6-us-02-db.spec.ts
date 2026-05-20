@@ -24,12 +24,14 @@ const earningB = '00000000-0000-0000-0000-000000006412';
 const orderA = '00000000-0000-0000-0000-000000006421';
 const orderB = '00000000-0000-0000-0000-000000006422';
 const now = new Date('2026-07-19T18:00:00.000Z');
+const guildId = '900000000000000001';
 let root = '';
 let data = '';
 let pool: Pool;
 
 function batchInput(): SettlementCreateInput {
   return {
+    guildId,
     source: 'MANUAL', scheduleKey: null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CNY',
@@ -59,7 +61,8 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     for (const migration of [
       'database/prisma/migrations/000001_p0_baseline/migration.sql',
       'database/prisma/migrations/000002_m6_settlements/migration.sql',
-      'database/prisma/migrations/000003_m6_settlement_review/migration.sql'
+      'database/prisma/migrations/000003_m6_settlement_review/migration.sql',
+      'database/prisma/migrations/000007_settlement_security_remediation/migration.sql'
     ]) await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_payment', '-v', 'ON_ERROR_STOP=1', '-f', migration]);
     pool = new Pool({ host: root, port, database: 'blackcat_m6_payment', max: 8 });
   }, 30_000);
@@ -79,7 +82,7 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
   test('records whole-item success and failure atomically and pays only the successful earning', async () => {
     const { store, batch } = await approvedBatch();
     const [itemA, itemB] = batch.items;
-    const result = await store.recordPaymentResults(batch.id, paymentInput(batch.version, 'm6:db:pay:01', [
+    const result = await store.recordPaymentResults(guildId, batch.id, paymentInput(batch.version, 'm6:db:pay:01', [
       { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'CNY', externalBatchReference: 'EXT-A', note: null },
       { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CNY', externalBatchReference: null, note: 'row rejected' }
     ]));
@@ -97,11 +100,11 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
   test('retries a failed item append-only and converges the batch to paid', async () => {
     const { store, batch } = await approvedBatch();
     const [itemA, itemB] = batch.items;
-    const partial = await store.recordPaymentResults(batch.id, paymentInput(3, 'm6:db:pay:02', [
+    const partial = await store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:pay:02', [
       { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'CNY', externalBatchReference: 'EXT-A', note: null },
       { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CNY', externalBatchReference: null, note: 'retry later' }
     ]));
-    const paid = await store.recordPaymentResults(batch.id, paymentInput(partial.version, 'm6:db:pay:03', [
+    const paid = await store.recordPaymentResults(guildId, batch.id, paymentInput(partial.version, 'm6:db:pay:03', [
       { settlementItemId: itemB!.id, expectedVersion: 2, result: 'SUCCEEDED', amountMinor: itemB!.netAmountMinor, currency: 'CNY', externalBatchReference: 'EXT-B', note: null }
     ]));
 
@@ -114,8 +117,8 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     const { store, batch } = await approvedBatch();
     const item = batch.items[0]!;
     const requests = await Promise.allSettled([
-      store.recordPaymentResults(batch.id, paymentInput(3, 'm6:db:race:01', [success(item.id, item.netAmountMinor, 'EXT-1')])),
-      store.recordPaymentResults(batch.id, paymentInput(3, 'm6:db:race:02', [success(item.id, item.netAmountMinor, 'EXT-2')]))
+      store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:race:01', [success(item.id, item.netAmountMinor, 'EXT-1')])),
+      store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:race:02', [success(item.id, item.netAmountMinor, 'EXT-2')]))
     ]);
     expect(requests.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(requests.filter((result) => result.status === 'rejected')).toHaveLength(1);
@@ -125,7 +128,7 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
   test('rolls back every row when one item version is stale', async () => {
     const { store, batch } = await approvedBatch();
     const [itemA, itemB] = batch.items;
-    await expect(store.recordPaymentResults(batch.id, paymentInput(3, 'm6:db:rollback:01', [
+    await expect(store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:rollback:01', [
       success(itemA!.id, itemA!.netAmountMinor, 'EXT-A'),
       { ...success(itemB!.id, itemB!.netAmountMinor, 'EXT-B'), expectedVersion: 99 }
     ]))).rejects.toThrow(/version is stale/i);
@@ -142,7 +145,7 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     await expect(directResult(item.id, '00000000-0000-0000-0000-000000006452', 'FAILED', 0, null, null, 'm6:direct:no-evidence'))
       .rejects.toThrow(/evidence|reference|note|constraint/i);
 
-    await store.recordPaymentResults(batch.id, paymentInput(3, 'm6:db:success:01', [success(item.id, item.netAmountMinor, 'EXT-OK')]));
+    await store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:success:01', [success(item.id, item.netAmountMinor, 'EXT-OK')]));
     await expect(directResult(item.id, '00000000-0000-0000-0000-000000006453', 'SUCCEEDED', item.netAmountMinor, 'EXT-DUP', null, 'm6:direct:duplicate'))
       .rejects.toThrow(/success|unique|duplicate/i);
   });
@@ -151,8 +154,8 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
 async function approvedBatch() {
   const store = new PostgresSettlementStore(pool);
   const created = await createSettlementBatch({ store, input: batchInput() });
-  const submitted = await store.submit(created.id, mutation(1));
-  const batch = await store.approve(created.id, mutation(submitted.version), {
+  const submitted = await store.submit(guildId, created.id, mutation(1));
+  const batch = await store.approve(guildId, created.id, mutation(submitted.version), {
     manualDualReviewFromMinor: 1_000_000, l4ReviewFromMinor: 1_000_000
   });
   return { store, batch };

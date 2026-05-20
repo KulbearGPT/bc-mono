@@ -11,7 +11,8 @@ import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
 import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
-import { InMemoryIdempotencyStore, PostgresAuditSink, PostgresStaffDirectory } from './security.js';
+import { PostgresAuditSink, PostgresIdempotencyStore, PostgresStaffDirectory } from './security.js';
+import { PostgresSettlementStore } from './settlements.js';
 import { PostgresGiftStore } from './gifts.js';
 import { PostgresPlayerEarningStore } from './player-earnings.js';
 import { PostgresCommissionStore } from './commissions.js';
@@ -64,6 +65,7 @@ const commissionStore = new PostgresCommissionStore(databasePool);
 const referralStore = new PostgresReferralAttributionStore(databasePool);
 const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
+const settlementStore = new PostgresSettlementStore(databasePool);
 const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
@@ -105,7 +107,7 @@ const server = buildApiServer({
   env: process.env,
   security: {
     auditSink: new PostgresAuditSink({ client: databasePool }),
-    idempotencyStore: new InMemoryIdempotencyStore(),
+    idempotencyStore: new PostgresIdempotencyStore({ client: databasePool }),
     staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
     dashboardSessions: dashboardAuthStore
   },
@@ -175,6 +177,11 @@ const server = buildApiServer({
   },
   weeklyReports: {
     store: weeklyReportStore
+  },
+  settlements: {
+    store: settlementStore,
+    manualDualReviewFromMinor: 400_000,
+    l4ReviewFromMinor: 500_000
   },
   customerProfiles: {
     store: customerProfileStore,

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 import { hasStaffPermission } from './authorization-policy.js';
 
@@ -87,10 +87,13 @@ export interface IdempotencyRecord {
 }
 
 export interface IdempotencyStore {
-  reserve(scopeKey: string, fingerprint: string): { reserved: true; record: IdempotencyRecord } | { reserved: false; record: IdempotencyRecord };
-  complete(scopeKey: string, statusCode: number, payload: unknown): void;
-  fail(scopeKey: string, statusCode: number, payload: unknown, errorCode: string): void;
-  retryFailed?(scopeKey: string, fingerprint: string, errorCode: string): boolean;
+  reserve(scopeKey: string, fingerprint: string):
+    | { reserved: true; record: IdempotencyRecord }
+    | { reserved: false; record: IdempotencyRecord }
+    | Promise<{ reserved: true; record: IdempotencyRecord } | { reserved: false; record: IdempotencyRecord }>;
+  complete(scopeKey: string, statusCode: number, payload: unknown): void | Promise<void>;
+  fail(scopeKey: string, statusCode: number, payload: unknown, errorCode: string): void | Promise<void>;
+  retryFailed?(scopeKey: string, fingerprint: string, errorCode: string): boolean | Promise<boolean>;
 }
 
 export interface SecurityOptions {
@@ -307,6 +310,113 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     this.records.delete(scopeKey);
     return true;
   }
+}
+
+export interface IdempotencyQueryClient {
+  query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[]; rowCount: number | null }>;
+}
+
+interface PostgresIdempotencyRow extends Record<string, unknown> {
+  request_hash: string;
+  status: IdempotencyRecord['status'];
+  response_status_code: number | null;
+  response_body: unknown;
+  error_code: string | null;
+  expires_at: Date | string;
+}
+
+export class PostgresIdempotencyStore implements IdempotencyStore {
+  private readonly ttlMs: number;
+  private readonly now: () => Date;
+
+  constructor(private readonly options: { client: IdempotencyQueryClient; ttlMs?: number; now?: () => Date }) {
+    this.ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  async reserve(scopeKey: string, fingerprint: string): Promise<{ reserved: true; record: IdempotencyRecord } | { reserved: false; record: IdempotencyRecord }> {
+    const scope = parseIdempotencyScope(scopeKey);
+    const now = this.now();
+    const expiresAt = new Date(now.getTime() + this.ttlMs);
+    const actorStaffId = scope.actorKey.startsWith('STAFF:') ? scope.actorKey.slice('STAFF:'.length) : null;
+    const actorUserId = scope.actorKey.startsWith('USER:') ? scope.actorKey.slice('USER:'.length) : null;
+    const inserted = await this.options.client.query<PostgresIdempotencyRow>(
+      `INSERT INTO idempotency_records
+        (id,client_id,key,operation,actor_key,actor_user_id,actor_staff_id,interaction_id,request_hash,status,
+         response_status_code,response_body,error_code,expires_at,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8,'IN_PROGRESS',NULL,NULL,NULL,$9,$10,$10)
+       ON CONFLICT (client_id,operation,actor_key,key) DO NOTHING
+       RETURNING request_hash,status,response_status_code,response_body,error_code,expires_at`,
+      [randomUUID(), scope.clientId, scope.key, scope.operation, scope.actorKey, actorUserId, actorStaffId,
+        fingerprint, expiresAt, now]
+    );
+    if (inserted.rows[0]) return { reserved: true, record: postgresIdempotencyRecord(scopeKey, inserted.rows[0]) };
+
+    const reclaimed = await this.options.client.query<PostgresIdempotencyRow>(
+      `UPDATE idempotency_records SET request_hash=$5,status='IN_PROGRESS',response_status_code=NULL,
+         response_body=NULL,error_code=NULL,expires_at=$6,updated_at=$7
+       WHERE client_id=$1 AND operation=$2 AND actor_key=$3 AND key=$4 AND expires_at<=$7
+       RETURNING request_hash,status,response_status_code,response_body,error_code,expires_at`,
+      [scope.clientId, scope.operation, scope.actorKey, scope.key, fingerprint, expiresAt, now]
+    );
+    if (reclaimed.rows[0]) return { reserved: true, record: postgresIdempotencyRecord(scopeKey, reclaimed.rows[0]) };
+
+    const existing = await this.options.client.query<PostgresIdempotencyRow>(
+      `SELECT request_hash,status,response_status_code,response_body,error_code,expires_at
+       FROM idempotency_records WHERE client_id=$1 AND operation=$2 AND actor_key=$3 AND key=$4`,
+      [scope.clientId, scope.operation, scope.actorKey, scope.key]
+    );
+    if (!existing.rows[0]) return this.reserve(scopeKey, fingerprint);
+    return { reserved: false, record: postgresIdempotencyRecord(scopeKey, existing.rows[0]) };
+  }
+
+  async complete(scopeKey: string, statusCode: number, payload: unknown): Promise<void> {
+    const scope = parseIdempotencyScope(scopeKey);
+    await this.options.client.query(
+      `UPDATE idempotency_records SET status='COMPLETED',response_status_code=$5,response_body=$6::jsonb,
+         error_code=NULL,updated_at=$7 WHERE client_id=$1 AND operation=$2 AND actor_key=$3 AND key=$4`,
+      [scope.clientId, scope.operation, scope.actorKey, scope.key, statusCode, JSON.stringify(payload), this.now()]
+    );
+  }
+
+  async fail(scopeKey: string, statusCode: number, payload: unknown, errorCode: string): Promise<void> {
+    const scope = parseIdempotencyScope(scopeKey);
+    await this.options.client.query(
+      `UPDATE idempotency_records SET status='FAILED',response_status_code=$5,response_body=$6::jsonb,
+         error_code=$7,updated_at=$8 WHERE client_id=$1 AND operation=$2 AND actor_key=$3 AND key=$4`,
+      [scope.clientId, scope.operation, scope.actorKey, scope.key, statusCode, JSON.stringify(payload), errorCode, this.now()]
+    );
+  }
+
+  async retryFailed(scopeKey: string, fingerprint: string, errorCode: string): Promise<boolean> {
+    const scope = parseIdempotencyScope(scopeKey);
+    const deleted = await this.options.client.query(
+      `DELETE FROM idempotency_records WHERE client_id=$1 AND operation=$2 AND actor_key=$3 AND key=$4
+       AND status='FAILED' AND request_hash=$5 AND error_code=$6`,
+      [scope.clientId, scope.operation, scope.actorKey, scope.key, fingerprint, errorCode]
+    );
+    return deleted.rowCount === 1;
+  }
+}
+
+function parseIdempotencyScope(scopeKey: string): { clientId: string; operation: string; actorKey: string; key: string } {
+  const parsed = JSON.parse(scopeKey) as Record<string, unknown>;
+  if (typeof parsed.clientId !== 'string' || typeof parsed.operation !== 'string'
+    || typeof parsed.actorKey !== 'string' || typeof parsed.key !== 'string') {
+    throw new Error('IDEMPOTENCY_SCOPE_INVALID');
+  }
+  return { clientId: parsed.clientId, operation: parsed.operation, actorKey: parsed.actorKey, key: parsed.key };
+}
+
+function postgresIdempotencyRecord(scopeKey: string, row: PostgresIdempotencyRow): IdempotencyRecord {
+  return {
+    scopeKey,
+    fingerprint: row.request_hash,
+    status: row.status,
+    statusCode: row.response_status_code ?? undefined,
+    payload: row.response_body ?? undefined,
+    errorCode: row.error_code ?? undefined
+  };
 }
 
 function encryptIdempotencyPayload(payload: unknown, key: Buffer): string {
@@ -566,9 +676,9 @@ export function registerSecureWriteRoute(
       const fingerprint = buildRequestFingerprint(request, actor, fingerprintBody);
       const scopeKey = buildIdempotencyScopeKey(idempotencyKey, route.action, actor);
       if (route.retryCommitFailures) {
-        idempotencyStore.retryFailed?.(scopeKey, fingerprint, 'COMMIT_FAILED');
+        await idempotencyStore.retryFailed?.(scopeKey, fingerprint, 'COMMIT_FAILED');
       }
-      const reservation = idempotencyStore.reserve(scopeKey, fingerprint);
+      const reservation = await idempotencyStore.reserve(scopeKey, fingerprint);
       if (!reservation.reserved) {
         if (reservation.record.fingerprint !== fingerprint) {
           await appendAudit(auditSink, {
@@ -619,7 +729,7 @@ export function registerSecureWriteRoute(
         } catch {
           // The idempotency record must still be resolved so duplicate writes do not hang forever.
         }
-        idempotencyStore.fail(scopeKey, statusCode, failedPayload, reason);
+        await idempotencyStore.fail(scopeKey, statusCode, failedPayload, reason);
         reply.code(statusCode);
         return failedPayload;
       };
@@ -675,7 +785,7 @@ export function registerSecureWriteRoute(
       }
 
       const statusCode = stagedWrite.statusCode ?? route.successStatusCode ?? 200;
-      idempotencyStore.complete(scopeKey, statusCode, responsePayload);
+      await idempotencyStore.complete(scopeKey, statusCode, responsePayload);
       reply.code(statusCode);
       return responsePayload;
     }

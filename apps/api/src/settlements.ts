@@ -40,6 +40,7 @@ export interface SettlementCandidateAdjustment {
 export interface SettlementCandidateEarning {
   id: string;
   orderId: string;
+  guildId: string;
   playerUserId: string;
   playerDisplayName?: string;
   playerDiscordUserId?: string | null;
@@ -54,6 +55,7 @@ export interface SettlementCandidateEarning {
 }
 
 export interface SettlementCreateInput {
+  guildId: string;
   source: SettlementBatchSource;
   scheduleKey: string | null;
   periodStart: string;
@@ -63,7 +65,6 @@ export interface SettlementCreateInput {
   currency: string;
   playerUserIds: string[] | null;
   createdByStaffId: string | null;
-  replacementForBatchId?: string | null;
 }
 
 export interface SettlementEntryRecord {
@@ -120,6 +121,7 @@ export interface SettlementPreview {
 
 export interface SettlementBatchRecord extends Omit<SettlementPreview, 'deferredAdjustmentMinor'> {
   id: string;
+  guildId: string;
   publicId: string;
   source: SettlementBatchSource;
   scheduleKey: string | null;
@@ -144,6 +146,11 @@ export interface SettlementMutationInput {
   actorStaffId: string;
   actorLevel: StaffLevel;
   now: Date;
+}
+
+export interface SettlementVoidInput extends SettlementMutationInput {
+  replacementBatchId: string | null;
+  replacement: SettlementCreateInput | null;
 }
 
 export interface SettlementPaymentResultInput {
@@ -172,12 +179,12 @@ export interface SettlementReviewThresholds {
 export interface SettlementStore {
   preview(input: SettlementCreateInput): Promise<SettlementPreview> | SettlementPreview;
   create(input: SettlementCreateInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
-  list(): Promise<SettlementBatchRecord[]> | SettlementBatchRecord[];
-  get(id: string): Promise<SettlementBatchRecord> | SettlementBatchRecord;
-  submit(id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
-  approve(id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
-  recordPaymentResults(id: string, input: SettlementPaymentResultsInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
-  void(id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
+  list(guildId: string): Promise<SettlementBatchRecord[]> | SettlementBatchRecord[];
+  get(guildId: string, id: string): Promise<SettlementBatchRecord> | SettlementBatchRecord;
+  submit(guildId: string, id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
+  approve(guildId: string, id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
+  recordPaymentResults(guildId: string, id: string, input: SettlementPaymentResultsInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
+  void(guildId: string, id: string, input: SettlementVoidInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> | SettlementBatchRecord;
 }
 
 export class SettlementError extends Error {
@@ -222,7 +229,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   registerSecureReadRoute(server, security, {
     method: 'GET', url: '/api/v1/admin/settlement-batches', permission: 'settlement.read',
     action: 'LIST_SETTLEMENT_BATCHES', targetType: 'settlement_batch', acceptedSources: [...acceptedSources],
-    handler: async () => ({ items: await options.store.list(), nextCursor: null }), mapError: mapSettlementError
+    handler: async (_request, actor) => ({ items: await options.store.list(requireGuild(actor)), nextCursor: null }), mapError: mapSettlementError
   });
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/admin/settlement-batches', permission: 'settlement.manage',
@@ -235,7 +242,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   registerSecureReadRoute(server, security, {
     method: 'GET', url: '/api/v1/admin/settlement-batches/:settlementBatchId', permission: 'settlement.read',
     action: 'GET_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
-    acceptedSources: [...acceptedSources], handler: (request) => options.store.get(batchIdParam(request)), mapError: mapSettlementError
+    acceptedSources: [...acceptedSources], handler: (request, actor) => options.store.get(requireGuild(actor), batchIdParam(request)), mapError: mapSettlementError
   });
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/submit', permission: 'settlement.manage',
@@ -243,7 +250,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseMutation(request.body),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,
     retryCommitFailures: true,
-    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'submit', batchIdParam(request), mutationContext(request, actor, now))
+    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'submit', requireGuild(actor), batchIdParam(request), mutationContext(request, actor, now))
   });
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/approve', permission: 'settlement.approve',
@@ -251,14 +258,14 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseMutation(request.body),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,
     retryCommitFailures: true,
-    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'approve', batchIdParam(request), mutationContext(request, actor, now), options)
+    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'approve', requireGuild(actor), batchIdParam(request), mutationContext(request, actor, now), options)
   });
   registerSecureReadRoute(server, security, {
     method: 'GET', url: '/api/v1/admin/settlement-batches/:settlementBatchId/exports/:exportType',
     permission: 'settlement.manage', action: 'EXPORT_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, mapError: mapSettlementError,
-    handler: async (request) => {
-      const batch = await options.store.get(batchIdParam(request));
+    handler: async (request, actor) => {
+      const batch = await options.store.get(requireGuild(actor), batchIdParam(request));
       requireStatus(batch, ['APPROVED', 'EXPORTED', 'PARTIALLY_PAID', 'PAID'], 'exported');
       const exportType = exportTypeParam(request);
       return { body: buildSettlementCsv(batch, exportType), filename: `${batch.publicId}-${exportType.toLowerCase()}.csv` };
@@ -277,7 +284,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     fingerprintBody: (request) => parsePaymentResults(request.body), mapError: mapSettlementError,
     successReason: () => 'EXTERNAL_PAYMENT_RESULTS_RECORDED',
     retryCommitFailures: true,
-    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'payment', batchIdParam(request), {
+    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'payment', requireGuild(actor), batchIdParam(request), {
       ...parsePaymentResults(request.body), requestIdempotencyKey: idempotencyKey(request),
       actorStaffId: requireStaff(actor).actorStaffId!, now: now()
     })
@@ -285,10 +292,10 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/void', permission: 'settlement.void',
     action: 'VOID_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
-    acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseMutation(request.body),
+    acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseVoidInput(request.body, null, now),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,
     retryCommitFailures: true,
-    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'void', batchIdParam(request), mutationContext(request, actor, now))
+    handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'void', requireGuild(actor), batchIdParam(request), parseVoidInput(request.body, actor, now))
   });
 }
 
@@ -311,30 +318,31 @@ async function stageSettlementWrite(
   store: SettlementStore,
   auditSink: AuditSink,
   kind: SettlementWriteKind,
+  guildId: string,
   id: string,
-  input: SettlementMutationInput | SettlementPaymentResultsInput,
+  input: SettlementMutationInput | SettlementPaymentResultsInput | SettlementVoidInput,
   thresholds?: SettlementReviewThresholds
 ) {
-  const current = await store.get(id);
+  const current = await store.get(guildId, id);
   const simulator = new InMemorySettlementStore({ batches: [current] });
-  const data = kind === 'submit' ? simulator.submit(id, input as SettlementMutationInput)
-    : kind === 'approve' ? simulator.approve(id, input as SettlementMutationInput, thresholds!)
-      : kind === 'payment' ? simulator.recordPaymentResults(id, input as SettlementPaymentResultsInput)
-        : simulator.void(id, input as SettlementMutationInput);
+  const data = kind === 'submit' ? simulator.submit(guildId, id, input as SettlementMutationInput)
+    : kind === 'approve' ? simulator.approve(guildId, id, input as SettlementMutationInput, thresholds!)
+      : kind === 'payment' ? simulator.recordPaymentResults(guildId, id, input as SettlementPaymentResultsInput)
+        : { ...current };
   return {
     data,
     commit: async (auditRecord: AuditRecord) => {
       if (store instanceof PostgresSettlementStore) {
-        if (kind === 'submit') await store.submit(id, input as SettlementMutationInput, auditRecord);
-        else if (kind === 'approve') await store.approve(id, input as SettlementMutationInput, thresholds!, auditRecord);
-        else if (kind === 'payment') await store.recordPaymentResults(id, input as SettlementPaymentResultsInput, auditRecord);
-        else await store.void(id, input as SettlementMutationInput, auditRecord);
+        if (kind === 'submit') await store.submit(guildId, id, input as SettlementMutationInput, auditRecord);
+        else if (kind === 'approve') await store.approve(guildId, id, input as SettlementMutationInput, thresholds!, auditRecord);
+        else if (kind === 'payment') await store.recordPaymentResults(guildId, id, input as SettlementPaymentResultsInput, auditRecord);
+        else Object.assign(data, await store.void(guildId, id, input as SettlementVoidInput, auditRecord));
       } else {
         await auditSink.append(auditRecord);
-        if (kind === 'submit') await store.submit(id, input as SettlementMutationInput);
-        else if (kind === 'approve') await store.approve(id, input as SettlementMutationInput, thresholds!);
-        else if (kind === 'payment') await store.recordPaymentResults(id, input as SettlementPaymentResultsInput);
-        else await store.void(id, input as SettlementMutationInput);
+        if (kind === 'submit') await store.submit(guildId, id, input as SettlementMutationInput);
+        else if (kind === 'approve') await store.approve(guildId, id, input as SettlementMutationInput, thresholds!);
+        else if (kind === 'payment') await store.recordPaymentResults(guildId, id, input as SettlementPaymentResultsInput);
+        else Object.assign(data, await store.void(guildId, id, input as SettlementVoidInput));
       }
     }
   };
@@ -354,13 +362,15 @@ export class InMemorySettlementStore implements SettlementStore {
   }
 
   create(input: SettlementCreateInput): SettlementBatchRecord {
+    return this.createBatch(input);
+  }
+
+  private createBatch(input: SettlementCreateInput, forcedId?: string): SettlementBatchRecord {
     const scheduleIdentity = automaticIdentity(input);
     if (scheduleIdentity) {
       const existing = this.batches.find((batch) => automaticIdentity(batch) === scheduleIdentity);
       if (existing) return clone(existing);
     }
-    assertInMemoryReplacementAvailable(input, this.batches);
-
     const preview = buildPreview(input, this.earnings, this.batches);
     if (preview.items.length === 0) {
       if (hasBlockedEarning(input, this.earnings, this.batches)) {
@@ -370,7 +380,10 @@ export class InMemorySettlementStore implements SettlementStore {
     }
 
     const identity = scheduleIdentity ?? [input.periodStart, input.periodEnd, input.currency, this.batches.length + 1].join(':');
-    const id = deterministicUuid(`settlement-batch:${identity}`);
+    const id = forcedId ?? deterministicUuid(`settlement-batch:${identity}`);
+    if (this.batches.some((candidate) => candidate.id === id)) {
+      throw new SettlementError('CONFLICT', 'Settlement batch ID is already in use.');
+    }
     const items = materializeItemIds(preview.items, id);
     const batch: SettlementBatchRecord = {
       periodStart: preview.periodStart,
@@ -383,6 +396,7 @@ export class InMemorySettlementStore implements SettlementStore {
       netAmountMinor: preview.netAmountMinor,
       items,
       id,
+      guildId: input.guildId,
       publicId: `SET-${id.replaceAll('-', '').slice(0, 12).toUpperCase()}`,
       source: input.source,
       scheduleKey: input.scheduleKey,
@@ -401,27 +415,20 @@ export class InMemorySettlementStore implements SettlementStore {
       createdAt: new Date().toISOString()
     };
     this.batches.push(clone(batch));
-    if (input.replacementForBatchId) {
-      const replaced = this.batches.find((candidate) => candidate.id === input.replacementForBatchId);
-      if (!replaced || replaced.status !== 'VOIDED' || replaced.replacementBatchId) {
-        this.batches.pop();
-        throw new SettlementError('CONFLICT', 'Replacement requires a voided batch without an existing replacement.');
-      }
-      replaced.replacementBatchId = batch.id;
-    }
     return clone(batch);
   }
 
-  list(): SettlementBatchRecord[] {
-    return clone(this.batches).sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
+  list(guildId: string): SettlementBatchRecord[] {
+    return clone(this.batches.filter((batch) => batch.guildId === guildId))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
   }
 
-  get(id: string): SettlementBatchRecord {
-    return clone(requireBatch(this.batches, id));
+  get(guildId: string, id: string): SettlementBatchRecord {
+    return clone(requireBatch(this.batches, id, guildId));
   }
 
-  submit(id: string, input: SettlementMutationInput): SettlementBatchRecord {
-    const batch = requireBatch(this.batches, id);
+  submit(guildId: string, id: string, input: SettlementMutationInput): SettlementBatchRecord {
+    const batch = requireBatch(this.batches, id, guildId);
     requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
     requireStatus(batch, ['DRAFT'], 'submitted');
     Object.assign(batch, {
@@ -433,8 +440,8 @@ export class InMemorySettlementStore implements SettlementStore {
     return clone(batch);
   }
 
-  approve(id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds): SettlementBatchRecord {
-    const batch = requireBatch(this.batches, id);
+  approve(guildId: string, id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds): SettlementBatchRecord {
+    const batch = requireBatch(this.batches, id, guildId);
     requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
     requireStatus(batch, ['PENDING_REVIEW'], 'approved');
     enforceApprovalPolicy(batch, input, thresholds);
@@ -447,8 +454,8 @@ export class InMemorySettlementStore implements SettlementStore {
     return clone(batch);
   }
 
-  recordPaymentResults(id: string, input: SettlementPaymentResultsInput): SettlementBatchRecord {
-    const batch = requireBatch(this.batches, id);
+  recordPaymentResults(guildId: string, id: string, input: SettlementPaymentResultsInput): SettlementBatchRecord {
+    const batch = requireBatch(this.batches, id, guildId);
     requireVersion(batch.version, input.expectedBatchVersion, 'Settlement batch');
     requireStatus(batch, ['APPROVED', 'EXPORTED', 'PARTIALLY_PAID'], 'record payment results');
     const prepared = preparePaymentResults(batch, input);
@@ -478,10 +485,13 @@ export class InMemorySettlementStore implements SettlementStore {
     return clone(batch);
   }
 
-  void(id: string, input: SettlementMutationInput): SettlementBatchRecord {
-    const batch = requireBatch(this.batches, id);
+  void(guildId: string, id: string, input: SettlementVoidInput): SettlementBatchRecord {
+    const batch = requireBatch(this.batches, id, guildId);
     requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
     requireStatus(batch, ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'EXPORTED'], 'voided');
+    validateReplacementRequest(batch, input);
+    const before = clone(batch);
+    const batchCount = this.batches.length;
     Object.assign(batch, {
       status: 'VOIDED' as const,
       version: batch.version + 1,
@@ -489,6 +499,21 @@ export class InMemorySettlementStore implements SettlementStore {
       voidedAt: input.now.toISOString(),
       voidReason: input.reason
     });
+    if (input.replacement && input.replacementBatchId) {
+      try {
+        const replacement = this.createBatch({
+          ...input.replacement,
+          guildId,
+          currency: batch.currency,
+          createdByStaffId: input.actorStaffId
+        }, input.replacementBatchId);
+        batch.replacementBatchId = replacement.id;
+      } catch (error) {
+        this.batches.splice(batchCount);
+        Object.assign(batch, before);
+        throw error;
+      }
+    }
     return clone(batch);
   }
 }
@@ -506,7 +531,7 @@ export class PostgresSettlementStore implements SettlementStore {
 
   async preview(input: SettlementCreateInput): Promise<SettlementPreview> {
     const earnings = await loadPostgresCandidates(this.pool, input, false);
-    const batches = await loadPostgresMemberships(this.pool);
+    const batches = await loadPostgresMemberships(this.pool, input.guildId);
     return buildPreview(input, earnings, batches);
   }
 
@@ -520,7 +545,6 @@ export class PostgresSettlementStore implements SettlementStore {
         await client.query('COMMIT');
         return replay;
       }
-      await assertPostgresReplacementAvailable(client, input);
       await lockSettlementSources(client, input);
       const replayAfterSourceLock = await findScheduledBatch(client, input);
       if (replayAfterSourceLock) {
@@ -529,7 +553,7 @@ export class PostgresSettlementStore implements SettlementStore {
         return replayAfterSourceLock;
       }
       const earnings = await loadPostgresCandidates(client, input, true);
-      const batches = await loadPostgresMemberships(client);
+      const batches = await loadPostgresMemberships(client, input.guildId);
       const preview = buildPreview(input, earnings, batches);
       if (preview.items.length === 0) {
         if (hasBlockedEarning(input, earnings, batches)) {
@@ -550,17 +574,19 @@ export class PostgresSettlementStore implements SettlementStore {
     }
   }
 
-  async list(): Promise<SettlementBatchRecord[]> {
-    const result = await this.pool.query<{ id: string }>('SELECT id FROM settlement_batches ORDER BY created_at DESC,id DESC');
-    return Promise.all(result.rows.map((row) => loadPostgresBatch(this.pool, row.id)));
+  async list(guildId: string): Promise<SettlementBatchRecord[]> {
+    const result = await this.pool.query<{ id: string }>(
+      'SELECT id FROM settlement_batches WHERE guild_id=$1 ORDER BY created_at DESC,id DESC', [guildId]
+    );
+    return Promise.all(result.rows.map((row) => loadPostgresBatch(this.pool, row.id, guildId)));
   }
 
-  async get(id: string): Promise<SettlementBatchRecord> {
-    return loadPostgresBatch(this.pool, id);
+  async get(guildId: string, id: string): Promise<SettlementBatchRecord> {
+    return loadPostgresBatch(this.pool, id, guildId);
   }
 
-  async submit(id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
-    return this.mutateBatch(id, async (client, batch) => {
+  async submit(guildId: string, id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
+    return this.mutateBatch(guildId, id, async (client, batch) => {
       requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
       requireStatus(batch, ['DRAFT'], 'submitted');
       const updated = await client.query(
@@ -572,8 +598,8 @@ export class PostgresSettlementStore implements SettlementStore {
     }, auditRecord);
   }
 
-  async approve(id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
-    return this.mutateBatch(id, async (client, batch) => {
+  async approve(guildId: string, id: string, input: SettlementMutationInput, thresholds: SettlementReviewThresholds, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
+    return this.mutateBatch(guildId, id, async (client, batch) => {
       requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
       requireStatus(batch, ['PENDING_REVIEW'], 'approved');
       enforceApprovalPolicy(batch, input, thresholds);
@@ -586,8 +612,8 @@ export class PostgresSettlementStore implements SettlementStore {
     }, auditRecord);
   }
 
-  async recordPaymentResults(id: string, input: SettlementPaymentResultsInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
-    return this.mutateBatch(id, async (client, batch) => {
+  async recordPaymentResults(guildId: string, id: string, input: SettlementPaymentResultsInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
+    return this.mutateBatch(guildId, id, async (client, batch) => {
       requireVersion(batch.version, input.expectedBatchVersion, 'Settlement batch');
       requireStatus(batch, ['APPROVED', 'EXPORTED', 'PARTIALLY_PAID'], 'record payment results');
       const prepared = preparePaymentResults(batch, input);
@@ -627,21 +653,46 @@ export class PostgresSettlementStore implements SettlementStore {
     }, auditRecord);
   }
 
-  async void(id: string, input: SettlementMutationInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
-    return this.mutateBatch(id, async (client, batch) => {
+  async void(guildId: string, id: string, input: SettlementVoidInput, auditRecord?: AuditRecord): Promise<SettlementBatchRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const batch = await loadPostgresBatch(client, id, guildId, true);
       requireVersion(batch.version, input.expectedVersion, 'Settlement batch');
       requireStatus(batch, ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'EXPORTED'], 'voided');
+      validateReplacementRequest(batch, input);
+      if (input.replacement) await lockSettlementSources(client, input.replacement);
       const updated = await client.query(
         `UPDATE settlement_batches SET status='VOIDED',voided_by_staff_id=$1,voided_at=$2,void_reason=$3,
            row_version=row_version+1,updated_at=$2
-         WHERE id=$4 AND row_version=$5 AND status IN ('DRAFT','PENDING_REVIEW','APPROVED','EXPORTED')`,
-        [input.actorStaffId, input.now.toISOString(), input.reason, id, input.expectedVersion]
+         WHERE id=$4 AND guild_id=$5 AND row_version=$6 AND status IN ('DRAFT','PENDING_REVIEW','APPROVED','EXPORTED')`,
+        [input.actorStaffId, input.now.toISOString(), input.reason, id, guildId, input.expectedVersion]
       );
       if (updated.rowCount !== 1) throw new SettlementError('CONFLICT', 'Settlement batch changed concurrently.');
-    }, auditRecord);
+      if (input.replacement && input.replacementBatchId) {
+        const replacementInput = { ...input.replacement, guildId, currency: batch.currency, createdByStaffId: input.actorStaffId };
+        const earnings = await loadPostgresCandidates(client, replacementInput, true);
+        const batches = await loadPostgresMemberships(client, guildId);
+        const preview = buildPreview(replacementInput, earnings, batches);
+        if (preview.items.length === 0) throw new SettlementError('NO_ELIGIBLE_SOURCES', 'No eligible replacement sources were found.');
+        await insertPostgresBatch(client, replacementInput, preview, input.replacementBatchId);
+        await client.query('UPDATE settlement_batches SET replacement_batch_id=$1,updated_at=$2 WHERE id=$3 AND guild_id=$4',
+          [input.replacementBatchId, input.now.toISOString(), id, guildId]);
+      }
+      if (auditRecord) await insertPostgresAuditRecord(client, auditRecord);
+      const result = await loadPostgresBatch(client, id, guildId);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private async mutateBatch(
+    guildId: string,
     id: string,
     mutation: (client: PoolClient, batch: SettlementBatchRecord) => Promise<void>,
     auditRecord?: AuditRecord
@@ -649,12 +700,12 @@ export class PostgresSettlementStore implements SettlementStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const locked = await client.query<{ id: string }>('SELECT id FROM settlement_batches WHERE id=$1 FOR UPDATE', [id]);
+      const locked = await client.query<{ id: string }>('SELECT id FROM settlement_batches WHERE id=$1 AND guild_id=$2 FOR UPDATE', [id, guildId]);
       if (!locked.rows[0]) throw new SettlementError('NOT_FOUND', 'Settlement batch was not found.');
-      const batch = await loadPostgresBatch(client, id);
+      const batch = await loadPostgresBatch(client, id, guildId);
       await mutation(client, batch);
       if (auditRecord) await insertPostgresAuditRecord(client, auditRecord);
-      const result = await loadPostgresBatch(client, id);
+      const result = await loadPostgresBatch(client, id, guildId);
       await client.query('COMMIT');
       return result;
     } catch (error) {
@@ -679,14 +730,14 @@ function parseCreateInput(value: unknown, actor: ActorContext | null): Settlemen
   }
   const periodEnd = new Date(body.periodEnd).toISOString();
   return {
+    guildId: actor ? requireGuild(actor) : '',
     source: body.source as SettlementBatchSource,
     scheduleKey: typeof body.scheduleKey === 'string' ? body.scheduleKey : null,
     periodStart: new Date(body.periodStart).toISOString(), periodEnd,
     cutoffAt: typeof body.cutoffAt === 'string' ? new Date(body.cutoffAt).toISOString() : periodEnd,
     timeZone: body.timeZone, currency: body.currency,
     playerUserIds: (players as string[] | undefined) ?? null,
-    createdByStaffId: actor ? requireStaff(actor).actorStaffId : null,
-    replacementForBatchId: typeof body.replacementForBatchId === 'string' ? body.replacementForBatchId : null
+    createdByStaffId: actor ? requireStaff(actor).actorStaffId : null
   };
 }
 
@@ -729,9 +780,34 @@ function mutationContext(request: FastifyRequest, actor: ActorContext, now: () =
   return { ...parsed, actorStaffId: staff.actorStaffId!, actorLevel: staff.actorLevel!, now: now() };
 }
 
+function parseVoidInput(value: unknown, actor: ActorContext | null, now: () => Date): SettlementVoidInput {
+  const body = value as Record<string, unknown>;
+  const parsed = parseMutation(value);
+  const replacementBatchId = typeof body?.replacementBatchId === 'string' ? body.replacementBatchId : null;
+  const replacement = body?.replacement == null ? null : parseCreateInput(body.replacement, actor);
+  if (Boolean(replacementBatchId) !== Boolean(replacement)) {
+    throw new SettlementError('VALIDATION_ERROR', 'replacementBatchId and replacement must be provided together.');
+  }
+  const staff = actor ? requireStaff(actor) : null;
+  return {
+    ...parsed,
+    replacementBatchId,
+    replacement,
+    actorStaffId: staff?.actorStaffId ?? '',
+    actorLevel: staff?.actorLevel ?? 'L1_SUPPORT',
+    now: now()
+  };
+}
+
 function requireStaff(actor: ActorContext): ActorContext & { actorStaffId: string; actorLevel: StaffLevel } {
   if (!actor.actorStaffId || !actor.actorLevel) throw new SettlementError('PERMISSION_DENIED', 'A staff actor is required.');
   return actor as ActorContext & { actorStaffId: string; actorLevel: StaffLevel };
+}
+
+function requireGuild(actor: ActorContext): string {
+  const guildId = actor.guildId?.trim();
+  if (!guildId) throw new SettlementError('PERMISSION_DENIED', 'Trusted Guild context is required.');
+  return guildId;
 }
 
 function batchIdParam(request: FastifyRequest): string {
@@ -802,6 +878,7 @@ function formatMinor(value: number): string {
 }
 
 function validateInput(input: SettlementCreateInput): void {
+  if (!input.guildId.trim()) throw new SettlementError('PERMISSION_DENIED', 'Trusted Guild context is required.');
   if (input.currency !== 'CNY') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support CNY only.');
   if (input.source === 'SCHEDULED' && !input.scheduleKey) {
     throw new SettlementError('VALIDATION_ERROR', 'Scheduled settlements require scheduleKey.');
@@ -828,7 +905,8 @@ function buildPreview(
   const byPlayer = new Map<string, SettlementEntryRecord[]>();
 
   for (const earning of earnings) {
-    if (earning.currency !== input.currency || (selectedPlayers && !selectedPlayers.has(earning.playerUserId))) continue;
+    if (earning.guildId !== input.guildId || earning.currency !== input.currency
+      || (selectedPlayers && !selectedPlayers.has(earning.playerUserId))) continue;
     const earningEligible = earning.status === 'CONFIRMED'
       && earning.confirmedAt !== null
       && Date.parse(earning.confirmedAt) <= Date.parse(input.cutoffAt)
@@ -908,6 +986,7 @@ function hasBlockedEarning(input: SettlementCreateInput, earnings: SettlementCan
   const activeEarnings = activeSourceIds(batches, 'PLAYER_EARNING');
   const players = input.playerUserIds ? new Set(input.playerUserIds) : null;
   return earnings.some((earning) => earning.status === 'CONFIRMED'
+    && earning.guildId === input.guildId
     && earning.currency === input.currency
     && earning.confirmedAt !== null
     && Date.parse(earning.confirmedAt) <= Date.parse(input.cutoffAt)
@@ -931,10 +1010,24 @@ function adjustmentSign(type: SettlementAdjustmentType): 1 | -1 {
   return type === 'CORRECTION_CREDIT' ? 1 : -1;
 }
 
-function requireBatch(batches: SettlementBatchRecord[], id: string): SettlementBatchRecord {
-  const batch = batches.find((candidate) => candidate.id === id);
+function requireBatch(batches: SettlementBatchRecord[], id: string, guildId?: string): SettlementBatchRecord {
+  const batch = batches.find((candidate) => candidate.id === id && (!guildId || candidate.guildId === guildId));
   if (!batch) throw new SettlementError('NOT_FOUND', 'Settlement batch was not found.');
   return batch;
+}
+
+function validateReplacementRequest(batch: SettlementBatchRecord, input: SettlementVoidInput): void {
+  if ((batch.status === 'APPROVED' || batch.status === 'EXPORTED')
+    && (!input.replacementBatchId || !input.replacement)) {
+    throw new SettlementError('CONFLICT', 'Approved or exported settlement batches require an atomic replacement.');
+  }
+  if (!input.replacementBatchId || !input.replacement) return;
+  if (input.replacementBatchId === batch.id) {
+    throw new SettlementError('CONFLICT', 'A settlement batch cannot replace itself.');
+  }
+  if (input.replacement.guildId !== batch.guildId || input.replacement.currency !== batch.currency) {
+    throw new SettlementError('CONFLICT', 'A replacement must use the same Guild and currency.');
+  }
 }
 
 function requireVersion(actual: number, expected: number, label: string): void {
@@ -1025,26 +1118,6 @@ function maskExternalAccountDisplay(value: string | null): string | null {
   return identifier.length > 4 ? `${provider}:***${identifier.slice(-4)}` : `${provider}:***`;
 }
 
-function assertInMemoryReplacementAvailable(input: SettlementCreateInput, batches: SettlementBatchRecord[]): void {
-  if (!input.replacementForBatchId) return;
-  const replaced = batches.find((batch) => batch.id === input.replacementForBatchId);
-  if (!replaced || replaced.status !== 'VOIDED' || replaced.replacementBatchId) {
-    throw new SettlementError('CONFLICT', 'Replacement requires a voided batch without an existing replacement.');
-  }
-}
-
-async function assertPostgresReplacementAvailable(client: SettlementDatabaseClient, input: SettlementCreateInput): Promise<void> {
-  if (!input.replacementForBatchId) return;
-  const result = await client.query<{ status: SettlementBatchStatus; replacement_batch_id: string | null }>(
-    'SELECT status,replacement_batch_id FROM settlement_batches WHERE id=$1 FOR UPDATE',
-    [input.replacementForBatchId]
-  );
-  const replaced = result.rows[0];
-  if (!replaced || replaced.status !== 'VOIDED' || replaced.replacement_batch_id) {
-    throw new SettlementError('CONFLICT', 'Replacement requires a voided batch without an existing replacement.');
-  }
-}
-
 function sum(values: number[]): number {
   return values.reduce((total, value) => {
     const next = total + value;
@@ -1063,9 +1136,9 @@ function toSafeMinor(value: string, field: string): number {
   return Number(parsed);
 }
 
-function automaticIdentity(input: Pick<SettlementCreateInput | SettlementBatchRecord, 'source' | 'scheduleKey' | 'periodStart' | 'periodEnd' | 'currency'>): string | null {
+function automaticIdentity(input: Pick<SettlementCreateInput | SettlementBatchRecord, 'guildId' | 'source' | 'scheduleKey' | 'periodStart' | 'periodEnd' | 'currency'>): string | null {
   return input.source === 'SCHEDULED'
-    ? [input.scheduleKey, input.periodStart, input.periodEnd, input.currency].join(':')
+    ? [input.guildId, input.scheduleKey, input.periodStart, input.periodEnd, input.currency].join(':')
     : null;
 }
 
@@ -1082,19 +1155,20 @@ function clone<T>(value: T): T {
 
 async function lockSettlementSources(client: PoolClient, input: SettlementCreateInput): Promise<void> {
   await client.query(
-    `SELECT pe.id FROM player_earnings pe
-     WHERE pe.currency=$1 AND pe.created_at <= $2::timestamptz
-       AND ($3::uuid[] IS NULL OR pe.player_user_id = ANY($3::uuid[]))
+    `SELECT pe.id FROM player_earnings pe JOIN orders o ON o.id=pe.order_id
+     WHERE o.guild_id=$1 AND pe.currency=$2 AND pe.created_at <= $3::timestamptz
+       AND ($4::uuid[] IS NULL OR pe.player_user_id = ANY($4::uuid[]))
      ORDER BY pe.id FOR UPDATE`,
-    [input.currency, input.cutoffAt, input.playerUserIds]
+    [input.guildId, input.currency, input.cutoffAt, input.playerUserIds]
   );
   await client.query(
     `SELECT pea.id FROM player_earning_adjustments pea
      JOIN player_earnings pe ON pe.id=pea.player_earning_id
-     WHERE pea.currency=$1 AND pea.created_at <= $2::timestamptz
-       AND ($3::uuid[] IS NULL OR pe.player_user_id = ANY($3::uuid[]))
+     JOIN orders o ON o.id=pe.order_id
+     WHERE o.guild_id=$1 AND pea.currency=$2 AND pea.created_at <= $3::timestamptz
+       AND ($4::uuid[] IS NULL OR pe.player_user_id = ANY($4::uuid[]))
      ORDER BY pea.id FOR UPDATE OF pea`,
-    [input.currency, input.cutoffAt, input.playerUserIds]
+    [input.guildId, input.currency, input.cutoffAt, input.playerUserIds]
   );
 }
 
@@ -1113,14 +1187,15 @@ async function loadPostgresCandidates(client: SettlementDatabaseClient, input: S
          'type',pea.type,'amountMinor',pea.amount_minor::text,'currency',pea.currency,'createdAt',pea.created_at)
          ORDER BY pea.created_at,pea.id) FILTER (WHERE pea.id IS NOT NULL),'[]'::jsonb) adjustments
      FROM player_earnings pe JOIN users u ON u.id=pe.player_user_id
+     JOIN orders o ON o.id=pe.order_id
      LEFT JOIN player_earning_adjustments pea ON pea.player_earning_id=pe.id
-     WHERE pe.currency=$1 AND pe.created_at <= $2::timestamptz
-       AND ($3::uuid[] IS NULL OR pe.player_user_id = ANY($3::uuid[]))
+     WHERE o.guild_id=$1 AND pe.currency=$2 AND pe.created_at <= $3::timestamptz
+       AND ($4::uuid[] IS NULL OR pe.player_user_id = ANY($4::uuid[]))
      GROUP BY pe.id,u.display_name ORDER BY pe.id`,
-    [input.currency, input.cutoffAt, input.playerUserIds]
+    [input.guildId, input.currency, input.cutoffAt, input.playerUserIds]
   );
   return rows.rows.map((row) => ({
-    id: row.id, orderId: row.order_id, playerUserId: row.player_user_id,
+    id: row.id, orderId: row.order_id, playerUserId: row.player_user_id, guildId: input.guildId,
     playerDisplayName: row.player_display_name, playerDiscordUserId: row.player_discord_user_id,
     externalAccountDisplay: row.external_account_display, amountMinor: toSafeMinor(row.amount_minor, 'earning amount'),
     currency: row.currency, status: row.status, confirmedAt: iso(row.confirmed_at), paidAt: iso(row.paid_at),
@@ -1130,16 +1205,16 @@ async function loadPostgresCandidates(client: SettlementDatabaseClient, input: S
   }));
 }
 
-async function loadPostgresMemberships(client: SettlementDatabaseClient): Promise<SettlementBatchRecord[]> {
+async function loadPostgresMemberships(client: SettlementDatabaseClient, guildId: string): Promise<SettlementBatchRecord[]> {
   const rows = await client.query<PostgresMembershipRow>(
     `SELECT sb.id,sb.status,sie.entry_type,sie.player_earning_id,sie.player_earning_adjustment_id
      FROM settlement_item_entries sie JOIN settlement_items si ON si.id=sie.settlement_item_id
      JOIN settlement_batches sb ON sb.id=si.settlement_batch_id
-     WHERE sb.status<>'VOIDED'`
+     WHERE sb.guild_id=$1 AND sb.status<>'VOIDED'`, [guildId]
   );
   const grouped = new Map<string, SettlementBatchRecord>();
   for (const row of rows.rows) {
-    const batch = grouped.get(row.id) ?? emptyMembershipBatch(row.id, row.status);
+    const batch = grouped.get(row.id) ?? emptyMembershipBatch(row.id, row.status, guildId);
     batch.items[0]!.entries.push({
       id: `${row.id}:${batch.items[0]!.entries.length}`, entryType: row.entry_type,
       playerEarningId: row.player_earning_id, playerEarningAdjustmentId: row.player_earning_adjustment_id,
@@ -1153,23 +1228,23 @@ async function loadPostgresMemberships(client: SettlementDatabaseClient): Promis
 async function findScheduledBatch(client: SettlementDatabaseClient, input: SettlementCreateInput): Promise<SettlementBatchRecord | null> {
   if (input.source !== 'SCHEDULED') return null;
   const result = await client.query<{ id: string }>(
-    `SELECT id FROM settlement_batches WHERE schedule_key=$1 AND period_start=$2::timestamptz
-       AND period_end=$3::timestamptz AND currency=$4`,
-    [input.scheduleKey, input.periodStart, input.periodEnd, input.currency]
+    `SELECT id FROM settlement_batches WHERE guild_id=$1 AND schedule_key=$2 AND period_start=$3::timestamptz
+       AND period_end=$4::timestamptz AND currency=$5`,
+    [input.guildId, input.scheduleKey, input.periodStart, input.periodEnd, input.currency]
   );
-  return result.rows[0] ? loadPostgresBatch(client, result.rows[0].id) : null;
+  return result.rows[0] ? loadPostgresBatch(client, result.rows[0].id, input.guildId) : null;
 }
 
-async function insertPostgresBatch(client: PoolClient, input: SettlementCreateInput, preview: SettlementPreview): Promise<SettlementBatchRecord> {
+async function insertPostgresBatch(client: PoolClient, input: SettlementCreateInput, preview: SettlementPreview, forcedId?: string): Promise<SettlementBatchRecord> {
   const identity = automaticIdentity(input) ?? `${input.periodStart}:${input.periodEnd}:${input.currency}:${Date.now()}:${Math.random()}`;
-  const batchId = deterministicUuid(`settlement-batch:${identity}`);
+  const batchId = forcedId ?? deterministicUuid(`settlement-batch:${identity}`);
   const publicId = `SET-${batchId.replaceAll('-', '').slice(0, 12).toUpperCase()}`;
   const items = materializeItemIds(preview.items, batchId);
   await client.query(
-    `INSERT INTO settlement_batches (id,public_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,
+    `INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,
        gross_amount_minor,adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,replacement_batch_id,created_at,updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'DRAFT',1,$13,NULL,now(),now())`,
-    [batchId, publicId, input.source, input.scheduleKey, input.periodStart, input.periodEnd, input.cutoffAt,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'DRAFT',1,$14,NULL,now(),now())`,
+    [batchId, publicId, input.guildId, input.source, input.scheduleKey, input.periodStart, input.periodEnd, input.cutoffAt,
       input.timeZone, input.currency, preview.grossAmountMinor, preview.adjustmentAmountMinor,
       preview.netAmountMinor, input.createdByStaffId]
   );
@@ -1192,15 +1267,7 @@ async function insertPostgresBatch(client: PoolClient, input: SettlementCreateIn
     }
   }
   await client.query('UPDATE settlement_batches SET snapshot_finalized_at=now(),updated_at=now() WHERE id=$1', [batchId]);
-  if (input.replacementForBatchId) {
-    const update = await client.query(
-      `UPDATE settlement_batches SET replacement_batch_id=$1,row_version=row_version+1,updated_at=$2
-       WHERE id=$3 AND status='VOIDED' AND replacement_batch_id IS NULL`,
-      [batchId, new Date().toISOString(), input.replacementForBatchId]
-    );
-    if (update.rowCount !== 1) throw new SettlementError('CONFLICT', 'Replacement requires a voided batch without an existing replacement.');
-  }
-  return loadPostgresBatch(client, batchId);
+  return loadPostgresBatch(client, batchId, input.guildId);
 }
 
 function materializeItemIds(items: SettlementItemRecord[], batchId: string): SettlementItemRecord[] {
@@ -1214,8 +1281,10 @@ function materializeItemIds(items: SettlementItemRecord[], batchId: string): Set
   }));
 }
 
-async function loadPostgresBatch(client: SettlementDatabaseClient, id: string): Promise<SettlementBatchRecord> {
-  const batchResult = await client.query<PostgresBatchRow>('SELECT * FROM settlement_batches WHERE id=$1', [id]);
+async function loadPostgresBatch(client: SettlementDatabaseClient, id: string, guildId: string, forUpdate = false): Promise<SettlementBatchRecord> {
+  const batchResult = await client.query<PostgresBatchRow>(
+    `SELECT * FROM settlement_batches WHERE id=$1 AND guild_id=$2${forUpdate ? ' FOR UPDATE' : ''}`, [id, guildId]
+  );
   const batch = batchResult.rows[0];
   if (!batch) throw new SettlementError('NOT_FOUND', 'Settlement batch was not found.');
   const itemResult = await client.query<PostgresItemRow>('SELECT * FROM settlement_items WHERE settlement_batch_id=$1 ORDER BY player_user_id', [id]);
@@ -1242,7 +1311,7 @@ async function loadPostgresBatch(client: SettlementDatabaseClient, id: string): 
         recordedAt: iso(result.recorded_at)!
       })) });
   }
-  return { id: batch.id, publicId: batch.public_id, source: batch.source, scheduleKey: batch.schedule_key,
+  return { id: batch.id, guildId: batch.guild_id, publicId: batch.public_id, source: batch.source, scheduleKey: batch.schedule_key,
     periodStart: iso(batch.period_start)!, periodEnd: iso(batch.period_end)!, cutoffAt: iso(batch.cutoff_at)!, timeZone: batch.time_zone,
     currency: batch.currency, grossAmountMinor: toSafeMinor(batch.gross_amount_minor, 'batch gross amount'),
     adjustmentAmountMinor: toSafeMinor(batch.adjustment_amount_minor, 'batch adjustment amount'),
@@ -1254,8 +1323,8 @@ async function loadPostgresBatch(client: SettlementDatabaseClient, id: string): 
     replacementBatchId: batch.replacement_batch_id, createdAt: iso(batch.created_at)!, items };
 }
 
-function emptyMembershipBatch(id: string, status: SettlementBatchStatus): SettlementBatchRecord {
-  return { id, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'CNY',
+function emptyMembershipBatch(id: string, status: SettlementBatchStatus, guildId: string): SettlementBatchRecord {
+  return { id, guildId, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'CNY',
     grossAmountMinor: 0, adjustmentAmountMinor: 0, netAmountMinor: 0, status, version: 1, createdByStaffId: null,
     submittedByStaffId: null, approvedByStaffId: null, voidedByStaffId: null, submittedAt: null, approvedAt: null,
     exportedAt: null, voidedAt: null, voidReason: null, replacementBatchId: null, createdAt: '',
@@ -1277,7 +1346,7 @@ function isPostgresConflict(error: unknown): boolean {
 interface PostgresAdjustmentJson { id: string; playerEarningId: string; type: SettlementAdjustmentType; amountMinor: string; currency: string; createdAt: Date | string; }
 interface PostgresCandidateRow extends Record<string, unknown> { id: string; order_id: string; player_user_id: string; player_display_name: string; player_discord_user_id: string | null; external_account_display: string | null; amount_minor: string; currency: string; status: SettlementCandidateEarning['status']; confirmed_at: Date | null; paid_at: Date | null; created_at: Date; adjustments: PostgresAdjustmentJson[]; }
 interface PostgresMembershipRow extends Record<string, unknown> { id: string; status: SettlementBatchStatus; entry_type: SettlementEntryType; player_earning_id: string | null; player_earning_adjustment_id: string | null; }
-interface PostgresBatchRow extends Record<string, unknown> { id: string; public_id: string; source: SettlementBatchSource; schedule_key: string | null; period_start: Date; period_end: Date; cutoff_at: Date; time_zone: string; currency: string; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; status: SettlementBatchStatus; row_version: number; created_by_staff_id: string | null; submitted_by_staff_id: string | null; approved_by_staff_id: string | null; voided_by_staff_id: string | null; submitted_at: Date | null; approved_at: Date | null; exported_at: Date | null; voided_at: Date | null; void_reason: string | null; replacement_batch_id: string | null; created_at: Date; }
+interface PostgresBatchRow extends Record<string, unknown> { id: string; guild_id: string; public_id: string; source: SettlementBatchSource; schedule_key: string | null; period_start: Date; period_end: Date; cutoff_at: Date; time_zone: string; currency: string; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; status: SettlementBatchStatus; row_version: number; created_by_staff_id: string | null; submitted_by_staff_id: string | null; approved_by_staff_id: string | null; voided_by_staff_id: string | null; submitted_at: Date | null; approved_at: Date | null; exported_at: Date | null; voided_at: Date | null; void_reason: string | null; replacement_batch_id: string | null; created_at: Date; }
 interface PostgresItemRow extends Record<string, unknown> { id: string; player_user_id: string; player_display_name: string; player_discord_user_id: string | null; external_account_display: string | null; gross_amount_minor: string; adjustment_amount_minor: string; net_amount_minor: string; currency: string; payment_status: SettlementItemPaymentStatus; row_version: number; }
 interface PostgresEntryRow extends Record<string, unknown> { id: string; entry_type: SettlementEntryType; player_earning_id: string | null; player_earning_adjustment_id: string | null; amount_minor: string; currency: string; occurred_at: Date; }
 interface PostgresPaymentResultRow extends Record<string, unknown> { id: string; settlement_item_id: string; result: SettlementPaymentResultStatus; amount_minor: string; currency: string; external_batch_reference: string | null; note: string | null; idempotency_key: string; recorded_by_staff_id: string; recorded_at: Date; }

@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 
 const us01Migration = 'database/prisma/migrations/000002_m6_settlements/migration.sql';
 const us02Migration = 'database/prisma/migrations/000003_m6_settlement_review/migration.sql';
+const securityMigration = 'database/prisma/migrations/000007_settlement_security_remediation/migration.sql';
 
 describe('M6-US-02 migration chain', () => {
   test('keeps the applied US01 migration immutable and adds US02 as 000003', async () => {
@@ -17,5 +18,12 @@ describe('M6-US-02 migration chain', () => {
     expect(us02).toContain('settlement_payment_results_one_success_idx');
     expect(us02).toContain('trg_settlement_payment_result_guard');
     expect(us02).toContain('trg_settlement_payment_result_projection');
+
+    const security = await readFile(securityMigration, 'utf8');
+    expect(security).toContain('ALTER COLUMN guild_id SET NOT NULL');
+    expect(security).toContain('settlement_batches_guild_schedule_period_currency_key');
+    expect(security).toContain('trg_settlement_guild_immutable');
+    expect(security).toContain('trg_settlement_entry_guild_ownership');
+    expect(security).toContain('same-Guild');
   });
 });

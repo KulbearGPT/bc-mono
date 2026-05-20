@@ -75,6 +75,21 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(read(`${outputRoot}/03-数据模型/状态枚举与约束.md`)).toContain('PARTIALLY_PAID -> PARTIALLY_PAID | PAID');
   });
 
+  test('freezes trusted Guild ownership and the canonical void replacement contract', () => {
+    const openapi = read(`${outputRoot}/02-API/openapi.yaml`);
+    const createSchema = openapi.slice(openapi.indexOf('    SettlementBatchCreateInput:'), openapi.indexOf('    SettlementMutationInput:'));
+    const voidSchema = openapi.slice(openapi.indexOf('    SettlementVoidInput:'), openapi.indexOf('    SettlementPaymentResultInput:'));
+    const batchSchema = openapi.slice(openapi.indexOf('    SettlementBatch:'), openapi.indexOf('    SettlementPreview:'));
+
+    expect(createSchema).not.toContain('replacementBatchId');
+    expect(voidSchema).toContain('replacementBatchId');
+    expect(voidSchema).toContain("x-replacement-required-statuses: [APPROVED, EXPORTED]");
+    expect(voidSchema).toContain("replacement: {$ref: '#/components/schemas/SettlementBatchCreateInput'}");
+    expect(batchSchema).toContain('required: [id, guildId, publicId');
+    expect(batchSchema).toContain('guildId: {type: string');
+    expect(openapi).toContain('x-scope-resolution: trusted-dashboard-session-business-guild');
+  });
+
   test('keeps authoritative contract mirrors byte-identical', () => {
     for (const relative of [
       '02-API/openapi.yaml',

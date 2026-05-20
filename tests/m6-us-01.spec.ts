@@ -10,12 +10,14 @@ import {
 
 const playerA = '00000000-0000-0000-0000-000000006101';
 const playerB = '00000000-0000-0000-0000-000000006102';
+const guildId = '900000000000000001';
 const cutoffAt = '2026-07-19T16:00:00.000Z';
 
 function earning(input: Partial<SettlementCandidateEarning> & Pick<SettlementCandidateEarning, 'id'>): SettlementCandidateEarning {
   return {
     id: input.id,
     orderId: input.orderId ?? input.id,
+    guildId: input.guildId ?? guildId,
     playerUserId: input.playerUserId ?? playerA,
     amountMinor: input.amountMinor ?? 10_000,
     currency: input.currency ?? 'CNY',
@@ -29,6 +31,7 @@ function earning(input: Partial<SettlementCandidateEarning> & Pick<SettlementCan
 
 function createInput(overrides: Partial<SettlementCreateInput> = {}): SettlementCreateInput {
   return {
+    guildId,
     source: 'MANUAL',
     scheduleKey: null,
     periodStart: '2026-07-13T16:00:00.000Z',
