@@ -288,14 +288,16 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       'worker-a',
       1,
       [
-      'GIFT_ANNOUNCEMENT',
-      'GIFT_EXPIRY',
+        'GIFT_ANNOUNCEMENT',
+        'GIFT_EXPIRY',
         'DISPATCH_MESSAGE',
         'DISPATCH_TIMEOUT',
         'READINESS_TIMEOUT',
         'CHANNEL_ARCHIVE',
         'PANEL_SYNC',
-        'ROLE_RECONCILIATION'
+        'ROLE_RECONCILIATION',
+        'WEEKLY_REPORT_GENERATE',
+        'WEEKLY_REPORT_NOTIFY'
       ]
     ]);
   });

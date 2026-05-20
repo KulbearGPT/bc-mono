@@ -119,7 +119,8 @@ describe('M1-US-06 private service center Discord flow', () => {
       expect.arrayContaining([
         'bc:entry:service-center',
         `bc:order:${activeOrderId}:open`,
-        'bc:service-center:consumptions',
+        'bc:profile:open',
+        'bc:profile:consumptions:first',
         'bc:service-center:commissions'
       ])
     );

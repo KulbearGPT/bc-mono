@@ -49,6 +49,7 @@ describe('M2-US-08 Sapphire player workbench', () => {
     expect(message.body).toContain('待确认收益：¥80.00');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual([
       'bc:entry:player-workbench',
+      'bc:reports:list:first',
       `bc:dispatch:${workbench.matchingOrders[0]!.dispatchAttemptId}:accept:${workbench.matchingOrders[0]!.order.id}:v5`,
       `bc:dispatch:${workbench.matchingOrders[0]!.dispatchAttemptId}:decline:${workbench.matchingOrders[0]!.order.id}:v5`
     ]);
@@ -59,6 +60,7 @@ describe('M2-US-08 Sapphire player workbench', () => {
     expect(message.body).toContain('待接订单：暂无');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual([
       'bc:entry:player-workbench',
+      'bc:reports:list:first',
       'bc:player:availability:AVAILABLE:v3'
     ]);
   });
