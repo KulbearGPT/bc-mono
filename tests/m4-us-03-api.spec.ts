@@ -34,9 +34,9 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
     ],
     players: [{ playerId: '00000000-0000-0000-0000-000000003001', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: ['VALORANT'], serviceTags: ['娱乐陪玩'], activeOrderId: '00000000-0000-0000-0000-000000001002', version: 3 }],
     consumptions: [
-      { id: '00000000-0000-0000-0000-000000004001', userId: '00000000-0000-0000-0000-000000002001', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001001', amountMinor: 12000, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T03:00:00Z', reversalOf: null },
-      { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
-      { id: '00000000-0000-0000-0000-000000004000', userId: '00000000-0000-0000-0000-000000002001', type: 'ADMIN_CORRECTION', sourceId: '00000000-0000-0000-0000-000000009001', amountMinor: -300, currency: 'CNY', status: 'REVERSED', occurredAt: '2026-07-18T02:30:00Z', reversalOf: null }
+      { id: '00000000-0000-0000-0000-000000004001', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001001', amountMinor: 12000, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T03:00:00Z', reversalOf: null },
+      { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
+      { id: '00000000-0000-0000-0000-000000004000', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ADMIN_CORRECTION', sourceId: '00000000-0000-0000-0000-000000009001', amountMinor: -300, currency: 'CNY', status: 'REVERSED', occurredAt: '2026-07-18T02:30:00Z', reversalOf: null }
     ],
     gifts: [{ id: '00000000-0000-0000-0000-000000005001', code: 'ROCKET', name: '火箭', priceMinor: 5200, currency: 'CNY', enabled: true, version: 1, broadcastTemplate: '{sender} 送出 {gift}', createdAt: '2026-07-18T00:00:00Z' }],
     giftRequests: [{ id: '00000000-0000-0000-0000-000000006001', publicId: 'G-1001', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 4, giftName: '火箭', amountMinor: 5200, currency: 'CNY', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T03:00:00Z' }],
@@ -47,7 +47,10 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
       '00000000-0000-0000-0000-111111111111': ['00000000-0000-0000-0000-000000006001']
     }
   });
-  const server = buildApiServer({ env, security: { auditSink: options.auditSink, staffDirectory: directory, stepUpVerifier: { verify: ({ request }) => request.headers['x-step-up'] === 'valid' } }, adminDirectory: { store } });
+  const server = buildApiServer({ env, security: { auditSink: options.auditSink, staffDirectory: directory, stepUpVerifier: { verify: ({ request }) => request.headers['x-step-up'] === 'valid' } }, adminDirectory: {
+    store,
+    customerScope: { canReadCustomer: async () => true }
+  } });
   return { server, store };
 }
 
@@ -97,7 +100,7 @@ describe('M4-US-03 admin directory API', () => {
       store.users.push({ id: '00000000-0000-0000-0000-000000002999', displayName: 'New user', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: null, riskFlags: [], version: 1 });
     });
     await expectStableSecondPage('/api/v1/admin/users/00000000-0000-0000-0000-000000002001/consumptions?limit=1', 'id', '00000000-0000-0000-0000-000000004002', '00000000-0000-0000-0000-000000004001', () => {
-      store.consumptions.push({ id: '00000000-0000-0000-0000-000000004003', userId: '00000000-0000-0000-0000-000000002001', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001003', amountMinor: 100, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T05:00:00Z', reversalOf: null });
+      store.consumptions.push({ id: '00000000-0000-0000-0000-000000004003', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001003', amountMinor: 100, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T05:00:00Z', reversalOf: null });
     });
     await expectStableSecondPage('/api/v1/admin/players?limit=1', 'playerId', '00000000-0000-0000-0000-000000003001', '00000000-0000-0000-0000-000000003000', () => {
       store.players.push({ playerId: '00000000-0000-0000-0000-000000003999', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1 });

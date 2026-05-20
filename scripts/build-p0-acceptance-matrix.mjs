@@ -45,8 +45,8 @@ export async function buildAcceptanceMatrix(root) {
     readdir(resolve(root, 'tests'))
   ]);
   const acceptance = parseCsv(acceptanceText);
-  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-5]-US-[0-9]{2}$/u.test(row.item_id));
-  const implementedBacklog = backlog.filter((row) => /^M[0-4]-US-[0-9]{2}$/u.test(row.item_id));
+  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-6]-US-[0-9]{2}$/u.test(row.item_id));
+  const implementedBacklog = backlog.filter((row) => /^M(?:[0-4]|6)-US-[0-9]{2}$/u.test(row.item_id));
   const knownOperations = new Set([...openApiText.matchAll(/^\s+operationId:\s*([^\s]+)\s*$/gmu)].map((match) => match[1]));
   const byAcceptance = new Map();
   const byStory = new Map(backlog.map((row) => [row.item_id, row]));
@@ -59,7 +59,7 @@ export async function buildAcceptanceMatrix(root) {
     }
   }
 
-  if (acceptance.length !== 152) throw new Error(`Expected 152 acceptance cases, received ${acceptance.length}.`);
+  if (!acceptance.length) throw new Error('The authoritative acceptance catalog must not be empty.');
   if (new Set(acceptance.map((row) => row.ID)).size !== acceptance.length) throw new Error('Acceptance IDs must be unique.');
 
   return Promise.all(acceptance.map(async (item) => {
@@ -76,7 +76,7 @@ export async function buildAcceptanceMatrix(root) {
     })).sort();
     const executionClass = requiresExternalEnvironment(item['建议自动化']) ? 'EXTERNAL_E2E' : 'AUTOMATED';
     if (!testFiles.length && executionClass === 'AUTOMATED') throw new Error(`${item.ID} has no executable Story test.`);
-    const evidenceRefs = storyIds.map((storyId) => /^M[0-4]-/u.test(storyId)
+    const evidenceRefs = storyIds.map((storyId) => /^M(?:[0-4]|6)-/u.test(storyId)
       ? `evidence/P0/${storyId}/summary.md`
       : `pending:evidence/P0/${storyId}/summary.md`);
     for (const path of evidenceRefs.filter((value) => value.startsWith('evidence/'))) await readFile(resolve(root, path), 'utf8');

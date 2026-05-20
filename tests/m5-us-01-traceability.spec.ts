@@ -6,13 +6,15 @@ import { buildAcceptanceMatrix, serializeAcceptanceMatrix } from '../scripts/bui
 const root = resolve('.');
 
 describe('M5-US-01 P0 acceptance traceability', () => {
-  test('maps all 152 authoritative acceptance cases to executable Story evidence', async () => {
+  test('maps every authoritative acceptance case to executable Story evidence', async () => {
     const rows = await buildAcceptanceMatrix(root);
+    const authoritativeCaseCount = (await readFile(resolve(root, 'outputs/P0开发交付包/07-验收测试/acceptance-cases.csv'), 'utf8'))
+      .trim().split(/\r?\n/u).length - 1;
 
-    expect(rows).toHaveLength(152);
-    expect(new Set(rows.map((row) => row.acceptance_id)).size).toBe(152);
+    expect(rows).toHaveLength(authoritativeCaseCount);
+    expect(new Set(rows.map((row) => row.acceptance_id)).size).toBe(authoritativeCaseCount);
     for (const row of rows) {
-      expect(row.story_ids).toMatch(/^M[0-5]-US-[0-9]{2}(;M[0-5]-US-[0-9]{2})*$/u);
+      expect(row.story_ids).toMatch(/^M[0-6]-US-[0-9]{2}(;M[0-6]-US-[0-9]{2})*$/u);
       if (row.execution_class === 'AUTOMATED') {
         expect(row.test_files).toMatch(/^tests\/.+\.spec\.ts(?:;tests\/.+\.spec\.ts)*$/u);
         expect(row.evidence_refs).toMatch(/^evidence\/P0\/.+\.md(?:;evidence\/P0\/.+\.md)*$/u);

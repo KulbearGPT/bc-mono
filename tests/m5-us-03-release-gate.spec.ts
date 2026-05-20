@@ -7,11 +7,12 @@ describe('M5-US-03 fail-closed release gate', () => {
   test('blocks the current candidate on external acceptance and unsigned roles', async () => {
     const matrix = await buildAcceptanceMatrix(process.cwd());
     const result = evaluateReleaseGate({ matrix, signoff: { approvals: [] }, config: { scope: 'P0' } });
+    const pendingExternal = matrix.filter((row) => row.candidate_status === 'PENDING_EXTERNAL').length;
 
     expect(result.ready).toBe(false);
-    expect(result.summary.pendingExternal).toBe(45);
+    expect(result.summary.pendingExternal).toBe(pendingExternal);
     expect(result.blockers).toEqual(expect.arrayContaining([
-      expect.stringContaining('45 external acceptance cases'),
+      expect.stringContaining(`${pendingExternal} external acceptance cases`),
       expect.stringContaining('product sign-off'),
       expect.stringContaining('rollbackImageDigest')
     ]));
