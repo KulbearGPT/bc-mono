@@ -10,6 +10,7 @@ import {
   registerSecureReadRoute,
   registerSecureWriteRoute,
   InMemoryAuditSink,
+  insertPostgresAuditRecord,
   type ActorContext,
   type AuditRecord,
   type AuditSink
@@ -569,10 +570,10 @@ AND status = ANY($3::"FundReservationStatus"[])`,
       await client.query(`INSERT INTO outbox_events (id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
         VALUES ($1,'GIFT_EXPIRY','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$7,$7)`,[expiryJob.id,input.request.id,expiryJob.dedupeKey,
         JSON.stringify(expiryJob.payload),expiryJob.maxAttempts,new Date(expiryJob.runAfter),new Date(expiryJob.createdAt)]);
+      await insertPostgresAuditRecord(client, input.auditRecord);
       await client.query('COMMIT');
-      await input.auditSink.append(input.auditRecord);
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => undefined);
       throw error;
     } finally {
       client.release();

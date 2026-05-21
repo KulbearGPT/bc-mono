@@ -75,6 +75,41 @@ SELECT
     expect(result.rows[0]).toEqual({ requests: 0, reservations: 0 });
   });
 
+  test('rolls back every gift fact when the success audit cannot be persisted', async () => {
+    const store = new PostgresGiftStore(pool);
+    const badRequest = request('00000000-0000-0000-0000-000000003223');
+    const badReservation = reservation('00000000-0000-0000-0000-000000003224', badRequest.id);
+    const badTask = {
+      ...task('00000000-0000-0000-0000-000000003225', badRequest.id),
+      publicId: 'T-GIFT-3225'
+    };
+    const badAudit = {
+      ...audit(),
+      actorStaffId: '00000000-0000-0000-0000-000000003299',
+      actorLevel: 'L1_SUPPORT' as const
+    };
+
+    await expect(store.commitCreate({
+      request: badRequest,
+      reservation: badReservation,
+      staffTask: badTask,
+      providerBalanceMinor: 1_000_000,
+      expectedOrderVersion: 7,
+      now,
+      auditRecord: badAudit,
+      auditSink: new InMemoryAuditSink()
+    })).rejects.toThrow();
+
+    const result = await pool.query(`SELECT
+      (SELECT count(*) FROM gift_requests WHERE id = $1)::int AS requests,
+      (SELECT count(*) FROM fund_reservations WHERE id = $2)::int AS reservations,
+      (SELECT count(*) FROM staff_tasks WHERE id = $3)::int AS tasks,
+      (SELECT count(*) FROM outbox_events WHERE aggregate_id = $1)::int AS expiry_jobs,
+      (SELECT count(*) FROM audit_logs WHERE id = $4)::int AS audits`,
+    [badRequest.id, badReservation.id, badTask.id, badAudit.id]);
+    expect(result.rows[0]).toEqual({ requests: 0, reservations: 0, tasks: 0, expiry_jobs: 0, audits: 0 });
+  });
+
   test('rejects a stale order or changed receiver inside the transaction', async () => {
     const store = new PostgresGiftStore(pool);
     const staleRequest = request('00000000-0000-0000-0000-000000003230');
