@@ -44,6 +44,47 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     });
   });
 
+  test('preserves the atomic replacement contract when voiding a finalized settlement batch', () => {
+    const replacement = {
+      source: 'MANUAL',
+      periodStart: '2026-07-13T16:00:00.000Z',
+      periodEnd: '2026-07-19T16:00:00.000Z',
+      cutoffAt: '2026-07-19T16:00:00.000Z',
+      timeZone: 'Asia/Shanghai',
+      currency: 'CNY',
+      playerUserIds: null
+    };
+    expect(buildSettlementRequest({
+      action: 'VOID',
+      batchId: 'batch-1',
+      version: 4,
+      fields: {
+        reasonCode: 'REPLACED_AFTER_REVIEW',
+        replacementBatchId: '00000000-0000-0000-0000-000000006901',
+        replacement
+      }
+    })).toEqual({
+      method: 'POST',
+      path: '/api/v1/admin/settlement-batches/batch-1/void',
+      body: {
+        expectedVersion: 4,
+        reasonCode: 'REPLACED_AFTER_REVIEW',
+        replacementBatchId: '00000000-0000-0000-0000-000000006901',
+        replacement
+      }
+    });
+    expect(buildSettlementRequest({
+      action: 'VOID', batchId: 'batch-2', version: 1, fields: { reasonCode: 'DRAFT_CREATED_IN_ERROR' }
+    })).toEqual({
+      method: 'POST', path: '/api/v1/admin/settlement-batches/batch-2/void',
+      body: { expectedVersion: 1, reasonCode: 'DRAFT_CREATED_IN_ERROR' }
+    });
+    expect(() => buildSettlementRequest({
+      action: 'VOID', batchId: 'batch-3', version: 2,
+      fields: { reasonCode: 'INCOMPLETE_REPLACEMENT', replacementBatchId: '00000000-0000-0000-0000-000000006902' }
+    })).toThrow(/replacementBatchId and replacement/u);
+  });
+
   test('keeps destructive settlement actions restricted and models partial failures', () => {
     const l3 = buildSettlementPage({ section: 'settlements', permissions: ['settlement.read', 'settlement.manage', 'settlement.approve'],
       status: 'READY', items: [{ id: 'batch-1', status: 'PARTIALLY_PAID', version: 4, netAmountMinor: 30_000, currency: 'CNY',

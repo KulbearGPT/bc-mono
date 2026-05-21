@@ -45,8 +45,20 @@ export function buildSettlementRequest(input: { action: SettlementAction; batchI
       body: { expectedBatchVersion: requiredVersion(input.version), results } };
   }
   const suffix = input.action === 'SUBMIT' ? 'submit' : input.action === 'APPROVE' ? 'approve' : 'void';
+  const body: Record<string, unknown> = {
+    expectedVersion: requiredVersion(input.version),
+    reasonCode: requiredString(input.fields.reasonCode, 'reasonCode')
+  };
+  if (input.action === 'VOID') {
+    const replacementBatchId = optionalString(input.fields.replacementBatchId);
+    const replacement = optionalObject(input.fields.replacement, 'replacement');
+    if (Boolean(replacementBatchId) !== Boolean(replacement)) {
+      throw new TypeError('replacementBatchId and replacement must be provided together.');
+    }
+    if (replacementBatchId && replacement) Object.assign(body, { replacementBatchId, replacement });
+  }
   return { method: 'POST' as const, path: `/api/v1/admin/settlement-batches/${encodeURIComponent(batchId)}/${suffix}`,
-    body: { expectedVersion: requiredVersion(input.version), reasonCode: requiredString(input.fields.reasonCode, 'reasonCode') } };
+    body };
 }
 
 function periodFields(fields: Record<string, unknown>) { return { periodStart: requiredString(fields.periodStart, 'periodStart'),
@@ -55,4 +67,9 @@ function periodFields(fields: Record<string, unknown>) { return { periodStart: r
 function required<T>(value: T | undefined, name: string): T { if (value === undefined || value === null || value === '') throw new TypeError(`${name} is required.`); return value; }
 function requiredString(value: unknown, name: string) { if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${name} is required.`); return value.trim(); }
 function optionalString(value: unknown) { return typeof value === 'string' && value.trim() ? value.trim() : null; }
+function optionalObject(value: unknown, name: string): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object.`);
+  return { ...(value as Record<string, unknown>) };
+}
 function requiredVersion(value: number | undefined) { if (!Number.isInteger(value) || Number(value) < 1) throw new TypeError('version is required.'); return Number(value); }
