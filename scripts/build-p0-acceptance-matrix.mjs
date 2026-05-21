@@ -1,11 +1,13 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyExternalAcceptanceResults } from './external-acceptance-results.mjs';
 
 const acceptancePath = 'outputs/P0开发交付包/07-验收测试/acceptance-cases.csv';
 const backlogPath = 'outputs/P0开发交付包/06-开发计划/backlog.csv';
 const openApiPath = 'outputs/P0开发交付包/02-API/openapi.yaml';
 const outputPath = 'evidence/P0/acceptance-matrix.csv';
+const externalResultsPath = 'evidence/P0/external-acceptance-results.json';
 
 const storyOverrides = {
   'AT-ACC-003': ['M1-US-02'],
@@ -34,15 +36,17 @@ const storyOverrides = {
 
 const columns = [
   'acceptance_id', 'priority', 'layer', 'module', 'title', 'requirement_ids', 'suggested_automation',
-  'story_ids', 'operation_ids', 'test_files', 'evidence_refs', 'execution_class', 'candidate_status'
+  'story_ids', 'operation_ids', 'test_files', 'evidence_refs', 'execution_class', 'candidate_status',
+  'external_candidate_ref', 'external_executed_at', 'external_evidence_refs'
 ];
 
 export async function buildAcceptanceMatrix(root) {
-  const [acceptanceText, backlogText, openApiText, testNames] = await Promise.all([
+  const [acceptanceText, backlogText, openApiText, testNames, externalResultsText] = await Promise.all([
     readFile(resolve(root, acceptancePath), 'utf8'),
     readFile(resolve(root, backlogPath), 'utf8'),
     readFile(resolve(root, openApiPath), 'utf8'),
-    readdir(resolve(root, 'tests'))
+    readdir(resolve(root, 'tests')),
+    readFile(resolve(root, externalResultsPath), 'utf8')
   ]);
   const acceptance = parseCsv(acceptanceText);
   const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-6]-US-[0-9]{2}$/u.test(row.item_id));
@@ -62,7 +66,7 @@ export async function buildAcceptanceMatrix(root) {
   if (!acceptance.length) throw new Error('The authoritative acceptance catalog must not be empty.');
   if (new Set(acceptance.map((row) => row.ID)).size !== acceptance.length) throw new Error('Acceptance IDs must be unique.');
 
-  return Promise.all(acceptance.map(async (item) => {
+  const baseRows = await Promise.all(acceptance.map(async (item) => {
     const storyIds = unique([...(byAcceptance.get(item.ID) ?? []), ...(storyOverrides[item.ID] ?? [])]).sort();
     if (!storyIds.length) throw new Error(`${item.ID} has no owning Story.`);
     const stories = storyIds.map((id) => byStory.get(id));
@@ -90,6 +94,12 @@ export async function buildAcceptanceMatrix(root) {
       candidate_status: executionClass === 'AUTOMATED' ? 'COVERED_BY_REGRESSION' : 'PENDING_EXTERNAL'
     };
   }));
+
+  return applyExternalAcceptanceResults({
+    root,
+    rows: baseRows,
+    ledger: JSON.parse(externalResultsText)
+  });
 }
 
 export function serializeAcceptanceMatrix(rows) {
