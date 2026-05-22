@@ -13,8 +13,11 @@ export function evaluateReleaseGate({ matrix, signoff, config }) {
   const blockers = [];
   const pendingExternal = matrix.filter((row) => row.candidate_status === 'PENDING_EXTERNAL').length;
   const failedCases = matrix.filter((row) => !['PASSED', 'COVERED_BY_REGRESSION', 'PENDING_EXTERNAL'].includes(row.candidate_status));
+  const passedExternal = matrix.filter((row) => row.execution_class === 'EXTERNAL_E2E' && row.candidate_status === 'PASSED');
+  const staleExternal = passedExternal.filter((row) => row.external_candidate_ref !== config?.releaseCandidate);
   if (pendingExternal) blockers.push(`${pendingExternal} external acceptance cases remain pending.`);
   if (failedCases.length) blockers.push(`${failedCases.length} acceptance cases have an invalid or failed status.`);
+  if (staleExternal.length) blockers.push(`${staleExternal.length} passed external acceptance cases target another candidate.`);
   const approvals = Array.isArray(signoff?.approvals) ? signoff.approvals : [];
   for (const role of requiredRoles) {
     const approval = approvals.find((item) => item?.role === role && item.approved === true && item.name && item.approvedAt && item.evidence);
@@ -27,7 +30,7 @@ export function evaluateReleaseGate({ matrix, signoff, config }) {
   return {
     ready: blockers.length === 0,
     blockers,
-    summary: { acceptanceCases: matrix.length, pendingExternal, signedRoles: requiredRoles.filter((role) => approvals.some((item) => item?.role === role && item.approved === true && item.name && item.approvedAt && item.evidence)).length }
+    summary: { acceptanceCases: matrix.length, pendingExternal, passedExternal: passedExternal.length, signedRoles: requiredRoles.filter((role) => approvals.some((item) => item?.role === role && item.approved === true && item.name && item.approvedAt && item.evidence)).length }
   };
 }
 

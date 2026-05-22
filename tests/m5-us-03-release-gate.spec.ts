@@ -28,13 +28,40 @@ describe('M5-US-03 fail-closed release gate', () => {
     expect(result.blockers).toEqual(expect.arrayContaining([expect.stringContaining('scope must be exactly P0'), expect.stringContaining('product sign-off')]));
   });
 
-  test('passes only a complete synthetic P0 gate with four explicit approvals', () => {
+  test('blocks failed evidence and passed evidence from another candidate', () => {
+    const config = completeConfig({ releaseCandidate: `sha256:${'a'.repeat(64)}` });
     const result = evaluateReleaseGate({
-      matrix: [{ acceptance_id: 'AT-X-001', candidate_status: 'PASSED' }],
-      signoff: { approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({ role, name: `${role}-reviewer`, approved: true, approvedAt: '2026-07-18T22:00:00.000Z', evidence: `review:${role}` })) },
-      config: completeConfig()
+      matrix: [
+        { acceptance_id: 'AT-X-001', execution_class: 'EXTERNAL_E2E', candidate_status: 'FAILED', external_candidate_ref: config.releaseCandidate },
+        { acceptance_id: 'AT-X-002', execution_class: 'EXTERNAL_E2E', candidate_status: 'PASSED', external_candidate_ref: `sha256:${'b'.repeat(64)}` }
+      ],
+      signoff: { approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({
+        role, name: `${role}-reviewer`, approved: true,
+        approvedAt: '2026-07-19T12:00:00.000Z', evidence: `review:${role}`
+      })) },
+      config
     });
-    expect(result).toMatchObject({ ready: true, blockers: [], summary: { pendingExternal: 0, signedRoles: 4 } });
+    expect(result.blockers).toEqual(expect.arrayContaining([
+      expect.stringContaining('1 acceptance cases have an invalid or failed status'),
+      expect.stringContaining('1 passed external acceptance cases target another candidate')
+    ]));
+  });
+
+  test('passes only a complete synthetic P0 gate with four explicit approvals', () => {
+    const candidate = `sha256:${'c'.repeat(64)}`;
+    const matrix = Array.from({ length: 175 }, (_, index) => index < 47
+      ? { acceptance_id: `AT-EXT-${index}`, execution_class: 'EXTERNAL_E2E',
+          candidate_status: 'PASSED', external_candidate_ref: candidate }
+      : { acceptance_id: `AT-AUTO-${index}`, execution_class: 'AUTOMATED',
+          candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' });
+    const result = evaluateReleaseGate({
+      matrix,
+      signoff: { approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({ role, name: `${role}-reviewer`, approved: true, approvedAt: '2026-07-18T22:00:00.000Z', evidence: `review:${role}` })) },
+      config: completeConfig({ releaseCandidate: candidate })
+    });
+    expect(result).toMatchObject({ ready: true, blockers: [], summary: {
+      acceptanceCases: 175, pendingExternal: 0, passedExternal: 47, signedRoles: 4
+    } });
   });
 
   test('keeps example artifacts visibly non-approved and free of real credentials', async () => {
