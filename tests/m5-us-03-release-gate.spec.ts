@@ -1,7 +1,13 @@
-import { readFile } from 'node:fs/promises';
+import { execFile as execFileCallback } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, test } from 'vitest';
 import { buildAcceptanceMatrix } from '../scripts/build-p0-acceptance-matrix.mjs';
 import { evaluateReleaseGate } from '../scripts/p0-release-gate.mjs';
+
+const execFile = promisify(execFileCallback);
 
 describe('M5-US-03 fail-closed release gate', () => {
   test('maps every external Acceptance ID exactly once in the UAT runbook', async () => {
@@ -78,6 +84,47 @@ describe('M5-US-03 fail-closed release gate', () => {
     } });
   });
 
+  test('refuses fully populated sign-off and config inputs with case-insensitive example paths', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'release-gate-fixtures-'));
+    try {
+      const signoffPath = join(fixtureRoot, 'fully-approved-signoff.ExAmPlE.json');
+      const configPath = join(fixtureRoot, 'fully-populated-config-eXAMPle.json');
+      await writeGateFixtures({ signoffPath, configPath });
+
+      const result = await runReleaseGate({ signoffPath, configPath });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.report).toMatchObject({ ready: false, blockers: expect.arrayContaining([
+        expect.stringContaining('P0_SIGNOFF_FILE must reference an explicit non-example path'),
+        expect.stringContaining('P0_CONFIG_SNAPSHOT_FILE must reference an explicit non-example path')
+      ]) });
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('accepts explicit non-example sign-off and config fixture paths for normal evaluation', async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), 'release-gate-fixtures-'));
+    try {
+      const signoffPath = join(fixtureRoot, 'signoff.json');
+      const configPath = join(fixtureRoot, 'config-snapshot.json');
+      await writeGateFixtures({ signoffPath, configPath });
+
+      const result = await runReleaseGate({ signoffPath, configPath });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.report).toMatchObject({ ready: false, summary: { signedRoles: 4 } });
+      expect(result.report.blockers).not.toEqual(expect.arrayContaining([
+        expect.stringContaining('P0_SIGNOFF_FILE must reference'),
+        expect.stringContaining('P0_CONFIG_SNAPSHOT_FILE must reference'),
+        expect.stringContaining('sign-off is missing'),
+        expect.stringContaining('releaseCandidate evidence is required')
+      ]));
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   test('keeps example artifacts visibly non-approved and free of real credentials', async () => {
     const [signoff, config] = await Promise.all([
       readFile('evidence/P0/release/signoff.example.json', 'utf8'),
@@ -96,4 +143,27 @@ function completeConfig(overrides: Record<string, unknown> = {}) {
     backupRestoreEvidence: 'evidence:restore', workerRecoveryEvidence: 'evidence:worker',
     p1Excluded: true, blockingDefects: 0, acceptedRisks: [], ...overrides
   };
+}
+
+async function writeGateFixtures({ signoffPath, configPath }: { signoffPath: string; configPath: string }) {
+  await Promise.all([
+    writeFile(signoffPath, JSON.stringify({ approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({
+      role, name: `${role}-reviewer`, approved: true,
+      approvedAt: '2026-07-19T12:00:00.000Z', evidence: `review:${role}`
+    })) }), 'utf8'),
+    writeFile(configPath, JSON.stringify(completeConfig()), 'utf8')
+  ]);
+}
+
+async function runReleaseGate({ signoffPath, configPath }: { signoffPath: string; configPath: string }) {
+  try {
+    const { stdout } = await execFile(process.execPath, ['scripts/p0-release-gate.mjs'], {
+      cwd: process.cwd(),
+      env: { ...process.env, P0_SIGNOFF_FILE: signoffPath, P0_CONFIG_SNAPSHOT_FILE: configPath }
+    });
+    return { exitCode: 0, report: JSON.parse(stdout) };
+  } catch (error: unknown) {
+    const result = error as { code?: number; stdout?: string };
+    return { exitCode: result.code, report: JSON.parse(result.stdout ?? '') };
+  }
 }

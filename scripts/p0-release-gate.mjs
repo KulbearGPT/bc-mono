@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAcceptanceMatrix } from './build-p0-acceptance-matrix.mjs';
@@ -36,14 +36,40 @@ export function evaluateReleaseGate({ matrix, signoff, config }) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = resolve(process.argv[2] ?? '.');
-  const signoffPath = resolve(root, process.env.P0_SIGNOFF_FILE ?? 'evidence/P0/release/signoff.example.json');
-  const configPath = resolve(root, process.env.P0_CONFIG_SNAPSHOT_FILE ?? 'evidence/P0/release/config-snapshot.example.json');
-  const [matrix, signoff, config] = await Promise.all([
-    buildAcceptanceMatrix(root), readJson(signoffPath), readJson(configPath)
-  ]);
-  const report = evaluateReleaseGate({ matrix, signoff, config });
+  const inputs = await resolveProductionGateInputs(root);
+  const report = inputs.blockers.length
+    ? { ready: false, blockers: inputs.blockers, summary: emptySummary() }
+    : evaluateReleaseGate({
+      matrix: await buildAcceptanceMatrix(root),
+      signoff: await readJson(inputs.signoffPath),
+      config: await readJson(inputs.configPath)
+    });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.ready) process.exitCode = 1;
 }
 
 async function readJson(path) { return JSON.parse(await readFile(path, 'utf8')); }
+
+async function resolveProductionGateInputs(root) {
+  const requestedInputs = [
+    ['P0_SIGNOFF_FILE', process.env.P0_SIGNOFF_FILE],
+    ['P0_CONFIG_SNAPSHOT_FILE', process.env.P0_CONFIG_SNAPSHOT_FILE]
+  ];
+  const blockers = requestedInputs
+    .filter(([, value]) => typeof value !== 'string' || !value.trim() || containsExample(value))
+    .map(([name]) => `${name} must reference an explicit non-example path.`);
+  if (blockers.length) return { blockers };
+
+  const [[, signoffFile], [, configFile]] = requestedInputs;
+  const [signoffPath, configPath] = await Promise.all([
+    realpath(resolve(root, signoffFile)),
+    realpath(resolve(root, configFile))
+  ]);
+  for (const [name, path] of [['P0_SIGNOFF_FILE', signoffPath], ['P0_CONFIG_SNAPSHOT_FILE', configPath]]) {
+    if (containsExample(path)) blockers.push(`${name} must reference an explicit non-example path.`);
+  }
+  return { blockers, signoffPath, configPath };
+}
+
+function containsExample(path) { return path.toLowerCase().includes('example'); }
+function emptySummary() { return { acceptanceCases: 0, pendingExternal: 0, passedExternal: 0, signedRoles: 0 }; }
