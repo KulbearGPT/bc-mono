@@ -7,6 +7,65 @@ import { buildAcceptanceMatrix, serializeAcceptanceMatrix } from '../scripts/bui
 import { applyExternalAcceptanceResults } from '../scripts/external-acceptance-results.mjs';
 
 const root = resolve('.');
+const candidateRef = `git:${'a'.repeat(40)}`;
+const executedAt = '2026-07-19T12:00:00.000Z';
+const executor = 'qa-reviewer';
+const environment = 'isolated-postgresql';
+
+type EvidenceOverrides = Partial<{
+  acceptanceId: string;
+  candidateRef: string;
+  executedAt: string;
+  executor: string;
+  environment: string;
+  redaction: string;
+  preconditions: string;
+  steps: string;
+  expectedResult: string;
+  actualResult: string;
+  diagnostics: string;
+}>;
+
+function evidenceDocument(overrides: EvidenceOverrides = {}): string {
+  const values = {
+    acceptanceId: 'AT-REC-005',
+    candidateRef,
+    executedAt,
+    executor,
+    environment,
+    redaction: 'Secrets and personal data were removed; controlled originals are retained by QA.',
+    preconditions: 'An isolated PostgreSQL restore target is available.',
+    steps: '1. Restore the candidate backup.\n2. Run the integrity probes.',
+    expectedResult: 'The restored facts and immutable records match the source.',
+    actualResult: 'The restore and all integrity probes completed successfully.',
+    diagnostics: 'request_id=req_restore_001; restore log retained in controlled storage.',
+    ...overrides
+  };
+  return [
+    `Acceptance ID: ${values.acceptanceId}`,
+    `candidateRef: ${values.candidateRef}`,
+    `executedAt: ${values.executedAt}`,
+    `executor: ${values.executor}`,
+    `environment: ${values.environment}`,
+    `Redaction: ${values.redaction}`,
+    '',
+    '## Preconditions',
+    values.preconditions,
+    '',
+    '## Steps',
+    values.steps,
+    '',
+    '## Expected Result',
+    values.expectedResult,
+    '',
+    '## Actual Result',
+    values.actualResult,
+    '',
+    '## Diagnostics',
+    values.diagnostics,
+    ''
+  ].join('\n');
+}
 
 describe('M5-US-01 P0 acceptance traceability', () => {
   test.each([
@@ -20,7 +79,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = '# AT-REC-005\n\nbackup-restore-ok\n';
+      const content = evidenceDocument();
       await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
       await writeFile(join(tempRoot, evidencePath), content, 'utf8');
       const rows = [
@@ -28,19 +87,143 @@ describe('M5-US-01 P0 acceptance traceability', () => {
         { acceptance_id: 'AT-AUD-001', execution_class: 'AUTOMATED', candidate_status: 'COVERED_BY_REGRESSION' }
       ];
       const ledger = { schemaVersion: 1, results: [{
-        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef: `git:${'a'.repeat(40)}`,
-        executedAt: '2026-07-19T12:00:00.000Z', executor: 'qa-reviewer',
-        environment: 'isolated-postgresql', summary: 'Restore passed.',
+        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+        executedAt, executor, environment, summary: 'Restore passed.',
         evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
       }] };
 
       const result = await applyExternalAcceptanceResults({ root: tempRoot, rows, ledger });
 
       expect(result[0]).toMatchObject({ candidate_status: 'PASSED',
-        external_candidate_ref: `git:${'a'.repeat(40)}`,
-        external_executed_at: '2026-07-19T12:00:00.000Z', external_evidence_refs: evidencePath });
+        external_candidate_ref: candidateRef,
+        external_executed_at: executedAt, external_evidence_refs: evidencePath });
       expect(result[1]).toMatchObject({ candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' });
       expect(rows[0]).toEqual({ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('accepts an explicit not-applicable diagnostics reason', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
+      const content = evidenceDocument({ diagnostics: 'Not applicable: the run completed without diagnostic events.' });
+      await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
+      await writeFile(join(tempRoot, evidencePath), content, 'utf8');
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        }] }
+      })).resolves.toMatchObject([{ candidate_status: 'PASSED' }]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['Acceptance ID', { acceptanceId: 'AT-REC-004' }, 'Acceptance ID'],
+    ['candidateRef', { candidateRef: `git:${'b'.repeat(40)}` }, 'candidateRef'],
+    ['executedAt', { executedAt: '2026-07-19T12:00:01.000Z' }, 'executedAt'],
+    ['executor', { executor: 'another-reviewer' }, 'executor'],
+    ['environment', { environment: 'another-environment' }, 'environment']
+  ])('rejects evidence whose %s metadata does not match the ledger', async (_field, overrides, expectedField) => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
+      const content = evidenceDocument(overrides);
+      await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
+      await writeFile(join(tempRoot, evidencePath), content, 'utf8');
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        }] }
+      })).rejects.toThrow(`evidence ${expectedField} does not match ledger`);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ['one-byte arbitrary content', 'x', 'document metadata'],
+    ['empty Redaction declaration', evidenceDocument({ redaction: ' ' }), 'Redaction declaration'],
+    ['empty Preconditions', evidenceDocument({ preconditions: ' ' }), 'Preconditions section'],
+    ['empty Steps', evidenceDocument({ steps: ' ' }), 'Steps section'],
+    ['empty Expected Result', evidenceDocument({ expectedResult: ' ' }), 'Expected Result section'],
+    ['empty Actual Result', evidenceDocument({ actualResult: ' ' }), 'Actual Result section'],
+    ['empty Diagnostics', evidenceDocument({ diagnostics: ' ' }), 'Diagnostics section'],
+    ['bare not-applicable Diagnostics', evidenceDocument({ diagnostics: 'Not applicable' }), 'not-applicable reason'],
+    ['missing exact section heading', evidenceDocument().replace('## Steps', '## Procedure'), 'exact Markdown sections']
+  ])('rejects evidence with %s', async (_caseName, content, expectedError) => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
+      await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
+      await writeFile(join(tempRoot, evidencePath), content, 'utf8');
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        }] }
+      })).rejects.toThrow(expectedError);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a non-Markdown evidence file even when its content satisfies the document contract', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.txt';
+      const content = evidenceDocument();
+      await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
+      await writeFile(join(tempRoot, evidencePath), content, 'utf8');
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        }] }
+      })).rejects.toThrow('evidence metadata is invalid');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects evidence that is not valid UTF-8 Markdown', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
+      const content = Buffer.concat([Buffer.from(evidenceDocument(), 'utf8'), Buffer.from([0xff])]);
+      await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
+      await writeFile(join(tempRoot, evidencePath), content);
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        }] }
+      })).rejects.toThrow('evidence must be valid UTF-8 Markdown');
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -50,13 +233,12 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = '# AT-REC-005\n\nbackup-restore-ok\n';
+      const content = evidenceDocument();
       await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
       await writeFile(join(tempRoot, evidencePath), content, 'utf8');
       const { summary: _summary, ...result } = {
-        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef: `git:${'a'.repeat(40)}`,
-        executedAt: '2026-07-19T12:00:00.000Z', executor: 'qa-reviewer',
-        environment: 'isolated-postgresql', summary: 'Restore passed.',
+        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+        executedAt, executor, environment, summary: 'Restore passed.',
         evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
       };
 
@@ -74,13 +256,12 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = '# AT-REC-005\n\nbackup-restore-ok\n';
+      const content = evidenceDocument();
       await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
       await writeFile(join(tempRoot, evidencePath), content, 'utf8');
       const result = {
-        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef: `git:${'a'.repeat(40)}`,
-        executedAt: '2026-07-19T12:00:00.000Z', executor: 'qa-reviewer',
-        environment: 'isolated-postgresql', summary: 'Restore passed.',
+        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+        executedAt, executor, environment, summary: 'Restore passed.',
         evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }],
         unexpectedField: true
       };
@@ -108,6 +289,8 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     ['missing evidence', (result: Record<string, unknown>) => ({ ...result, evidence: [] }), 'AT-REC-005 evidence'],
     ['path traversal', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/../AT-REC-005/restore.md', sha256: result.sha256 }] }), 'AT-REC-005 evidence'],
     ['example path', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/example.md', sha256: result.sha256 }] }), 'AT-REC-005 evidence'],
+    ['example substring in basename', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/Example-Evidence.md', sha256: result.sha256 }] }), 'AT-REC-005 evidence'],
+    ['example substring in directory', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/run-example-1/restore.md', sha256: result.sha256 }] }), 'AT-REC-005 evidence'],
     ['missing file', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/missing.md', sha256: result.sha256 }] }), 'AT-REC-005'],
     ['empty file', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/empty.md', sha256: createHash('sha256').digest('hex') }] }), 'AT-REC-005'],
     ['symlink', (result: Record<string, unknown>) => ({ ...result, evidence: [{ path: 'evidence/P0/external/AT-REC-005/link.md', sha256: result.sha256 }] }), 'AT-REC-005'],
@@ -117,7 +300,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     try {
       const evidenceDirectory = join(tempRoot, 'evidence/P0/external/AT-REC-005');
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = '# AT-REC-005\n\nbackup-restore-ok\n';
+      const content = evidenceDocument();
       const sha256 = createHash('sha256').update(content).digest('hex');
       await mkdir(evidenceDirectory, { recursive: true });
       await Promise.all([
@@ -127,9 +310,8 @@ describe('M5-US-01 P0 acceptance traceability', () => {
         symlink(join(evidenceDirectory, 'restore.md'), join(evidenceDirectory, 'link.md'))
       ]);
       const result = {
-        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef: `git:${'a'.repeat(40)}`,
-        executedAt: '2026-07-19T12:00:00.000Z', executor: 'qa-reviewer',
-        environment: 'isolated-postgresql', summary: 'Restore passed.',
+        acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+        executedAt, executor, environment, summary: 'Restore passed.',
         evidence: [{ path: evidencePath, sha256 }], sha256
       };
       const altered = alterResult(result);
@@ -156,7 +338,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = '# AT-REC-005\n\nbackup-restore-ok\n';
+      const content = evidenceDocument();
       const targetDirectory = join(tempRoot, targetPath);
       await mkdir(join(tempRoot, 'evidence/P0'), { recursive: true });
       await mkdir(join(targetDirectory, evidenceSubdirectory), { recursive: true });
@@ -168,9 +350,8 @@ describe('M5-US-01 P0 acceptance traceability', () => {
         root: tempRoot,
         rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
         ledger: { schemaVersion: 1, results: [{
-          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef: `git:${'a'.repeat(40)}`,
-          executedAt: '2026-07-19T12:00:00.000Z', executor: 'qa-reviewer',
-          environment: 'isolated-postgresql', summary: 'Restore passed.',
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
           evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
         }] }
       })).rejects.toThrow('AT-REC-005 evidence contains a symbolic link.');

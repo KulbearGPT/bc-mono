@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { TextDecoder } from 'node:util';
 
 const ledgerKeys = ['schemaVersion', 'results'];
 const resultKeys = ['acceptanceId', 'status', 'candidateRef', 'executedAt', 'executor', 'environment', 'summary', 'evidence'];
 const evidenceKeys = ['path', 'sha256'];
 const candidatePattern = /^(?:git:[0-9a-f]{40}|sha256:[0-9a-f]{64})$/u;
 const utcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const evidenceSections = ['Preconditions', 'Steps', 'Expected Result', 'Actual Result', 'Diagnostics'];
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 export async function applyExternalAcceptanceResults({ root, rows, ledger }) {
   assertExactKeys(ledger, ledgerKeys, 'ledger');
@@ -29,12 +32,19 @@ export async function applyExternalAcceptanceResults({ root, rows, ledger }) {
     if (!['PASSED', 'FAILED'].includes(result.status)) throw new Error(`${id} status is invalid.`);
     if (!candidatePattern.test(result.candidateRef)) throw new Error(`${id} candidateRef is invalid.`);
     validateUtc(result.executedAt, id);
-    requiredTrimmed(result.executor, 'executor');
-    requiredTrimmed(result.environment, 'environment');
+    const executor = requiredTrimmed(result.executor, 'executor');
+    const environment = requiredTrimmed(result.environment, 'environment');
     requiredTrimmed(result.summary, 'summary');
     if (!Array.isArray(result.evidence) || result.evidence.length === 0) throw new Error(`${id} evidence is required.`);
     const refs = [];
-    for (const item of result.evidence) refs.push(await validateEvidenceFile(root, id, item));
+    const expectedMetadata = {
+      'Acceptance ID': id,
+      candidateRef: result.candidateRef,
+      executedAt: result.executedAt,
+      executor,
+      environment
+    };
+    for (const item of result.evidence) refs.push(await validateEvidenceFile(root, id, item, expectedMetadata));
     Object.assign(row, {
       candidate_status: result.status,
       external_candidate_ref: result.candidateRef,
@@ -69,11 +79,12 @@ function validateUtc(value, id) {
   }
 }
 
-async function validateEvidenceFile(root, id, item) {
+async function validateEvidenceFile(root, id, item, expectedMetadata) {
   assertExactKeys(item, evidenceKeys, `${id} evidence`);
   const path = requiredTrimmed(item.path, 'evidence.path');
+  const containsExample = path.split(/[\\/]/u).some((part) => part.toLowerCase().includes('example'));
   if (!/^[0-9a-f]{64}$/u.test(item.sha256) || isAbsolute(path)
-    || path.split(/[\\/]/u).includes('..') || /(?:^|[.\\/])example(?:[.\\/]|$)/iu.test(path)) {
+    || path.split(/[\\/]/u).includes('..') || containsExample || !path.endsWith('.md')) {
     throw new Error(`${id} evidence metadata is invalid.`);
   }
   const allowed = resolve(root, 'evidence/P0/external', id);
@@ -85,7 +96,64 @@ async function validateEvidenceFile(root, id, item) {
   if (!isWithin(allowedReal, candidateReal)) throw new Error(`${id} evidence realpath escapes its directory.`);
   const digest = createHash('sha256').update(content).digest('hex');
   if (digest !== item.sha256) throw new Error(`${id} evidence hash does not match.`);
+  let markdown;
+  try {
+    markdown = utf8Decoder.decode(content);
+  } catch {
+    throw new Error(`${id} evidence must be valid UTF-8 Markdown.`);
+  }
+  validateEvidenceDocument(markdown, id, expectedMetadata);
   return path;
+}
+
+function validateEvidenceDocument(content, id, expectedMetadata) {
+  const lines = content.replaceAll('\r\n', '\n').split('\n');
+  const metadataLabels = [...Object.keys(expectedMetadata), 'Redaction'];
+  const metadata = {};
+  for (let index = 0; index < metadataLabels.length; index += 1) {
+    const label = metadataLabels[index];
+    const prefix = `${label}: `;
+    const line = lines[index];
+    if (typeof line !== 'string' || !line.startsWith(prefix)) {
+      throw new Error(`${id} evidence document metadata is invalid.`);
+    }
+    const value = line.slice(prefix.length);
+    if (!value.trim()) {
+      if (label === 'Redaction') throw new Error(`${id} evidence Redaction declaration is required.`);
+      throw new Error(`${id} evidence ${label} is required.`);
+    }
+    if (value !== value.trim()) throw new Error(`${id} evidence document metadata is invalid.`);
+    metadata[label] = value;
+  }
+  if (lines[metadataLabels.length] !== '') throw new Error(`${id} evidence document metadata is invalid.`);
+  for (const [label, expected] of Object.entries(expectedMetadata)) {
+    if (metadata[label] !== expected) throw new Error(`${id} evidence ${label} does not match ledger.`);
+  }
+
+  const sectionLines = lines.slice(metadataLabels.length + 1);
+  const headings = evidenceSections.map((section) => `## ${section}`);
+  const indexes = headings.map((heading) => sectionLines.reduce((matches, line, index) => {
+    if (line === heading) matches.push(index);
+    return matches;
+  }, []));
+  const hasExactSections = indexes.every((matches) => matches.length === 1)
+    && indexes.every((matches, index) => index === 0 ? matches[0] === 0 : matches[0] > indexes[index - 1][0])
+    && sectionLines.every((line) => !line.startsWith('## ') || headings.includes(line));
+  if (!hasExactSections) throw new Error(`${id} evidence must contain the exact Markdown sections in order.`);
+
+  const sections = {};
+  for (let index = 0; index < evidenceSections.length; index += 1) {
+    const start = indexes[index][0] + 1;
+    const end = index + 1 < indexes.length ? indexes[index + 1][0] : sectionLines.length;
+    const body = sectionLines.slice(start, end).join('\n').trim();
+    const section = evidenceSections[index];
+    if (!body) throw new Error(`${id} evidence ${section} section is required.`);
+    sections[section] = body;
+  }
+  if (/^(?:n\/a|none|not applicable)(?:\b|:)/iu.test(sections.Diagnostics)
+    && !/^Not applicable: \S[\s\S]*$/u.test(sections.Diagnostics)) {
+    throw new Error(`${id} evidence Diagnostics requires an explicit not-applicable reason.`);
+  }
 }
 
 async function lstatEvidencePath(root, candidate, id) {
