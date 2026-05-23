@@ -4,6 +4,20 @@ import { buildAcceptanceMatrix } from '../scripts/build-p0-acceptance-matrix.mjs
 import { evaluateReleaseGate } from '../scripts/p0-release-gate.mjs';
 
 describe('M5-US-03 fail-closed release gate', () => {
+  test('maps every external Acceptance ID exactly once in the UAT runbook', async () => {
+    const [matrix, checklist] = await Promise.all([
+      buildAcceptanceMatrix(process.cwd()),
+      readFile('docs/runbooks/P0-UAT与发布检查表.md', 'utf8')
+    ]);
+    const externalIds = matrix.filter((row) => row.execution_class === 'EXTERNAL_E2E')
+      .map((row) => row.acceptance_id);
+
+    for (const id of externalIds) {
+      expect(checklist.match(new RegExp(`\\b${id}\\b`, 'gu')) ?? []).toHaveLength(1);
+    }
+    expect(externalIds).toHaveLength(47);
+  });
+
   test('blocks the current candidate on external acceptance and unsigned roles', async () => {
     const matrix = await buildAcceptanceMatrix(process.cwd());
     const result = evaluateReleaseGate({ matrix, signoff: { approvals: [] }, config: { scope: 'P0' } });
