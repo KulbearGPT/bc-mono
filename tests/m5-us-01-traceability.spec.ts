@@ -14,11 +14,13 @@ const environment = 'isolated-postgresql';
 
 type EvidenceOverrides = Partial<{
   acceptanceId: string;
+  status: string;
   candidateRef: string;
   executedAt: string;
   executor: string;
   environment: string;
-  redaction: string;
+  redactionReview: string;
+  redactionDetails: string;
   preconditions: string;
   steps: string;
   expectedResult: string;
@@ -29,11 +31,13 @@ type EvidenceOverrides = Partial<{
 function evidenceDocument(overrides: EvidenceOverrides = {}): string {
   const values = {
     acceptanceId: 'AT-REC-005',
+    status: 'PASSED',
     candidateRef,
     executedAt,
     executor,
     environment,
-    redaction: 'Secrets and personal data were removed; controlled originals are retained by QA.',
+    redactionReview: 'CONFIRMED',
+    redactionDetails: 'Tokens, secrets, account identifiers, balances, and personal data were removed; controlled originals are retained by QA.',
     preconditions: 'An isolated PostgreSQL restore target is available.',
     steps: '1. Restore the candidate backup.\n2. Run the integrity probes.',
     expectedResult: 'The restored facts and immutable records match the source.',
@@ -43,11 +47,13 @@ function evidenceDocument(overrides: EvidenceOverrides = {}): string {
   };
   return [
     `Acceptance ID: ${values.acceptanceId}`,
+    `Status: ${values.status}`,
     `candidateRef: ${values.candidateRef}`,
     `executedAt: ${values.executedAt}`,
     `executor: ${values.executor}`,
     `environment: ${values.environment}`,
-    `Redaction: ${values.redaction}`,
+    `Redaction Review: ${values.redactionReview}`,
+    `Redaction Details: ${values.redactionDetails}`,
     '',
     '## Preconditions',
     values.preconditions,
@@ -75,13 +81,18 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     await expect(applyExternalAcceptanceResults({ root, rows: [], ledger })).rejects.toThrow(expectedError);
   });
 
-  test('overlays only validated external evidence', async () => {
+  test('overlays a validated primary Markdown attestation with a hashed binary attachment', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
       const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
-      const content = evidenceDocument();
+      const attachmentPath = 'evidence/P0/external/AT-REC-005/restore-command-output.log';
+      const content = evidenceDocument({ diagnostics: `command-output: ${attachmentPath}` });
+      const attachment = Buffer.from([0xff, 0x00, 0x72, 0x65, 0x73, 0x74, 0x6f, 0x72, 0x65]);
       await mkdir(join(tempRoot, 'evidence/P0/external/AT-REC-005'), { recursive: true });
-      await writeFile(join(tempRoot, evidencePath), content, 'utf8');
+      await Promise.all([
+        writeFile(join(tempRoot, evidencePath), content, 'utf8'),
+        writeFile(join(tempRoot, attachmentPath), attachment)
+      ]);
       const rows = [
         { acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' },
         { acceptance_id: 'AT-AUD-001', execution_class: 'AUTOMATED', candidate_status: 'COVERED_BY_REGRESSION' }
@@ -89,14 +100,17 @@ describe('M5-US-01 P0 acceptance traceability', () => {
       const ledger = { schemaVersion: 1, results: [{
         acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
         executedAt, executor, environment, summary: 'Restore passed.',
-        evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
+        evidence: [
+          { path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') },
+          { path: attachmentPath, sha256: createHash('sha256').update(attachment).digest('hex') }
+        ]
       }] };
 
       const result = await applyExternalAcceptanceResults({ root: tempRoot, rows, ledger });
 
       expect(result[0]).toMatchObject({ candidate_status: 'PASSED',
         external_candidate_ref: candidateRef,
-        external_executed_at: executedAt, external_evidence_refs: evidencePath });
+        external_executed_at: executedAt, external_evidence_refs: `${evidencePath};${attachmentPath}` });
       expect(result[1]).toMatchObject({ candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' });
       expect(rows[0]).toEqual({ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' });
     } finally {
@@ -128,6 +142,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
 
   test.each([
     ['Acceptance ID', { acceptanceId: 'AT-REC-004' }, 'Acceptance ID'],
+    ['Status', { status: 'FAILED' }, 'Status'],
     ['candidateRef', { candidateRef: `git:${'b'.repeat(40)}` }, 'candidateRef'],
     ['executedAt', { executedAt: '2026-07-19T12:00:01.000Z' }, 'executedAt'],
     ['executor', { executor: 'another-reviewer' }, 'executor'],
@@ -156,13 +171,34 @@ describe('M5-US-01 P0 acceptance traceability', () => {
 
   test.each([
     ['one-byte arbitrary content', 'x', 'document metadata'],
-    ['empty Redaction declaration', evidenceDocument({ redaction: ' ' }), 'Redaction declaration'],
+    ['non-exact redaction review affirmation', evidenceDocument({ redactionReview: 'YES' }), 'Redaction Review must be CONFIRMED'],
+    ['one-character Redaction Details', evidenceDocument({ redactionDetails: 'x' }), 'Redaction Details must contain at least'],
+    ['repeated-character Redaction Details', evidenceDocument({ redactionDetails: 'x'.repeat(40) }), 'Redaction Details must contain at least 5 distinct'],
     ['empty Preconditions', evidenceDocument({ preconditions: ' ' }), 'Preconditions section'],
+    ['one-character Preconditions', evidenceDocument({ preconditions: 'x' }), 'Preconditions must contain at least'],
     ['empty Steps', evidenceDocument({ steps: ' ' }), 'Steps section'],
+    ['one-character Steps', evidenceDocument({ steps: 'x' }), 'Steps must contain at least'],
+    ['repeated-character Steps', evidenceDocument({ steps: 'x'.repeat(20) }), 'Steps must contain at least 5 distinct'],
     ['empty Expected Result', evidenceDocument({ expectedResult: ' ' }), 'Expected Result section'],
+    ['one-character Expected Result', evidenceDocument({ expectedResult: 'x' }), 'Expected Result must contain at least'],
     ['empty Actual Result', evidenceDocument({ actualResult: ' ' }), 'Actual Result section'],
+    ['one-character Actual Result', evidenceDocument({ actualResult: 'x' }), 'Actual Result must contain at least'],
+    ['generic passed Actual Result', evidenceDocument({ actualResult: 'passed' }), 'Actual Result must contain a concrete observed outcome'],
+    ['generic failed Actual Result', evidenceDocument({ actualResult: 'FAILED.' }), 'Actual Result must contain a concrete observed outcome'],
+    ['generic success Actual Result', evidenceDocument({ actualResult: 'success!' }), 'Actual Result must contain a concrete observed outcome'],
+    ['generic ok Actual Result', evidenceDocument({ actualResult: 'OK' }), 'Actual Result must contain a concrete observed outcome'],
     ['empty Diagnostics', evidenceDocument({ diagnostics: ' ' }), 'Diagnostics section'],
+    ['Diagnostics without a concrete reference', evidenceDocument({ diagnostics: 'The run completed without any errors being observed.' }), 'Diagnostics must contain a concrete reference'],
     ['bare not-applicable Diagnostics', evidenceDocument({ diagnostics: 'Not applicable' }), 'not-applicable reason'],
+    ['short not-applicable Diagnostics reason', evidenceDocument({ diagnostics: 'Not applicable: no errors.' }), 'not-applicable reason must contain at least'],
+    ['placeholder scaffold', evidenceDocument({ steps: 'TODO: replace this placeholder with the execution steps.' }), 'must not contain placeholder or scaffold text'],
+    ['literal scaffold text', evidenceDocument({ steps: 'Scaffold content that has not been replaced with executed operations.' }), 'must not contain placeholder or scaffold text'],
+    ['repeated scaffold content', evidenceDocument({
+      preconditions: 'The identical case sentence is repeated without specific observed facts.',
+      steps: 'The identical case sentence is repeated without specific observed facts.',
+      expectedResult: 'The identical case sentence is repeated without specific observed facts.',
+      actualResult: 'The identical case sentence is repeated without specific observed facts.'
+    }), 'must not repeat the same content'],
     ['missing exact section heading', evidenceDocument().replace('## Steps', '## Procedure'), 'exact Markdown sections']
   ])('rejects evidence with %s', async (_caseName, content, expectedError) => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
@@ -185,6 +221,37 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     }
   });
 
+  test('rejects an attachment placed before the required primary Markdown attestation', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
+    try {
+      const evidenceDirectory = join(tempRoot, 'evidence/P0/external/AT-REC-005');
+      const evidencePath = 'evidence/P0/external/AT-REC-005/restore.md';
+      const attachmentPath = 'evidence/P0/external/AT-REC-005/restore.log';
+      const content = evidenceDocument();
+      const attachment = Buffer.from('restore command output', 'utf8');
+      await mkdir(evidenceDirectory, { recursive: true });
+      await Promise.all([
+        writeFile(join(tempRoot, evidencePath), content, 'utf8'),
+        writeFile(join(tempRoot, attachmentPath), attachment)
+      ]);
+
+      await expect(applyExternalAcceptanceResults({
+        root: tempRoot,
+        rows: [{ acceptance_id: 'AT-REC-005', execution_class: 'EXTERNAL_E2E', candidate_status: 'PENDING_EXTERNAL' }],
+        ledger: { schemaVersion: 1, results: [{
+          acceptanceId: 'AT-REC-005', status: 'PASSED', candidateRef,
+          executedAt, executor, environment, summary: 'Restore passed.',
+          evidence: [
+            { path: attachmentPath, sha256: createHash('sha256').update(attachment).digest('hex') },
+            { path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }
+          ]
+        }] }
+      })).rejects.toThrow('primary evidence must be valid UTF-8 Markdown');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   test('rejects a non-Markdown evidence file even when its content satisfies the document contract', async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), 'blackcat-external-evidence-'));
     try {
@@ -201,7 +268,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
           executedAt, executor, environment, summary: 'Restore passed.',
           evidence: [{ path: evidencePath, sha256: createHash('sha256').update(content).digest('hex') }]
         }] }
-      })).rejects.toThrow('evidence metadata is invalid');
+      })).rejects.toThrow('primary evidence must be valid UTF-8 Markdown');
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

@@ -50,7 +50,7 @@ describe('M5-US-02 production-like recovery candidate', () => {
     expect(compose).not.toContain('change-me');
   });
 
-  test('AT-REC-005 restores an isolated database with immutable facts intact', async () => {
+  test('baseline restore probe preserves representative immutable facts', async () => {
     const result = await execFile('bash', ['scripts/verify-backup-restore.sh'], { timeout: 30_000 });
     expect(result.stdout).toContain('backup-restore-ok');
     expect(result.stdout).toContain('restored_users=1');

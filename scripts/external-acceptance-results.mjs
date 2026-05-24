@@ -9,6 +9,14 @@ const evidenceKeys = ['path', 'sha256'];
 const candidatePattern = /^(?:git:[0-9a-f]{40}|sha256:[0-9a-f]{64})$/u;
 const utcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const evidenceSections = ['Preconditions', 'Steps', 'Expected Result', 'Actual Result', 'Diagnostics'];
+const attestationSections = evidenceSections.slice(0, 4);
+const minimumSectionCharacters = 20;
+const minimumRedactionCharacters = 40;
+const minimumNotApplicableCharacters = 20;
+const genericActualResultPattern = /^(?:pass(?:ed)?|fail(?:ed)?|success(?:ful(?:ly)?)?|succeed(?:ed)?|ok)\s*[.!?]*$/iu;
+const scaffoldPattern = /\b(?:tbd|todo|placeholder|scaffold|lorem ipsum|replace this|fill (?:this|in)|example text|sample text)\b/iu;
+const requestIdPattern = /\brequest_id\s*[:=]\s*[a-z0-9][a-z0-9._:-]{7,}\b/iu;
+const diagnosticArtifactPattern = /\b(?:log|screenshot|recording|command[- ]output)(?:\s+(?:path|reference))?\s*[:=]\s*\S{8,}/iu;
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 export async function applyExternalAcceptanceResults({ root, rows, ledger }) {
@@ -39,12 +47,15 @@ export async function applyExternalAcceptanceResults({ root, rows, ledger }) {
     const refs = [];
     const expectedMetadata = {
       'Acceptance ID': id,
+      Status: result.status,
       candidateRef: result.candidateRef,
       executedAt: result.executedAt,
       executor,
       environment
     };
-    for (const item of result.evidence) refs.push(await validateEvidenceFile(root, id, item, expectedMetadata));
+    for (let index = 0; index < result.evidence.length; index += 1) {
+      refs.push(await validateEvidenceFile(root, id, result.evidence[index], expectedMetadata, index === 0));
+    }
     Object.assign(row, {
       candidate_status: result.status,
       external_candidate_ref: result.candidateRef,
@@ -79,14 +90,15 @@ function validateUtc(value, id) {
   }
 }
 
-async function validateEvidenceFile(root, id, item, expectedMetadata) {
+async function validateEvidenceFile(root, id, item, expectedMetadata, isPrimary) {
   assertExactKeys(item, evidenceKeys, `${id} evidence`);
   const path = requiredTrimmed(item.path, 'evidence.path');
   const containsExample = path.split(/[\\/]/u).some((part) => part.toLowerCase().includes('example'));
   if (!/^[0-9a-f]{64}$/u.test(item.sha256) || isAbsolute(path)
-    || path.split(/[\\/]/u).includes('..') || containsExample || !path.endsWith('.md')) {
+    || path.split(/[\\/]/u).includes('..') || containsExample) {
     throw new Error(`${id} evidence metadata is invalid.`);
   }
+  if (isPrimary && !path.endsWith('.md')) throw new Error(`${id} primary evidence must be valid UTF-8 Markdown.`);
   const allowed = resolve(root, 'evidence/P0/external', id);
   const candidate = resolve(root, path);
   if (!isWithin(allowed, candidate)) throw new Error(`${id} evidence path escapes its directory.`);
@@ -96,11 +108,12 @@ async function validateEvidenceFile(root, id, item, expectedMetadata) {
   if (!isWithin(allowedReal, candidateReal)) throw new Error(`${id} evidence realpath escapes its directory.`);
   const digest = createHash('sha256').update(content).digest('hex');
   if (digest !== item.sha256) throw new Error(`${id} evidence hash does not match.`);
+  if (!isPrimary) return path;
   let markdown;
   try {
     markdown = utf8Decoder.decode(content);
   } catch {
-    throw new Error(`${id} evidence must be valid UTF-8 Markdown.`);
+    throw new Error(`${id} primary evidence must be valid UTF-8 Markdown.`);
   }
   validateEvidenceDocument(markdown, id, expectedMetadata);
   return path;
@@ -108,7 +121,7 @@ async function validateEvidenceFile(root, id, item, expectedMetadata) {
 
 function validateEvidenceDocument(content, id, expectedMetadata) {
   const lines = content.replaceAll('\r\n', '\n').split('\n');
-  const metadataLabels = [...Object.keys(expectedMetadata), 'Redaction'];
+  const metadataLabels = [...Object.keys(expectedMetadata), 'Redaction Review', 'Redaction Details'];
   const metadata = {};
   for (let index = 0; index < metadataLabels.length; index += 1) {
     const label = metadataLabels[index];
@@ -119,7 +132,8 @@ function validateEvidenceDocument(content, id, expectedMetadata) {
     }
     const value = line.slice(prefix.length);
     if (!value.trim()) {
-      if (label === 'Redaction') throw new Error(`${id} evidence Redaction declaration is required.`);
+      if (label === 'Redaction Review') throw new Error(`${id} evidence Redaction Review is required.`);
+      if (label === 'Redaction Details') throw new Error(`${id} evidence Redaction Details is required.`);
       throw new Error(`${id} evidence ${label} is required.`);
     }
     if (value !== value.trim()) throw new Error(`${id} evidence document metadata is invalid.`);
@@ -129,6 +143,10 @@ function validateEvidenceDocument(content, id, expectedMetadata) {
   for (const [label, expected] of Object.entries(expectedMetadata)) {
     if (metadata[label] !== expected) throw new Error(`${id} evidence ${label} does not match ledger.`);
   }
+  if (metadata['Redaction Review'] !== 'CONFIRMED') {
+    throw new Error(`${id} evidence Redaction Review must be CONFIRMED.`);
+  }
+  validateMeaningfulText(metadata['Redaction Details'], 'Redaction Details', minimumRedactionCharacters, id);
 
   const sectionLines = lines.slice(metadataLabels.length + 1);
   const headings = evidenceSections.map((section) => `## ${section}`);
@@ -150,10 +168,43 @@ function validateEvidenceDocument(content, id, expectedMetadata) {
     if (!body) throw new Error(`${id} evidence ${section} section is required.`);
     sections[section] = body;
   }
-  if (/^(?:n\/a|none|not applicable)(?:\b|:)/iu.test(sections.Diagnostics)
-    && !/^Not applicable: \S[\s\S]*$/u.test(sections.Diagnostics)) {
-    throw new Error(`${id} evidence Diagnostics requires an explicit not-applicable reason.`);
+
+  if (genericActualResultPattern.test(sections['Actual Result'])) {
+    throw new Error(`${id} evidence Actual Result must contain a concrete observed outcome.`);
   }
+  for (const section of attestationSections) {
+    validateMeaningfulText(sections[section], section, minimumSectionCharacters, id);
+  }
+  const normalizedSections = attestationSections.map((section) => normalizeText(sections[section]));
+  if (new Set(normalizedSections).size !== normalizedSections.length) {
+    throw new Error(`${id} evidence attestation sections must not repeat the same content.`);
+  }
+
+  const diagnostics = sections.Diagnostics;
+  if (/^(?:n\/a|none|not applicable)(?:\b|:)/iu.test(diagnostics)) {
+    const match = /^Not applicable: (\S[\s\S]*)$/u.exec(diagnostics);
+    if (!match) throw new Error(`${id} evidence Diagnostics requires an explicit not-applicable reason.`);
+    validateMeaningfulText(match[1], 'Diagnostics not-applicable reason', minimumNotApplicableCharacters, id);
+  } else if (!requestIdPattern.test(diagnostics) && !diagnosticArtifactPattern.test(diagnostics)) {
+    throw new Error(`${id} evidence Diagnostics must contain a concrete reference.`);
+  }
+}
+
+function validateMeaningfulText(value, label, minimumCharacters, id) {
+  if (scaffoldPattern.test(value)) {
+    throw new Error(`${id} evidence ${label} must not contain placeholder or scaffold text.`);
+  }
+  const meaningfulCharacters = [...value.normalize('NFKC')].filter((character) => /[\p{L}\p{N}]/u.test(character));
+  if (meaningfulCharacters.length < minimumCharacters) {
+    throw new Error(`${id} evidence ${label} must contain at least ${minimumCharacters} letters or numbers.`);
+  }
+  if (new Set(meaningfulCharacters.map((character) => character.toLocaleLowerCase('en-US'))).size < 5) {
+    throw new Error(`${id} evidence ${label} must contain at least 5 distinct letters or numbers.`);
+  }
+}
+
+function normalizeText(value) {
+  return value.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLowerCase();
 }
 
 async function lstatEvidencePath(root, candidate, id) {
