@@ -11,5 +11,6 @@ coverage/
 **/.DS_Store
 .playwright-cli/
 work/
+.worktrees/
 outputs/.DS_Store
 outputs/**/.DS_Store
