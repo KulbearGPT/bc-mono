@@ -17,18 +17,11 @@ initdb -D "$DATA_DIR" --no-locale --encoding=UTF8 >/tmp/blackcat-initdb.out
 pg_ctl -D "$DATA_DIR" -o "-p $PORT -k $TMP_ROOT" -l "$LOG_FILE" start >/tmp/blackcat-pgctl-start.out
 
 createdb -h "$TMP_ROOT" -p "$PORT" "$DB_NAME"
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000001_p0_baseline/migration.sql >/tmp/blackcat-migration-apply.out
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000002_m6_settlements/migration.sql >>/tmp/blackcat-migration-apply.out
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000003_m6_settlement_review/migration.sql >>/tmp/blackcat-migration-apply.out
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000004_m6_weekly_reports/migration.sql >>/tmp/blackcat-migration-apply.out
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000005_m6_weekly_report_review_fixes/migration.sql >>/tmp/blackcat-migration-apply.out
-psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-  -f database/prisma/migrations/000006_m6_customer_profiles/migration.sql >>/tmp/blackcat-migration-apply.out
+: >/tmp/blackcat-migration-apply.out
+for migration_file in database/prisma/migrations/*/migration.sql; do
+  psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+    -f "$migration_file" >>/tmp/blackcat-migration-apply.out
+done
 
 psql_db() {
   psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
@@ -176,7 +169,7 @@ expect_sql_failure "source-less-reservation-rejected" "
     '00000000-0000-0000-0000-000000000200',
     '00000000-0000-0000-0000-000000000001',
     'ORDER',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
     'CNY',
     'PENDING',
@@ -219,7 +212,7 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000001',
     'ORDER',
     '00000000-0000-0000-0000-000000000101',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
     'CNY',
     'PENDING',
@@ -318,7 +311,7 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000004',
     'ORDER',
     '00000000-0000-0000-0000-000000000103',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
     'CNY',
     'PENDING',
@@ -626,9 +619,9 @@ expect_sql_failure "append-only-update-rejected" "SET ROLE blackcat_app; UPDATE 
 
 psql_db -qAtc "
   INSERT INTO orders (
-    id, public_id, customer_id, player_id, status, currency, amount_minor, updated_at
+    id, public_id, guild_id, customer_id, player_id, status, currency, amount_minor, updated_at
   ) VALUES (
-    '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY',
+    '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY', '900000000000000001',
     '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
     'COMPLETED', 'CNY', 1000, now()
   );
@@ -641,12 +634,12 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000501', now(), now()
   );
   INSERT INTO settlement_batches (
-    id, public_id, source, period_start, period_end, cutoff_at, time_zone, currency,
+    id, public_id, guild_id, source, period_start, period_end, cutoff_at, time_zone, currency,
     gross_amount_minor, adjustment_amount_minor, net_amount_minor, created_by_staff_id, updated_at
   ) VALUES
-    ('00000000-0000-0000-0000-000000000703', 'SET-VERIFY-A', 'MANUAL', now()-interval '7 days', now(), now(),
+    ('00000000-0000-0000-0000-000000000703', 'SET-VERIFY-A', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
       'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
-    ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', 'MANUAL', now()-interval '7 days', now(), now(),
+    ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
       'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
   INSERT INTO settlement_items (
     id, settlement_batch_id, player_user_id, player_display_name, gross_amount_minor, adjustment_amount_minor,
@@ -666,7 +659,7 @@ psql_db -qAtc "
 "
 
 expect_sql_failure "settlement-negative-net-rejected" "SET ROLE blackcat_app; UPDATE settlement_items SET net_amount_minor=-1 WHERE id='00000000-0000-0000-0000-000000000705';"
-expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','CNY',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','CNY',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
 expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'CNY',(SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702'));"
 expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'CNY','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
 expect_sql_failure "settlement-entry-update-rejected" "SET ROLE blackcat_app; UPDATE settlement_item_entries SET amount_minor=999 WHERE id='00000000-0000-0000-0000-000000000707';"

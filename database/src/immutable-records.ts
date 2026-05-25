@@ -12,7 +12,12 @@ export const IMMUTABLE_RECORD_TABLES = [
   'commission_adjustments',
   'player_earnings',
   'player_earning_adjustments',
+  'wallet_entries',
+  'top_ups',
+  'external_refund_debits',
+  'receipt_attachments',
   'audit_logs',
+  'audit_log_changes',
   'guild_bot_config_events'
 ] as const;
 
@@ -26,6 +31,11 @@ const statusImmutableTableSet = new Set<string>([
   'fund_reservation_events',
   'commission_adjustments',
   'player_earning_adjustments',
+  'wallet_entries',
+  'top_ups',
+  'external_refund_debits',
+  'receipt_attachments',
+  'audit_log_changes',
   'guild_bot_config_events'
 ]);
 

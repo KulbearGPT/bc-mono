@@ -20,6 +20,35 @@ enum ExternalAccountStatus {
   REVOKED
 }
 
+enum WalletAccountStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum WalletEntryDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WalletEntryType {
+  TOP_UP_CREDIT
+  ORDER_CAPTURE_DEBIT
+  GIFT_CAPTURE_DEBIT
+  ORDER_REFUND_CREDIT
+  EXTERNAL_REFUND_DEBIT
+  ADJUSTMENT_CREDIT
+  ADJUSTMENT_DEBIT
+}
+
+enum AuditChangeType {
+  CREATE
+  UPDATE
+  APPEND
+  STATE_TRANSITION
+  INVALIDATE
+}
+
 enum PlayerReviewStatus {
   PENDING_REVIEW
   ACTIVE
@@ -199,8 +228,7 @@ enum FundReservationSourceType {
 }
 
 enum FundReservationMode {
-  PROVIDER_NATIVE_HOLD
-  LOCAL_RESERVATION_FALLBACK
+  LOCAL_RESERVATION
 }
 
 enum FundReservationStatus {
@@ -466,6 +494,7 @@ model User {
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   discordAccounts      DiscordAccount[]
+  walletAccount        WalletAccount?
   externalAccounts     ExternalAccount[]
   playerProfile        PlayerProfile?
   staffAccount         StaffAccount?
@@ -521,6 +550,122 @@ model DiscordAccount {
   @@map("discord_accounts")
 }
 
+model WalletAccount {
+  id         String              @id @default(uuid()) @db.Uuid
+  userId     String              @unique @map("user_id") @db.Uuid
+  currency   String              @default("USD") @db.Char(3)
+  status     WalletAccountStatus @default(ACTIVE)
+  rowVersion Int                 @default(1) @map("row_version")
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entries               WalletEntry[]
+  topUps                TopUp[]
+  externalRefundDebits  ExternalRefundDebit[]
+  receiptAttachments    ReceiptAttachment[]
+
+  @@index([status])
+  @@map("wallet_accounts")
+}
+
+model WalletEntry {
+  id                    String               @id @default(uuid()) @db.Uuid
+  walletAccountId       String               @map("wallet_account_id") @db.Uuid
+  entryType             WalletEntryType      @map("entry_type")
+  direction             WalletEntryDirection
+  amountMinor           BigInt               @map("amount_minor")
+  currency              String               @default("USD") @db.Char(3)
+  sourceType            String               @map("source_type") @db.VarChar(50)
+  sourceId              String               @map("source_id") @db.Uuid
+  reversalOfEntryId     String?              @map("reversal_of_entry_id") @db.Uuid
+  idempotencyKey        String               @unique @map("idempotency_key") @db.VarChar(200)
+  occurredAt            DateTime             @map("occurred_at") @db.Timestamptz(3)
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversalOf    WalletEntry?  @relation("WalletEntryReversal", fields: [reversalOfEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversals     WalletEntry[] @relation("WalletEntryReversal")
+  topUp         TopUp?
+  externalRefundDebit ExternalRefundDebit?
+
+  @@unique([sourceType, sourceId, entryType])
+  @@index([walletAccountId, occurredAt])
+  @@index([reversalOfEntryId])
+  @@map("wallet_entries")
+}
+
+model TopUp {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
+  amountMinor           BigInt   @map("amount_minor")
+  currency              String   @default("USD") @db.Char(3)
+  paymentChannel        String   @map("payment_channel") @db.VarChar(50)
+  externalTransactionId String   @map("external_transaction_id") @db.VarChar(200)
+  paidAt                DateTime @map("paid_at") @db.Timestamptz(3)
+  note                  String   @db.VarChar(1000)
+  createdByStaffId      String   @map("created_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount       @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  walletEntry   WalletEntry         @relation(fields: [walletEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     StaffAccount        @relation(fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments   ReceiptAttachment[]
+
+  @@unique([paymentChannel, externalTransactionId])
+  @@index([walletAccountId, createdAt])
+  @@map("top_ups")
+}
+
+model ExternalRefundDebit {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
+  amountMinor           BigInt   @map("amount_minor")
+  currency              String   @default("USD") @db.Char(3)
+  paymentChannel        String   @map("payment_channel") @db.VarChar(50)
+  externalTransactionId String   @map("external_transaction_id") @db.VarChar(200)
+  refundedAt            DateTime @map("refunded_at") @db.Timestamptz(3)
+  note                  String   @db.VarChar(1000)
+  createdByStaffId      String   @map("created_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount       @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  walletEntry   WalletEntry         @relation(fields: [walletEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     StaffAccount        @relation(fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments   ReceiptAttachment[]
+
+  @@unique([paymentChannel, externalTransactionId])
+  @@index([walletAccountId, createdAt])
+  @@map("external_refund_debits")
+}
+
+model ReceiptAttachment {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  topUpId               String?  @map("top_up_id") @db.Uuid
+  externalRefundDebitId String?  @map("external_refund_debit_id") @db.Uuid
+  mediaType             String   @map("media_type") @db.VarChar(100)
+  originalFileName      String   @map("original_file_name") @db.VarChar(255)
+  byteSize              BigInt   @map("byte_size")
+  sha256                String   @db.Char(64)
+  storageKey            String   @unique @map("storage_key") @db.VarChar(255)
+  uploadedByStaffId     String   @map("uploaded_by_staff_id") @db.Uuid
+  invalidatedAt         DateTime? @map("invalidated_at") @db.Timestamptz(3)
+  invalidatedByStaffId  String?  @map("invalidated_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount      WalletAccount        @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topUp              TopUp?               @relation(fields: [topUpId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  externalRefundDebit ExternalRefundDebit? @relation(fields: [externalRefundDebitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([walletAccountId, createdAt])
+  @@index([topUpId])
+  @@index([externalRefundDebitId])
+  @@map("receipt_attachments")
+}
+
 model ExternalAccount {
   id                    String                @id @default(uuid()) @db.Uuid
   userId                String                @map("user_id") @db.Uuid
@@ -545,7 +690,7 @@ model ProviderBalanceSnapshot {
   id                   String   @id @default(uuid()) @db.Uuid
   userId               String   @map("user_id") @db.Uuid
   provider             String   @db.VarChar(50)
-  providerBalanceMinor BigInt   @map("provider_balance_minor")
+  observedBalanceMinor BigInt   @map("observed_balance_minor")
   currency             String   @db.Char(3)
   fetchedAt            DateTime @map("fetched_at") @db.Timestamptz(3)
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -623,6 +768,8 @@ model StaffAccount {
   auditLogs              AuditLog[]                @relation("AuditActorStaff")
   riskEventsCreated      RiskEvent[]               @relation("RiskCreatedBy")
   customerProfileNotes   CustomerProfileNote[]     @relation("CustomerProfileNoteAuthor")
+  topUpsCreated          TopUp[]
+  externalRefundDebitsCreated ExternalRefundDebit[]
   orderEvents            OrderEvent[]              @relation("OrderEventActorStaff")
   botConfigsUpdated      GuildBotConfig[]           @relation("BotConfigUpdatedBy")
   botConfigEvents        GuildBotConfigEvent[]      @relation("BotConfigEventActor")
@@ -2016,7 +2163,11 @@ model AuditLog {
   afterSnapshot     Json?        @map("after_snapshot") @db.JsonB
   reason            String?      @db.VarChar(1000)
   requestId         String       @map("request_id") @db.VarChar(128)
+  idempotencyKey    String?      @map("idempotency_key") @db.VarChar(200)
   approvalRequestId String?      @map("approval_request_id") @db.Uuid
+  jobId             String?      @map("job_id") @db.Uuid
+  triggerSource     String?      @map("trigger_source") @db.VarChar(100)
+  retryAttempt      Int?         @map("retry_attempt")
   ipHash            String?      @map("ip_hash") @db.VarChar(128)
   userAgentHash     String?      @map("user_agent_hash") @db.VarChar(128)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -2024,6 +2175,7 @@ model AuditLog {
   actorUser       User?            @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   actorStaff      StaffAccount?    @relation("AuditActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  changes         AuditLogChange[]
 
   @@index([targetType, targetId, createdAt])
   @@index([actorStaffId, createdAt])
@@ -2031,4 +2183,23 @@ model AuditLog {
   @@index([interactionId])
   @@index([outcome, createdAt])
   @@map("audit_logs")
+}
+
+model AuditLogChange {
+  id             String          @id @default(uuid()) @db.Uuid
+  auditLogId     String          @map("audit_log_id") @db.Uuid
+  sequence       Int
+  targetType     String          @map("target_type") @db.VarChar(80)
+  targetId       String          @map("target_id") @db.VarChar(100)
+  changeType     AuditChangeType @map("change_type")
+  beforeSnapshot Json?           @map("before_snapshot") @db.JsonB
+  afterSnapshot  Json?           @map("after_snapshot") @db.JsonB
+  changedFields  Json            @map("changed_fields") @db.JsonB
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  auditLog AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([auditLogId, sequence])
+  @@index([targetType, targetId, createdAt])
+  @@map("audit_log_changes")
 }
