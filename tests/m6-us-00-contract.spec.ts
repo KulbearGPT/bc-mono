@@ -120,8 +120,10 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(openapi).toMatch(/SettlementPaymentResult:[\s\S]*anyOf:[\s\S]*required: \[externalBatchReference\][\s\S]*required: \[note\]/);
     expect(openapi).toContain('x-invariant: request.reportType == storedReport.reportType');
     expect(openapi).toContain('x-conflict-code: REPORT_TYPE_MISMATCH');
-    expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- stale/);
-    expect(businessSchema).toContain('"fetchedAt", "stale"');
+    expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- calculatedAt[\s\S]*- version/);
+    expect(businessConfig).toContain('balance_fact_source: INTERNAL_APPEND_ONLY_LEDGER');
+    expect(businessSchema).toContain('"ledgerBalanceMinor"');
+    expect(businessSchema).not.toContain('"providerBalanceMinor"');
   });
 
   test('keeps OpenAPI operation IDs unique and local references resolvable', () => {
