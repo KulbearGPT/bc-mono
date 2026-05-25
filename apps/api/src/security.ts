@@ -2,6 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 import { hasStaffPermission } from './authorization-policy.js';
+import {
+  buildPrimaryAuditChange,
+  normalizeAuditChanges,
+  redactAuditSnapshot,
+  type AuditChangeInput
+} from './audit-changes.js';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK' | 'UNKNOWN';
@@ -62,10 +68,15 @@ export interface AuditRecord {
   outcome: AuditOutcome;
   reason: string | null;
   requestId: string;
+  idempotencyKey?: string | null;
   approvalRequestId: string | null;
+  jobId?: string | null;
+  triggerSource?: string | null;
+  retryAttempt?: number | null;
   occurredAt: string;
   beforeSnapshot?: unknown;
   afterSnapshot?: unknown;
+  changes?: AuditChangeInput[];
 }
 
 export interface AuditSink {
@@ -74,6 +85,14 @@ export interface AuditSink {
 
 export interface AuditQueryClient {
   query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
+}
+
+interface AuditTransactionClient extends AuditQueryClient {
+  release?(): void;
+}
+
+interface AuditPool extends AuditQueryClient {
+  connect(): Promise<AuditTransactionClient>;
 }
 
 export interface IdempotencyRecord {
@@ -127,6 +146,11 @@ export interface SecureRouteOptions {
     actor: ActorContext,
     payload: unknown
   ) => Pick<AuditRecord, 'beforeSnapshot' | 'afterSnapshot'>;
+  auditChanges?: (
+    request: FastifyRequest,
+    actor: ActorContext,
+    payload: unknown
+  ) => AuditChangeInput[];
   rawResponse?: (payload: unknown, reply: FastifyReply) => unknown;
 }
 
@@ -172,7 +196,7 @@ export class InMemoryAuditSink implements AuditSink {
   readonly records: AuditRecord[] = [];
 
   append(record: AuditRecord): void {
-    this.records.push(record);
+    this.records.push(normalizeStoredAuditRecord(record));
   }
 }
 
@@ -180,11 +204,97 @@ export class PostgresAuditSink implements AuditSink {
   constructor(private readonly options: { client: AuditQueryClient }) {}
 
   async append(record: AuditRecord): Promise<void> {
-    await insertPostgresAuditRecord(this.options.client, record);
+    if (!isAuditPool(this.options.client)) {
+      await insertPostgresAuditRecord(this.options.client, record);
+      return;
+    }
+    const client = await this.options.client.connect();
+    try {
+      await client.query('BEGIN');
+      await insertPostgresAuditRecord(client, record);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release?.();
+    }
   }
 }
 
 export async function insertPostgresAuditRecord(client: AuditQueryClient, record: AuditRecord): Promise<void> {
+  const normalized = normalizeStoredAuditRecord(record);
+  const capability = await client.query<{ enhanced: boolean }>(
+    `SELECT count(*) = 4 AS enhanced
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'audit_logs'
+       AND column_name = ANY($1::text[])`,
+    [['idempotency_key', 'job_id', 'trigger_source', 'retry_attempt']]
+  );
+  if (!capability.rows[0]?.enhanced) {
+    await insertLegacyPostgresAuditRecord(client, normalized);
+    return;
+  }
+  await client.query(
+    `INSERT INTO audit_logs (
+      id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
+      interaction_id, permission_code, action, target_type, target_id, outcome,
+      before_snapshot, after_snapshot, reason, request_id, idempotency_key,
+      approval_request_id, job_id, trigger_source, retry_attempt, created_at
+    ) VALUES (
+      $1, $2, $3, $4::"StaffLevel", $5::"ActorSource", $6,
+      $7, $8, $9, $10, $11, $12::"AuditOutcome",
+      $13::jsonb, $14::jsonb, $15, $16, $17, $18, $19, $20, $21, $22
+    )`,
+    [
+      normalized.id,
+      normalized.actorId && isAuditUuid(normalized.actorId) ? normalized.actorId : null,
+      normalized.actorStaffId,
+      normalized.actorLevel,
+      normalized.actorSource,
+      normalized.clientId,
+      normalized.interactionId,
+      normalized.permissionCode,
+      normalized.action,
+      normalized.targetType,
+      normalized.targetId,
+      normalized.outcome,
+      normalized.beforeSnapshot == null ? null : JSON.stringify(normalized.beforeSnapshot),
+      normalized.afterSnapshot == null ? null : JSON.stringify(normalized.afterSnapshot),
+      normalized.reason,
+      normalized.requestId,
+      normalized.idempotencyKey ?? null,
+      normalized.approvalRequestId,
+      normalized.jobId ?? null,
+      normalized.triggerSource ?? null,
+      normalized.retryAttempt ?? null,
+      new Date(normalized.occurredAt)
+    ]
+  );
+  for (const [index, change] of (normalized.changes ?? []).entries()) {
+    await client.query(
+      `INSERT INTO audit_log_changes (
+        id,audit_log_id,sequence,target_type,target_id,change_type,
+        before_snapshot,after_snapshot,changed_fields,created_at
+      ) VALUES ($1,$2,$3,$4,$5,$6::"AuditChangeType",$7::jsonb,$8::jsonb,$9::jsonb,$10)`,
+      [
+        randomUUID(),
+        normalized.id,
+        index + 1,
+        change.targetType,
+        change.targetId,
+        change.changeType,
+        change.beforeSnapshot == null ? null : JSON.stringify(change.beforeSnapshot),
+        change.afterSnapshot == null ? null : JSON.stringify(change.afterSnapshot),
+        JSON.stringify(change.changedFields),
+        new Date(normalized.occurredAt)
+      ]
+    );
+  }
+}
+
+async function insertLegacyPostgresAuditRecord(client: AuditQueryClient, record: AuditRecord): Promise<void> {
   await client.query(
     `INSERT INTO audit_logs (
       id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
@@ -216,6 +326,10 @@ export async function insertPostgresAuditRecord(client: AuditQueryClient, record
       new Date(record.occurredAt)
     ]
   );
+}
+
+function isAuditPool(client: AuditQueryClient): client is AuditPool {
+  return 'connect' in client && typeof (client as { connect?: unknown }).connect === 'function';
 }
 
 function isAuditUuid(value: string): boolean {
@@ -462,7 +576,8 @@ export function registerSecureReadRoute(
         targetType: route.targetType,
         targetId,
         permissionCode: route.permission,
-        requestId
+        requestId,
+        idempotencyKey: getHeader(request, 'idempotency-key')
       };
 
       const authResult = await authenticateActor(request, securityOptions, route.allowServiceActor === true);
@@ -570,7 +685,8 @@ export function registerSecureWriteRoute(
         targetType: route.targetType,
         targetId,
         permissionCode: route.permission,
-        requestId
+        requestId,
+        idempotencyKey: getHeader(request, 'idempotency-key')
       };
 
       const authResult = await authenticateActor(request, securityOptions, route.allowServiceActor === true);
@@ -757,10 +873,22 @@ export function registerSecureWriteRoute(
       let auditSnapshots: Pick<AuditRecord, 'beforeSnapshot' | 'afterSnapshot'> = {};
       try {
         auditSnapshots = route.auditSnapshots?.(request, actor, payload) ?? {};
+        const changes = normalizeAuditChanges(
+          route.auditChanges?.(request, actor, payload) ?? [
+            buildPrimaryAuditChange({
+              targetType: route.targetType,
+              targetId,
+              beforeSnapshot: auditSnapshots.beforeSnapshot,
+              afterSnapshot: auditSnapshots.afterSnapshot ?? payload
+            })
+          ]
+        );
         const successAuditInput = {
           ...baseAudit,
           ...buildAuditContext(actor),
           ...auditSnapshots,
+          idempotencyKey,
+          changes,
           outcome: 'SUCCEEDED',
           reason: route.successReason?.(request) ?? null
         } satisfies Omit<AuditRecord, 'id' | 'occurredAt'>;
@@ -787,6 +915,7 @@ export function registerSecureWriteRoute(
       const statusCode = stagedWrite.statusCode ?? route.successStatusCode ?? 200;
       await idempotencyStore.complete(scopeKey, statusCode, responsePayload);
       reply.code(statusCode);
+      if (route.rawResponse) return route.rawResponse(payload, reply);
       return responsePayload;
     }
   });
@@ -1128,10 +1257,23 @@ async function appendAudit(
 }
 
 function buildAuditRecord(input: Omit<AuditRecord, 'id' | 'occurredAt'>): AuditRecord {
-  return {
+  return normalizeStoredAuditRecord({
     id: crypto.randomUUID(),
     occurredAt: new Date().toISOString(),
     ...input
+  });
+}
+
+function normalizeStoredAuditRecord(record: AuditRecord): AuditRecord {
+  return {
+    ...record,
+    idempotencyKey: record.idempotencyKey ?? null,
+    jobId: record.jobId ?? null,
+    triggerSource: record.triggerSource ?? null,
+    retryAttempt: record.retryAttempt ?? null,
+    beforeSnapshot: redactAuditSnapshot(record.beforeSnapshot ?? null),
+    afterSnapshot: redactAuditSnapshot(record.afterSnapshot ?? null),
+    changes: normalizeAuditChanges(record.changes ?? [])
   };
 }
 

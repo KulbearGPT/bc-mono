@@ -2,6 +2,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { Pool } from 'pg';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
+import { PostgresAuditSink } from './security.js';
 import { PostgresDispatchStore, expireDispatchAttempt } from './dispatch.js';
 import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
 import { PostgresGiftStore, createGiftAnnouncementHandler, createGiftExpiryHandler } from './gifts.js';
@@ -49,6 +50,7 @@ const staleLockMs = positiveInteger(process.env.WORKER_STALE_LOCK_MS, 5 * 60_000
 if (staleLockMs < heartbeatMs * 3) throw new Error('WORKER_STALE_LOCK_MS must be at least three heartbeat intervals.');
 const worker = new OutboxWorker({
   store: outboxStore,
+  auditSink: new PostgresAuditSink({ client: pool }),
   workerId: `${hostname()}:${process.pid}`,
   heartbeatMs,
   logger: (entry) => console.log(JSON.stringify({ level: 'info', ...entry })),

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   InMemoryAuditSink,
+  insertPostgresAuditRecord,
   registerSecureReadRoute,
   registerSecureWriteRoute,
   type ActorContext,
@@ -291,40 +292,7 @@ WHERE version.id = $1
   }
 
   private async insertAuditRecord(client: CatalogQueryClient, record: AuditRecord): Promise<void> {
-    await client.query(
-      `
-INSERT INTO audit_logs (
-  id, actor_user_id, actor_staff_id, actor_level, actor_source, client_id,
-  interaction_id, permission_code, action, target_type, target_id, outcome,
-  before_snapshot, after_snapshot, reason, request_id, approval_request_id, created_at
-)
-VALUES (
-  $1, $2, $3, $4::"StaffLevel", $5::"ActorSource", $6,
-  $7, $8, $9, $10, $11, $12::"AuditOutcome",
-  $13::jsonb, $14::jsonb, $15, $16, $17, $18
-)
-      `,
-      [
-        record.id,
-        isUuid(record.actorId) ? record.actorId : null,
-        record.actorStaffId,
-        record.actorLevel,
-        record.actorSource,
-        record.clientId,
-        record.interactionId,
-        record.permissionCode,
-        record.action,
-        record.targetType,
-        record.targetId,
-        record.outcome,
-        record.beforeSnapshot ? JSON.stringify(record.beforeSnapshot) : null,
-        record.afterSnapshot ? JSON.stringify(record.afterSnapshot) : null,
-        record.reason,
-        record.requestId,
-        record.approvalRequestId,
-        new Date(record.occurredAt)
-      ]
-    );
+    await insertPostgresAuditRecord(client, record);
   }
 
   private async saveWithClient(client: CatalogQueryClient, record: ServiceCatalogRecord): Promise<ServiceCatalogRecord> {

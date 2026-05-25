@@ -4,6 +4,15 @@ import { describe, expect, test } from 'vitest';
 const read = (path: string) => readFileSync(path, 'utf8');
 
 describe('M7-US-01 internal USD funding contracts', () => {
+  test('creates optional receipts only after and already bound to a funding fact', () => {
+    const api = read('outputs/P0开发交付包/02-API/openapi.yaml');
+    const receiptBody = api.slice(api.indexOf('    ReceiptAttachmentBody:'), api.indexOf('    CreateUserRiskEventBody:'));
+    const topUpInput = api.slice(api.indexOf('    CreateTopUpInput:'), api.indexOf('    CreateExternalRefundDebitInput:'));
+    expect(receiptBody).toContain('required: [evidenceType, evidenceId, file]');
+    expect(receiptBody).toContain('enum: [TOP_UP, EXTERNAL_REFUND_DEBIT]');
+    expect(topUpInput).not.toContain('attachmentIds:');
+  });
+
   test('locks the public balance shape and new write operations', () => {
     const api = read('outputs/P0开发交付包/02-API/openapi.yaml');
 

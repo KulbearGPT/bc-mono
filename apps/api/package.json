@@ -6,6 +6,7 @@
   "exports": {
     "./server": "./src/server.ts",
     "./security": "./src/security.ts",
+    "./audit-changes": "./src/audit-changes.ts",
     "./mfa": "./src/mfa.ts",
     "./access": "./src/access.ts",
     "./operations": "./src/operations.ts",
