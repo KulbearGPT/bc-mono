@@ -3,9 +3,9 @@ import type { StaffLevel } from './security.js';
 export const staffLevels = ['L1_SUPPORT', 'L2_SUPERVISOR', 'L3_OPERATIONS', 'L4_ADMIN_OWNER'] as const;
 
 const permissionsByMinimumLevel: Record<StaffLevel, readonly string[]> = {
-  L1_SUPPORT: ['staff.session.active', 'mfa.manage_self', 'step_up.execute', 'dashboard.view', 'staff_task.read', 'staff_task.claim', 'staff_task.verify', 'order.read', 'order.pause', 'gift_request.read', 'audit.read', 'customer_profile.read'],
-  L2_SUPERVISOR: ['staff_task.resolve', 'gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'order.reassign', 'order.resume', 'user.read', 'player.read', 'player.tags.manage', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage', 'referral.read', 'job.read', 'job.retry', 'settlement.read', 'weekly_report.read'],
-  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'player.approve', 'player.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage', 'policy.read', 'policy.manage', 'bot_config.read', 'bot_config.operational.manage', 'settlement.manage', 'settlement.approve', 'weekly_report.manage'],
+  L1_SUPPORT: ['staff.session.active', 'mfa.manage_self', 'step_up.execute', 'dashboard.view', 'staff_task.read', 'staff_task.claim', 'staff_task.verify', 'order.read', 'order.pause', 'gift_request.read', 'audit.read', 'customer_profile.read', 'wallet.read', 'wallet.top_up'],
+  L2_SUPERVISOR: ['staff_task.resolve', 'gift.approve', 'gift.reject', 'refund.execute', 'order.resolve', 'order.reassign', 'order.resume', 'user.read', 'player.read', 'player.tags.manage', 'catalog.read', 'gift_catalog.read', 'earnings.read', 'user.risk.manage', 'referral.read', 'job.read', 'job.retry', 'settlement.read', 'weekly_report.read', 'wallet.external_refund'],
+  L3_OPERATIONS: ['catalog.manage', 'gift_catalog.manage', 'user.status.manage', 'player.approve', 'player.status.manage', 'earnings.manage', 'commission.read', 'commission.manage', 'referral.manage', 'policy.read', 'policy.manage', 'bot_config.read', 'bot_config.operational.manage', 'settlement.manage', 'settlement.approve', 'weekly_report.manage', 'wallet.adjust'],
   L4_ADMIN_OWNER: ['access.read', 'access.manage', 'bot_config.security.manage', 'settlement.void']
 };
 

@@ -27,6 +27,8 @@ import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
 import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
+import { PostgresWalletStore } from './wallet.js';
+import { PrivateFileReceiptStorage } from './receipt-storage.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -66,6 +68,7 @@ const referralStore = new PostgresReferralAttributionStore(databasePool);
 const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
+const walletStore = new PostgresWalletStore({ pool: databasePool });
 const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
@@ -119,7 +122,8 @@ const server = buildApiServer({
     fundingAdapter,
     providerKey,
     profileStore: customerProfileStore,
-    rechargeUrl: process.env.RECHARGE_URL?.trim() || 'https://payments.example.invalid/recharge'
+    rechargeUrl: process.env.RECHARGE_URL?.trim() || 'https://payments.example.invalid/recharge',
+    internalWalletEnabled: true
   },
   order: {
     orderStore,
@@ -187,6 +191,7 @@ const server = buildApiServer({
     store: customerProfileStore,
     fundingAdapter
   },
+  wallet: { service: walletStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,
     oauth: new DiscordHttpOAuthProvider({

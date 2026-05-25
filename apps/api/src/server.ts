@@ -40,6 +40,8 @@ import { registerSettlementRoutes, type SettlementRouteOptions } from './settlem
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 import { configureCursorSigningSecret } from './signed-cursor.js';
+import { registerWalletRoutes, type WalletApplicationService } from './wallet.js';
+import type { ReceiptStorage } from './receipt-storage.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -56,6 +58,7 @@ export interface ApiServerOptions {
     now?: () => Date;
     profileStore?: CustomerProfileStore;
     rechargeUrl?: string;
+    internalWalletEnabled?: boolean;
   };
   order?: {
     orderStore: OrderStore;
@@ -127,6 +130,7 @@ export interface ApiServerOptions {
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
+  wallet?: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -330,6 +334,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.customerProfiles) {
     if (!server.securityOptions) throw new Error('Customer profile routes require buildApiServer({ security, customerProfiles })');
     registerCustomerProfileRoutes(server, options.customerProfiles);
+  }
+  if (options.wallet) {
+    if (!server.securityOptions) throw new Error('Wallet routes require buildApiServer({ security, wallet })');
+    registerWalletRoutes(server, options.wallet);
   }
 
   return server;

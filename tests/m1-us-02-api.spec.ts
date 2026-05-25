@@ -399,20 +399,19 @@ describe('M1-US-02 binding and current account API contract', () => {
     expect(response.body).not.toContain('externalUserId');
   });
 
-  test('documents implemented account operationIds on the expected OpenAPI paths', async () => {
+  test('M7 supersedes Provider binding while preserving current-user and internal-balance operations', async () => {
     const openapi = await import('node:fs/promises').then((fs) =>
       fs.readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8')
     );
 
-    expect(readOperationId(openapi, '/api/v1/bindings', 'post')).toBe('createBinding');
+    expect(readOperationId(openapi, '/api/v1/bindings', 'post')).toBeNull();
     expect(readOperationId(openapi, '/api/v1/me', 'get')).toBe('getCurrentUser');
     expect(readOperationId(openapi, '/api/v1/me/balance', 'get')).toBe('getCurrentBalance');
-    expect(countOperationId(openapi, 'createBinding')).toBe(1);
+    expect(countOperationId(openapi, 'createBinding')).toBe(0);
     expect(countOperationId(openapi, 'getCurrentUser')).toBe(1);
     expect(countOperationId(openapi, 'getCurrentBalance')).toBe(1);
-    const bindingInput = readSchemaBlock(openapi, 'CreateBindingRequest');
-    expect(bindingInput).toContain('enum: [ONE_TIME_CODE]');
-    expect(bindingInput).not.toContain('EXTERNAL_USER_ID');
+    expect(openapi).not.toContain('CreateBindingRequest:');
+    expect(readSchemaBlock(openapi, 'WalletBalance')).toContain('currency: {type: string, const: USD}');
   });
 
   test('buildApiServer can wire account routes for the running API process', async () => {

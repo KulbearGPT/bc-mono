@@ -639,6 +639,7 @@ export function registerAccountRoutes(
     auditSink?: AuditSink;
     profileStore?: CustomerProfileStore;
     rechargeUrl?: string;
+    internalWalletEnabled?: boolean;
   }
 ): void {
   const security = server.securityOptions;
@@ -648,7 +649,7 @@ export function registerAccountRoutes(
   const now = options.now ?? (() => new Date());
   const auditSink = options.auditSink ?? security.auditSink ?? new InMemoryAuditSink();
 
-  registerSecureWriteRoute(server, security, {
+  if (!options.internalWalletEnabled) registerSecureWriteRoute(server, security, {
     method: 'POST',
     url: '/api/v1/bindings',
     permission: 'account.bind',
@@ -700,7 +701,7 @@ export function registerAccountRoutes(
     });
   }
 
-  registerSecureReadRoute(server, security, {
+  if (!options.internalWalletEnabled) registerSecureReadRoute(server, security, {
     method: 'GET',
     url: '/api/v1/me/balance',
     permission: 'balance.self.read',
