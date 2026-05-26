@@ -157,7 +157,7 @@ export interface CancellationPreviewSummary {
   releaseAmountMinor: number;
   refundAmountMinor: number;
   currency: string;
-  handlingTimeCode: 'IMMEDIATE' | 'PROVIDER_PENDING' | 'STAFF_REVIEW_REQUIRED';
+  handlingTimeCode: 'IMMEDIATE' | 'STAFF_REVIEW_REQUIRED';
   staffTaskRequired: boolean;
   validUntil: string;
 }

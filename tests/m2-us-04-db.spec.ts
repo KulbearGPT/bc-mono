@@ -13,6 +13,7 @@ import {
   requestOrderCompletion,
   setOrderReadiness
 } from '@blackcat/api/service-lifecycle';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T04:30:00.000Z');
@@ -37,18 +38,7 @@ describe('M2-US-04 Postgres service lifecycle', () => {
     await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_service']);
-    await execFile('psql', [
-      '-h',
-      socketDir,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m2_service',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000001_p0_baseline/migration.sql'
-    ]);
+    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m2_service' });
 
     pool = new Pool({
       host: socketDir,
@@ -62,6 +52,8 @@ describe('M2-US-04 Postgres service lifecycle', () => {
   beforeEach(async () => {
     await pool.query(`
 TRUNCATE TABLE
+  wallet_entries,
+  wallet_accounts,
   staff_tasks,
   commissions,
   referral_attributions,
@@ -413,6 +405,11 @@ VALUES
   ('00000000-0000-0000-0000-00000000a551', 'Customer', 'ACTIVE', now()),
   ('00000000-0000-0000-0000-00000000a552', 'Player', 'ACTIVE', now());
 
+INSERT INTO wallet_accounts (id,user_id,currency,status,row_version,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-00000000c551','${customerId}','USD','ACTIVE',1,now(),now());
+INSERT INTO wallet_entries (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+VALUES ('00000000-0000-0000-0000-00000000c552','00000000-0000-0000-0000-00000000c551','TOP_UP_CREDIT','CREDIT',50000,'USD','TOP_UP','00000000-0000-0000-0000-00000000c553','seed:wallet:4451',now(),now());
+
 INSERT INTO discord_accounts (id, user_id, guild_id, discord_user_id, username, updated_at)
 VALUES
   ('00000000-0000-0000-0000-00000000d551', '00000000-0000-0000-0000-00000000a551', '999999999999999999', '111111111111111111', 'customer', now()),
@@ -447,7 +444,7 @@ VALUES (
   4200,
   12000,
   8400,
-  'CNY',
+  'USD',
   '{"language":"zh"}',
   '中文交流',
   '999999999999999999',
@@ -472,11 +469,11 @@ VALUES (
   'ORDER',
   '00000000-0000-0000-0000-00000000b451',
   NULL,
-  'LOCAL_RESERVATION_FALLBACK',
+  'LOCAL_RESERVATION',
   'mock-provider',
   NULL,
   12000,
-  'CNY',
+  'USD',
   'ACTIVE',
   1,
   'discord:order:submit:P-4451',
@@ -542,7 +539,7 @@ VALUES (
   'NET_SPEND_BPS',
   NULL,
   200,
-  'CNY',
+  'USD',
   true,
   false,
   '00000000-0000-0000-0000-00000000c554',

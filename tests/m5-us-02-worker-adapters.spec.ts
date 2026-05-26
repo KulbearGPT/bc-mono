@@ -17,7 +17,7 @@ const projection: OrderPanelProjection = {
   customerDiscordUserId: '530000000000000003',
   playerDiscordUserId: '530000000000000004',
   amountMinor: 12_000,
-  currency: 'CNY'
+  currency: 'USD'
 };
 const notBefore = '2026-07-18T23:00:00.000Z';
 
@@ -120,7 +120,7 @@ describe('M5-US-02 Worker production adapters', () => {
     const panelBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
     expect(panelBody.content).toContain('P-5301');
     expect(panelBody.content).toContain('IN_SERVICE');
-    expect(panelBody.content).toContain('CNY 120.00');
+    expect(panelBody.content).toContain('USD 120.00');
     expect(panelBody.allowed_mentions).toEqual({ parse: [] });
     expect(panelBody.components[0].components).toEqual(expect.arrayContaining([
       expect.objectContaining({ custom_id: `bc:service:request-completion:${projection.orderId}:v8` }),

@@ -57,7 +57,7 @@ function order(): OrderRecord {
     id: orderId, publicId: 'P-611', customerId: '00000000-0000-0000-0000-00000000a611', playerId: null,
     status: 'PENDING_DISPATCH', version: 4, serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT',
     region: 'NA', billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
-    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CNY', notes: null,
+    amountMinor: 12000, playerEarningMinor: 8400, currency: 'USD', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: null },
     automationState: 'PAUSED', automationVersion: 2, automationPausedByStaffId: '00000000-0000-0000-0000-000000000611',
     automationStaffTaskId: '00000000-0000-0000-0000-00000000c611', automationReasonCode: 'STAFF_TAKEOVER',
@@ -70,7 +70,7 @@ function lifecycleOrder(): ServiceLifecycleOrderRecord {
   return {
     id: orderId, publicId: 'P-611', customerId: '00000000-0000-0000-0000-00000000a611',
     playerId: '00000000-0000-0000-0000-00000000a612', status: 'ACCEPTED', version: 4,
-    currency: 'CNY', amountMinor: 12000, playerEarningMinor: 8400,
+    currency: 'USD', amountMinor: 12000, playerEarningMinor: 8400,
     channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: null,
     readinessDueAt: '2026-07-18T09:10:00.000Z', customerReadyAt: null, playerReadyAt: null,
     serviceStartedAt: null, completionRequestedAt: null, confirmationDueAt: null,

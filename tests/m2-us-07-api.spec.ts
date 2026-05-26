@@ -113,7 +113,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: 4200,
     amountMinor: 12000,
     playerEarningMinor: 8400,
-    currency: 'CNY',
+    currency: 'USD',
     notes: null,
     channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: null },
     createdAt: now.toISOString(),

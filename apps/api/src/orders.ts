@@ -17,16 +17,12 @@ import {
   type FundReservationMode,
   type FundReservationStatus
 } from './funding.js';
-import type { FundingAdapter } from './payment-adapter.js';
 import type { WalletFundingService } from './wallet.js';
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
   type StaffTaskStore
 } from './staff-tasks.js';
-
-export type OrderFundingAdapter = Pick<FundingAdapter, 'getProviderBalance' | 'createHold' | 'getHold' | 'releaseHold'> &
-  Partial<Pick<FundingAdapter, 'discoverCapabilities'>>;
 
 export type OrderStatus =
   | 'DRAFT'
@@ -210,7 +206,7 @@ export interface CancellationPreviewResult {
   releaseAmountMinor: number;
   refundAmountMinor: number;
   currency: Currency;
-  handlingTimeCode: 'IMMEDIATE' | 'PROVIDER_PENDING' | 'STAFF_REVIEW_REQUIRED';
+  handlingTimeCode: 'IMMEDIATE' | 'STAFF_REVIEW_REQUIRED';
   staffTaskRequired: boolean;
   validUntil: string;
 }
@@ -483,7 +479,6 @@ export class OrderError extends Error {
     | 'CONFLICT'
     | 'INSUFFICIENT_AVAILABLE_BALANCE'
     | 'PERMISSION_DENIED'
-    | 'PROVIDER_TIMEOUT'
     | 'RESOURCE_NOT_FOUND'
     | 'SERVICE_NOT_AVAILABLE'
     | 'VALIDATION_ERROR';
@@ -1411,7 +1406,7 @@ export async function prepareCancelOrder(input: {
     : null;
   if (reservation && !releasedReservation) {
     if (!input.staffTaskStore) {
-      throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for unresolved provider releases.');
+      throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for an unresolved wallet release.');
     }
     const exceptionOrder: OrderRecord = {
       ...order,
@@ -1422,7 +1417,7 @@ export async function prepareCancelOrder(input: {
     const staffTask = await input.staffTaskStore.createOrderTask({
       order: exceptionOrder,
       type: 'AUTOMATION_FAILURE',
-      reasonCode: 'PROVIDER_RELEASE_UNKNOWN',
+      reasonCode: 'WALLET_RELEASE_UNRESOLVED',
       note: '供应商预留释放结果未知，需核对 Hold 状态后再处理取消。',
       voiceChannelId: order.channelSpec.voiceChannelId,
       actor: input.actor,
@@ -1438,7 +1433,7 @@ export async function prepareCancelOrder(input: {
       now: input.now,
       sequence: nextSequence,
       payload: {
-        reasonCode: 'PROVIDER_RELEASE_UNKNOWN',
+        reasonCode: 'WALLET_RELEASE_UNRESOLVED',
         previewId: input.input.previewId,
         reservationId: reservation.id,
         staffTaskId: staffTask.id
@@ -2561,7 +2556,6 @@ function mapOrderError(error: unknown): { statusCode: number; code: string; mess
     CONFLICT: 409,
     INSUFFICIENT_AVAILABLE_BALANCE: 422,
     PERMISSION_DENIED: 403,
-    PROVIDER_TIMEOUT: 504,
     RESOURCE_NOT_FOUND: 404,
     SERVICE_NOT_AVAILABLE: 422,
     VALIDATION_ERROR: 400

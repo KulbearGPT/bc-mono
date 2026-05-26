@@ -42,7 +42,7 @@ describe('M7-US-01 internal USD funding contracts', () => {
     const adapter = read('outputs/P0开发交付包/04-支付集成/adapter-contract.yaml');
 
     expect(api).not.toMatch(/getProviderBalance|createHold|captureHold|releaseHold|createReservationDebit|createRefund/u);
-    expect(config).not.toMatch(/providerBalanceMinor|PROVIDER_NATIVE_HOLD|LOCAL_RESERVATION_FALLBACK/u);
+    expect(config).not.toMatch(/providerBalanceMinor|LOCAL_RESERVATION|LOCAL_RESERVATION/u);
     expect(`${api}\n${config}\n${adapter}`).not.toMatch(/currency:\s*CNY|default:\s*CNY/u);
   });
 

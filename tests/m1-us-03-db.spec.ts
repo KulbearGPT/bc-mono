@@ -208,7 +208,7 @@ VALUES (
   1,
   6000,
   4200,
-  'CNY',
+  'USD',
   '00000000-0000-0000-0000-000000000333',
   now(),
   now()
@@ -235,7 +235,7 @@ function draftOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: null,
     amountMinor: 0,
     playerEarningMinor: 0,
-    currency: 'CNY',
+    currency: 'USD',
     notes: null,
     channelSpec: {
       channelId: '120000000000000001',

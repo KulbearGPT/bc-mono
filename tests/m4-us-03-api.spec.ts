@@ -34,12 +34,12 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
     ],
     players: [{ playerId: '00000000-0000-0000-0000-000000003001', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: ['VALORANT'], serviceTags: ['娱乐陪玩'], activeOrderId: '00000000-0000-0000-0000-000000001002', version: 3 }],
     consumptions: [
-      { id: '00000000-0000-0000-0000-000000004001', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001001', amountMinor: 12000, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T03:00:00Z', reversalOf: null },
-      { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
-      { id: '00000000-0000-0000-0000-000000004000', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ADMIN_CORRECTION', sourceId: '00000000-0000-0000-0000-000000009001', amountMinor: -300, currency: 'CNY', status: 'REVERSED', occurredAt: '2026-07-18T02:30:00Z', reversalOf: null }
+      { id: '00000000-0000-0000-0000-000000004001', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001001', amountMinor: 12000, currency: 'USD', status: 'SUCCEEDED', occurredAt: '2026-07-18T03:00:00Z', reversalOf: null },
+      { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'USD', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
+      { id: '00000000-0000-0000-0000-000000004000', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ADMIN_CORRECTION', sourceId: '00000000-0000-0000-0000-000000009001', amountMinor: -300, currency: 'USD', status: 'REVERSED', occurredAt: '2026-07-18T02:30:00Z', reversalOf: null }
     ],
-    gifts: [{ id: '00000000-0000-0000-0000-000000005001', code: 'ROCKET', name: '火箭', priceMinor: 5200, currency: 'CNY', enabled: true, version: 1, broadcastTemplate: '{sender} 送出 {gift}', createdAt: '2026-07-18T00:00:00Z' }],
-    giftRequests: [{ id: '00000000-0000-0000-0000-000000006001', publicId: 'G-1001', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 4, giftName: '火箭', amountMinor: 5200, currency: 'CNY', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T03:00:00Z' }],
+    gifts: [{ id: '00000000-0000-0000-0000-000000005001', code: 'ROCKET', name: '火箭', priceMinor: 5200, currency: 'USD', enabled: true, version: 1, broadcastTemplate: '{sender} 送出 {gift}', createdAt: '2026-07-18T00:00:00Z' }],
+    giftRequests: [{ id: '00000000-0000-0000-0000-000000006001', publicId: 'G-1001', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 4, giftName: '火箭', amountMinor: 5200, currency: 'USD', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T03:00:00Z' }],
     visibleOrderIdsByStaffId: {
       '00000000-0000-0000-0000-111111111111': ['00000000-0000-0000-0000-000000001001', '00000000-0000-0000-0000-000000001002']
     },
@@ -71,7 +71,7 @@ describe('M4-US-03 admin directory API', () => {
     expect(outputContract).toMatch(/operationId: listAdminUserConsumptions[\s\S]*?x-minimum-staff-level: L2_SUPERVISOR/);
     expect(outputContract).toMatch(/AdminConsumptionMirrorType:\n\s+type: string\n\s+enum: \[ORDER, GIFT, REFUND_REVERSAL, ADMIN_CORRECTION\]/);
     expect(outputContract).toMatch(/AdminGiftRequest:[\s\S]*?required: \[id, publicId, orderId, senderId, receiverId, status, rowVersion, giftName, amountMinor, currency, announcementStatus, createdAt\][\s\S]*?rowVersion: \{\$ref: '#\/components\/schemas\/Version'\}/);
-    expect(outputContract).toMatch(/GiftCatalogItemResponse:[\s\S]*?example: \{requestId: req_gift_catalog, data: \{id: [^,]+, code: [^,]+, name: [^,]+, priceMinor: \d+, currency: CNY, enabled: true, version: 1, broadcastTemplate: [^,]+, createdAt: '[^']+'\}\}/);
+    expect(outputContract).toMatch(/GiftCatalogItemResponse:[\s\S]*?example: \{requestId: req_gift_catalog, data: \{id: [^,]+, code: [^,]+, name: [^,]+, priceMinor: \d+, currency: USD, enabled: true, version: 1, broadcastTemplate: [^,]+, createdAt: '[^']+'\}\}/);
     expect(productionEntry).toContain('auditSink: new PostgresAuditSink({ client: databasePool })');
     expect(productionEntry).not.toContain('auditSink: new InMemoryAuditSink()');
   });
@@ -90,8 +90,8 @@ describe('M4-US-03 admin directory API', () => {
   test('uses resource-bound keyset cursors across every admin directory list', async () => {
     const { server, store } = fixture();
     store.players.push({ playerId: '00000000-0000-0000-0000-000000003000', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'OFFLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1 });
-    store.gifts.push({ id: '00000000-0000-0000-0000-000000005000', code: 'OLDER', name: 'Older gift', priceMinor: 100, currency: 'CNY', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-17T00:00:00Z' });
-    store.giftRequests.push({ id: '00000000-0000-0000-0000-000000006000', publicId: 'G-1000', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 1, giftName: 'Older gift', amountMinor: 100, currency: 'CNY', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-17T03:00:00Z' });
+    store.gifts.push({ id: '00000000-0000-0000-0000-000000005000', code: 'OLDER', name: 'Older gift', priceMinor: 100, currency: 'USD', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-17T00:00:00Z' });
+    store.giftRequests.push({ id: '00000000-0000-0000-0000-000000006000', publicId: 'G-1000', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 1, giftName: 'Older gift', amountMinor: 100, currency: 'USD', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-17T03:00:00Z' });
 
     await expectStableSecondPage('/api/v1/admin/orders?limit=1', 'publicId', 'P-1002', 'P-1001', () => {
       store.orders.push(adminOrder({ id: '00000000-0000-0000-0000-000000001003', publicId: 'P-1003', createdAt: '2026-07-18T05:00:00Z' }));
@@ -100,16 +100,16 @@ describe('M4-US-03 admin directory API', () => {
       store.users.push({ id: '00000000-0000-0000-0000-000000002999', displayName: 'New user', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: null, riskFlags: [], version: 1 });
     });
     await expectStableSecondPage('/api/v1/admin/users/00000000-0000-0000-0000-000000002001/consumptions?limit=1', 'id', '00000000-0000-0000-0000-000000004002', '00000000-0000-0000-0000-000000004001', () => {
-      store.consumptions.push({ id: '00000000-0000-0000-0000-000000004003', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001003', amountMinor: 100, currency: 'CNY', status: 'SUCCEEDED', occurredAt: '2026-07-18T05:00:00Z', reversalOf: null });
+      store.consumptions.push({ id: '00000000-0000-0000-0000-000000004003', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001003', amountMinor: 100, currency: 'USD', status: 'SUCCEEDED', occurredAt: '2026-07-18T05:00:00Z', reversalOf: null });
     });
     await expectStableSecondPage('/api/v1/admin/players?limit=1', 'playerId', '00000000-0000-0000-0000-000000003001', '00000000-0000-0000-0000-000000003000', () => {
       store.players.push({ playerId: '00000000-0000-0000-0000-000000003999', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1 });
     });
     await expectStableSecondPage('/api/v1/admin/gift-catalog?limit=1', 'id', '00000000-0000-0000-0000-000000005001', '00000000-0000-0000-0000-000000005000', () => {
-      store.gifts.push({ id: '00000000-0000-0000-0000-000000005999', code: 'NEWER', name: 'Newer gift', priceMinor: 100, currency: 'CNY', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-18T05:00:00Z' });
+      store.gifts.push({ id: '00000000-0000-0000-0000-000000005999', code: 'NEWER', name: 'Newer gift', priceMinor: 100, currency: 'USD', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-18T05:00:00Z' });
     });
     await expectStableSecondPage('/api/v1/admin/gift-requests?limit=1', 'publicId', 'G-1001', 'G-1000', () => {
-      store.giftRequests.push({ id: '00000000-0000-0000-0000-000000006999', publicId: 'G-1999', orderId: '00000000-0000-0000-0000-000000001003', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 1, giftName: 'Newer gift', amountMinor: 100, currency: 'CNY', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T05:00:00Z' });
+      store.giftRequests.push({ id: '00000000-0000-0000-0000-000000006999', publicId: 'G-1999', orderId: '00000000-0000-0000-0000-000000001003', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 1, giftName: 'Newer gift', amountMinor: 100, currency: 'USD', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T05:00:00Z' });
     });
 
     async function expectStableSecondPage(url: string, key: string, expectedFirst: string, expectedSecond: string, insertAhead: () => void) {
@@ -195,8 +195,8 @@ describe('M4-US-03 admin directory API', () => {
     const requestDetail = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-requests/00000000-0000-0000-0000-000000006001', headers: headers('111111111111111111') });
     const outOfScopeRequests = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-requests', headers: headers('444444444444444444') });
     const l2Catalog = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-catalog', headers: headers('222222222222222222') });
-    const l2Denied = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('222222222222222222', 'dashboard:gift:create:l2'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'CNY' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
-    const created = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('333333333333333333', 'dashboard:gift:create:l3'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'CNY' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
+    const l2Denied = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('222222222222222222', 'dashboard:gift:create:l2'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'USD' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
+    const created = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('333333333333333333', 'dashboard:gift:create:l3'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'USD' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
     const updated = await server.inject({ method: 'PATCH', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001', headers: headers('333333333333333333', 'dashboard:gift:update:l3'), payload: { expectedVersion: 1, action: 'DISABLE', reasonCode: 'TEMPORARILY_UNAVAILABLE' } });
     const stale = await server.inject({ method: 'PATCH', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001', headers: headers('333333333333333333', 'dashboard:gift:update:stale'), payload: { expectedVersion: 1, action: 'ENABLE', reasonCode: 'RESTOCKED' } });
     expect(requests.json().data.items).toEqual([expect.objectContaining({ rowVersion: 4 })]);
@@ -218,7 +218,7 @@ describe('M4-US-03 admin directory API', () => {
     const userStatus = await server.inject({ method: 'PUT', url: '/api/v1/admin/users/00000000-0000-0000-0000-000000002001/operational-status',
       headers: headers('333333333333333333', 'dashboard:user:audit-failure'), payload: { expectedVersion: 1, status: 'SUSPENDED', reasonCode: 'RISK_REVIEW', note: 'must roll back' } });
     const createdGift = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog',
-      headers: headers('333333333333333333', 'dashboard:gift:create:audit-failure'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'CNY' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
+      headers: headers('333333333333333333', 'dashboard:gift:create:audit-failure'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'USD' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
     const updatedGift = await server.inject({ method: 'PATCH', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001',
       headers: headers('333333333333333333', 'dashboard:gift:update:audit-failure'), payload: { expectedVersion: 1, action: 'DISABLE', reasonCode: 'TEMPORARILY_UNAVAILABLE' } });
 
@@ -246,7 +246,7 @@ function adminOrder(overrides: Partial<OrderRecord>): OrderRecord {
     id: '00000000-0000-0000-0000-000000001001', publicId: 'P-1001', customerId: '00000000-0000-0000-0000-000000002001',
     playerId: '00000000-0000-0000-0000-000000003001', status: 'ACCEPTED', version: 1, orderType: 'IMMEDIATE',
     serviceCatalogId: null, catalogVersion: null, unitCount: 2, billingUnitMinutes: 60, customerUnitPriceMinor: 6000,
-    playerUnitPayoutMinor: 4000, currency: 'CNY', amountMinor: 12000, playerEarningMinor: 8000, game: 'VALORANT',
+    playerUnitPayoutMinor: 4000, currency: 'USD', amountMinor: 12000, playerEarningMinor: 8000, game: 'VALORANT',
     service: '娱乐陪玩', region: 'NA', language: '中文', scheduledStartAt: null, notes: null,
     channelSpec: { channelId: null, panelMessageId: null, voiceChannelId: null }, automationState: 'RUNNING', automationVersion: 1,
     automationScope: null, automationPausedByStaffId: null, automationStaffTaskId: null, automationReasonCode: null,

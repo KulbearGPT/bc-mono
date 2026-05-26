@@ -435,7 +435,7 @@ describe('M5-US-01 P0 acceptance traceability', () => {
     expect(rows).toHaveLength(authoritativeCaseCount);
     expect(new Set(rows.map((row) => row.acceptance_id)).size).toBe(authoritativeCaseCount);
     for (const row of rows) {
-      expect(row.story_ids).toMatch(/^M[0-6]-US-[0-9]{2}(;M[0-6]-US-[0-9]{2})*$/u);
+      expect(row.story_ids).toMatch(/^M[0-7]-US-[0-9]{2}(;M[0-7]-US-[0-9]{2})*$/u);
       if (row.execution_class === 'AUTOMATED') {
         expect(row.test_files).toMatch(/^tests\/.+\.spec\.ts(?:;tests\/.+\.spec\.ts)*$/u);
         expect(row.evidence_refs).toMatch(/^evidence\/P0\/.+\.md(?:;evidence\/P0\/.+\.md)*$/u);

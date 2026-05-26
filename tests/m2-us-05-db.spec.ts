@@ -243,7 +243,7 @@ VALUES (
   4200,
   12000,
   8400,
-  'CNY',
+  'USD',
   '{"language":"zh"}',
   '中文交流',
   '999999999999999999',
@@ -278,7 +278,7 @@ function acceptedOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: 4200,
     amountMinor: 12000,
     playerEarningMinor: 8400,
-    currency: 'CNY',
+    currency: 'USD',
     notes: '中文交流',
     channelSpec: {
       channelId: '120000000000000001',

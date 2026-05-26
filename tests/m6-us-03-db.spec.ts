@@ -11,6 +11,7 @@ import {
   type WeeklyReportGenerationInput
 } from '@blackcat/api/weekly-reports';
 import type { AuditRecord } from '@blackcat/api/security';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const guildId = '900000000000006300';
@@ -24,8 +25,8 @@ let data = '';
 let pool: Pool;
 
 function generation(): WeeklyReportGenerationInput {
-  return { guildId, scheduleKey: 'weekly-cny', periodStart: '2026-07-12T16:00:00.000Z',
-    periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CNY' };
+  return { guildId, scheduleKey: 'weekly-usd', periodStart: '2026-07-12T16:00:00.000Z',
+    periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD' };
 }
 
 describe('M6-US-03 PostgreSQL weekly reports', () => {
@@ -36,15 +37,7 @@ describe('M6-US-03 PostgreSQL weekly reports', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_reports']);
-    for (const migration of [
-      'database/prisma/migrations/000001_p0_baseline/migration.sql',
-      'database/prisma/migrations/000002_m6_settlements/migration.sql',
-      'database/prisma/migrations/000003_m6_settlement_review/migration.sql',
-      'database/prisma/migrations/000004_m6_weekly_reports/migration.sql',
-      'database/prisma/migrations/000005_m6_weekly_report_review_fixes/migration.sql'
-    ]) {
-      await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_reports', '-v', 'ON_ERROR_STOP=1', '-f', migration]);
-    }
+    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m6_reports' });
     pool = new Pool({ host: root, port, database: 'blackcat_m6_reports', max: 8 });
   }, 30_000);
 
@@ -90,16 +83,16 @@ describe('M6-US-03 PostgreSQL weekly reports', () => {
     await pool.query('DROP TRIGGER test_fail_weekly_summary ON weekly_report_summaries; DROP FUNCTION fail_weekly_summary()');
   });
 
-  test('stores CNY and Guild scope and rejects duplicate or cross-currency facts', async () => {
+  test('stores USD and Guild scope and rejects duplicate or cross-currency facts', async () => {
     const store = new PostgresWeeklyReportStore(pool);
     await generateWeeklyReports({ store, input: generation() });
     const rows = await pool.query('SELECT DISTINCT guild_id,currency,time_zone FROM player_weekly_reports');
-    expect(rows.rows).toEqual([{ guild_id: guildId, currency: 'CNY', time_zone: 'Asia/Shanghai' }]);
+    expect(rows.rows).toEqual([{ guild_id: guildId, currency: 'USD', time_zone: 'Asia/Shanghai' }]);
     await expect(pool.query(`INSERT INTO weekly_report_summaries
       (id,report_key,guild_id,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,status,
        active_player_count,completed_order_count,cancelled_order_count,exception_count,service_minutes,
        gross_amount_minor,adjustment_minor,pending_minor,net_payable_minor,detail_snapshot,current_revision,updated_at)
-      VALUES (gen_random_uuid(),'usd-report',$1,'weekly-usd',$2,$3,$3,'Asia/Shanghai','USD','READY',0,0,0,0,0,0,0,0,0,'{}',1,$3)`,
+      VALUES (gen_random_uuid(),'eur-report',$1,'weekly-eur',$2,$3,$3,'Asia/Shanghai','EUR','READY',0,0,0,0,0,0,0,0,0,'{}',1,$3)`,
     [guildId, generation().periodStart, generation().periodEnd])).rejects.toThrow(/currency|check constraint/i);
   });
 
@@ -158,7 +151,7 @@ describe('M6-US-03 PostgreSQL weekly reports', () => {
       [oldEarning, '2026-07-01T11:00:00.000Z']);
     await pool.query(`INSERT INTO player_earning_adjustments
       (id,player_earning_id,type,amount_minor,currency,reason,idempotency_key,created_at)
-      VALUES (gen_random_uuid(),$1,'CORRECTION_DEBIT',700,'CNY','late refund','m6:rpt:old-adj','2026-07-18T15:00:00.000Z')`, [oldEarning]);
+      VALUES (gen_random_uuid(),$1,'CORRECTION_DEBIT',700,'USD','late refund','m6:rpt:old-adj','2026-07-18T15:00:00.000Z')`, [oldEarning]);
     const report = (await generateWeeklyReports({ store: new PostgresWeeklyReportStore(pool), input: generation() }))
       .playerReports.find((item) => item.playerUserId === playerA)!;
     expect(report.metrics).toMatchObject({ adjustmentMinor: -1_200, pendingMinor: 700,
@@ -213,7 +206,7 @@ async function seed(): Promise<void> {
   await insertEarning('00000000-0000-0000-0000-000000006322', '00000000-0000-0000-0000-000000006312', playerB, 8_000, 'PENDING');
   await pool.query(`INSERT INTO player_earning_adjustments
     (id,player_earning_id,type,amount_minor,currency,reason,idempotency_key,created_at)
-    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000006321','CORRECTION_DEBIT',500,'CNY','refund','m6:rpt:adj','2026-07-18T13:00:00.000Z')`);
+    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000006321','CORRECTION_DEBIT',500,'USD','refund','m6:rpt:adj','2026-07-18T13:00:00.000Z')`);
   await seedGift();
   await seedSettlementMembership();
 }
@@ -223,40 +216,40 @@ function insertOrder(id: string, publicId: string, playerId: string, status: 'CO
   const start = new Date(Date.parse(end) - minutes * 60_000).toISOString();
   return pool.query(`INSERT INTO orders
     (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,service_started_at,completed_at,cancelled_at,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,$5,8,'CNY',30000,$6,$7,$8,$9,'2026-07-18T09:00:00.000Z',$8)`,
+    VALUES ($1,$2,$3,$4,$5,8,'USD',30000,$6,$7,$8,$9,'2026-07-18T09:00:00.000Z',$8)`,
   [id, publicId, customerId, playerId, status, guildId, start, end, status === 'CANCELLED' ? end : null]);
 }
 
 function insertEarning(id: string, orderId: string, playerId: string, amount: number, status: 'PENDING' | 'CONFIRMED') {
   return pool.query(`INSERT INTO player_earnings
     (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,confirmed_by_staff_id,confirmed_at,created_at,updated_at)
-    VALUES ($1,$2,$3,1,$4,$4,'CNY',$5,1,$6,$7,'2026-07-18T12:00:00.000Z','2026-07-18T12:00:00.000Z')`,
+    VALUES ($1,$2,$3,1,$4,$4,'USD',$5,1,$6,$7,'2026-07-18T12:00:00.000Z','2026-07-18T12:00:00.000Z')`,
   [id, orderId, playerId, amount, status, status === 'CONFIRMED' ? staffId : null, status === 'CONFIRMED' ? '2026-07-18T12:30:00.000Z' : null]);
 }
 
 async function seedGift(): Promise<void> {
   await pool.query(`INSERT INTO gift_catalog_items (id,code,created_at,updated_at) VALUES (gen_random_uuid(),'ROSE',now(),now())`);
   await pool.query(`INSERT INTO gift_catalog_versions (id,gift_catalog_item_id,version,status,name,price_minor,currency,broadcast_template,created_by_staff_id,created_at)
-    SELECT gen_random_uuid(),id,1,'ACTIVE','Rose',2000,'CNY','gift',$1,now() FROM gift_catalog_items WHERE code='ROSE'`, [staffId]);
+    SELECT gen_random_uuid(),id,1,'ACTIVE','Rose',2000,'USD','gift',$1,now() FROM gift_catalog_items WHERE code='ROSE'`, [staffId]);
   await pool.query(`INSERT INTO gift_requests (id,public_id,order_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,
       gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,captured_at,expires_at,created_at,updated_at)
     SELECT gen_random_uuid(),'GFT-6301','00000000-0000-0000-0000-000000006311',id,$1,$2,'ANNOUNCED',5,
-      'ROSE','Rose',2000,'CNY','gift','2026-07-18T14:00:00.000Z','2026-07-19T14:00:00.000Z','2026-07-18T13:00:00.000Z','2026-07-18T14:00:00.000Z'
+      'ROSE','Rose',2000,'USD','gift','2026-07-18T14:00:00.000Z','2026-07-19T14:00:00.000Z','2026-07-18T13:00:00.000Z','2026-07-18T14:00:00.000Z'
     FROM gift_catalog_versions LIMIT 1`, [customerId, playerA]);
 }
 
 async function seedSettlementMembership(): Promise<void> {
   await pool.query(`INSERT INTO settlement_batches
-    (id,public_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,updated_at)
-    VALUES ('00000000-0000-0000-0000-000000006330','SET-6330','MANUAL',$1,$2,$2,'Asia/Shanghai','CNY',4000,0,4000,$2)`,
-  [generation().periodStart, generation().periodEnd]);
+    (id,public_id,guild_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,updated_at)
+    VALUES ('00000000-0000-0000-0000-000000006330','SET-6330',$3,'MANUAL',$1,$2,$2,'Asia/Shanghai','USD',4000,0,4000,$2)`,
+  [generation().periodStart, generation().periodEnd, guildId]);
   await pool.query(`INSERT INTO settlement_items
     (id,settlement_batch_id,player_user_id,player_display_name,gross_amount_minor,adjustment_amount_minor,net_amount_minor,currency,updated_at)
-    VALUES ('00000000-0000-0000-0000-000000006331','00000000-0000-0000-0000-000000006330',$1,'Player A',4000,0,4000,'CNY',$2)`,
+    VALUES ('00000000-0000-0000-0000-000000006331','00000000-0000-0000-0000-000000006330',$1,'Player A',4000,0,4000,'USD',$2)`,
   [playerA, generation().periodEnd]);
   await pool.query(`INSERT INTO settlement_item_entries
     (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000006331','PLAYER_EARNING','00000000-0000-0000-0000-000000006323',4000,'CNY','2026-07-18T12:30:00.000Z')`);
+    VALUES (gen_random_uuid(),'00000000-0000-0000-0000-000000006331','PLAYER_EARNING','00000000-0000-0000-0000-000000006323',4000,'USD','2026-07-18T12:30:00.000Z')`);
   await pool.query(`UPDATE settlement_batches SET snapshot_finalized_at=$1
     WHERE id='00000000-0000-0000-0000-000000006330'`, [generation().periodEnd]);
 }

@@ -10,7 +10,6 @@ import { PostgresServiceLifecycleStore } from './service-lifecycle.js';
 import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
-import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
 import { PostgresAuditSink, PostgresIdempotencyStore, PostgresStaffDirectory } from './security.js';
 import { PostgresSettlementStore } from './settlements.js';
 import { PostgresGiftStore } from './gifts.js';
@@ -69,7 +68,6 @@ const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
 const walletStore = new PostgresWalletStore({ pool: databasePool });
-const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
@@ -119,11 +117,8 @@ const server = buildApiServer({
   },
   account: {
     store: accountStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     profileStore: customerProfileStore,
-    rechargeUrl: process.env.RECHARGE_URL?.trim() || 'https://payments.example.invalid/recharge',
-    internalWalletEnabled: true
   },
   order: {
     orderStore,
@@ -154,10 +149,6 @@ const server = buildApiServer({
   },
   adminOrders: {
     orderStore: adminOrderActionStore
-  },
-  paymentWebhook: {
-    fundingAdapter,
-    providerKey
   },
   gift: {
     store: giftStore,

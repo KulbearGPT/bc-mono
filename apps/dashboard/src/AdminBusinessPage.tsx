@@ -136,7 +136,7 @@ function GiftCatalogFields() {
   return <>
     <label>礼物名称<input name="name" required maxLength={100} /></label>
     <label>价格（minor units）<input name="amountMinor" type="number" required min={1} step={1} /></label>
-    <label>币种<select name="currency" required defaultValue="CNY"><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
+    <label>币种<select name="currency" required defaultValue="USD"><option value="USD">USD</option></select></label>
     <label><input name="enabled" type="checkbox" defaultChecked />立即启用</label>
     <label>播报模板<textarea name="broadcastTemplate" required rows={3} maxLength={500} /></label>
   </>;
@@ -151,7 +151,7 @@ function ServiceCatalogFields() {
     <label>最少单位数<input name="minimumUnits" type="number" required min={1} max={1440} step={1} /></label>
     <label>用户单价（minor units）<input name="customerAmountMinor" type="number" required min={1} step={1} /></label>
     <label>陪玩单价（minor units）<input name="playerAmountMinor" type="number" required min={1} step={1} /></label>
-    <label>币种<select name="currency" required defaultValue="CNY"><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
+    <label>币种<select name="currency" required defaultValue="USD"><option value="USD">USD</option></select></label>
     <label><input name="enabled" type="checkbox" defaultChecked />立即启用</label>
   </>;
 }

@@ -83,7 +83,7 @@ function fixture() {
       job({ id: reconciliationJobId, type: 'ROLE_RECONCILIATION', status: 'FAILED', version: 1, lastError: 'Role sync failed; requestId=req_role' })
     ],
     settings: [
-      setting('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000, 'CNY'),
+      setting('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000, 'USD'),
       setting('DISPATCH_TIMEOUT_MINUTES', 5, null)
     ],
     repairableOrders: [{ id: repairOrderId, guildId, panelMessageId: '900000000000006701', version: 8 }]
@@ -398,7 +398,7 @@ describe('M4-US-06 operational API', () => {
       requestId: 'req_policy_list',
       data: {
         items: expect.arrayContaining([
-          { key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'CNY', version: 1 },
+          { key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'USD', version: 1 },
           { key: 'DISPATCH_TIMEOUT_MINUTES', integerValue: 5, currency: null, version: 1 }
         ])
       }
@@ -456,7 +456,7 @@ describe('M4-US-06 operational API', () => {
 
     const write = store.updatePolicySetting({
       key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', expectedVersion: 1, integerValue: 120_000,
-      currency: 'CNY', actorStaffId: staff.l3.staffId, now
+      currency: 'USD', actorStaffId: staff.l3.staffId, now
     });
     await write.commit(audit('00000000-0000-0000-0000-000000006699', staff.l3.staffId, 'L3_OPERATIONS', 'POLICY_RUNTIME_ACTION'), store);
 
@@ -469,7 +469,7 @@ describe('M4-US-06 operational API', () => {
     const { server, store } = fixture();
     const invalid = await server.inject({ method: 'PUT', url: '/api/v1/admin/policy-settings/DISPATCH_TIMEOUT_MINUTES',
       headers: headers(staff.l3, { key: 'policy:invalid:semantic', stepUp: true }),
-      payload: { expectedVersion: 1, integerValue: 7, currency: 'CNY', reasonCode: 'P0_POLICY_CONFIRMATION', arbitrarySql: 'DROP TABLE audit_logs' } });
+      payload: { expectedVersion: 1, integerValue: 7, currency: 'USD', reasonCode: 'P0_POLICY_CONFIRMATION', arbitrarySql: 'DROP TABLE audit_logs' } });
     const wrongCurrency = await server.inject({ method: 'PUT', url: '/api/v1/admin/policy-settings/L2_GIFT_APPROVAL_LIMIT_MINOR',
       headers: headers(staff.l3, { key: 'policy:invalid:currency', stepUp: true }),
       payload: { expectedVersion: 1, integerValue: 250_000, currency: null, reasonCode: 'P0_POLICY_CONFIRMATION' } });

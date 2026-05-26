@@ -69,9 +69,8 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(constraints).toContain('settlement_batches_schedule_source_chk');
     expect(constraints).toContain('trg_active_settlement_source_membership');
     expect(constraints).toContain('weekly_report_revisions_target_chk');
-    expect(openapi).toContain('x-recharge-url-source: guild-business-configuration');
-    expect(openapi).toContain('- recharge_url');
-    expect(openapi).not.toContain('getRechargeUrl');
+    expect(openapi).toContain('topUpInstructions:');
+    expect(openapi).not.toMatch(/recharge_url|getRechargeUrl/u);
     expect(read(`${outputRoot}/03-数据模型/状态枚举与约束.md`)).toContain('PARTIALLY_PAID -> PARTIALLY_PAID | PAID');
   });
 

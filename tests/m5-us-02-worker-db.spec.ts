@@ -57,7 +57,7 @@ describe('M5-US-02 PostgreSQL panel recovery', () => {
       version: 8,
       panelMessageId: oldPanelMessageId,
       amountMinor: 12_000,
-      currency: 'CNY'
+      currency: 'USD'
     });
     await panels.replacePanelMessageId({ orderId, expectedPanelMessageId: oldPanelMessageId, panelMessageId: newPanelMessageId });
 
@@ -124,6 +124,6 @@ async function seed() {
        amount_minor,currency,guild_id,channel_id,panel_message_id,created_at,updated_at)
     VALUES
       ('${orderId}','P-8001','${customerId}','${customerId}','PENDING_DISPATCH',8,'无畏契约','娱乐陪玩',
-       12000,'CNY','${guildId}','900000000000008007','${oldPanelMessageId}',now(),now());
+       12000,'USD','${guildId}','900000000000008007','${oldPanelMessageId}',now(),now());
   `);
 }

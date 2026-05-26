@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { Currency } from './catalog.js';
-import type { MaybePromise } from './payment-adapter.js';
+type MaybePromise<T> = T | Promise<T>;
 
 export type FundReservationSourceType = 'ORDER' | 'GIFT';
 export type FundReservationMode = 'LOCAL_RESERVATION';

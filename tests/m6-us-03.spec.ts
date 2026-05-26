@@ -19,7 +19,7 @@ function generation(): WeeklyReportGenerationInput {
     periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z',
     timeZone: 'Asia/Shanghai',
-    currency: 'CNY'
+    currency: 'USD'
   };
 }
 
@@ -91,7 +91,7 @@ describe('M6-US-03 weekly report domain', () => {
     expect(reports.playerReports[0]?.detailSnapshot).toMatchObject({ issues: ['MISSING_SERVICE_BOUNDARY'] });
   });
 
-  test('rejects cross-guild, non-CNY, and out-of-period facts', async () => {
+  test('rejects cross-guild, non-USD, and out-of-period facts', async () => {
     const store = new InMemoryWeeklyReportStore({ facts: [
       fact(),
       fact({ id: 'wrong-guild', guildId: 'other-guild', orderId: 'order-x', orderEarningMinor: 99_999 }),
@@ -100,7 +100,7 @@ describe('M6-US-03 weekly report domain', () => {
     const reports = await generateWeeklyReports({ store, input: generation() });
     expect(reports.summaryReport.metrics.grossAmountMinor).toBe(14_000);
 
-    await expect(generateWeeklyReports({ store, input: { ...generation(), currency: 'USD' } }))
+    await expect(generateWeeklyReports({ store, input: { ...generation(), currency: 'EUR' } }))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });

@@ -524,7 +524,6 @@ model User {
   idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
   auditLogs            AuditLog[]            @relation("AuditActorUser")
   orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
-  providerBalanceSnapshots ProviderBalanceSnapshot[]
   customerProfileNotes CustomerProfileNote[]
 
   @@index([status])
@@ -683,22 +682,6 @@ model ExternalAccount {
   @@unique([provider, externalUserId])
   @@index([userId, status])
   @@map("external_accounts")
-}
-
-/// Last-successful Provider observations only. Reserved and available values are never persisted here.
-model ProviderBalanceSnapshot {
-  id                   String   @id @default(uuid()) @db.Uuid
-  userId               String   @map("user_id") @db.Uuid
-  provider             String   @db.VarChar(50)
-  observedBalanceMinor BigInt   @map("observed_balance_minor")
-  currency             String   @db.Char(3)
-  fetchedAt            DateTime @map("fetched_at") @db.Timestamptz(3)
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([userId, currency, fetchedAt])
-  @@map("provider_balance_snapshots")
 }
 
 /// Staff-only, append-only customer context. API projections never expose author identity below L3.

@@ -7,7 +7,7 @@ import {
 } from '@blackcat/api/security';
 import { InMemoryAccountStore, registerAccountRoutes, type AccountBindingRecord } from '@blackcat/api/accounts';
 import { InMemoryServiceCatalogStore, type ServiceCatalogRecord } from '@blackcat/api/catalog';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
+import { TestWalletFunding } from './support/wallet-fixture';
 import { InMemoryOrderStore, registerOrderRoutes, type OrderRecord } from '@blackcat/api/orders';
 import { InMemoryRiskEventStore } from '@blackcat/api/risk-events';
 import {
@@ -325,7 +325,7 @@ function buildM2Server(input: { order: OrderRecord }) {
   const catalogStore = new InMemoryServiceCatalogStore({ records: [service()] });
   const staffTaskStore = new InMemoryStaffTaskStore({ tasks: [] });
   const riskEventStore = new InMemoryRiskEventStore({ events: [] });
-  const fundingAdapter = new MockFundingAdapter({ now });
+  const walletFunding = new TestWalletFunding();
   const server = buildApiServer({
     env,
     security: { auditSink, idempotencyStore, staffDirectory },
@@ -334,8 +334,7 @@ function buildM2Server(input: { order: OrderRecord }) {
 
   registerAccountRoutes(server, {
     store: accountStore,
-    fundingAdapter,
-    providerKey: 'mock-provider',
+    walletFunding,
     now: () => now
   });
   registerStaffTaskRoutes(server, { store: staffTaskStore, orderStore, now: () => now });
@@ -343,8 +342,7 @@ function buildM2Server(input: { order: OrderRecord }) {
     accountStore,
     catalogStore,
     orderStore,
-    fundingAdapter,
-    providerKey: 'mock-provider',
+    walletFunding,
     staffTaskStore,
     now: () => now
   });
@@ -390,7 +388,7 @@ function acceptedOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: 4200,
     amountMinor: 12000,
     playerEarningMinor: 8400,
-    currency: 'CNY',
+    currency: 'USD',
     notes: '轻松交流',
     channelSpec: {
       channelId: '120000000000000001',
@@ -414,7 +412,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     minimumUnits: 1,
     customerUnitPriceMinor: 6000,
     playerUnitPayoutMinor: 4200,
-    currency: 'CNY',
+    currency: 'USD',
     status: 'ACTIVE',
     version: 3,
     createdByStaffId: '00000000-0000-0000-0000-000000000333',
@@ -431,11 +429,11 @@ function activeReservation() {
     userId: customerId,
     sourceType: 'ORDER' as const,
     orderId,
-    mode: 'LOCAL_RESERVATION_FALLBACK' as const,
+    mode: 'LOCAL_RESERVATION' as const,
     provider: 'mock-provider',
     providerHoldRef: null,
     amountMinor: 12000,
-    currency: 'CNY' as const,
+    currency: 'USD' as const,
     status: 'ACTIVE' as const,
     version: 1,
     idempotencyKey: 'discord:order:submit:m2-us-05',

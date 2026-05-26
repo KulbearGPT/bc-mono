@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
+import { TestWalletFunding } from './support/wallet-fixture';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
 import {
   InMemoryAccountStore,
@@ -58,8 +58,7 @@ function buildAccountServer() {
   });
   registerAccountRoutes(server, {
     store,
-    fundingAdapter: new MockFundingAdapter({ now }),
-    providerKey: 'mock-provider',
+    walletFunding: new TestWalletFunding(),
     now: () => now
   });
   return { server, store };
@@ -110,7 +109,7 @@ describe('M1-US-06 private current-user service center API contract', () => {
     expect(owned.json()).toEqual({
       requestId: expect.any(String),
       data: {
-        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
+        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' },
         items: [],
         nextCursor: null
       }

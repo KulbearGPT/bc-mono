@@ -214,7 +214,7 @@ describe('M2-US-04 service lifecycle API', () => {
             awardMode: 'NET_SPEND_BPS',
             fixedAmountMinor: null,
             rateBps: 200,
-            currency: 'CNY',
+            currency: 'USD',
             eligibleOrderSpend: true
           }
         ]
@@ -362,7 +362,7 @@ function buildStore(
         playerId,
         status: 'ACCEPTED',
         version: 4,
-        currency: 'CNY',
+        currency: 'USD',
         amountMinor: 12000,
         playerEarningMinor: 8400,
         channelId: '444444444444444444',

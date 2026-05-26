@@ -186,7 +186,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     minimumUnits: 1,
     customerUnitPriceMinor: 6000,
     playerUnitPayoutMinor: 4200,
-    currency: 'CNY',
+    currency: 'USD',
     status: 'ACTIVE',
     version: 3,
     createdByStaffId: '00000000-0000-0000-0000-000000000333',

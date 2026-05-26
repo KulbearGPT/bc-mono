@@ -19,7 +19,7 @@ const now = new Date('2026-07-19T18:00:00.000Z');
 
 function generation(): WeeklyReportGenerationInput {
   return { guildId, scheduleKey: 'weekly-cny', periodStart: '2026-07-12T16:00:00.000Z',
-    periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CNY' };
+    periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD' };
 }
 
 function fact(playerUserId: string, suffix: string): WeeklyReportFact {

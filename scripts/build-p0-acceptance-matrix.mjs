@@ -49,8 +49,8 @@ export async function buildAcceptanceMatrix(root) {
     readFile(resolve(root, externalResultsPath), 'utf8')
   ]);
   const acceptance = parseCsv(acceptanceText);
-  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-6]-US-[0-9]{2}$/u.test(row.item_id));
-  const implementedBacklog = backlog.filter((row) => /^M(?:[0-4]|6)-US-[0-9]{2}$/u.test(row.item_id));
+  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-7]-US-[0-9]{2}$/u.test(row.item_id));
+  const implementedBacklog = backlog;
   const knownOperations = new Set([...openApiText.matchAll(/^\s+operationId:\s*([^\s]+)\s*$/gmu)].map((match) => match[1]));
   const byAcceptance = new Map();
   const byStory = new Map(backlog.map((row) => [row.item_id, row]));
@@ -80,7 +80,7 @@ export async function buildAcceptanceMatrix(root) {
     })).sort();
     const executionClass = requiresExternalEnvironment(item['建议自动化']) ? 'EXTERNAL_E2E' : 'AUTOMATED';
     if (!testFiles.length && executionClass === 'AUTOMATED') throw new Error(`${item.ID} has no executable Story test.`);
-    const evidenceRefs = storyIds.map((storyId) => /^M(?:[0-4]|6)-/u.test(storyId)
+    const evidenceRefs = storyIds.map((storyId) => /^M[0-7]-/u.test(storyId)
       ? `evidence/P0/${storyId}/summary.md`
       : `pending:evidence/P0/${storyId}/summary.md`);
     for (const path of evidenceRefs.filter((value) => value.startsWith('evidence/'))) await readFile(resolve(root, path), 'utf8');

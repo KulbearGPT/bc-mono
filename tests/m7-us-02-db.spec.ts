@@ -110,7 +110,7 @@ describe('M7-US-02 immutable internal USD wallet persistence', () => {
     await expect(pool.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,
        idempotency_key,occurred_at)
-      VALUES (gen_random_uuid(),$1,'ADJUSTMENT_CREDIT','CREDIT',1,'CNY','ADJUSTMENT',
+      VALUES (gen_random_uuid(),$1,'ADJUSTMENT_CREDIT','CREDIT',1,'EUR','ADJUSTMENT',
        gen_random_uuid(),'m7:bad-currency',now())`, [walletId]))
       .rejects.toThrow(/USD|currency|check constraint/i);
     await expect(pool.query(`INSERT INTO wallet_entries

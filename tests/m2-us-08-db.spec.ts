@@ -11,9 +11,9 @@ describe('M2-US-08 PostgreSQL workbench projection', () => {
         dispatch_attempt_id: '00000000-0000-0000-0000-00000000d001', expires_at: '2026-07-18T00:02:00.000Z',
         order_id: '00000000-0000-0000-0000-00000000b001', public_id: 'P-1042', status: 'PENDING_DISPATCH', row_version: 5,
         game_code: 'VALORANT', service_code: 'ENTERTAINMENT', region_code: 'NA', billing_unit_minutes: 60, unit_count: 2,
-        player_earning_minor: 8000, currency: 'CNY', requirement_snapshot: { language: '中文' }, voice_channel_id: null
+        player_earning_minor: 8000, currency: 'USD', requirement_snapshot: { language: '中文' }, voice_channel_id: null
       }] })
-      .mockResolvedValueOnce({ rows: [{ pending_minor: '8000', confirmed_minor: '3000', paid_minor: '20000', currency: 'CNY' }] });
+      .mockResolvedValueOnce({ rows: [{ pending_minor: '8000', confirmed_minor: '3000', paid_minor: '20000', currency: 'USD' }] });
     const store = new PostgresPlayerStore({ client: { query } as PlayerQueryClient });
 
     const result = await store.getWorkbenchData({ profile, now: new Date('2026-07-18T00:00:00.000Z') });

@@ -19,13 +19,12 @@ const now = new Date('2026-07-19T18:00:00.000Z');
 let root = ''; let data = ''; let pool: Pool;
 
 describe('M6-US-04 customer profile persistence contract', () => {
-  test('defines append-only provider balance snapshots and customer profile notes in both Prisma mirrors', () => {
+  test('defines customer profile notes without a current Provider balance model in both Prisma mirrors', () => {
     for (const path of ['database/prisma/schema.prisma', 'outputs/P0开发交付包/03-数据模型/schema.prisma']) {
       const schema = readFileSync(path, 'utf8');
-      expect(schema).toContain('model ProviderBalanceSnapshot');
+      expect(schema).not.toContain('model ProviderBalanceSnapshot');
       expect(schema).toContain('model CustomerProfileNote');
       expect(schema).toMatch(/model CustomerProfileNote[\s\S]*guildId\s+String\?/u);
-      expect(schema).not.toMatch(/model ProviderBalanceSnapshot[\s\S]*availableMinor/u);
     }
   });
 
@@ -87,14 +86,10 @@ describe('M6-US-04 customer profile persistence contract', () => {
     expect(finance.items.map((item) => item.id)).not.toContain('00000000-0000-0000-0000-000000006674');
   });
 
-  test('persists only successful Provider values and rejects snapshot/note mutation', async () => {
+  test('does not expose legacy Provider snapshots and rejects note mutation', async () => {
     const store = new PostgresCustomerProfileStore(pool);
-    await store.appendBalanceSnapshot({ id: '00000000-0000-0000-0000-000000006661', userId: customerId, provider: 'mock',
-      providerBalanceMinor: 8_000, currency: 'CNY', fetchedAt: '2026-07-18T10:00:00.000Z' });
-    await store.appendBalanceSnapshot({ id: '00000000-0000-0000-0000-000000006662', userId: customerId, provider: 'mock',
-      providerBalanceMinor: 9_000, currency: 'CNY', fetchedAt: '2026-07-19T10:00:00.000Z' });
-    expect(await store.getLatestBalanceSnapshot({ userId: customerId, provider: 'mock' })).toMatchObject({ providerBalanceMinor: 9_000, fetchedAt: '2026-07-19T10:00:00.000Z' });
-    await expect(pool.query('UPDATE provider_balance_snapshots SET provider_balance_minor=1 WHERE id=$1', ['00000000-0000-0000-0000-000000006662'])).rejects.toThrow(/append-only/u);
+    expect('appendBalanceSnapshot' in store).toBe(false);
+    expect('getLatestBalanceSnapshot' in store).toBe(false);
     await expect(pool.query('DELETE FROM customer_profile_notes WHERE id=$1', ['00000000-0000-0000-0000-000000006651'])).rejects.toThrow(/append-only/u);
   });
 });
@@ -110,16 +105,16 @@ async function seed() {
   await pool.query(`INSERT INTO external_accounts (id,user_id,provider,external_user_id,status,active_user_provider_key,verified_at,created_at,updated_at) VALUES
     ('00000000-0000-0000-0000-000000006622',$1,'mock','provider-secret-1234','ACTIVE','profile:mock',now(),now(),now())`, [customerId]);
   await pool.query(`INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,game_code_snapshot,service_code_snapshot,amount_minor,currency,guild_id,completed_at,cancelled_at,created_at,updated_at) VALUES
-    ('00000000-0000-0000-0000-000000006631','P-6631',$1,$2,'COMPLETED',1,'VALORANT','RANKED',10001,'CNY',$3,'2026-07-18T12:00:00Z',NULL,'2026-07-18T10:00:00Z','2026-07-18T12:00:00Z'),
-    ('00000000-0000-0000-0000-000000006632','P-6632',$1,$2,'CANCELLED',1,'VALORANT','RANKED',20000,'CNY',$3,NULL,'2026-07-17T12:00:00Z','2026-07-17T10:00:00Z','2026-07-17T12:00:00Z'),
-    ('00000000-0000-0000-0000-000000006633','P-XGUILD',$1,$2,'COMPLETED',1,'VALORANT','RANKED',90000,'CNY','900000000000006699','2026-07-18T14:00:00Z',NULL,'2026-07-18T13:00:00Z','2026-07-18T14:00:00Z')`, [customerId, playerId, guildId]);
+    ('00000000-0000-0000-0000-000000006631','P-6631',$1,$2,'COMPLETED',1,'VALORANT','RANKED',10001,'USD',$3,'2026-07-18T12:00:00Z',NULL,'2026-07-18T10:00:00Z','2026-07-18T12:00:00Z'),
+    ('00000000-0000-0000-0000-000000006632','P-6632',$1,$2,'CANCELLED',1,'VALORANT','RANKED',20000,'USD',$3,NULL,'2026-07-17T12:00:00Z','2026-07-17T10:00:00Z','2026-07-17T12:00:00Z'),
+    ('00000000-0000-0000-0000-000000006633','P-XGUILD',$1,$2,'COMPLETED',1,'VALORANT','RANKED',90000,'USD','900000000000006699','2026-07-18T14:00:00Z',NULL,'2026-07-18T13:00:00Z','2026-07-18T14:00:00Z')`, [customerId, playerId, guildId]);
   await pool.query(`INSERT INTO staff_tasks (id,public_id,type,reason_code,status,row_version,order_id,claimed_by_staff_id,context_snapshot,claimed_at,created_at,updated_at) VALUES
     ('00000000-0000-0000-0000-000000006641','T-6641','ORDER_ASSIST','CUSTOMER_ASSIST','CLAIMED',1,'00000000-0000-0000-0000-000000006631',$1,'{}',now(),now(),now())`, [staffId]);
   await pool.query(`INSERT INTO consumption_entries (id,user_id,entry_type,direction,order_id,source_type,source_id,idempotency_key,amount_minor,currency,occurred_at,created_at) VALUES
-    ('00000000-0000-0000-0000-000000006671',$1,'ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000006631','ORDER','00000000-0000-0000-0000-000000006631','profile:order',10001,'CNY','2026-07-18T12:05:00Z',now()),
-    ('00000000-0000-0000-0000-000000006672',$1,'GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000006631','GIFT','00000000-0000-0000-0000-000000006681','profile:gift',2500,'CNY','2026-07-18T12:06:00Z',now()),
-    ('00000000-0000-0000-0000-000000006673',$1,'REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000006631','REFUND','00000000-0000-0000-0000-000000006682','profile:refund',1500,'CNY','2026-07-18T12:07:00Z',now()),
-    ('00000000-0000-0000-0000-000000006674',$1,'ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000006633','ORDER','00000000-0000-0000-0000-000000006633','profile:cross-guild',90000,'CNY','2026-07-18T14:05:00Z',now())`, [customerId]);
+    ('00000000-0000-0000-0000-000000006671',$1,'ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000006631','ORDER','00000000-0000-0000-0000-000000006631','profile:order',10001,'USD','2026-07-18T12:05:00Z',now()),
+    ('00000000-0000-0000-0000-000000006672',$1,'GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000006631','GIFT','00000000-0000-0000-0000-000000006681','profile:gift',2500,'USD','2026-07-18T12:06:00Z',now()),
+    ('00000000-0000-0000-0000-000000006673',$1,'REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000006631','REFUND','00000000-0000-0000-0000-000000006682','profile:refund',1500,'USD','2026-07-18T12:07:00Z',now()),
+    ('00000000-0000-0000-0000-000000006674',$1,'ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000006633','ORDER','00000000-0000-0000-0000-000000006633','profile:cross-guild',90000,'USD','2026-07-18T14:05:00Z',now())`, [customerId]);
   await pool.query(`INSERT INTO customer_profile_notes (id,user_id,guild_id,author_staff_id,body,created_at) VALUES
     ('00000000-0000-0000-0000-000000006651',$1,$2,$3,'DB note','2026-07-18T13:00:00Z'),
     ('00000000-0000-0000-0000-000000006652',$1,'900000000000006699',$3,'Other Guild note','2026-07-18T14:00:00Z')`, [customerId, guildId, staffId]);

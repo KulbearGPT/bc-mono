@@ -13,7 +13,6 @@ import {
   type GiftReservationRecord,
   type GiftStaffTaskRecord
 } from '@blackcat/api/gifts';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 import { InMemoryAuditSink, type StaffAccount } from '@blackcat/api/security';
 
 const guildId = '900000000000001000';
@@ -199,9 +198,7 @@ describe('M4-US-10 Bot configuration API', () => {
       displayNames: { [gift.request.senderId]: '用户小林', [gift.request.receiverId]: '陪玩阿青' },
       guildIdsByOrder: { [gift.request.orderId]: guildId }
     });
-    const fundingAdapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: gift.reservation.id, version: 2 }] });
-
-    await captureApprovedGift({ store, fundingAdapter, providerKey: 'mock-provider',
+    await captureApprovedGift({ store,
       broadcastChannelId: channelId, botConfigStore: config, giftRequestId: gift.request.id, now });
 
     expect(store.broadcasts[0]?.payload).toMatchObject({ channelId: replacementChannelId });
@@ -236,7 +233,7 @@ function approvedGiftFixture(): { request: GiftRequestRecord; reservation: GiftR
     orderId: '00000000-0000-0000-0000-000000010101', giftCatalogVersionId: '00000000-0000-0000-0000-000000010102',
     senderId: '00000000-0000-0000-0000-000000010103', receiverId: '00000000-0000-0000-0000-000000010104',
     status: 'APPROVED', version: 3, giftCodeSnapshot: 'STAR', giftNameSnapshot: '星光礼盒', priceMinor: 5000,
-    currency: 'CNY', broadcastTemplateSnapshot: '{sender_name} 送给 {receiver_name} {gift_name}',
+    currency: 'USD', broadcastTemplateSnapshot: '{sender_name} 送给 {receiver_name} {gift_name}',
     verifiedByStaffId: accounts.l3.staffId, verifiedAt: now.toISOString(), verificationNote: 'confirmed',
     verificationPayloadHash: 'hash', executionCredentialExpiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
     approvedByStaffId: accounts.l3.staffId, approvedAt: now.toISOString(), rejectedReason: null,
@@ -244,8 +241,8 @@ function approvedGiftFixture(): { request: GiftRequestRecord; reservation: GiftR
   };
   const reservation: GiftReservationRecord = {
     id: '00000000-0000-0000-0000-000000010105', userId: request.senderId, sourceType: 'GIFT', orderId: null,
-    giftRequestId: request.id, mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: request.priceMinor, currency: 'CNY', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:10100',
+    giftRequestId: request.id, mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
+    amountMinor: request.priceMinor, currency: 'USD', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:10100',
     expiresAt: request.expiresAt, activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString()
   };
   const task: GiftStaffTaskRecord = {

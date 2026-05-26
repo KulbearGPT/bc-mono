@@ -5,6 +5,33 @@ ALTER TYPE "FundReservationMode"
 ALTER TABLE provider_balance_snapshots
   RENAME COLUMN provider_balance_minor TO observed_balance_minor;
 
+ALTER TABLE settlement_batches DROP CONSTRAINT settlement_batches_currency_chk;
+ALTER TABLE settlement_items DROP CONSTRAINT settlement_items_currency_chk;
+ALTER TABLE settlement_payment_results DROP CONSTRAINT settlement_payment_results_currency_chk;
+ALTER TABLE settlement_item_entries DROP CONSTRAINT settlement_item_entries_currency_chk;
+ALTER TABLE player_weekly_reports DROP CONSTRAINT player_weekly_reports_currency_chk;
+ALTER TABLE weekly_report_summaries DROP CONSTRAINT weekly_report_summaries_currency_chk;
+
+DO $$
+DECLARE
+  money_table RECORD;
+BEGIN
+  FOR money_table IN
+    SELECT table_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND column_name = 'currency'
+  LOOP
+    EXECUTE format('UPDATE %I SET currency = ''USD'' WHERE currency IS NOT NULL AND currency <> ''USD''', money_table.table_name);
+  END LOOP;
+END $$;
+
+ALTER TABLE settlement_batches ADD CONSTRAINT settlement_batches_currency_chk CHECK (currency = 'USD');
+ALTER TABLE settlement_items ADD CONSTRAINT settlement_items_currency_chk CHECK (currency = 'USD');
+ALTER TABLE settlement_payment_results ADD CONSTRAINT settlement_payment_results_currency_chk CHECK (currency = 'USD');
+ALTER TABLE settlement_item_entries ADD CONSTRAINT settlement_item_entries_currency_chk CHECK (currency = 'USD');
+ALTER TABLE player_weekly_reports ADD CONSTRAINT player_weekly_reports_currency_chk CHECK (currency = 'USD');
+ALTER TABLE weekly_report_summaries ADD CONSTRAINT weekly_report_summaries_currency_chk CHECK (currency = 'USD');
+
 CREATE TYPE "WalletAccountStatus" AS ENUM ('ACTIVE', 'SUSPENDED', 'CLOSED');
 CREATE TYPE "WalletEntryDirection" AS ENUM ('CREDIT', 'DEBIT');
 CREATE TYPE "WalletEntryType" AS ENUM (

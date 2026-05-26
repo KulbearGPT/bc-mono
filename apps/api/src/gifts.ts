@@ -4,7 +4,6 @@ import type { Pool, PoolClient } from 'pg';
 import type { AccountStore } from './accounts.js';
 import { buildFundReservationDraft, type FundReservationDraft, type FundReservationMode } from './funding.js';
 import type { OrderRecord, OrderStore } from './orders.js';
-import { AdapterError, type FundingAdapter } from './payment-adapter.js';
 import type { OutboxJob } from './outbox.js';
 import {
   registerSecureReadRoute,
@@ -142,7 +141,6 @@ export interface GiftTerminationResult {
 export interface GiftCaptureContext {
   request: GiftRequestRecord;
   reservation: GiftReservationRecord;
-  externalUserId: string;
   senderDisplayName: string;
   receiverDisplayName: string;
   guildId:string|null;
@@ -187,8 +185,6 @@ export interface GiftCaptureCommit {
   now: Date;
 }
 
-export type GiftCaptureFundingAdapter = Pick<FundingAdapter, 'captureHold' | 'createReservationDebit' | 'releaseHold'>;
-
 export interface GiftReviewResult {
   status: 'VERIFIED';
   giftRequestId: string;
@@ -227,8 +223,6 @@ export class GiftError extends Error {
     | 'GIFT_WINDOW_CLOSED'
     | 'GIFT_NOT_AVAILABLE'
     | 'GIFT_CATALOG_CHANGED'
-    | 'PROVIDER_BALANCE_STALE'
-    | 'RECHARGE_CONFIGURATION_UNAVAILABLE'
     | 'EXECUTION_CREDENTIAL_STALE'
     | 'INSUFFICIENT_AVAILABLE_BALANCE';
 
@@ -249,7 +243,6 @@ export class InMemoryGiftStore implements GiftStore {
   readonly broadcasts: OutboxJob[] = [];
   readonly expiryJobs: OutboxJob[] = [];
   readonly approvals: GiftApprovalRecord[] = [];
-  private readonly externalUserIds: Record<string, string>;
   private readonly displayNames: Record<string, string>;
   private readonly guildIdsByOrder:Record<string,string>;
 
@@ -258,7 +251,6 @@ export class InMemoryGiftStore implements GiftStore {
     requests?: GiftRequestRecord[];
     reservations?: GiftReservationRecord[];
     staffTasks?: GiftStaffTaskRecord[];
-    externalUserIds?: Record<string, string>;
     displayNames?: Record<string, string>;
     guildIdsByOrder?:Record<string,string>;
   } = {}) {
@@ -266,7 +258,6 @@ export class InMemoryGiftStore implements GiftStore {
     this.requests = clone(input.requests ?? []);
     this.reservations = clone(input.reservations ?? []);
     this.staffTasks = clone(input.staffTasks ?? []);
-    this.externalUserIds = clone(input.externalUserIds ?? {});
     this.displayNames = clone(input.displayNames ?? {});
     this.guildIdsByOrder=clone(input.guildIdsByOrder??{});
   }
@@ -373,9 +364,7 @@ export class InMemoryGiftStore implements GiftStore {
   getCaptureContext(giftRequestId: string): GiftCaptureContext {
     const request = this.requireRequest(giftRequestId);
     const reservation = this.requireReservation(giftRequestId);
-    const externalUserId = this.externalUserIds[request.senderId];
-    if (!externalUserId) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
-    return clone({ request, reservation, externalUserId,guildId:this.guildIdsByOrder[request.orderId]??null,
+    return clone({ request, reservation, guildId:this.guildIdsByOrder[request.orderId]??null,
       senderDisplayName: this.displayNames[request.senderId] ?? request.senderId,
       receiverDisplayName: this.displayNames[request.receiverId] ?? request.receiverId });
   }
@@ -667,16 +656,14 @@ AND status = ANY($3::"FundReservationStatus"[])`,
     try {
       await client.query('BEGIN');
       const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId });
-      const account = await client.query<{ external_user_id: string; sender_display_name: string; receiver_display_name: string }>(`
-SELECT ea.external_user_id, sender.display_name AS sender_display_name, receiver.display_name AS receiver_display_name
-FROM external_accounts ea
-JOIN users sender ON sender.id = ea.user_id
-JOIN users receiver ON receiver.id = $3
-WHERE ea.user_id = $1 AND ea.provider = $2 AND ea.status = 'ACTIVE'
-ORDER BY ea.verified_at DESC LIMIT 1`, [snapshot.request.senderId, snapshot.reservation.provider, snapshot.request.receiverId]);
-      if (!account.rows[0]) throw new GiftError('CONFLICT', 'The sender has no active provider account.');
+      const account = await client.query<{ sender_display_name: string; receiver_display_name: string }>(`
+SELECT sender.display_name AS sender_display_name, receiver.display_name AS receiver_display_name
+FROM users sender
+JOIN users receiver ON receiver.id = $2
+WHERE sender.id = $1`, [snapshot.request.senderId, snapshot.request.receiverId]);
+      if (!account.rows[0]) throw new GiftError('CONFLICT', 'Gift participants were not found.');
       await client.query('COMMIT');
-      return { request: snapshot.request, reservation: snapshot.reservation, externalUserId: account.rows[0].external_user_id,
+      return { request: snapshot.request, reservation: snapshot.reservation,
         guildId:snapshot.guildId,
         senderDisplayName: account.rows[0].sender_display_name, receiverDisplayName: account.rows[0].receiver_display_name };
     } catch (error) {
@@ -1040,28 +1027,27 @@ export async function listGifts(input: {
 export interface GiftAffordabilityResult {
   giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
   ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
-  currency: string; calculatedAt: string; stale: boolean; canAfford: boolean; rechargeUrl: string;
+  currency: string; calculatedAt: string; stale: false; canAfford: boolean; topUpInstructions: string;
 }
 
 export async function checkGiftAffordability(input: {
   store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
-  walletFunding: WalletFundingService; botConfigStore?: BotConfigStore;
+  walletFunding: WalletFundingService;
   actor: ActorContext; orderId: string; body: { giftCatalogVersionId: string }; now: Date;
 }): Promise<GiftAffordabilityResult> {
   const binding = await requireBinding(input.accountStore, input.actor);
   await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
   const catalog = await input.store.findCatalogVersion(input.body.giftCatalogVersionId);
   if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
-  const rechargeUrl = await resolveGiftRechargeUrl(input.botConfigStore, binding.guildId);
   const balance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
   if (balance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
   const reservedMinor = balance.reservedMinor;
   const availableMinor = balance.availableMinor;
   const shortfallMinor = Math.max(0, catalog.priceMinor - availableMinor);
-  const stale = false;
   return { giftCatalogVersionId: catalog.id, catalogVersion: catalog.version, priceMinor: catalog.priceMinor,
     ledgerBalanceMinor: balance.ledgerBalanceMinor, reservedMinor, availableMinor, shortfallMinor,
-    currency: balance.currency, calculatedAt: balance.calculatedAt, stale, canAfford: shortfallMinor === 0, rechargeUrl };
+    currency: balance.currency, calculatedAt: balance.calculatedAt, stale: false, canAfford: shortfallMinor === 0,
+    topUpInstructions: '联系客服并提交付款 receipt。' };
 }
 
 async function prepareGiftRequest(input: {
@@ -1088,7 +1074,7 @@ async function prepareGiftRequest(input: {
     const availableMinor=Math.max(0,walletBalance.availableMinor);
     throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.',[
       {field:'availableMinor',reason:String(availableMinor)},{field:'shortfallMinor',reason:String(catalog.priceMinor-availableMinor)},
-      {field:'rechargeAction',reason:'OPEN_RECHARGE'}]);
+      {field:'topUpAction',reason:'CONTACT_SUPPORT_WITH_RECEIPT'}]);
   }
 
   const requestId = deterministicUuid(`gift-request:${binding.userId}:${order.id}:${input.idempotencyKey}`);
@@ -1183,13 +1169,6 @@ function parseGiftAffordabilityBody(value: unknown) {
   return { giftCatalogVersionId: body.giftCatalogVersionId };
 }
 
-async function resolveGiftRechargeUrl(store: BotConfigStore | undefined, guildId: string): Promise<string> {
-  const value = (await store?.get(guildId))?.values.recharge_url;
-  if (typeof value !== 'string') throw new GiftError('RECHARGE_CONFIGURATION_UNAVAILABLE', 'Recharge is not configured for this Guild.');
-  try { const url = new URL(value); if (url.protocol !== 'https:') throw new Error(); return url.toString(); }
-  catch { throw new GiftError('RECHARGE_CONFIGURATION_UNAVAILABLE', 'Recharge is not configured for this Guild.'); }
-}
-
 function parseVerifyBody(value: unknown) {
   const body = value as Record<string, unknown>;
   if (!body || !Number.isInteger(body.expectedVersion) || typeof body.verificationMethod !== 'string'
@@ -1242,15 +1221,10 @@ function giftRequestIdParam(request: FastifyRequest): string {
 }
 
 function mapGiftError(error: unknown) {
-  if (error instanceof AdapterError) {
-    if (error.code === 'INSUFFICIENT_FUNDS') return { statusCode: 422, code: 'INSUFFICIENT_AVAILABLE_BALANCE', message: 'Available balance is insufficient.', details: error.details };
-    if (error.code === 'PROVIDER_TIMEOUT') return { statusCode: 504, code: 'PROVIDER_TIMEOUT', message: 'The balance provider timed out.' };
-    return { statusCode: error.retryable ? 503 : 409, code: error.code, message: error.message };
-  }
   if (!(error instanceof GiftError)) return null;
   const statusCode = error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'VALIDATION_ERROR' ? 400
     : error.code === 'INSUFFICIENT_AVAILABLE_BALANCE' ? 422
-      : ['PROVIDER_BALANCE_STALE','RECHARGE_CONFIGURATION_UNAVAILABLE'].includes(error.code) ? 503 : 409;
+      : 409;
   return { statusCode, code: error.code, message: error.message, details: error.details };
 }
 

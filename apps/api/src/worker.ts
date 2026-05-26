@@ -4,7 +4,6 @@ import { Pool } from 'pg';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { PostgresAuditSink } from './security.js';
 import { PostgresDispatchStore, expireDispatchAttempt } from './dispatch.js';
-import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
 import { PostgresGiftStore, createGiftAnnouncementHandler, createGiftExpiryHandler } from './gifts.js';
 import { PostgresOrderStore } from './orders.js';
 import { OutboxWorker, PostgresOutboxStore } from './outbox.js';
@@ -29,7 +28,6 @@ if (!validation.ok) {
 }
 
 const discordToken = validation.values.discordBotToken!;
-const { adapter: fundingAdapter } = createRuntimeFundingAdapter(process.env);
 const pool = new Pool({ connectionString: validation.values.databaseUrl, application_name: 'blackcat_worker' });
 const outboxStore = new PostgresOutboxStore({ client: pool });
 const orderStore = new PostgresOrderStore({ pool });
@@ -96,7 +94,7 @@ try {
   while (!stopping) {
     const loopNow = Date.now();
     if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
-      await weeklyReportStore.enqueueScheduledGeneration({ guildId: reportGuildId, scheduleKey: 'weekly-cny',
+      await weeklyReportStore.enqueueScheduledGeneration({ guildId: reportGuildId, scheduleKey: 'weekly-usd',
         timeZone: process.env.WEEKLY_REPORT_TIME_ZONE?.trim() || 'Asia/Shanghai', now: new Date(loopNow), weekStartsOn: 1 });
       nextReportScheduleCheckAt = loopNow + 60_000;
     }

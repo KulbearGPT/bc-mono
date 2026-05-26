@@ -5,14 +5,14 @@ import { AdminBusinessPage } from '../apps/dashboard/src/AdminBusinessPage.js';
 import { buildAdminBusinessPage, buildAdminOrderTimelineRequest, readAdminOrderTimeline } from '@blackcat/dashboard/admin-business';
 
 const timeline = { items: [
-  { id:'a1',type:'CONSUMPTION',status:'SUCCEEDED',direction:'DEBIT',amountMinor:12000,currency:'CNY',occurredAt:'2026-07-18T20:00:00Z' },
-  { id:'a2',type:'COMMISSION_ADJUSTMENT',status:'REVERSAL',direction:'DEBIT',amountMinor:120,currency:'CNY',occurredAt:'2026-07-18T21:00:00Z' }
+  { id:'a1',type:'CONSUMPTION',status:'SUCCEEDED',direction:'DEBIT',amountMinor:12000,currency:'USD',occurredAt:'2026-07-18T20:00:00Z' },
+  { id:'a2',type:'COMMISSION_ADJUSTMENT',status:'REVERSAL',direction:'DEBIT',amountMinor:120,currency:'USD',occurredAt:'2026-07-18T21:00:00Z' }
 ], nextCursor:'signed-next' };
 
 describe('M4-US-08 Dashboard transaction timeline',()=>{
   test('renders a dedicated read-only timeline with direction, adjustments and pagination',()=>{
     const model=buildAdminBusinessPage({page:'orders',permissions:['order.read'],status:'READY',items:[{id:'order-1'}]});
-    const html=renderToStaticMarkup(createElement(AdminBusinessPage,{model,detail:{kind:'READY',page:'orders',requestId:'req_detail',data:{order:{id:'order-1',publicId:'P-1',status:'COMPLETED',amountMinor:12000,currency:'CNY',updatedAt:'2026-07-18T21:00:00Z'},timeline}}}));
+    const html=renderToStaticMarkup(createElement(AdminBusinessPage,{model,detail:{kind:'READY',page:'orders',requestId:'req_detail',data:{order:{id:'order-1',publicId:'P-1',status:'COMPLETED',amountMinor:12000,currency:'USD',updatedAt:'2026-07-18T21:00:00Z'},timeline}}}));
     expect(html).toContain('交易时间线');
     expect(html).toContain('COMMISSION_ADJUSTMENT');
     expect(html).toContain('加载更多记录');

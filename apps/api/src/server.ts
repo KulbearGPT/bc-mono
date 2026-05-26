@@ -7,7 +7,7 @@ import {
   registerAccountRoutes,
   type AccountStore
 } from './accounts.js';
-import { registerOrderRoutes, type OrderFundingAdapter, type OrderStore } from './orders.js';
+import { registerOrderRoutes, type OrderStore } from './orders.js';
 import { registerPlayerRoutes, type PlayerStore } from './players.js';
 import {
   registerDispatchRoutes,
@@ -19,11 +19,8 @@ import { registerStaffTaskRoutes, type StaffTaskStore } from './staff-tasks.js';
 import { registerRiskEventRoutes, type RiskEventStore } from './risk-events.js';
 import {
   registerAdminOrderActionRoutes,
-  type AdminRefundOrderStore,
-  type RefundFundingAdapter
+  type AdminRefundOrderStore
 } from './admin-order-actions.js';
-import type { FundingAdapter } from './payment-adapter.js';
-import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
 import { registerGiftRoutes, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
@@ -53,12 +50,9 @@ export interface ApiServerOptions {
   };
   account?: {
     store: AccountStore;
-    fundingAdapter: Pick<FundingAdapter, 'resolveUser' | 'getProviderBalance'>;
-    providerKey: string;
+    walletFunding: WalletFundingService;
     now?: () => Date;
     profileStore?: CustomerProfileStore;
-    rechargeUrl?: string;
-    internalWalletEnabled?: boolean;
   };
   order?: {
     orderStore: OrderStore;
@@ -95,11 +89,6 @@ export interface ApiServerOptions {
   };
   adminOrders?: {
     orderStore: AdminRefundOrderStore;
-    now?: () => Date;
-  };
-  paymentWebhook?: {
-    fundingAdapter: PaymentWebhookFundingAdapter;
-    providerKey: string;
     now?: () => Date;
   };
   gift?: {
@@ -287,10 +276,6 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
       throw new Error('Admin order action routes require buildApiServer({ security, adminOrders })');
     }
     registerAdminOrderActionRoutes(server, { ...options.adminOrders, policyReader: options.operations?.store });
-  }
-
-  if (options.paymentWebhook) {
-    registerPaymentWebhookRoutes(server, options.paymentWebhook);
   }
 
   if (options.gift) {

@@ -11,6 +11,7 @@ import {
   previewSettlement,
   type SettlementCreateInput
 } from '@blackcat/api/settlements';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const playerId = '00000000-0000-0000-0000-000000006201';
@@ -29,7 +30,7 @@ function input(overrides: Partial<SettlementCreateInput> = {}): SettlementCreate
     guildId,
     source: 'MANUAL', scheduleKey: null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: cutoffAt, cutoffAt,
-    timeZone: 'Asia/Shanghai', currency: 'CNY', playerUserIds: null, createdByStaffId: staffId,
+    timeZone: 'Asia/Shanghai', currency: 'USD', playerUserIds: null, createdByStaffId: staffId,
     ...overrides
   };
 }
@@ -42,14 +43,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_settlements']);
-    for (const migration of [
-      'database/prisma/migrations/000001_p0_baseline/migration.sql',
-      'database/prisma/migrations/000002_m6_settlements/migration.sql',
-      'database/prisma/migrations/000003_m6_settlement_review/migration.sql',
-      'database/prisma/migrations/000007_settlement_security_remediation/migration.sql'
-    ]) {
-      await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_settlements', '-v', 'ON_ERROR_STOP=1', '-f', migration]);
-    }
+    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m6_settlements' });
     pool = new Pool({ host: root, port, database: 'blackcat_m6_settlements', max: 8 });
   }, 30_000);
 
@@ -105,7 +99,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
 
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006233',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006233',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
       [secondItemId, earningId, '2026-07-19T12:00:00.000Z'])).rejects.toThrow(/active settlement batch/i);
 
     const replacementId = '00000000-0000-0000-0000-000000006234';
@@ -150,7 +144,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     const itemId = batch.items[0]!.id;
     const entryId = batch.items[0]!.entries[0]!.id;
 
-    await expect(pool.query('UPDATE settlement_items SET currency=$2 WHERE id=$1', [itemId, 'USD']))
+    await expect(pool.query('UPDATE settlement_items SET currency=$2 WHERE id=$1', [itemId, 'EUR']))
       .rejects.toThrow(/currency/i);
     await expect(pool.query('UPDATE settlement_items SET net_amount_minor=-1 WHERE id=$1', [itemId]))
       .rejects.toThrow(/snapshot|check constraint|violates/i);
@@ -168,11 +162,11 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
       .rejects.toThrow(/cannot be deleted/i);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006253',$1,'PLAYER_EARNING',1,'CNY',$2)`, [itemId, cutoffAt]))
+      VALUES ('00000000-0000-0000-0000-000000006253',$1,'PLAYER_EARNING',1,'USD',$2)`, [itemId, cutoffAt]))
       .rejects.toThrow(/source|check constraint|finalized/i);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006254',$1,'EARNING_ADJUSTMENT',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006254',$1,'EARNING_ADJUSTMENT',$2,10000,'USD',$3)`,
     [itemId, earningId, cutoffAt])).rejects.toThrow(/source|check constraint|finalized/i);
   });
 
@@ -181,7 +175,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
       (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,
        gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at)
       VALUES ('00000000-0000-0000-0000-000000006251','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',
-       '2026-07-13T16:00:00.000Z',$1,$1,'Asia/Shanghai','CNY',0,0,0,$2,$1)`, [cutoffAt, staffId]))
+       '2026-07-13T16:00:00.000Z',$1,$1,'Asia/Shanghai','USD',0,0,0,$2,$1)`, [cutoffAt, staffId]))
       .rejects.toThrow(/schedule|check constraint/i);
   });
 
@@ -196,7 +190,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
 
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006259',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006259',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
     [itemId, otherEarningId, '2026-07-19T12:00:00.000Z'])).rejects.toThrow(/Guild|ownership/i);
   });
 
@@ -205,7 +199,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     const batch = await createSettlementBatch({ store: new PostgresSettlementStore(pool), input: input() });
     await expect(pool.query(`INSERT INTO settlement_payment_results
       (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at)
-      VALUES ('00000000-0000-0000-0000-000000006252',$1,'PENDING',10000,'CNY','m6:pending-result',$2,$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006252',$1,'PENDING',10000,'USD','m6:pending-result',$2,$3)`,
     [batch.items[0]!.id, staffId, cutoffAt])).rejects.toThrow(/SettlementPaymentResultStatus|invalid input value/i);
   });
 
@@ -214,7 +208,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     const adjustmentId = '00000000-0000-0000-0000-000000006241';
     await pool.query(`INSERT INTO player_earning_adjustments
       (id,player_earning_id,type,amount_minor,currency,reason,idempotency_key,created_at)
-      VALUES ($1,$2,'CORRECTION_DEBIT',1200,'CNY','late debit','m6:late-debit',$3)`, [adjustmentId, earningId, '2026-07-19T15:00:00.000Z']);
+      VALUES ($1,$2,'CORRECTION_DEBIT',1200,'USD','late debit','m6:late-debit',$3)`, [adjustmentId, earningId, '2026-07-19T15:00:00.000Z']);
     const store = new PostgresSettlementStore(pool);
 
     const deferred = await previewSettlement({ store, input: input() });
@@ -236,7 +230,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEmptyBatch(duplicateBatchId, duplicateItemId);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_adjustment_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006263',$1,'EARNING_ADJUSTMENT',$2,-1200,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006263',$1,'EARNING_ADJUSTMENT',$2,-1200,'USD',$3)`,
     [duplicateItemId, adjustmentId, '2026-07-19T15:00:00.000Z'])).rejects.toThrow(/active settlement batch/i);
   });
 
@@ -250,7 +244,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEmptyBatch(batchId, itemId, otherPlayerId);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006273',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006273',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
     [itemId, earningId, cutoffAt])).rejects.toThrow(/player/i);
 
     const pendingId = '00000000-0000-0000-0000-000000006274';
@@ -259,7 +253,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEarning({ id: pendingId, orderId: pendingOrderId, status: 'PENDING', confirmedAt: null });
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006276',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006276',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
     [itemId, pendingId, cutoffAt])).rejects.toThrow(/confirmed/i);
 
     const cutoffBatchId = '00000000-0000-0000-0000-000000006280';
@@ -271,7 +265,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEarning({ id: lateId, orderId: lateOrderId, confirmedAt: '2026-07-19T16:00:00.001Z' });
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006279',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006279',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
     [cutoffItemId, lateId, '2026-07-19T16:00:00.001Z'])).rejects.toThrow(/cutoff/i);
   });
 
@@ -289,7 +283,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEarning({ id: extraEarningId, orderId: extraOrderId });
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006283',$1,'PLAYER_EARNING',$2,10000,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006283',$1,'PLAYER_EARNING',$2,10000,'USD',$3)`,
     [batch.items[0]!.id, extraEarningId, cutoffAt])).rejects.toThrow(/finalized|snapshot/i);
 
     const malformedBatchId = '00000000-0000-0000-0000-000000006284';
@@ -338,7 +332,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
       (id,public_id,guild_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,
        adjustment_amount_minor,net_amount_minor,status,row_version,snapshot_finalized_at,created_by_staff_id,updated_at)
       VALUES ('00000000-0000-0000-0000-000000006291','SET-DIRECT-FINAL','900000000000000001','MANUAL',
-       '2026-07-12T16:00:00.000Z',$1,$1,'Asia/Shanghai','CNY',0,0,0,'APPROVED',1,now(),$2,now())`,
+       '2026-07-12T16:00:00.000Z',$1,$1,'Asia/Shanghai','USD',0,0,0,'APPROVED',1,now(),$2,now())`,
     [cutoffAt, staffId])).rejects.toThrow(/insert|draft|finalized/i);
   });
 
@@ -347,7 +341,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await pool.query(`INSERT INTO settlement_batches
       (id,public_id,guild_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,
        adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,updated_at)
-      VALUES ($1,'SET-EMPTY-SNAPSHOT','900000000000000001','MANUAL','2026-07-12T16:00:00.000Z',$2,$2,'Asia/Shanghai','CNY',0,0,0,'DRAFT',1,$3,now())`,
+      VALUES ($1,'SET-EMPTY-SNAPSHOT','900000000000000001','MANUAL','2026-07-12T16:00:00.000Z',$2,$2,'Asia/Shanghai','USD',0,0,0,'DRAFT',1,$3,now())`,
     [emptyBatchId, cutoffAt, staffId]);
     await expect(pool.query('UPDATE settlement_batches SET snapshot_finalized_at=now() WHERE id=$1', [emptyBatchId]))
       .rejects.toThrow(/empty|item|snapshot/i);
@@ -359,14 +353,14 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await insertEarning({ id: pendingId, orderId: pendingOrderId, status: 'PENDING', confirmedAt: null });
     await pool.query(`INSERT INTO player_earning_adjustments
       (id,player_earning_id,type,amount_minor,currency,reason,idempotency_key,created_at)
-      VALUES ($1,$2,'CORRECTION_CREDIT',100,'CNY','premature credit','m6:pending-credit',$3)`,
+      VALUES ($1,$2,'CORRECTION_CREDIT',100,'USD','premature credit','m6:pending-credit',$3)`,
     [adjustmentId, pendingId, '2026-07-19T14:00:00.000Z']);
     const batchId = '00000000-0000-0000-0000-000000006296';
     const itemId = '00000000-0000-0000-0000-000000006297';
     await insertEmptyBatch(batchId, itemId);
     await expect(pool.query(`INSERT INTO settlement_item_entries
       (id,settlement_item_id,entry_type,player_earning_adjustment_id,amount_minor,currency,occurred_at)
-      VALUES ('00000000-0000-0000-0000-000000006298',$1,'EARNING_ADJUSTMENT',$2,100,'CNY',$3)`,
+      VALUES ('00000000-0000-0000-0000-000000006298',$1,'EARNING_ADJUSTMENT',$2,100,'USD',$3)`,
     [itemId, adjustmentId, '2026-07-19T14:00:00.000Z'])).rejects.toThrow(/confirmed|paid|status/i);
   });
 
@@ -407,7 +401,7 @@ async function seedBase(): Promise<void> {
 async function insertOrder(id: string, publicId: string, orderGuildId = guildId): Promise<void> {
   await pool.query(`INSERT INTO orders
     (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,'COMPLETED',8,'CNY',12000,$5,$6,$7,$8,$8)`,
+    VALUES ($1,$2,$3,$4,'COMPLETED',8,'USD',12000,$5,$6,$7,$8,$8)`,
   [id, publicId, customerId, playerId, orderGuildId, `channel-${publicId}`, `panel-${publicId}`, '2026-07-19T11:00:00.000Z']);
 }
 
@@ -421,7 +415,7 @@ async function insertEarning(options: {
 }): Promise<void> {
   await pool.query(`INSERT INTO player_earnings
     (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,confirmed_by_staff_id,confirmed_at,paid_at,created_at,updated_at)
-    VALUES ($1,$2,$3,1,$4,$4,'CNY',$5,1,$6,$7,$8,'2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
+    VALUES ($1,$2,$3,1,$4,$4,'USD',$5,1,$6,$7,$8,'2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
   [options.id, options.orderId, playerId, options.amountMinor ?? 10000, options.status ?? 'CONFIRMED', staffId,
     options.confirmedAt ?? '2026-07-19T12:00:00.000Z', options.paidAt ?? null]);
 }
@@ -429,10 +423,10 @@ async function insertEarning(options: {
 async function insertEmptyBatch(batchId: string, itemId: string, itemPlayerId = playerId): Promise<void> {
   await pool.query(`INSERT INTO settlement_batches
     (id,public_id,guild_id,source,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,status,row_version,created_by_staff_id,created_at,updated_at)
-    VALUES ($1,$5,'900000000000000001','MANUAL',$2,$3,$3,'Asia/Shanghai','CNY',10000,0,10000,'DRAFT',1,$4,now(),now())`,
+    VALUES ($1,$5,'900000000000000001','MANUAL',$2,$3,$3,'Asia/Shanghai','USD',10000,0,10000,'DRAFT',1,$4,now(),now())`,
   [batchId, '2026-07-12T16:00:00.000Z', cutoffAt, staffId, `SET-${batchId.slice(-12)}`]);
   await pool.query(`INSERT INTO settlement_items
     (id,settlement_batch_id,player_user_id,player_display_name,gross_amount_minor,adjustment_amount_minor,net_amount_minor,currency,payment_status,row_version,created_at,updated_at)
-    VALUES ($1,$2,$3,'Test Player',10000,0,10000,'CNY','PENDING',1,$4,$4)`,
+    VALUES ($1,$2,$3,'Test Player',10000,0,10000,'USD','PENDING',1,$4,$4)`,
   [itemId, batchId, itemPlayerId, cutoffAt]);
 }

@@ -45,7 +45,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: 4200,
     amountMinor: 12000,
     playerEarningMinor: 8400,
-    currency: 'CNY',
+    currency: 'USD',
     notes: '中文交流',
     channelSpec: {
       channelId: '444444444444444444',

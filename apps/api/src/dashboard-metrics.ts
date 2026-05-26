@@ -104,7 +104,7 @@ WITH visible_orders AS (
   SELECT COALESCE('order:'||st.order_id::text,'gift:'||st.gift_request_id::text,'task:'||st.id::text)
   FROM visible_pending_tasks st
   WHERE st.type IN ('CANCELLATION_ASSIST','PLAYER_START_LATE','PLAYER_NO_SHOW','CUSTOMER_NO_SHOW','SERVICE_INTERRUPTED','COMPLETION_REVIEW','DISPUTE','AUTOMATION_FAILURE')
-    OR st.reason_code IN ('READINESS_TIMEOUT','INSUFFICIENT_AVAILABLE_BALANCE','RESERVATION_CONFLICT','PROVIDER_TIMEOUT','DISPATCH_TIMEOUT')
+    OR st.reason_code IN ('READINESS_TIMEOUT','INSUFFICIENT_AVAILABLE_BALANCE','RESERVATION_CONFLICT','DISPATCH_TIMEOUT')
   UNION
   SELECT 'order:'||fr.order_id::text FROM fund_reservations fr JOIN visible_orders vo ON vo.id=fr.order_id
   WHERE fr.status IN ('DISPUTED','FAILED','EXPIRED') AND vo.status NOT IN ('COMPLETED','CANCELLED')

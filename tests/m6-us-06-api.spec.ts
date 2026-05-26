@@ -1,38 +1,37 @@
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
 import { InMemoryAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
-import { InMemoryBotConfigStore } from '@blackcat/api/bot-config';
 import { InMemoryOrderStore, type OrderRecord } from '@blackcat/api/orders';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 import { InMemoryGiftStore, registerGiftRoutes, type GiftCatalogRecord } from '@blackcat/api/gifts';
+import { TestWalletFunding } from './support/wallet-fixture';
 
 const now = new Date('2026-07-19T21:00:00.000Z');
 const orderId = '00000000-0000-0000-0000-000000006601';
 const customerId = '00000000-0000-0000-0000-000000006602';
 const playerId = '00000000-0000-0000-0000-000000006603';
 const guildId = '900000000000006600';
-const rechargeUrl = 'https://payments.example.test/recharge/guild-6600';
+const topUpInstructions = '联系客服并提交付款 receipt。';
 
 function catalog(overrides: Partial<GiftCatalogRecord> = {}): GiftCatalogRecord {
   return {
     id: '00000000-0000-0000-0000-000000006610', itemId: '00000000-0000-0000-0000-000000006611',
     code: 'STAR_BOX', version: 4, status: 'ACTIVE', name: '星光礼盒', priceMinor: 8_800,
-    currency: 'CNY', broadcastTemplate: '{sender_name} 向 {receiver_name} 送出 {gift_name}', ...overrides
+    currency: 'USD', broadcastTemplate: '{sender_name} 向 {receiver_name} 送出 {gift_name}', ...overrides
   };
 }
 
-function fixture(input: { balance?: number; stale?: boolean; configured?: boolean; orderGuildId?: string } = {}) {
+function fixture(input: { balance?: number; orderGuildId?: string } = {}) {
   const giftStore = new InMemoryGiftStore({ catalog: [catalog()] });
   const balanceReservations = [
-    { id: 'r-order', userId: customerId, amountMinor: 500, currency: 'CNY', status: 'ACTIVE' as const },
-    { id: 'r-other-guild', userId: customerId, amountMinor: 9_000, currency: 'CNY', status: 'ACTIVE' as const }
+    { id: 'r-order', userId: customerId, amountMinor: 500, currency: 'USD', status: 'ACTIVE' as const },
+    { id: 'r-other-guild', userId: customerId, amountMinor: 9_000, currency: 'USD', status: 'ACTIVE' as const }
   ];
   const orderStore = new InMemoryOrderStore({ orders: [{
     id: orderId, publicId: 'P-6601', customerId, playerId, guildId: input.orderGuildId ?? guildId, status: 'IN_SERVICE', version: 7,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 1, customerUnitPriceMinor: 6_000, playerUnitPayoutMinor: 4_200,
-    amountMinor: 6_000, playerEarningMinor: 4_200, currency: 'CNY', notes: null,
+    amountMinor: 6_000, playerEarningMinor: 4_200, currency: 'USD', notes: null,
     channelSpec: { channelId: '900000000000006620', panelMessageId: '900000000000006621', voiceChannelId: '900000000000006622' },
     createdAt: now.toISOString(), updatedAt: now.toISOString()
   } satisfies OrderRecord] });
@@ -45,28 +44,17 @@ function fixture(input: { balance?: number; stale?: boolean; configured?: boolea
   };
   const accountStore = new InMemoryAccountStore({ bindings: [binding],
     reservationSource: () => [...balanceReservations, ...giftStore.reservations] });
-  let balance = input.balance ?? 5_000;
-  let stale = input.stale ?? false;
-  const base = new MockFundingAdapter({ now });
-  const getProviderBalance = vi.fn(() => ({ externalUserId: binding.externalUserId, providerBalanceMinor: balance,
-    currency: 'CNY', fetchedAt: now.toISOString(), providerAsOf: now.toISOString(), stale }));
-  const adapter = new Proxy(base, { get(target, property, receiver) {
-    if (property === 'getProviderBalance') return getProviderBalance;
-    const value = Reflect.get(target, property, receiver);
-    return typeof value === 'function' ? value.bind(target) : value;
-  } });
-  const configStore = new InMemoryBotConfigStore({ snapshots: input.configured === false ? [] : [{
-    guildId, version: 3, values: { recharge_url: rechargeUrl } as never,
-    updatedByStaffId: null, updatedAt: now.toISOString()
-  }] });
+  const walletFunding = new TestWalletFunding(input.balance ?? 5_000);
+  walletFunding.addReservation('r-order', 500);
+  walletFunding.addReservation('r-other-guild', 9_000);
   const auditSink = new InMemoryAuditSink();
   const server = buildApiServer({
     env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
     security: { auditSink, idempotencyStore: new InMemoryIdempotencyStore() }
   });
-  registerGiftRoutes(server, { store: giftStore, orderStore, accountStore, fundingAdapter: adapter,
-    providerKey: 'mock-provider', broadcastChannelId: '900000000000006630', botConfigStore: configStore, now: () => now });
-  return { server, giftStore, getProviderBalance, setBalance(value: number) { balance = value; }, setStale(value: boolean) { stale = value; } };
+  registerGiftRoutes(server, { store: giftStore, orderStore, accountStore, walletFunding,
+    broadcastChannelId: '900000000000006630', now: () => now });
+  return { server, giftStore, walletFunding, setBalance(value: number) { walletFunding.ledgerBalanceMinor = value; } };
 }
 
 function headers(idempotencyKey?: string) {
@@ -89,31 +77,26 @@ function expectZeroWrites(store: InMemoryGiftStore, existingReservations = 0) {
 
 describe('M6-US-06 gift affordability API', () => {
   test('returns an exact unaffordable snapshot and performs zero business writes', async () => {
-    const { server, giftStore, getProviderBalance } = fixture();
+    const { server, giftStore, walletFunding } = fixture();
     giftStore.reservations.push({ id: 'r-active', userId: customerId, sourceType: 'GIFT', orderId: null,
-      giftRequestId: 'g-existing', mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null,
-      amountMinor: 700, currency: 'CNY', status: 'ACTIVE', version: 1, idempotencyKey: 'existing-reservation',
+      giftRequestId: 'g-existing', mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
+      amountMinor: 700, currency: 'USD', status: 'ACTIVE', version: 1, idempotencyKey: 'existing-reservation',
       expiresAt: now.toISOString(), activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    walletFunding.addReservation('r-active', 700);
     const response = await affordability(server);
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toEqual({ giftCatalogVersionId: catalog().id, catalogVersion: 4, priceMinor: 8_800,
-      providerBalanceMinor: 5_000, reservedMinor: 10_200, availableMinor: -5_200, shortfallMinor: 14_000,
-      currency: 'CNY', fetchedAt: now.toISOString(), stale: false, canAfford: false, rechargeUrl });
-    expect(getProviderBalance).toHaveBeenCalledTimes(1);
+      ledgerBalanceMinor: 5_000, reservedMinor: 10_200, availableMinor: -5_200, shortfallMinor: 14_000,
+      currency: 'USD', calculatedAt: now.toISOString(), stale: false, canAfford: false, topUpInstructions });
     expectZeroWrites(giftStore, 1);
   });
 
-  test('fails closed for stale balance or missing Guild recharge configuration', async () => {
-    const stale = fixture({ balance: 20_000, stale: true });
-    const staleResponse = await affordability(stale.server);
-    expect(staleResponse.json().data).toMatchObject({ stale: true, canAfford: false });
-    expectZeroWrites(stale.giftStore);
-
-    const missing = fixture({ configured: false });
-    const missingResponse = await affordability(missing.server);
-    expect(missingResponse.statusCode).toBe(503);
-    expect(missingResponse.json()).toMatchObject({ error: { code: 'RECHARGE_CONFIGURATION_UNAVAILABLE' } });
-    expectZeroWrites(missing.giftStore);
+  test('returns a stable support top-up instruction without Guild payment configuration', async () => {
+    const state = fixture({ balance: 20_000 });
+    const response = await affordability(state.server);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({ stale: false, canAfford: true, topUpInstructions });
+    expectZeroWrites(state.giftStore);
   });
 
   test('refreshes the same selection and only creates facts after current-snapshot confirmation', async () => {
@@ -150,9 +133,10 @@ describe('M6-US-06 gift affordability API', () => {
     const state = fixture({ balance: 10_000 });
     const checked = (await affordability(state.server)).json().data;
     state.giftStore.reservations.push({ id: 'r-racing', userId: customerId, sourceType: 'GIFT', orderId: null,
-      giftRequestId: 'g-racing', mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null,
-      amountMinor: 2_000, currency: 'CNY', status: 'ACTIVE', version: 1, idempotencyKey: 'race-reservation',
+      giftRequestId: 'g-racing', mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
+      amountMinor: 2_000, currency: 'USD', status: 'ACTIVE', version: 1, idempotencyKey: 'race-reservation',
       expiresAt: now.toISOString(), activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    state.walletFunding.addReservation('r-racing', 2_000);
     const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
       headers: headers('gift:m6-us-06:race'), payload: { expectedOrderVersion: 7,
         giftCatalogVersionId: checked.giftCatalogVersionId, expectedCatalogVersion: checked.catalogVersion, expectedPriceMinor: checked.priceMinor } });
@@ -185,7 +169,6 @@ describe('M6-US-06 gift affordability API', () => {
     expect(created.statusCode).toBe(404);
     expect(checked.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
     expect(created.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
-    expect(state.getProviderBalance).not.toHaveBeenCalled();
     expectZeroWrites(state.giftStore);
   });
 });

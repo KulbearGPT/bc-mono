@@ -11,7 +11,7 @@ import {
 } from './security.js';
 
 export type CatalogStatus = 'DRAFT' | 'ACTIVE' | 'RETIRED';
-export type Currency = 'CNY' | 'USD';
+export type Currency = 'USD';
 
 export interface MoneyInput {
   amountMinor: number;

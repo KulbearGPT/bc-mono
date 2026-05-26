@@ -435,7 +435,7 @@ SELECT
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'PENDING'), 0)::text AS pending_minor,
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'CONFIRMED'), 0)::text AS confirmed_minor,
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'PAID'), 0)::text AS paid_minor,
-  COALESCE(MAX(currency), 'CNY') AS currency
+  COALESCE(MAX(currency), 'USD') AS currency
 FROM (
   SELECT earning.status,
          earning.currency,
@@ -464,7 +464,7 @@ FROM (
         pendingMinor: Number(summary?.pending_minor ?? 0),
         confirmedMinor: Number(summary?.confirmed_minor ?? 0),
         paidMinor: Number(summary?.paid_minor ?? 0),
-        currency: summary?.currency ?? 'CNY',
+        currency: summary?.currency ?? 'USD',
         calculatedAt: input.now.toISOString()
       }
     };
@@ -796,7 +796,7 @@ function emptyWorkbenchData(now: Date): PlayerWorkbenchData {
       pendingMinor: 0,
       confirmedMinor: 0,
       paidMinor: 0,
-      currency: 'CNY',
+      currency: 'USD',
       calculatedAt: now.toISOString()
     }
   };
@@ -1105,7 +1105,7 @@ function mapWorkbenchOrder(row: PlayerWorkbenchOrderRow): PlayerWorkbenchOrder {
     region: row.region_code,
     durationMinutes: row.billing_unit_minutes && row.unit_count ? row.billing_unit_minutes * row.unit_count : null,
     playerEarningMinor: Number(row.player_earning_minor ?? 0),
-    currency: row.currency ?? 'CNY',
+    currency: row.currency ?? 'USD',
     requirements: requirementLabels(row.requirement_snapshot),
     voiceChannelId: row.voice_channel_id
   };

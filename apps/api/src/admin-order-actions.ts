@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type { Currency, FundingAdapter, Transaction } from './payment-adapter.js';
+import type { Currency } from './catalog.js';
 import type { ActorContext, AuditRecord } from './security.js';
 import {
   PostgresOrderStore,
@@ -16,8 +16,22 @@ import type { PolicyReader } from './operations.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
 
 type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
-export type RefundFundingAdapter = Pick<FundingAdapter, 'createRefund'> &
-  Partial<Pick<FundingAdapter, 'getTransaction' | 'createReservationDebit' | 'captureHold' | 'releaseHold' | 'getHold'>>;
+interface Transaction {
+  kind: 'REFUND' | 'FALLBACK_DEBIT';
+  status: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  idempotencyKey: string;
+  fundReservationId: string | null;
+  fundReservationVersion: number | null;
+  businessSource: 'ORDER';
+  amount: { amountMinor: number; currency: Currency };
+  businessReference: string;
+  providerRef: string;
+  originalProviderRef: string | null;
+  providerStatus: string;
+  observedAt: string;
+  providerOccurredAt: string;
+  failure: null;
+}
 const resolutionReasonCodes = new Set([
   'USER_REQUEST',
   'DISPATCH_TIMEOUT',
@@ -65,7 +79,7 @@ export interface AdminOrderErrorDetail {
 }
 
 export class AdminOrderActionError extends Error {
-  readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'BUSINESS_RULE_VIOLATION' | 'PROVIDER_UNAVAILABLE';
+  readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'BUSINESS_RULE_VIOLATION';
 
   constructor(code: AdminOrderActionError['code'], message: string) {
     super(message);
@@ -972,29 +986,6 @@ function deterministicUuid(value: string): string {
   return `${bytes.subarray(0,4).toString('hex')}-${bytes.subarray(4,6).toString('hex')}-${bytes.subarray(6,8).toString('hex')}-${bytes.subarray(8,10).toString('hex')}-${bytes.subarray(10).toString('hex')}`;
 }
 
-async function recoverRefundTransaction(
-  adapter: RefundFundingAdapter,
-  transaction: Transaction,
-  providerIdempotencyKey: string
-): Promise<Transaction> {
-  if (transaction.status === 'SUCCEEDED') {
-    return transaction;
-  }
-  if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
-    const recovered = await adapter.getTransaction({
-      lookupType: 'IDEMPOTENCY_KEY',
-      lookupValue: providerIdempotencyKey
-    });
-    if (recovered.status === 'SUCCEEDED') {
-      return recovered;
-    }
-  }
-  throw new AdminOrderActionError(
-    'PROVIDER_UNAVAILABLE',
-    'Provider refund has not reached a confirmed successful state.'
-  );
-}
-
 async function lockOrderVersion(client: OrderQueryClient, orderId: string, version: number): Promise<void> {
   const result = await client.query<{ row_version: number }>(
     'SELECT row_version FROM orders WHERE id = $1 FOR UPDATE',
@@ -1061,16 +1052,11 @@ async function settlePreChargeReservation(client: OrderQueryClient, input: {
     currency: Currency;
     status: 'ACTIVE' | 'DISPUTED';
     row_version: number;
-    external_user_id: string | null;
   }>(
     `
 SELECT fr.id, fr.user_id, fr.mode, fr.provider, fr.provider_hold_ref,
-       fr.amount_minor, fr.currency, fr.status, fr.row_version, ea.external_user_id
+       fr.amount_minor, fr.currency, fr.status, fr.row_version
 FROM fund_reservations fr
-LEFT JOIN external_accounts ea
-  ON ea.user_id = fr.user_id
- AND ea.provider = fr.provider
- AND ea.status = 'ACTIVE'
 WHERE fr.order_id = $1
   AND fr.source_type = 'ORDER'
   AND fr.status IN ('ACTIVE', 'DISPUTED')
@@ -1164,23 +1150,6 @@ FOR UPDATE OF fr
       createdAt: input.resolution.createdAt
     });
   }
-}
-
-async function recoverReservationDebit(
-  adapter: RefundFundingAdapter,
-  transaction: Transaction,
-  providerIdempotencyKey: string
-): Promise<Transaction> {
-  if (transaction.status === 'SUCCEEDED') {
-    return transaction;
-  }
-  if ((transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') && adapter.getTransaction) {
-    const recovered = await adapter.getTransaction({ lookupType: 'IDEMPOTENCY_KEY', lookupValue: providerIdempotencyKey });
-    if (recovered.status === 'SUCCEEDED') {
-      return recovered;
-    }
-  }
-  throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Reservation debit has not reached a confirmed successful state.');
 }
 
 async function nextFundReservationSequence(client: OrderQueryClient, reservationId: string): Promise<number> {
@@ -1775,18 +1744,8 @@ function mapAdminOrderActionError(error: unknown): AdminOrderErrorDetail | null 
   if (error.code === 'PERMISSION_DENIED') {
     return { statusCode: 403, code: error.code, message: error.message };
   }
-  if (error.code === 'PROVIDER_UNAVAILABLE') {
-    return { statusCode: 503, code: error.code, message: error.message };
-  }
   if (error.code === 'VALIDATION_ERROR') {
     return { statusCode: 400, code: error.code, message: error.message };
   }
   return { statusCode: 422, code: error.code, message: error.message };
-}
-
-function safeProviderMessage(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  return 'Provider refund failed.';
 }
