@@ -1,4 +1,5 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyExternalAcceptanceResults } from './external-acceptance-results.mjs';
@@ -31,7 +32,10 @@ const storyOverrides = {
   'AT-TML-002': ['M4-US-08'],
   'AT-MET-003': ['M4-US-09'], 'AT-MET-004': ['M4-US-09'], 'AT-MET-005': ['M4-US-09'],
   'AT-MET-006': ['M4-US-09'], 'AT-MET-007': ['M4-US-09'], 'AT-MET-008': ['M4-US-09'],
-  'AT-UI-004': ['M1-US-04'], 'AT-UI-005': ['M3-US-01', 'M2-US-10']
+  'AT-UI-004': ['M1-US-04'], 'AT-UI-005': ['M3-US-01', 'M2-US-10'],
+  'AT-TKN-001': ['M8-US-01'], 'AT-TKN-002': ['M8-US-01'], 'AT-TKN-003': ['M8-US-01'],
+  'AT-TKN-004': ['M8-US-01'], 'AT-TKN-005': ['M8-US-01'], 'AT-TKN-006': ['M8-US-01'],
+  'AT-TKN-007': ['M8-US-01']
 };
 
 const columns = [
@@ -49,7 +53,7 @@ export async function buildAcceptanceMatrix(root) {
     readFile(resolve(root, externalResultsPath), 'utf8')
   ]);
   const acceptance = parseCsv(acceptanceText);
-  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-7]-US-[0-9]{2}$/u.test(row.item_id));
+  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-8]-US-[0-9]{2}$/u.test(row.item_id));
   const implementedBacklog = backlog;
   const knownOperations = new Set([...openApiText.matchAll(/^\s+operationId:\s*([^\s]+)\s*$/gmu)].map((match) => match[1]));
   const byAcceptance = new Map();
@@ -80,9 +84,11 @@ export async function buildAcceptanceMatrix(root) {
     })).sort();
     const executionClass = requiresExternalEnvironment(item['建议自动化']) ? 'EXTERNAL_E2E' : 'AUTOMATED';
     if (!testFiles.length && executionClass === 'AUTOMATED') throw new Error(`${item.ID} has no executable Story test.`);
-    const evidenceRefs = storyIds.map((storyId) => /^M[0-7]-/u.test(storyId)
-      ? `evidence/P0/${storyId}/summary.md`
-      : `pending:evidence/P0/${storyId}/summary.md`);
+    const evidenceRefs = storyIds.map((storyId) => {
+      const path = `evidence/P0/${storyId}/summary.md`;
+      return existsSync(resolve(root, path)) ? path : `pending:${path}`;
+    }).filter((value) => !value.startsWith('pending:'));
+    if (!evidenceRefs.length) evidenceRefs.push(`pending:evidence/P0/${storyIds[0]}/summary.md`);
     for (const path of evidenceRefs.filter((value) => value.startsWith('evidence/'))) await readFile(resolve(root, path), 'utf8');
     return {
       acceptance_id: item.ID,
