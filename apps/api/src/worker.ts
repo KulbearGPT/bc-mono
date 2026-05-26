@@ -62,7 +62,7 @@ const runtime = new ProductionOutboxRuntime({
   staleLockMs,
   handlers: createProductionHandlerMap({
     giftAnnouncement: createGiftAnnouncementHandler({ store: giftStore, send: (message) => delivery.sendMessage(message) }),
-    giftExpiry: createGiftExpiryHandler({ store: giftStore, fundingAdapter }),
+    giftExpiry: createGiftExpiryHandler({ store: giftStore }),
     dispatchMessage: createDispatchMessageHandler({ store: dispatchMessageStore, discord: delivery }),
     dispatchTimeout: createDispatchTimeoutHandler({
       expire: (dispatchAttemptId) => expireDispatchAttempt({ orderStore, dispatchStore, dispatchAttemptId, now: new Date() })

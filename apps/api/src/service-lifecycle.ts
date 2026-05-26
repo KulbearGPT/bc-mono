@@ -673,6 +673,7 @@ RETURNING *
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
       }
       const reservation = await requireActiveOrderReservation(transactionClient, input.orderId);
+      await insertOrderWalletCapture(transactionClient, { reservation, idempotencyKey: `${input.idempotencyKey}:wallet`, now: input.now });
       await insertFundReservationCaptureEvent(transactionClient, {
         reservation,
         sequence: await nextReservationEventSequence(transactionClient, reservation.id),
@@ -863,6 +864,18 @@ RETURNING *
       }
     }
   }
+}
+
+async function insertOrderWalletCapture(client: ServiceLifecycleQueryClient, input: {
+  reservation: ServiceLifecycleReservationRow; idempotencyKey: string; now: Date;
+}): Promise<void> {
+  const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[input.reservation.user_id]);
+  if(!wallet.rows[0])throw new ServiceLifecycleError('CONFLICT','Customer wallet was not found.');
+  await client.query(`INSERT INTO wallet_entries
+    (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+    VALUES (gen_random_uuid(),$1,'ORDER_CAPTURE_DEBIT','DEBIT',$2,'USD','FUND_RESERVATION',$3,$4,$5,$5)`,
+    [wallet.rows[0].id,input.reservation.amount_minor,input.reservation.id,input.idempotencyKey,input.now]);
+  await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
 }
 
 export async function setOrderReadiness(input: {
@@ -1564,7 +1577,7 @@ function mapOrderRow(row: ServiceLifecycleOrderRow): ServiceLifecycleOrderRecord
     playerId: row.player_id ?? '',
     status: row.status,
     version: row.row_version,
-    currency: row.currency ?? 'CNY',
+    currency: row.currency ?? 'USD',
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
     unitCount: row.unit_count,

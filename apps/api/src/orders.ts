@@ -17,7 +17,8 @@ import {
   type FundReservationMode,
   type FundReservationStatus
 } from './funding.js';
-import { AdapterError, type FundingAdapter, type Hold } from './payment-adapter.js';
+import type { FundingAdapter } from './payment-adapter.js';
+import type { WalletFundingService } from './wallet.js';
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
@@ -220,7 +221,7 @@ export interface FundReservationRecord {
   sourceType: 'ORDER';
   orderId: string;
   mode: FundReservationMode;
-  provider: string;
+  provider: string | null;
   providerHoldRef: string | null;
   amountMinor: number;
   currency: Currency;
@@ -288,7 +289,7 @@ export interface FundReservationApiRecord {
   currency: Currency;
   status: FundReservationStatus;
   backend: FundReservationMode;
-  providerHoldReferenceDisplay: string | null;
+  walletHoldReferenceDisplay: string | null;
   idempotencyKey: string;
   version: number;
   expiresAt: string | null;
@@ -302,11 +303,12 @@ export interface OrderReservationResult {
   version: number;
   reservation: FundReservationSummary;
   balance: {
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     reservedMinor: number;
     availableMinor: number;
     currency: string;
-    fetchedAt: string;
+    calculatedAt: string;
+    version: number;
   };
 }
 
@@ -346,7 +348,7 @@ export interface PreparedSubmitOrderWrite {
   reservation: FundReservationRecord;
   reservationEvent: FundReservationEventRecord;
   externalTransactions: ExternalTransactionMirrorRecord[];
-  providerBalanceMinor: number;
+  ledgerBalanceMinor: number;
 }
 
 export interface PreparedCancelOrderWrite {
@@ -386,7 +388,7 @@ export interface OrderStore {
   commitSubmit?(input: {
     order: OrderRecord;
     expectedVersion: number;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     orderEvent: OrderEventRecord;
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
@@ -611,7 +613,7 @@ export class InMemoryOrderStore implements OrderStore {
   async commitSubmit(input: {
     order: OrderRecord;
     expectedVersion: number;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     orderEvent: OrderEventRecord;
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
@@ -631,7 +633,7 @@ export class InMemoryOrderStore implements OrderStore {
       throw new OrderError('CONFLICT', 'Order already has a fund reservation.');
     }
     assertCommitAvailableBalance({
-      providerBalanceMinor: input.providerBalanceMinor,
+      ledgerBalanceMinor: input.ledgerBalanceMinor,
       activeReservedMinor: sumActiveReservedMinor(this.reservations, input.reservation),
       amountMinor: input.reservation.amountMinor
     });
@@ -954,7 +956,7 @@ WHERE order_id = $1
   async commitSubmit(input: {
     order: OrderRecord;
     expectedVersion: number;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     orderEvent: OrderEventRecord;
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
@@ -967,9 +969,10 @@ WHERE order_id = $1
       await transactionClient.query('BEGIN');
       await lockUserCurrency(transactionClient, input.reservation.userId, input.reservation.currency);
       await validateCatalogSnapshotForCommit(transactionClient, input.order);
+      const ledgerBalanceMinor = await readLedgerBalanceForCommit(transactionClient, input.reservation.userId);
       const activeReservedMinor = await sumActiveReservedMinorForCommit(transactionClient, input.reservation);
       assertCommitAvailableBalance({
-        providerBalanceMinor: input.providerBalanceMinor,
+        ledgerBalanceMinor,
         activeReservedMinor,
         amountMinor: input.reservation.amountMinor
       });
@@ -1079,11 +1082,11 @@ function sumActiveReservedMinor(reservations: FundReservationRecord[], nextReser
 }
 
 function assertCommitAvailableBalance(input: {
-  providerBalanceMinor: number;
+  ledgerBalanceMinor: number;
   activeReservedMinor: number;
   amountMinor: number;
 }): void {
-  if (input.providerBalanceMinor - input.activeReservedMinor < input.amountMinor) {
+  if (input.ledgerBalanceMinor - input.activeReservedMinor < input.amountMinor) {
     throw new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient at commit time.');
   }
 }
@@ -1102,26 +1105,8 @@ function buildSubmitAuditSnapshot(prepared: PreparedSubmitOrderWrite): unknown {
       status: prepared.reservation.status,
       version: prepared.reservation.version
     },
-    providerBalanceMinor: prepared.providerBalanceMinor
+    ledgerBalanceMinor: prepared.ledgerBalanceMinor
   };
-}
-
-async function releaseSubmitHoldAfterCommitFailure(input: {
-  fundingAdapter: OrderFundingAdapter;
-  prepared: PreparedSubmitOrderWrite;
-  reasonCode: string;
-}): Promise<void> {
-  const holdRef = input.prepared.reservation.providerHoldRef;
-  if (!holdRef) {
-    return;
-  }
-  await input.fundingAdapter.releaseHold({
-    holdRef,
-    idempotencyKey: `${input.prepared.reservation.id}:release-after-commit-failure`,
-    fundReservationId: input.prepared.reservation.id,
-    fundReservationVersion: input.prepared.reservation.version,
-    reasonCode: input.reasonCode
-  });
 }
 
 export async function prepareCreateOrder(input: {
@@ -1262,8 +1247,7 @@ export async function prepareSubmitOrder(input: {
   accountStore: AccountStore;
   catalogStore: ServiceCatalogStore;
   orderStore: OrderStore;
-  fundingAdapter: OrderFundingAdapter;
-  providerKey: string;
+  walletFunding: WalletFundingService;
   actor: ActorContext;
   orderId: string;
   input: SubmitOrderInput;
@@ -1277,42 +1261,27 @@ export async function prepareSubmitOrder(input: {
   validateSubmittableDraft(order);
   await validateCurrentCatalogSnapshot(input.catalogStore, order);
 
-  const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
-  if (providerBalance.currency !== order.currency) {
-    throw new OrderError('VALIDATION_ERROR', 'Provider balance currency does not match order currency.');
-  }
-  const reservedMinor = await input.accountStore.sumActiveReservations({
-    userId: binding.userId,
-    currency: order.currency
-  });
-  const availableMinor = providerBalance.providerBalanceMinor - reservedMinor;
+  if (order.currency !== 'USD') throw new OrderError('VALIDATION_ERROR', 'Orders must use USD.');
+  const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
+  const reservedMinor = walletBalance.reservedMinor;
+  const availableMinor = walletBalance.availableMinor;
   if (availableMinor < order.amountMinor) {
     throw new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
   }
 
-  const reservationMode = await resolveFundReservationMode(input.fundingAdapter);
   const reservation = buildOrderReservation({
     order,
     binding,
-    providerKey: input.providerKey,
-    mode: reservationMode,
+    providerKey: 'INTERNAL_WALLET',
+    mode: 'LOCAL_RESERVATION',
     idempotencyKey: input.idempotencyKey,
     now: input.now
   });
-  const hold = reservationMode === 'PROVIDER_NATIVE_HOLD'
-    ? await createOrderProviderHold({
-        fundingAdapter: input.fundingAdapter,
-        reservation,
-        binding,
-        order,
-        idempotencyKey: input.idempotencyKey
-      })
-    : null;
-
   const activatedReservation: FundReservationRecord = {
     ...reservation,
     status: 'ACTIVE',
-    providerHoldRef: hold?.holdRef ?? null,
+    provider: null,
+    providerHoldRef: null,
     activatedAt: input.now.toISOString()
   };
   const submittedOrder = applySubmitOrder(order, input.now);
@@ -1346,18 +1315,19 @@ export async function prepareSubmitOrder(input: {
       version: submittedOrder.version,
       reservation: toApiReservationSummary(activatedReservation),
       balance: {
-        providerBalanceMinor: providerBalance.providerBalanceMinor,
+        ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
         reservedMinor: reservedMinor + activatedReservation.amountMinor,
-        availableMinor: providerBalance.providerBalanceMinor - reservedMinor - activatedReservation.amountMinor,
-        currency: providerBalance.currency,
-        fetchedAt: providerBalance.fetchedAt
+        availableMinor: walletBalance.ledgerBalanceMinor - reservedMinor - activatedReservation.amountMinor,
+        currency: 'USD',
+        calculatedAt: walletBalance.calculatedAt,
+        version: walletBalance.version
       }
     },
     order: submittedOrder,
     orderEvent,
     reservation: activatedReservation,
     reservationEvent,
-    providerBalanceMinor: providerBalance.providerBalanceMinor,
+    ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
     externalTransactions: []
   };
 }
@@ -1365,7 +1335,6 @@ export async function prepareSubmitOrder(input: {
 export async function prepareCancelOrder(input: {
   accountStore: AccountStore;
   orderStore: OrderStore;
-  fundingAdapter: OrderFundingAdapter;
   staffTaskStore?: StaffTaskStore;
   actor: ActorContext;
   orderId: string;
@@ -1434,7 +1403,6 @@ export async function prepareCancelOrder(input: {
 
   const releasedReservation = reservation
     ? await releaseOrderReservation({
-        fundingAdapter: input.fundingAdapter,
         reservation,
         idempotencyKey: input.idempotencyKey,
         reasonCode: input.input.reasonCode,
@@ -1761,9 +1729,8 @@ export function registerOrderRoutes(
     accountStore: AccountStore;
     catalogStore: ServiceCatalogStore;
     orderStore: OrderStore;
-    fundingAdapter?: OrderFundingAdapter;
+    walletFunding?: WalletFundingService;
     staffTaskStore?: StaffTaskStore;
-    providerKey?: string;
     now?: () => Date;
     auditSink?: AuditSink;
   }
@@ -1914,17 +1881,12 @@ export function registerOrderRoutes(
     targetType: 'order',
     targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
     handler: async (request, actor) => {
-      if (!options.fundingAdapter || !options.providerKey) {
-        throw new OrderError('BUSINESS_RULE_VIOLATION', 'Funding adapter is not configured.');
-      }
-      const fundingAdapter = options.fundingAdapter;
-      const providerKey = options.providerKey;
+      if (!options.walletFunding) throw new OrderError('BUSINESS_RULE_VIOLATION', 'Wallet funding is not configured.');
       const prepared = await prepareSubmitOrder({
         accountStore: options.accountStore,
         catalogStore: options.catalogStore,
         orderStore: options.orderStore,
-        fundingAdapter,
-        providerKey,
+        walletFunding: options.walletFunding,
         actor,
         orderId: readParams(request).orderId ?? '',
         input: request.body as SubmitOrderInput,
@@ -1941,7 +1903,7 @@ export function registerOrderRoutes(
             await options.orderStore.commitSubmit({
               order: prepared.order,
               expectedVersion: (request.body as SubmitOrderInput).expectedVersion,
-              providerBalanceMinor: prepared.providerBalanceMinor,
+              ledgerBalanceMinor: prepared.ledgerBalanceMinor,
               orderEvent: prepared.orderEvent,
               reservation: prepared.reservation,
               reservationEvent: prepared.reservationEvent,
@@ -1957,14 +1919,7 @@ export function registerOrderRoutes(
               },
               auditSink
             });
-          } catch (error) {
-            await releaseSubmitHoldAfterCommitFailure({
-              fundingAdapter,
-              prepared,
-              reasonCode: mapOrderError(error)?.code ?? 'COMMIT_FAILED'
-            });
-            throw error;
-          }
+          } catch (error) { throw error; }
         }
       };
     },
@@ -1980,13 +1935,9 @@ export function registerOrderRoutes(
     targetType: 'order',
     targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
     handler: async (request, actor) => {
-      if (!options.fundingAdapter) {
-        throw new OrderError('BUSINESS_RULE_VIOLATION', 'Funding adapter is not configured.');
-      }
       const prepared = await prepareCancelOrder({
         accountStore: options.accountStore,
         orderStore: options.orderStore,
-        fundingAdapter: options.fundingAdapter,
         staffTaskStore: options.staffTaskStore,
         actor,
         orderId: readParams(request).orderId ?? '',
@@ -2121,7 +2072,7 @@ function buildDraftOrder(input: {
     playerUnitPayoutMinor: null,
     amountMinor: 0,
     playerEarningMinor: 0,
-    currency: 'CNY',
+    currency: 'USD',
     notes: null,
     channelSpec: clone(input.channelSpec),
     createdAt,
@@ -2371,7 +2322,7 @@ function toApiReservation(reservation: FundReservationRecord): FundReservationAp
     currency: reservation.currency,
     status: reservation.status,
     backend: reservation.mode,
-    providerHoldReferenceDisplay: reservation.providerHoldRef ? maskProviderReference(reservation.providerHoldRef) : null,
+    walletHoldReferenceDisplay: null,
     idempotencyKey: reservation.idempotencyKey,
     version: reservation.version,
     expiresAt: reservation.expiresAt,
@@ -2399,53 +2350,13 @@ function applyCancelOrder(order: OrderRecord, now: Date): OrderRecord {
 }
 
 async function releaseOrderReservation(input: {
-  fundingAdapter: OrderFundingAdapter;
   reservation: FundReservationRecord;
   idempotencyKey: string;
   reasonCode: string;
   now: Date;
 }): Promise<FundReservationRecord | null> {
-  if (input.reservation.mode === 'PROVIDER_NATIVE_HOLD') {
-    if (!input.reservation.providerHoldRef) {
-      throw new OrderError('CONFLICT', 'Provider hold reference is missing.');
-    }
-    let releasedHold: Hold;
-    try {
-      releasedHold = await input.fundingAdapter.releaseHold({
-        holdRef: input.reservation.providerHoldRef,
-        idempotencyKey: input.idempotencyKey,
-        fundReservationId: input.reservation.id,
-        fundReservationVersion: input.reservation.version,
-        reasonCode: input.reasonCode,
-        amount: { amountMinor: input.reservation.amountMinor, currency: input.reservation.currency }
-      });
-    } catch (error) {
-      if (!(error instanceof AdapterError) || error.code !== 'PROVIDER_TIMEOUT') {
-        throw mapAdapterOrderError(error);
-      }
-      try {
-        releasedHold = await input.fundingAdapter.getHold({
-          lookupType: 'IDEMPOTENCY_KEY',
-          lookupValue: input.idempotencyKey
-        });
-      } catch {
-        return null;
-      }
-    }
-    if (releasedHold.status !== 'RELEASED') {
-      return null;
-    }
-    if (
-      releasedHold.fundReservationId !== input.reservation.id ||
-      releasedHold.fundReservationVersion !== input.reservation.version ||
-      releasedHold.holdRef !== input.reservation.providerHoldRef ||
-      releasedHold.amount.amountMinor !== input.reservation.amountMinor ||
-      releasedHold.amount.currency !== input.reservation.currency ||
-      releasedHold.remainingAmount.amountMinor !== 0
-    ) {
-      throw new OrderError('CONFLICT', 'Recovered provider release does not match the order reservation.');
-    }
-  }
+  void input.idempotencyKey;
+  void input.reasonCode;
   return {
     ...input.reservation,
     status: 'RELEASED',
@@ -2493,45 +2404,6 @@ function buildOrderReservation(input: {
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt
   };
-}
-
-async function createOrderProviderHold(input: {
-  fundingAdapter: OrderFundingAdapter;
-  reservation: FundReservationRecord;
-  binding: AccountBindingRecord;
-  order: OrderRecord;
-  idempotencyKey: string;
-}): Promise<Hold> {
-  let hold: Hold;
-  try {
-    hold = await input.fundingAdapter.createHold({
-      idempotencyKey: input.idempotencyKey,
-      fundReservationId: input.reservation.id,
-      fundReservationVersion: input.reservation.version,
-      externalUserId: input.binding.externalUserId,
-      amount: { amountMinor: input.order.amountMinor, currency: input.order.currency },
-      businessSource: 'ORDER',
-      businessReference: input.order.id,
-      expiresAt: input.reservation.expiresAt
-    });
-  } catch (error) {
-    hold = await recoverTimedOutHold({
-      error,
-      fundingAdapter: input.fundingAdapter,
-      reservation: input.reservation,
-      binding: input.binding,
-      order: input.order,
-      idempotencyKey: input.idempotencyKey
-    });
-  }
-  validateRecoveredHold({
-    hold,
-    reservation: input.reservation,
-    binding: input.binding,
-    order: input.order,
-    idempotencyKey: input.idempotencyKey
-  });
-  return hold;
 }
 
 function buildReservationEvent(input: {
@@ -2669,91 +2541,9 @@ async function validateCurrentCatalogSnapshot(catalogStore: ServiceCatalogStore,
   }
 }
 
-function mapAdapterOrderError(error: unknown): OrderError {
-  if (error instanceof AdapterError) {
-    if (error.code === 'INSUFFICIENT_FUNDS') {
-      return new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', error.message);
-    }
-    if (error.code === 'PROVIDER_TIMEOUT') {
-      return new OrderError('PROVIDER_TIMEOUT', error.message);
-    }
-    if (error.code === 'IDEMPOTENCY_CONFLICT' || error.code === 'RESERVATION_CONFLICT') {
-      return new OrderError('CONFLICT', error.message);
-    }
-    return new OrderError('VALIDATION_ERROR', error.message);
-  }
-  if (error instanceof OrderError) {
-    return error;
-  }
-  return new OrderError('BUSINESS_RULE_VIOLATION', 'Funding adapter failed.');
-}
-
-async function recoverTimedOutHold(input: {
-  error: unknown;
-  fundingAdapter: OrderFundingAdapter;
-  reservation: FundReservationRecord;
-  binding: AccountBindingRecord;
-  order: OrderRecord;
-  idempotencyKey: string;
-}): Promise<Hold> {
-  if (!(input.error instanceof AdapterError) || input.error.code !== 'PROVIDER_TIMEOUT') {
-    throw mapAdapterOrderError(input.error);
-  }
-
-  let hold: Hold;
-  try {
-    hold = await input.fundingAdapter.getHold({
-      lookupType: 'IDEMPOTENCY_KEY',
-      lookupValue: input.idempotencyKey
-    });
-  } catch {
-    throw mapAdapterOrderError(input.error);
-  }
-
-  validateRecoveredHold({
-    hold,
-    reservation: input.reservation,
-    binding: input.binding,
-    order: input.order,
-    idempotencyKey: input.idempotencyKey
-  });
-  return hold;
-}
-
-function validateRecoveredHold(input: {
-  hold: Hold;
-  reservation: FundReservationRecord;
-  binding: AccountBindingRecord;
-  order: OrderRecord;
-  idempotencyKey: string;
-}): void {
-  const { hold, reservation, binding, order, idempotencyKey } = input;
-  if (
-    hold.idempotencyKey !== idempotencyKey ||
-    hold.fundReservationId !== reservation.id ||
-    hold.fundReservationVersion !== reservation.version ||
-    hold.externalUserId !== binding.externalUserId ||
-    hold.businessSource !== 'ORDER' ||
-    hold.businessReference !== order.id ||
-    hold.amount.amountMinor !== order.amountMinor ||
-    hold.amount.currency !== order.currency ||
-    hold.status !== 'ACTIVE' ||
-    !hold.holdRef
-  ) {
-    throw new OrderError('CONFLICT', 'Recovered provider hold does not match the order reservation.');
-  }
-}
-
 function readIdempotencyKey(request: FastifyRequest): string {
   const value = request.headers['idempotency-key'];
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
-}
-
-function maskProviderReference(value: string): string {
-  if (value.length <= 8) {
-    return '***';
-  }
-  return `${value.slice(0, 4)}***${value.slice(-4)}`;
 }
 
 function readParams(request: FastifyRequest): { orderId?: string } {
@@ -3032,6 +2822,15 @@ WHERE user_id = $1
   return Number(result.rows[0]?.reserved_minor ?? 0);
 }
 
+async function readLedgerBalanceForCommit(client: OrderQueryClient, userId: string): Promise<number> {
+  const wallet = await client.query<{ id: string }>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE', [userId]);
+  if (!wallet.rows[0]) return 0;
+  const result = await client.query<{ ledger_balance_minor: string | number | bigint }>(`SELECT COALESCE(SUM(
+    CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END),0) AS ledger_balance_minor
+    FROM wallet_entries WHERE wallet_account_id=$1`, [wallet.rows[0].id]);
+  return Number(result.rows[0]?.ledger_balance_minor ?? 0);
+}
+
 async function insertFundReservation(client: OrderQueryClient, reservation: FundReservationRecord): Promise<void> {
   await client.query(
     `
@@ -3183,7 +2982,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerUnitPayoutMinor: toNullableNumber(row.player_unit_payout_minor),
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
-    currency: (row.currency ?? 'CNY') as Currency,
+    currency: (row.currency ?? 'USD') as Currency,
     notes: row.customer_note,
     channelSpec: {
       channelId: row.channel_id ?? '',

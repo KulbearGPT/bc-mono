@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import type { AccountStore } from './accounts.js';
-import { buildFundReservationDraft, resolveFundReservationMode, type FundReservationDraft } from './funding.js';
-import type { OrderRecord, OrderStore, OrderFundingAdapter } from './orders.js';
+import { buildFundReservationDraft, type FundReservationDraft, type FundReservationMode } from './funding.js';
+import type { OrderRecord, OrderStore } from './orders.js';
 import { AdapterError, type FundingAdapter } from './payment-adapter.js';
 import type { OutboxJob } from './outbox.js';
 import {
@@ -16,6 +16,7 @@ import {
   type AuditSink
 } from './security.js';
 import type { StaffLevel } from './security.js';
+import type { WalletFundingService, WalletBalance } from './wallet.js';
 import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
 import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
@@ -109,7 +110,7 @@ export interface GiftStore {
     request: GiftRequestRecord;
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     expectedOrderVersion: number;
     expectedGuildId?: string;
     now: Date;
@@ -283,7 +284,7 @@ export class InMemoryGiftStore implements GiftStore {
     request: GiftRequestRecord;
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     expectedOrderVersion: number;
     expectedGuildId?: string;
     now: Date;
@@ -298,7 +299,7 @@ export class InMemoryGiftStore implements GiftStore {
     const activeReservedMinor = this.reservations
       .filter((reservation) => reservation.userId === input.request.senderId && reservation.currency === input.request.currency && ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED'].includes(reservation.status))
       .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
-    if (input.providerBalanceMinor - activeReservedMinor < input.request.priceMinor) {
+    if (input.ledgerBalanceMinor - activeReservedMinor < input.request.priceMinor) {
       throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
     }
     this.requests.push(clone(input.request));
@@ -487,7 +488,7 @@ WHERE versions.id = $1`, [id]);
     request: GiftRequestRecord;
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
-    providerBalanceMinor: number;
+    ledgerBalanceMinor: number;
     expectedOrderVersion: number;
     expectedGuildId?: string;
     now: Date;
@@ -523,7 +524,9 @@ SELECT COALESCE(SUM(amount_minor), 0)::text AS amount FROM fund_reservations
 WHERE user_id = $1 AND currency = $2
 AND status = ANY($3::"FundReservationStatus"[])`,
       [input.request.senderId, input.request.currency, ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED']]);
-      if (input.providerBalanceMinor - Number(reserved.rows[0]?.amount ?? 0) < input.request.priceMinor) {
+      const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[input.request.senderId]);
+      const ledger=wallet.rows[0]?await client.query<{amount:string}>(`SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END),0)::text amount FROM wallet_entries WHERE wallet_account_id=$1`,[wallet.rows[0].id]):{rows:[{amount:'0'}]};
+      if (Number(ledger.rows[0]?.amount ?? 0) - Number(reserved.rows[0]?.amount ?? 0) < input.request.priceMinor) {
         throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
       }
       await client.query(`INSERT INTO gift_requests (
@@ -735,6 +738,14 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         || snapshot.reservation.amountMinor !== snapshot.request.priceMinor) {
         throw new GiftError('CONFLICT', 'Gift or reservation changed before capture.');
       }
+      const wallet=await client.query<{id:string;row_version:number}>('SELECT id,row_version FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[snapshot.request.senderId]);
+      if(!wallet.rows[0])throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE','Wallet was not found.');
+      const walletEntryId=deterministicUuid(`wallet:gift:${snapshot.request.id}:capture:v1`);
+      await client.query(`INSERT INTO wallet_entries
+        (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+        VALUES ($1,$2,'GIFT_CAPTURE_DEBIT','DEBIT',$3,'USD','FUND_RESERVATION',$4,$5,$6,$6)`,
+        [walletEntryId,wallet.rows[0].id,snapshot.request.priceMinor,snapshot.reservation.id,`wallet:gift:${snapshot.request.id}:capture:v1`,input.now]);
+      await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
       const transactionId = deterministicUuid(`gift-transaction:${snapshot.request.id}`);
       const consumptionId = deterministicUuid(`gift-consumption:${snapshot.request.id}`);
       await client.query(`INSERT INTO fund_reservation_events (
@@ -808,8 +819,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   store: GiftStore;
   orderStore: OrderStore;
   accountStore: AccountStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance' | 'captureHold' | 'createReservationDebit' | 'releaseHold'> & OrderFundingAdapter;
-  providerKey: string;
+  walletFunding: WalletFundingService;
   broadcastChannelId: string;
   botConfigStore?:BotConfigStore;
   now?: () => Date;
@@ -853,7 +863,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     acceptedSources:['DISCORD_BOT','DASHBOARD'],handler:async(request,actor)=>{
       const binding=actor.guildId&&actor.discordUserId?await options.accountStore.findByDiscord({guildId:actor.guildId,discordUserId:actor.discordUserId}):null;
       if(!binding)throw new GiftError('PERMISSION_DENIED','A bound sender account is required.');const body=parseCancelBody(request.body);
-      return terminateGiftRequest({store:options.store,fundingAdapter:options.fundingAdapter,giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
+      return terminateGiftRequest({store:options.store,giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
         terminalStatus:'WITHDRAWN',reason:body.reason,actorUserId:binding.userId,now:now()});
     },fingerprintBody:(request)=>parseCancelBody(request.body),mapError:mapGiftError
   });
@@ -886,8 +896,8 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
         if (![captureContext.request.version, captureContext.request.version - 1].includes(body.expectedVersion)) {
           throw new GiftError('CONFLICT', 'Gift approval version is stale.');
         }
-        const recovered = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
-          providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
+        const recovered = await captureApprovedGift({ store: options.store,
+          broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
           giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
         return { data: recovered, statusCode: 200, commit: () => undefined };
       }
@@ -897,8 +907,8 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
       if ('code' in data && data.code === 'APPROVAL_PENDING') {
         return { data, statusCode: 202, commit: () => undefined };
       }
-      const captured = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
-        providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
+      const captured = await captureApprovedGift({ store: options.store,
+        broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
         giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
       return { data: captured, statusCode: 200, commit: () => undefined };
     },
@@ -915,7 +925,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
       const body = parseDecisionBody(request.body);
       const context = await options.store.getTerminationContext(giftRequestIdParam(request));
       if (!context.request.verifiedAt) throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
-      return terminateGiftRequest({ store: options.store, fundingAdapter: options.fundingAdapter,
+      return terminateGiftRequest({ store: options.store,
         giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
         terminalStatus: 'REJECTED', reason: body.reason, actorStaffId: actor.actorStaffId, now: now() });
     },
@@ -924,7 +934,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
 }
 
 export async function terminateGiftRequest(input: {
-  store: GiftStore; fundingAdapter?: Pick<FundingAdapter, 'releaseHold'>; giftRequestId: string;
+  store: GiftStore; giftRequestId: string;
   expectedVersion: number; terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
   actorUserId?: string; actorStaffId?: string; now: Date;
 }): Promise<GiftTerminationResult> {
@@ -939,21 +949,13 @@ export async function terminateGiftRequest(input: {
   if (input.actorUserId && request.senderId !== input.actorUserId) {
     throw new GiftError('PERMISSION_DENIED', 'Only the sender can withdraw this gift request.');
   }
-  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
-    if (!input.fundingAdapter || !reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold cannot be released.');
-    const hold = await input.fundingAdapter.releaseHold({ holdRef: reservation.providerHoldRef,
-      idempotencyKey: `release:gift:${request.id}:${input.terminalStatus.toLowerCase()}:v1`,
-      fundReservationId: reservation.id, fundReservationVersion: reservation.version, reasonCode: input.reason,
-      amount: { amountMinor: reservation.amountMinor, currency: reservation.currency } });
-    if (hold.status !== 'RELEASED') throw new GiftError('CONFLICT', 'Provider hold was not fully released.');
-  }
   return input.store.commitTermination({ giftRequestId: request.id, expectedGiftVersion: request.version,
     expectedReservationVersion: reservation.version, terminalStatus: input.terminalStatus, reason: input.reason,
     actorUserId: input.actorUserId, actorStaffId: input.actorStaffId, now: input.now });
 }
 
 export async function expireGiftRequest(input: {
-  store: GiftStore; fundingAdapter?: Pick<FundingAdapter, 'releaseHold'>; giftRequestId: string; now: Date;
+  store: GiftStore; giftRequestId: string; now: Date;
 }): Promise<GiftTerminationResult> {
   const context = await input.store.getTerminationContext(input.giftRequestId);
   if (context.request.status === 'EXPIRED' && context.reservation.status === 'EXPIRED') {
@@ -966,8 +968,6 @@ export async function expireGiftRequest(input: {
 
 export async function captureApprovedGift(input: {
   store: GiftStore;
-  fundingAdapter: GiftCaptureFundingAdapter;
-  providerKey: string;
   broadcastChannelId: string;
   botConfigStore?:BotConfigStore;
   giftRequestId: string;
@@ -983,28 +983,10 @@ export async function captureApprovedGift(input: {
     || reservation.amountMinor !== request.priceMinor || reservation.currency !== request.currency) {
     throw new GiftError('CONFLICT', 'Gift is not ready for capture.');
   }
-  const providerIdempotencyKey = `debit:gift:${request.id}:v1`;
-  let providerTransactionRef: string | null;
-  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
-    if (!reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold reference is missing.');
-    const hold = await input.fundingAdapter.captureHold({ holdRef: reservation.providerHoldRef,
-      idempotencyKey: providerIdempotencyKey, fundReservationId: reservation.id,
-      fundReservationVersion: reservation.version, amount: { amountMinor: request.priceMinor, currency: request.currency },
-      businessReference: request.id, reasonCode: 'GIFT_APPROVED' });
-    if (hold.status !== 'CAPTURED') throw new GiftError('CONFLICT', 'Provider hold was not fully captured.');
-    providerTransactionRef = hold.captureTransactionRef ?? null;
-  } else {
-    const transaction = await input.fundingAdapter.createReservationDebit({ idempotencyKey: providerIdempotencyKey,
-      fundReservationId: reservation.id, fundReservationVersion: reservation.version,
-      externalUserId: context.externalUserId, amount: { amountMinor: request.priceMinor, currency: request.currency },
-      businessSource: 'GIFT', businessReference: request.id,
-      metadata: { giftRequestId: request.id, reservationId: reservation.id } });
-    if (transaction.status !== 'SUCCEEDED') throw new GiftError('CONFLICT', 'Provider debit did not succeed.');
-    providerTransactionRef = transaction.providerRef;
-  }
-  if (!providerTransactionRef) throw new GiftError('CONFLICT', 'Provider transaction reference is missing.');
+  const providerIdempotencyKey = `wallet:gift:${request.id}:capture:v1`;
+  const providerTransactionRef = deterministicUuid(providerIdempotencyKey);
   return input.store.commitCapture({ giftRequestId: request.id, expectedGiftVersion: request.version,
-    expectedReservationVersion: reservation.version, provider: reservation.provider ?? input.providerKey,
+    expectedReservationVersion: reservation.version, provider: 'INTERNAL_WALLET',
     providerTransactionRef, providerIdempotencyKey,
     actorStaffId: input.actorStaffId ?? request.approvedByStaffId ?? request.verifiedByStaffId ?? request.senderId,
     broadcastChannelId,
@@ -1031,26 +1013,25 @@ export function createGiftAnnouncementHandler(input: {
   };
 }
 
-export function createGiftExpiryHandler(input:{store:GiftStore;fundingAdapter?:Pick<FundingAdapter,'releaseHold'>;now?:()=>Date}){
+export function createGiftExpiryHandler(input:{store:GiftStore;now?:()=>Date}){
   const now=input.now??(()=>new Date());return async(job:OutboxJob):Promise<void>=>{if(job.type!=='GIFT_EXPIRY')throw new GiftError('VALIDATION_ERROR','Expected a GIFT_EXPIRY job.');
     const payload=job.payload as Record<string,unknown>;if(typeof payload.giftRequestId!=='string')throw new GiftError('VALIDATION_ERROR','Gift expiry payload is invalid.');
     const context=await input.store.getTerminationContext(payload.giftRequestId);if(!['PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(context.request.status))return;
-    await expireGiftRequest({store:input.store,fundingAdapter:input.fundingAdapter,giftRequestId:payload.giftRequestId,now:now()});};
+    await expireGiftRequest({store:input.store,giftRequestId:payload.giftRequestId,now:now()});};
 }
 
 export async function listGifts(input: {
   store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; actor: ActorContext; orderId: string; now: Date;
+  walletFunding: WalletFundingService; actor: ActorContext; orderId: string; now: Date;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
   const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
-  const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
-  const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: providerBalance.currency });
-  const availableMinor = Math.max(0, providerBalance.providerBalanceMinor - reservedMinor);
-  const items = (await input.store.listActiveCatalog()).filter((item) => item.currency === providerBalance.currency);
+  const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
+  const availableMinor = Math.max(0, walletBalance.availableMinor);
+  const items = (await input.store.listActiveCatalog()).filter((item) => item.currency === 'USD');
   return {
     orderId: order.id, orderPublicId: order.publicId, receiver: { userId: order.playerId, displayName: '当前订单陪玩' },
-    balance: { providerBalanceMinor: providerBalance.providerBalanceMinor, reservedMinor, availableMinor, currency: providerBalance.currency, fetchedAt: providerBalance.fetchedAt },
+    balance: walletBalance,
     items: items.map((item) => ({ id: item.id, code: item.code, name: item.name, version: item.version,
       priceMinor: item.priceMinor, currency: item.currency, affordable: item.priceMinor <= availableMinor }))
   };
@@ -1058,13 +1039,13 @@ export async function listGifts(input: {
 
 export interface GiftAffordabilityResult {
   giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
-  providerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
-  currency: string; fetchedAt: string; stale: boolean; canAfford: boolean; rechargeUrl: string;
+  ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
+  currency: string; calculatedAt: string; stale: boolean; canAfford: boolean; rechargeUrl: string;
 }
 
 export async function checkGiftAffordability(input: {
   store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; botConfigStore?: BotConfigStore;
+  walletFunding: WalletFundingService; botConfigStore?: BotConfigStore;
   actor: ActorContext; orderId: string; body: { giftCatalogVersionId: string }; now: Date;
 }): Promise<GiftAffordabilityResult> {
   const binding = await requireBinding(input.accountStore, input.actor);
@@ -1072,21 +1053,21 @@ export async function checkGiftAffordability(input: {
   const catalog = await input.store.findCatalogVersion(input.body.giftCatalogVersionId);
   if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
   const rechargeUrl = await resolveGiftRechargeUrl(input.botConfigStore, binding.guildId);
-  const balance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
+  const balance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
   if (balance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
-  const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: balance.currency });
-  const availableMinor = balance.providerBalanceMinor - reservedMinor;
+  const reservedMinor = balance.reservedMinor;
+  const availableMinor = balance.availableMinor;
   const shortfallMinor = Math.max(0, catalog.priceMinor - availableMinor);
-  const stale = balance.stale === true;
+  const stale = false;
   return { giftCatalogVersionId: catalog.id, catalogVersion: catalog.version, priceMinor: catalog.priceMinor,
-    providerBalanceMinor: balance.providerBalanceMinor, reservedMinor, availableMinor, shortfallMinor,
-    currency: balance.currency, fetchedAt: balance.fetchedAt, stale, canAfford: !stale && shortfallMinor === 0, rechargeUrl };
+    ledgerBalanceMinor: balance.ledgerBalanceMinor, reservedMinor, availableMinor, shortfallMinor,
+    currency: balance.currency, calculatedAt: balance.calculatedAt, stale, canAfford: shortfallMinor === 0, rechargeUrl };
 }
 
 async function prepareGiftRequest(input: {
   store: GiftStore; orderStore: OrderStore; accountStore: AccountStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance' | 'createHold'> & Partial<Pick<FundingAdapter, 'discoverCapabilities'>>;
-  providerKey: string; actor: ActorContext; orderId: string;
+  walletFunding: WalletFundingService;
+  actor: ActorContext; orderId: string;
   auditSink: AuditSink;
   body: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion?: number; expectedPriceMinor?: number };
   idempotencyKey: string; now: Date;
@@ -1100,12 +1081,11 @@ async function prepareGiftRequest(input: {
     || catalog.priceMinor !== input.body.expectedPriceMinor)) {
     throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
   }
-  const providerBalance = await input.fundingAdapter.getProviderBalance({ externalUserId: binding.externalUserId });
-  if (providerBalance.stale === true) throw new GiftError('PROVIDER_BALANCE_STALE', 'A fresh Provider balance is required.');
-  if (providerBalance.currency !== catalog.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
-  const reservedMinor = await input.accountStore.sumActiveReservations({ userId: binding.userId, currency: catalog.currency });
-  if (providerBalance.providerBalanceMinor - reservedMinor < catalog.priceMinor) {
-    const availableMinor=Math.max(0,providerBalance.providerBalanceMinor-reservedMinor);
+  const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
+  if (catalog.currency !== 'USD') throw new GiftError('VALIDATION_ERROR', 'Gifts must use USD.');
+  const reservedMinor = walletBalance.reservedMinor;
+  if (walletBalance.availableMinor < catalog.priceMinor) {
+    const availableMinor=Math.max(0,walletBalance.availableMinor);
     throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.',[
       {field:'availableMinor',reason:String(availableMinor)},{field:'shortfallMinor',reason:String(catalog.priceMinor-availableMinor)},
       {field:'rechargeAction',reason:'OPEN_RECHARGE'}]);
@@ -1120,21 +1100,15 @@ async function prepareGiftRequest(input: {
     priceMinor: catalog.priceMinor, currency: catalog.currency, broadcastTemplateSnapshot: catalog.broadcastTemplate,
     expiresAt, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
   };
-  const mode = await resolveFundReservationMode(input.fundingAdapter);
+  const mode: FundReservationMode = 'LOCAL_RESERVATION';
   const draft = buildFundReservationDraft({
     businessSource: { type: 'GIFT', referenceId: request.id }, userId: binding.userId,
-    provider: input.providerKey, mode, amountMinor: catalog.priceMinor, currency: catalog.currency,
+    provider: null, mode, amountMinor: catalog.priceMinor, currency: catalog.currency,
     idempotencyKey: input.idempotencyKey, ttlMinutes: 30, now: input.now
   });
-  const hold = mode === 'PROVIDER_NATIVE_HOLD' ? await input.fundingAdapter.createHold({
-    idempotencyKey: input.idempotencyKey, fundReservationId: draft.id, fundReservationVersion: draft.version + 1,
-    externalUserId: binding.externalUserId, amount: { amountMinor: catalog.priceMinor, currency: catalog.currency },
-    businessSource: 'GIFT', businessReference: request.id, expiresAt,
-    metadata: { orderId: order.id, giftCode: catalog.code }
-  }) : null;
   const reservation: GiftReservationRecord = {
     ...draft, sourceType: 'GIFT', orderId: null, giftRequestId: request.id,
-    status: 'ACTIVE', version: 2, providerHoldRef: hold?.holdRef ?? null, activatedAt: input.now.toISOString()
+    status: 'ACTIVE', version: 2, providerHoldRef: null, activatedAt: input.now.toISOString()
   };
   const task: GiftStaffTaskRecord = {
     id: deterministicUuid(`gift-task:${request.id}`), publicId: `T-GIFT-${request.publicId.slice(2)}`,
@@ -1149,36 +1123,28 @@ async function prepareGiftRequest(input: {
     createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
   };
   return {
-    data: toGiftRequestResult(request, reservation, task, providerBalance, reservedMinor), statusCode: 201,
+    data: toGiftRequestResult(request, reservation, task, walletBalance, reservedMinor), statusCode: 201,
     commit: async (auditRecord: AuditRecord) => {
       try {
         await input.store.commitCreate({ request, reservation, staffTask: task,
-          providerBalanceMinor: providerBalance.providerBalanceMinor, expectedOrderVersion: input.body.expectedOrderVersion,
+          ledgerBalanceMinor: walletBalance.ledgerBalanceMinor, expectedOrderVersion: input.body.expectedOrderVersion,
           expectedGuildId: binding.guildId,
           now: input.now, auditRecord, auditSink: input.auditSink });
-      } catch (error) {
-        if (hold?.holdRef && 'releaseHold' in input.fundingAdapter && typeof input.fundingAdapter.releaseHold === 'function') {
-          await input.fundingAdapter.releaseHold({ holdRef: hold.holdRef, idempotencyKey: `release:gift:${request.id}:commit-failed:v1`,
-            fundReservationId: reservation.id, fundReservationVersion: reservation.version, reasonCode: 'LOCAL_COMMIT_FAILED',
-            amount: { amountMinor: reservation.amountMinor, currency: reservation.currency } }).catch(() => undefined);
-        }
-        throw error;
-      }
+      } catch (error) { throw error; }
     }
   };
 }
 
 function toGiftRequestResult(request: GiftRequestRecord, reservation: GiftReservationRecord, task: GiftStaffTaskRecord,
-  providerBalance: { providerBalanceMinor: number; currency: string; fetchedAt: string }, priorReservedMinor: number) {
+  walletBalance: WalletBalance, priorReservedMinor: number) {
   return {
     id: request.id, publicId: request.publicId, orderId: request.orderId, senderId: request.senderId,
     receiverId: request.receiverId, status: request.status, expiresAt: request.expiresAt,
     gift: { code: request.giftCodeSnapshot, name: request.giftNameSnapshot, priceMinor: request.priceMinor, currency: request.currency },
     reservation: { id: reservation.id, sourceType: reservation.sourceType, status: reservation.status, amountMinor: reservation.amountMinor, currency: reservation.currency, expiresAt: reservation.expiresAt },
     staffTask: { id: task.id, publicId: task.publicId, type: task.type, status: task.status },
-    balance: { providerBalanceMinor: providerBalance.providerBalanceMinor, reservedMinor: priorReservedMinor + request.priceMinor,
-      availableMinor: providerBalance.providerBalanceMinor - priorReservedMinor - request.priceMinor,
-      currency: providerBalance.currency, fetchedAt: providerBalance.fetchedAt }
+    balance: { ...walletBalance, reservedMinor: priorReservedMinor + request.priceMinor,
+      availableMinor: walletBalance.ledgerBalanceMinor - priorReservedMinor - request.priceMinor }
   };
 }
 

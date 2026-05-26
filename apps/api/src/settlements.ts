@@ -879,7 +879,7 @@ function formatMinor(value: number): string {
 
 function validateInput(input: SettlementCreateInput): void {
   if (!input.guildId.trim()) throw new SettlementError('PERMISSION_DENIED', 'Trusted Guild context is required.');
-  if (input.currency !== 'CNY') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support CNY only.');
+  if (input.currency !== 'USD') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support USD only.');
   if (input.source === 'SCHEDULED' && !input.scheduleKey) {
     throw new SettlementError('VALIDATION_ERROR', 'Scheduled settlements require scheduleKey.');
   }
@@ -1218,7 +1218,7 @@ async function loadPostgresMemberships(client: SettlementDatabaseClient, guildId
     batch.items[0]!.entries.push({
       id: `${row.id}:${batch.items[0]!.entries.length}`, entryType: row.entry_type,
       playerEarningId: row.player_earning_id, playerEarningAdjustmentId: row.player_earning_adjustment_id,
-      amountMinor: 0, currency: 'CNY', occurredAt: ''
+      amountMinor: 0, currency: 'USD', occurredAt: ''
     });
     grouped.set(row.id, batch);
   }
@@ -1324,12 +1324,12 @@ async function loadPostgresBatch(client: SettlementDatabaseClient, id: string, g
 }
 
 function emptyMembershipBatch(id: string, status: SettlementBatchStatus, guildId: string): SettlementBatchRecord {
-  return { id, guildId, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'CNY',
+  return { id, guildId, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'USD',
     grossAmountMinor: 0, adjustmentAmountMinor: 0, netAmountMinor: 0, status, version: 1, createdByStaffId: null,
     submittedByStaffId: null, approvedByStaffId: null, voidedByStaffId: null, submittedAt: null, approvedAt: null,
     exportedAt: null, voidedAt: null, voidReason: null, replacementBatchId: null, createdAt: '',
     items: [{ id: '', playerUserId: '', playerDisplayName: '', playerDiscordUserId: null, externalAccountDisplay: null, grossAmountMinor: 0,
-      adjustmentAmountMinor: 0, netAmountMinor: 0, currency: 'CNY', paymentStatus: 'PENDING', version: 1,
+      adjustmentAmountMinor: 0, netAmountMinor: 0, currency: 'USD', paymentStatus: 'PENDING', version: 1,
       entries: [], paymentResults: [] }] };
 }
 

@@ -137,7 +137,7 @@ describe('M2-US-10 cancellation preview and execution', () => {
     } });
   });
 
-  test('keeps a native hold order uncancelled and opens support when release recovery remains unknown', async () => {
+  test('releases the local reservation without consulting a legacy Provider hold', async () => {
     let lookupKey = '';
     const provider = new MockFundingAdapter({ now }) as MockFundingAdapter & {
       releaseHold: MockFundingAdapter['releaseHold'];
@@ -171,11 +171,11 @@ describe('M2-US-10 cancellation preview and execution', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ data: { status: 'EXCEPTION', fundAction: 'NONE', staffTaskId: expect.any(String) } });
-    expect(lookupKey).toBe('cancel:P-A10:provider-unknown');
-    expect(orderStore.orders[0]).toMatchObject({ status: 'EXCEPTION', version: 4 });
-    expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });
-    expect(staffTaskStore.tasks).toEqual([expect.objectContaining({ type: 'AUTOMATION_FAILURE', reasonCode: 'PROVIDER_RELEASE_UNKNOWN' })]);
+    expect(response.json()).toMatchObject({ data: { status: 'CANCELLED', fundAction: 'RELEASE_RESERVATION', staffTaskId: null } });
+    expect(lookupKey).toBe('');
+    expect(orderStore.orders[0]).toMatchObject({ status: 'CANCELLED', version: 4 });
+    expect(orderStore.reservations[0]).toMatchObject({ status: 'RELEASED', version: 2 });
+    expect(staffTaskStore.tasks).toEqual([]);
   });
 
   test('routes a paused pending-dispatch cancellation to staff without releasing funds', async () => {

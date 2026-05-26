@@ -24,7 +24,7 @@ import {
 } from './admin-order-actions.js';
 import type { FundingAdapter } from './payment-adapter.js';
 import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
-import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
+import { registerGiftRoutes, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
 import { registerReferralAttributionRoutes, type ReferralAttributionStore } from './referrals.js';
@@ -40,7 +40,7 @@ import { registerSettlementRoutes, type SettlementRouteOptions } from './settlem
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 import { configureCursorSigningSecret } from './signed-cursor.js';
-import { registerWalletRoutes, type WalletApplicationService } from './wallet.js';
+import { registerWalletRoutes, type WalletApplicationService, type WalletFundingService } from './wallet.js';
 import type { ReceiptStorage } from './receipt-storage.js';
 
 export interface ApiServerOptions {
@@ -64,8 +64,7 @@ export interface ApiServerOptions {
     orderStore: OrderStore;
     accountStore: AccountStore;
     catalogStore: ServiceCatalogStore;
-    fundingAdapter?: OrderFundingAdapter;
-    providerKey?: string;
+    walletFunding?: WalletFundingService;
     staffTaskStore?: StaffTaskStore;
     now?: () => Date;
   };
@@ -96,8 +95,6 @@ export interface ApiServerOptions {
   };
   adminOrders?: {
     orderStore: AdminRefundOrderStore;
-    fundingAdapter: RefundFundingAdapter;
-    providerKey: string;
     now?: () => Date;
   };
   paymentWebhook?: {
@@ -109,8 +106,7 @@ export interface ApiServerOptions {
     store: GiftStore;
     orderStore: OrderStore;
     accountStore: AccountStore;
-    fundingAdapter: OrderFundingAdapter & GiftCaptureFundingAdapter;
-    providerKey: string;
+    walletFunding: WalletFundingService;
     broadcastChannelId: string;
     now?: () => Date;
   };
@@ -121,11 +117,11 @@ export interface ApiServerOptions {
   commissions?: { store: CommissionStore; now?: () => Date };
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
-  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
+  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'USD' };
   botConfig?: BotConfigRouteOptions;
   settlements?: SettlementRouteOptions;
   weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
-  customerProfiles?: { store: CustomerProfileStore; fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; now?: () => Date };
+  customerProfiles?: { store: CustomerProfileStore; walletFunding: WalletFundingService; now?: () => Date };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };

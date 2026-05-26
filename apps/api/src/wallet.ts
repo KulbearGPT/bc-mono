@@ -94,6 +94,14 @@ export interface ReserveInput {
   now: Date;
 }
 
+export interface WalletFundingService {
+  getBalance(input: { userId: string; now: Date }): Promise<WalletBalance>;
+  reserve(input: ReserveInput): Promise<{ reservationId: string; balance: WalletBalance }>;
+  capture(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }>;
+  release(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ reservationId: string; balance: WalletBalance }>;
+  creditBusinessRefund(input: { userId: string; orderId: string; refundId: string; amountMinor: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }>;
+}
+
 export interface CreateWalletAdjustmentInput {
   userId: string;
   entryType: 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT';
@@ -112,7 +120,7 @@ interface StoredWallet {
   userId: string;
   version: number;
   entries: WalletEntry[];
-  reservations: Array<{ id: string; amountMinor: number; active: boolean; idempotencyKey: string }>;
+  reservations: Array<{ id: string; amountMinor: number; active: boolean; idempotencyKey: string; sourceType: 'ORDER'|'GIFT'; sourceId: string; version: number; capturedEntryId: string|null }>;
 }
 
 export class WalletError extends Error {
@@ -128,7 +136,8 @@ export class InMemoryWalletStore {
   readonly topUps = new Map<string, TopUpResult>();
   readonly externalRefundDebits = new Map<string, ExternalRefundDebitResult>();
   readonly externalReferences = new Set<string>();
-  readonly idempotentResults = new Map<string, TopUpResult | ExternalRefundDebitResult | WalletEntry | { reservationId: string; balance: WalletBalance }>();
+  readonly idempotentResults = new Map<string, TopUpResult | ExternalRefundDebitResult | WalletEntry |
+    { reservationId: string; balance: WalletBalance } | { walletEntryId: string; balance: WalletBalance }>();
   readonly receipts = new Map<string, StoredReceipt>();
 
   getOrCreate(userId: string): StoredWallet {
@@ -191,12 +200,39 @@ export class WalletService {
       throw new WalletError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available wallet balance is insufficient.');
     }
     const result = { reservationId: crypto.randomUUID(), balance: {} as WalletBalance };
-    wallet.reservations.push({ id: result.reservationId, amountMinor: input.amountMinor, active: true, idempotencyKey: input.idempotencyKey });
+    wallet.reservations.push({ id: result.reservationId, amountMinor: input.amountMinor, active: true, idempotencyKey: input.idempotencyKey,
+      sourceType:input.sourceType,sourceId:input.sourceId,version:1,capturedEntryId:null });
     wallet.version += 1;
     result.balance = balance(wallet, input.now);
     this.store.idempotentResults.set(input.idempotencyKey, structuredClone(result));
     return result;
   }
+
+  async capture(input:{reservationId:string;expectedVersion:number;idempotencyKey:string;now:Date}):Promise<{walletEntryId:string;balance:WalletBalance}>{
+    const replay=this.store.idempotentResults.get(input.idempotencyKey);if(replay&&'walletEntryId'in replay)return structuredClone(replay);
+    const located=this.findReservation(input.reservationId);if(!located)throw new WalletError('RESOURCE_NOT_FOUND','Reservation was not found.');
+    const {wallet,reservation}=located;if(!reservation.active||reservation.version!==input.expectedVersion)throw new WalletError('CONFLICT','Reservation is not active at the expected version.');
+    const entry=makeEntry(wallet.id,reservation.sourceType==='ORDER'?'ORDER_CAPTURE_DEBIT':'GIFT_CAPTURE_DEBIT',reservation.amountMinor,
+      'FUND_RESERVATION',reservation.id,input.idempotencyKey,null,input.now);
+    wallet.entries.push(entry);reservation.active=false;reservation.capturedEntryId=entry.id;reservation.version+=1;wallet.version+=1;
+    const result={walletEntryId:entry.id,balance:balance(wallet,input.now)};this.store.idempotentResults.set(input.idempotencyKey,structuredClone(result) as never);return result;
+  }
+
+  async release(input:{reservationId:string;expectedVersion:number;idempotencyKey:string;now:Date}):Promise<{reservationId:string;balance:WalletBalance}>{
+    const replay=this.store.idempotentResults.get(input.idempotencyKey);if(replay&&'reservationId'in replay)return structuredClone(replay);
+    const located=this.findReservation(input.reservationId);if(!located)throw new WalletError('RESOURCE_NOT_FOUND','Reservation was not found.');
+    const {wallet,reservation}=located;if(!reservation.active||reservation.version!==input.expectedVersion)throw new WalletError('CONFLICT','Reservation is not active at the expected version.');
+    reservation.active=false;reservation.version+=1;wallet.version+=1;const result={reservationId:reservation.id,balance:balance(wallet,input.now)};
+    this.store.idempotentResults.set(input.idempotencyKey,structuredClone(result));return result;
+  }
+
+  async creditBusinessRefund(input:{userId:string;orderId:string;refundId:string;amountMinor:number;idempotencyKey:string;now:Date}):Promise<{walletEntryId:string;balance:WalletBalance}>{
+    assertPositiveAmount(input.amountMinor);const replay=this.store.idempotentResults.get(input.idempotencyKey);if(replay&&'walletEntryId'in replay)return structuredClone(replay);
+    const wallet=this.store.getOrCreate(input.userId);const entry=makeEntry(wallet.id,'ORDER_REFUND_CREDIT',input.amountMinor,'ORDER_REFUND',input.refundId,input.idempotencyKey,null,input.now);
+    wallet.entries.push(entry);wallet.version+=1;const result={walletEntryId:entry.id,balance:balance(wallet,input.now)};this.store.idempotentResults.set(input.idempotencyKey,structuredClone(result) as never);return result;
+  }
+
+  private findReservation(id:string){for(const wallet of this.store.wallets.values()){const reservation=wallet.reservations.find(item=>item.id===id);if(reservation)return{wallet,reservation};}return null;}
 
   async createExternalRefundDebit(input: CreateExternalRefundDebitInput): Promise<ExternalRefundDebitResult> {
     validateFundingEvidence(input.amountMinor, input.paymentChannel, input.externalTransactionId, input.refundedAt, input.note);
@@ -313,6 +349,83 @@ export class PostgresWalletStore {
     return inWalletTransaction(this.options.pool, async (client) => {
       const wallet = await ensureWallet(client, input.userId, input.now);
       return readPostgresBalance(client, wallet.walletAccountId, wallet.version, input.now);
+    });
+  }
+
+  async reserve(input: ReserveInput): Promise<{ reservationId: string; balance: WalletBalance }> {
+    assertPositiveAmount(input.amountMinor);
+    return inWalletTransaction(this.options.pool, async (client) => {
+      const replay = await client.query<{ id: string; user_id: string }>(
+        'SELECT id,user_id FROM fund_reservations WHERE idempotency_key=$1', [input.idempotencyKey]);
+      if (replay.rows[0]) {
+        if (replay.rows[0].user_id !== input.userId) throw new WalletError('CONFLICT', 'Idempotency key belongs to another wallet.');
+        const wallet = await ensureWallet(client, input.userId, input.now, true);
+        return { reservationId: replay.rows[0].id, balance: await readPostgresBalance(client, wallet.walletAccountId, wallet.version, input.now) };
+      }
+      const wallet = await ensureWallet(client, input.userId, input.now, true);
+      const current = await readPostgresBalance(client, wallet.walletAccountId, wallet.version, input.now);
+      if (current.availableMinor < input.amountMinor) throw new WalletError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available wallet balance is insufficient.');
+      const reservationId = crypto.randomUUID();
+      await client.query(`INSERT INTO fund_reservations
+        (id,user_id,source_type,order_id,gift_request_id,mode,provider,provider_hold_ref,amount_minor,currency,status,row_version,idempotency_key,expires_at,activated_at,created_at,updated_at)
+        VALUES ($1,$2,$3::"FundReservationSourceType",$4,$5,'LOCAL_RESERVATION',NULL,NULL,$6,'USD','ACTIVE',1,$7,$8,$9,$9,$9)`,
+        [reservationId,input.userId,input.sourceType,input.sourceType==='ORDER'?input.sourceId:null,input.sourceType==='GIFT'?input.sourceId:null,
+          input.amountMinor,input.idempotencyKey,input.expiresAt,input.now]);
+      await insertWalletReservationEvent(client, { reservationId, sequence: 1, eventType: 'CREATED', fromStatus: null,
+        toStatus: 'ACTIVE', amountMinor: input.amountMinor, version: 1, idempotencyKey: `${input.idempotencyKey}:event`, now: input.now });
+      const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
+      return { reservationId, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now) };
+    });
+  }
+
+  async capture(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }> {
+    return inWalletTransaction(this.options.pool, async (client) => {
+      const replay = await findWalletLifecycleEntry(client, input.idempotencyKey, input.now);
+      if (replay) return replay;
+      const reservation = await lockWalletReservation(client, input.reservationId);
+      if (reservation.status !== 'ACTIVE' || reservation.row_version !== input.expectedVersion) throw new WalletError('CONFLICT', 'Reservation is not active at the expected version.');
+      const wallet = await ensureWallet(client, reservation.user_id, input.now, true);
+      const entry = makeEntry(wallet.walletAccountId, reservation.source_type === 'ORDER' ? 'ORDER_CAPTURE_DEBIT' : 'GIFT_CAPTURE_DEBIT',
+        Number(reservation.amount_minor), 'FUND_RESERVATION', reservation.id, input.idempotencyKey, null, input.now);
+      await insertWalletEntry(client, entry, input.idempotencyKey);
+      await insertWalletReservationEvent(client, { reservationId: reservation.id, sequence: await nextWalletReservationSequence(client, reservation.id),
+        eventType: 'CAPTURED', fromStatus: 'ACTIVE', toStatus: 'CAPTURED', amountMinor: Number(reservation.amount_minor),
+        version: input.expectedVersion + 1, idempotencyKey: `${input.idempotencyKey}:event`, now: input.now });
+      const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
+      return { walletEntryId: entry.id, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now) };
+    });
+  }
+
+  async release(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ reservationId: string; balance: WalletBalance }> {
+    return inWalletTransaction(this.options.pool, async (client) => {
+      const replay = await client.query<{ fund_reservation_id: string; user_id: string }>(`SELECT e.fund_reservation_id,r.user_id FROM fund_reservation_events e
+        JOIN fund_reservations r ON r.id=e.fund_reservation_id WHERE e.idempotency_key=$1`, [`${input.idempotencyKey}:event`]);
+      if (replay.rows[0]) {
+        const wallet = await ensureWallet(client, replay.rows[0].user_id, input.now, true);
+        return { reservationId: replay.rows[0].fund_reservation_id, balance: await readPostgresBalance(client, wallet.walletAccountId, wallet.version, input.now) };
+      }
+      const reservation = await lockWalletReservation(client, input.reservationId);
+      if (reservation.status !== 'ACTIVE' || reservation.row_version !== input.expectedVersion) throw new WalletError('CONFLICT', 'Reservation is not active at the expected version.');
+      const wallet = await ensureWallet(client, reservation.user_id, input.now, true);
+      await insertWalletReservationEvent(client, { reservationId: reservation.id, sequence: await nextWalletReservationSequence(client, reservation.id),
+        eventType: 'RELEASED', fromStatus: 'ACTIVE', toStatus: 'RELEASED', amountMinor: Number(reservation.amount_minor),
+        version: input.expectedVersion + 1, idempotencyKey: `${input.idempotencyKey}:event`, now: input.now });
+      const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
+      return { reservationId: reservation.id, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now) };
+    });
+  }
+
+  async creditBusinessRefund(input: { userId: string; orderId: string; refundId: string; amountMinor: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }> {
+    assertPositiveAmount(input.amountMinor);
+    return inWalletTransaction(this.options.pool, async (client) => {
+      const replay = await findWalletLifecycleEntry(client, input.idempotencyKey, input.now);
+      if (replay) return replay;
+      const wallet = await ensureWallet(client, input.userId, input.now, true);
+      const entry = makeEntry(wallet.walletAccountId, 'ORDER_REFUND_CREDIT', input.amountMinor, 'ORDER_REFUND', input.refundId,
+        input.idempotencyKey, null, input.now);
+      await insertWalletEntry(client, entry, input.idempotencyKey);
+      const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
+      return { walletEntryId: entry.id, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now) };
     });
   }
 
@@ -527,6 +640,10 @@ export interface WalletApplicationService {
   createExternalRefundDebit(input: CreateExternalRefundDebitInput): Promise<ExternalRefundDebitResult>;
   createAdjustment(input: CreateWalletAdjustmentInput): Promise<WalletEntry>;
   listEntries(input: { userId: string }): Promise<WalletEntry[]>;
+  reserve(input: ReserveInput): Promise<{ reservationId: string; balance: WalletBalance }>;
+  capture(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }>;
+  release(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ reservationId: string; balance: WalletBalance }>;
+  creditBusinessRefund(input: { userId: string; orderId: string; refundId: string; amountMinor: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }>;
   stageCreateTopUp?(input: CreateTopUpInput): Promise<{ data: TopUpResult; commit: (audit: AuditRecord) => Promise<void> }>;
   stageCreateExternalRefundDebit?(input: CreateExternalRefundDebitInput): Promise<{ data: ExternalRefundDebitResult; commit: (audit: AuditRecord) => Promise<void> }>;
   stageCreateAdjustment?(input: CreateWalletAdjustmentInput): Promise<{ data: WalletEntry; commit: (audit: AuditRecord) => Promise<void> }>;
@@ -710,6 +827,42 @@ async function incrementWalletVersion(client: PoolClient, walletAccountId: strin
     WHERE id=$1 AND row_version=$2 RETURNING row_version`, [walletAccountId, expected, now]);
   if (!result.rows[0]) throw new WalletError('CONFLICT', 'Wallet version is stale.');
   return result.rows[0].row_version;
+}
+
+interface WalletReservationRow {
+  id: string;
+  user_id: string;
+  source_type: 'ORDER' | 'GIFT';
+  amount_minor: string | number | bigint;
+  status: string;
+  row_version: number;
+}
+
+async function lockWalletReservation(client: PoolClient, reservationId: string): Promise<WalletReservationRow> {
+  const result = await client.query<WalletReservationRow>('SELECT id,user_id,source_type,amount_minor,status,row_version FROM fund_reservations WHERE id=$1 FOR UPDATE', [reservationId]);
+  if (!result.rows[0]) throw new WalletError('RESOURCE_NOT_FOUND', 'Reservation was not found.');
+  return result.rows[0];
+}
+
+async function nextWalletReservationSequence(client: PoolClient, reservationId: string): Promise<number> {
+  const result = await client.query<{ sequence: number }>('SELECT COALESCE(MAX(sequence),0)+1 AS sequence FROM fund_reservation_events WHERE fund_reservation_id=$1', [reservationId]);
+  return Number(result.rows[0]?.sequence ?? 1);
+}
+
+async function insertWalletReservationEvent(client: PoolClient, input: { reservationId: string; sequence: number;
+  eventType: 'CREATED' | 'CAPTURED' | 'RELEASED'; fromStatus: 'ACTIVE' | null; toStatus: 'ACTIVE' | 'CAPTURED' | 'RELEASED';
+  amountMinor: number; version: number; idempotencyKey: string; now: Date }): Promise<void> {
+  await client.query(`INSERT INTO fund_reservation_events
+    (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_staff_id,actor_source,reason_code,created_at)
+    VALUES ($1,$2,$3,$4::"FundReservationEventType",$5::"FundReservationStatus",$6::"FundReservationStatus",$7,$8,$9,NULL,NULL,'SYSTEM_JOB',NULL,$10)`,
+    [crypto.randomUUID(),input.reservationId,input.sequence,input.eventType,input.fromStatus,input.toStatus,input.amountMinor,input.version,input.idempotencyKey,input.now]);
+}
+
+async function findWalletLifecycleEntry(client: PoolClient, idempotencyKey: string, now: Date): Promise<{ walletEntryId: string; balance: WalletBalance } | null> {
+  const result = await client.query<{ id: string; wallet_account_id: string; row_version: number }>(`SELECT e.id,e.wallet_account_id,w.row_version
+    FROM wallet_entries e JOIN wallet_accounts w ON w.id=e.wallet_account_id WHERE e.idempotency_key=$1`, [idempotencyKey]);
+  const row = result.rows[0];
+  return row ? { walletEntryId: row.id, balance: await readPostgresBalance(client, row.wallet_account_id, row.row_version, now) } : null;
 }
 
 async function findPostgresTopUpByIdempotency(client: PoolClient, key: string, userId: string, now: Date): Promise<TopUpResult | null> {

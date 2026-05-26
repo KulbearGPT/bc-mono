@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
-import { AdapterError, type FundingAdapter } from './payment-adapter.js';
+import type { WalletFundingService } from './wallet.js';
 import { registerSecureReadRoute, type ActorContext, type StaffLevel } from './security.js';
 import { decodeKeysetCursor, encodeKeysetCursor } from './signed-cursor.js';
 
@@ -111,7 +111,7 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
   }
   appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): void { this.balanceSnapshots.push(clone(snapshot)); }
   getLatestBalanceSnapshot(input: { userId: string; provider: string }): CustomerProfileBalanceSnapshot | null {
-    return clone(this.balanceSnapshots.filter((item) => item.userId === input.userId && item.provider === input.provider).sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0] ?? null);
+    return clone(this.balanceSnapshots.filter((item)=>item.userId===input.userId&&item.provider===input.provider).sort((a,b)=>b.fetchedAt.localeCompare(a.fetchedAt))[0]??null);
   }
 }
 
@@ -200,60 +200,38 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     return Number(result.rows[0]?.total ?? 0);
   }
   async appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): Promise<void> {
-    await this.pool.query(`INSERT INTO provider_balance_snapshots
-      (id,user_id,provider,provider_balance_minor,currency,fetched_at) VALUES ($1,$2,$3,$4,$5,$6)`,
-    [snapshot.id, snapshot.userId, snapshot.provider, snapshot.providerBalanceMinor, snapshot.currency, snapshot.fetchedAt]);
+    await this.pool.query(`INSERT INTO provider_balance_snapshots (id,user_id,provider,provider_balance_minor,currency,fetched_at)
+      VALUES ($1,$2,$3,$4,$5,$6)`,[snapshot.id,snapshot.userId,snapshot.provider,snapshot.providerBalanceMinor,snapshot.currency,snapshot.fetchedAt]);
   }
   async getLatestBalanceSnapshot(input: { userId: string; provider: string }): Promise<CustomerProfileBalanceSnapshot | null> {
-    const result = await this.pool.query(`SELECT id,user_id,provider,provider_balance_minor,currency,fetched_at
-      FROM provider_balance_snapshots WHERE user_id=$1 AND provider=$2 ORDER BY fetched_at DESC,id DESC LIMIT 1`, [input.userId, input.provider]);
-    const row = result.rows[0];
-    return row ? { id: row.id, userId: row.user_id, provider: row.provider, providerBalanceMinor: safeInteger(row.provider_balance_minor),
-      currency: row.currency, fetchedAt: iso(row.fetched_at) } : null;
+    const result=await this.pool.query(`SELECT id,user_id,provider,provider_balance_minor,currency,fetched_at FROM provider_balance_snapshots
+      WHERE user_id=$1 AND provider=$2 ORDER BY fetched_at DESC,id DESC LIMIT 1`,[input.userId,input.provider]);
+    const row=result.rows[0];return row?{id:row.id,userId:row.user_id,provider:row.provider,providerBalanceMinor:safeInteger(row.provider_balance_minor),currency:row.currency,fetchedAt:iso(row.fetched_at)}:null;
   }
 }
 
-export async function getAdminCustomerProfileSummary(input: { store: CustomerProfileStore; fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>;
+export async function getAdminCustomerProfileSummary(input: { store: CustomerProfileStore; walletFunding: WalletFundingService;
   actor: ActorContext; userId: string; window: CustomerProfileWindow; now: Date }) {
   const scope = actorScope(input.actor, input.userId);
   const summary = await input.store.getSummaryData({ ...scope, window: input.window, now: input.now });
   if (!summary) throw new CustomerProfileError('NOT_FOUND', 'Customer was not found.');
   const { user } = summary;
-  let snapshot: CustomerProfileBalanceSnapshot | null;
-  let providerStale = false;
-  let providerError: { code: 'PROVIDER_UNAVAILABLE' | 'PROVIDER_TIMEOUT'; retryable: boolean; requestId: string } | null = null;
-  try {
-    const balance = await input.fundingAdapter.getProviderBalance({ externalUserId: user.externalUserId });
-    snapshot = { id: crypto.randomUUID(), userId: user.id, provider: user.provider, providerBalanceMinor: balance.providerBalanceMinor,
-      currency: balance.currency, fetchedAt: balance.fetchedAt };
-    providerStale = balance.stale;
-    if (!balance.stale) await input.store.appendBalanceSnapshot(snapshot);
-  } catch (error) {
-    snapshot = await input.store.getLatestBalanceSnapshot({ userId: user.id, provider: user.provider });
-    providerError = { code: error instanceof AdapterError && error.code === 'PROVIDER_TIMEOUT' ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNAVAILABLE',
-      retryable: error instanceof AdapterError ? error.retryable : true,
-      requestId: error instanceof AdapterError ? error.requestId : 'req_provider_unavailable' };
-  }
-  const reservedMinor = snapshot ? await input.store.sumActiveReservations({ userId: user.id, currency: snapshot.currency }) : null;
+  const walletBalance=await input.walletFunding.getBalance({userId:user.id,now:input.now});
   return {
     user: { userId: user.id, discordUserId: user.discordUserId, displayName: user.displayName, status: user.status },
-    externalAccountDisplay: maskExternal(user.provider, user.externalUserId),
-    balance: snapshot ? { providerBalanceMinor: snapshot.providerBalanceMinor, reservedMinor,
-      availableMinor: snapshot.providerBalanceMinor - reservedMinor!, currency: snapshot.currency, fetchedAt: snapshot.fetchedAt,
-      stale: providerStale || providerError !== null, providerError } : { providerBalanceMinor: null, reservedMinor: null, availableMinor: null,
-      currency: null, fetchedAt: null, stale: true, providerError },
+    balance: walletBalance,
     statistics: summary.statistics, preferences: summary.preferences, internalNotes: summary.internalNotes, riskFlags: summary.riskFlags
   };
 }
 
 export function registerCustomerProfileRoutes(server: FastifyInstance, options: { store: CustomerProfileStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; now?: () => Date }): void {
+  walletFunding: WalletFundingService; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Customer profile routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary',
     permission: 'customer_profile.read', action: 'GET_ADMIN_CUSTOMER_PROFILE_SUMMARY', targetType: 'user',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
-    handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, fundingAdapter: options.fundingAdapter,
+    handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, walletFunding: options.walletFunding,
       actor, userId: param(request, 'userId'), window: profileWindow(request), now: now() }) });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/orders',
     permission: 'customer_profile.read', action: 'LIST_ADMIN_CUSTOMER_ORDERS', targetType: 'order',
@@ -298,7 +276,7 @@ function buildStatistics(window: CustomerProfileWindow, orders: CustomerProfileO
     orderSpendMinor, giftSpendMinor, refundMinor, totalConsumptionMinor: orderSpendMinor + giftSpendMinor - refundMinor + corrections,
     averageOrderAmountMinor: completedOrderCount ? Math.floor(orderSpendMinor / completedOrderCount) : 0,
     lastConsumptionAt: entries.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))[0]?.occurredAt ?? null,
-    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'CNY' };
+    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'USD' };
 }
 function buildPreferences(orders: CustomerProfileOrder[]) { const sorted = [...orders].sort(descCreated); return {
   preferredGameKeys: frequency(sorted.map((item) => item.gameKey)), preferredServiceKeys: frequency(sorted.map((item) => item.serviceKey)),
@@ -325,7 +303,7 @@ function decodeCursor(value: string | null, resource: string): { id: string; cre
 }
 function mapOrder(row: Record<string, unknown>, customerId: string, guildId: string): CustomerProfileOrder { return { id: String(row.id), publicId: String(row.public_id ?? ''), customerId, guildId,
   status: String(row.status), gameKey: nullable(row.game_code_snapshot), serviceKey: nullable(row.service_code_snapshot), playerUserId: nullable(row.player_id),
-  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'CNY'),
+  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'USD'),
   createdAt: iso(row.created_at), completedAt: row.completed_at ? iso(row.completed_at) : null }; }
 function mapConsumption(row: Record<string, unknown>): CustomerProfileConsumption { const type = row.entry_type === 'ORDER_CHARGE' ? 'ORDER' : row.entry_type === 'GIFT_CHARGE' ? 'GIFT' : row.entry_type;
   const amount = safeInteger(row.amount_minor); return { id: String(row.id), userId: '', type: type as CustomerProfileConsumptionType, sourceId: String(row.source_id),

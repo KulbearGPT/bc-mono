@@ -153,8 +153,6 @@ interface ResolutionCommitInput {
   };
   refund: RefundPersistenceRecord | null;
   preChargeSettlement: {
-    fundingAdapter: RefundFundingAdapter;
-    providerKey: string;
     captureMinor: number;
     releaseMinor: number;
   } | null;
@@ -171,8 +169,6 @@ interface ReassignmentCommitInput {
 
 export async function refundOrder(input: {
   orderStore: AdminRefundOrderStore;
-  fundingAdapter: RefundFundingAdapter;
-  providerKey: string;
   orderId: string;
   expectedVersion: number;
   amount: { amountMinor: number; currency: Currency };
@@ -237,23 +233,7 @@ export async function refundOrder(input: {
     throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge is required before refund.');
   }
 
-  let refund: Transaction;
-  try {
-    refund = await input.fundingAdapter.createRefund({
-      idempotencyKey: `${input.idempotencyKey}:provider`,
-      originalTransactionRef: sourceTransaction.externalRef,
-      amount: input.amount,
-      reasonCode: input.reasonCode,
-      businessReference: input.orderId,
-      metadata: {
-        evidenceNote: input.evidenceNote,
-        providerKey: input.providerKey
-      }
-    });
-    refund = await recoverRefundTransaction(input.fundingAdapter, refund, `${input.idempotencyKey}:provider`);
-  } catch (error) {
-    throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
-  }
+  const refund = internalWalletRefund(input.amount, input.orderId, `${input.idempotencyKey}:wallet`, input.now);
 
   const refundId = crypto.randomUUID();
   const data: RefundOrderResult = {
@@ -266,7 +246,7 @@ export async function refundOrder(input: {
   };
   const refundRecord = buildRefundPersistenceRecord({
     id: refundId,
-    provider: input.providerKey,
+    provider: 'INTERNAL_WALLET',
     sourceTransaction,
     order,
     resolutionId: null,
@@ -285,8 +265,6 @@ export async function refundOrder(input: {
 
 export async function resolveOrder(input: {
   orderStore: AdminRefundOrderStore;
-  fundingAdapter: RefundFundingAdapter;
-  providerKey: string;
   orderId: string;
   expectedVersion: number;
   targetStatus: 'COMPLETED' | 'CANCELLED';
@@ -357,22 +335,7 @@ export async function resolveOrder(input: {
     if (!sourceTransaction.externalRef) {
       throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge must have an external reference.');
     }
-    try {
-      providerRefund = await input.fundingAdapter.createRefund({
-        idempotencyKey: `${input.idempotencyKey}:provider`,
-        originalTransactionRef: sourceTransaction.externalRef,
-        amount: input.refund,
-        reasonCode: input.reasonCode,
-        businessReference: input.orderId,
-        metadata: {
-          evidenceNote: input.evidenceNote,
-          providerKey: input.providerKey
-        }
-      });
-      providerRefund = await recoverRefundTransaction(input.fundingAdapter, providerRefund, `${input.idempotencyKey}:provider`);
-    } catch (error) {
-      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
-    }
+    providerRefund = internalWalletRefund(input.refund, input.orderId, `${input.idempotencyKey}:wallet`, input.now);
   }
 
   const resolution: OrderResolutionResult = {
@@ -421,7 +384,7 @@ export async function resolveOrder(input: {
   const refundRecord = providerRefund && sourceTransaction
     ? buildRefundPersistenceRecord({
         id: crypto.randomUUID(),
-        provider: input.providerKey,
+        provider: 'INTERNAL_WALLET',
         sourceTransaction,
         order,
         resolutionId: resolution.resolutionId,
@@ -443,8 +406,6 @@ export async function resolveOrder(input: {
       preChargeSettlement: sourceTransaction
         ? null
         : {
-            fundingAdapter: input.fundingAdapter,
-            providerKey: input.providerKey,
             captureMinor: order.amountMinor - input.refund.amountMinor,
             releaseMinor: input.refund.amountMinor
           },
@@ -519,8 +480,6 @@ export function registerAdminOrderActionRoutes(
   server: FastifyInstance,
   options: {
     orderStore: AdminRefundOrderStore;
-    fundingAdapter: RefundFundingAdapter;
-    providerKey: string;
     now?: () => Date;
     policyReader?: PolicyReader;
   }
@@ -548,8 +507,6 @@ export function registerAdminOrderActionRoutes(
       const approvalThresholds = await refundApprovalThresholds(options.policyReader);
       return refundOrder({
         orderStore: options.orderStore,
-        fundingAdapter: options.fundingAdapter,
-        providerKey: options.providerKey,
         orderId: orderIdParam(request),
         expectedVersion: body.expectedVersion,
         amount: body.amount,
@@ -584,8 +541,6 @@ export function registerAdminOrderActionRoutes(
       const approvalThresholds = await refundApprovalThresholds(options.policyReader);
       return resolveOrder({
         orderStore: options.orderStore,
-        fundingAdapter: options.fundingAdapter,
-        providerKey: options.providerKey,
         orderId: orderIdParam(request),
         expectedVersion: body.expectedVersion,
         targetStatus: body.targetStatus,
@@ -995,6 +950,28 @@ function buildRefundPersistenceRecord(input: {
   };
 }
 
+function internalWalletRefund(amount: { amountMinor: number; currency: Currency }, orderId: string,
+  idempotencyKey: string, now: Date): Transaction {
+  return { kind: 'REFUND', status: 'SUCCEEDED', idempotencyKey, fundReservationId: null, fundReservationVersion: null,
+    businessSource: 'ORDER', amount, businessReference: orderId, providerRef: deterministicUuid(idempotencyKey),
+    originalProviderRef: null, providerStatus: 'INTERNAL_WALLET_CREDITED', observedAt: now.toISOString(),
+    providerOccurredAt: now.toISOString(), failure: null };
+}
+
+function internalWalletCharge(amount: { amountMinor: number; currency: Currency }, orderId: string, reservationId: string,
+  reservationVersion: number, idempotencyKey: string, now: Date): Transaction {
+  return { kind:'FALLBACK_DEBIT',status:'SUCCEEDED',idempotencyKey,fundReservationId:reservationId,
+    fundReservationVersion:reservationVersion,businessSource:'ORDER',amount,businessReference:orderId,
+    providerRef:deterministicUuid(idempotencyKey),originalProviderRef:null,providerStatus:'INTERNAL_WALLET_CAPTURED',
+    observedAt:now.toISOString(),providerOccurredAt:now.toISOString(),failure:null };
+}
+
+function deterministicUuid(value: string): string {
+  const bytes=crypto.createHash('sha256').update(value).digest().subarray(0,16);
+  bytes[6]=(bytes[6]&0x0f)|0x50;bytes[8]=(bytes[8]&0x3f)|0x80;
+  return `${bytes.subarray(0,4).toString('hex')}-${bytes.subarray(4,6).toString('hex')}-${bytes.subarray(6,8).toString('hex')}-${bytes.subarray(8,10).toString('hex')}-${bytes.subarray(10).toString('hex')}`;
+}
+
 async function recoverRefundTransaction(
   adapter: RefundFundingAdapter,
   transaction: Transaction,
@@ -1071,15 +1048,13 @@ VALUES (
 async function settlePreChargeReservation(client: OrderQueryClient, input: {
   order: OrderRecord;
   resolution: ResolutionCommitInput['resolution'];
-  fundingAdapter: RefundFundingAdapter;
-  providerKey: string;
   captureMinor: number;
   releaseMinor: number;
 }): Promise<void> {
   const reservationResult = await client.query<{
     id: string;
     user_id: string;
-    mode: 'PROVIDER_NATIVE_HOLD' | 'LOCAL_RESERVATION_FALLBACK';
+    mode: 'LOCAL_RESERVATION';
     provider: string | null;
     provider_hold_ref: string | null;
     amount_minor: string | number;
@@ -1111,73 +1086,18 @@ FOR UPDATE OF fr
   if (input.captureMinor < 0 || input.releaseMinor < 0 || input.captureMinor + input.releaseMinor !== reservationAmount) {
     throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Resolution settlement must exactly match the order reservation amount.');
   }
-  let providerCharge: Transaction | null = null;
-  if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
-    if (!reservation.provider_hold_ref || !input.fundingAdapter.captureHold || !input.fundingAdapter.releaseHold) {
-      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Native hold settlement capability is unavailable.');
-    }
-    try {
-      if (input.captureMinor > 0) {
-        const captured = await input.fundingAdapter.captureHold({
-          holdRef: reservation.provider_hold_ref,
-          idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
-          fundReservationId: reservation.id,
-          fundReservationVersion: reservation.row_version,
-          amount: { amountMinor: input.captureMinor, currency: reservation.currency },
-          businessReference: input.order.id,
-          reasonCode: input.resolution.reasonCode
-        });
-        if (!captured.captureTransactionRef || !input.fundingAdapter.getTransaction) {
-          throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Provider did not return a recoverable capture transaction.');
-        }
-        providerCharge = await recoverReservationDebit(
-          input.fundingAdapter,
-          await input.fundingAdapter.getTransaction({
-            lookupType: 'PROVIDER_REF',
-            lookupValue: captured.captureTransactionRef
-          }),
-          `${input.resolution.idempotencyKey}:provider-capture`
-        );
-      }
-      if (input.releaseMinor > 0) {
-        await input.fundingAdapter.releaseHold({
-          holdRef: reservation.provider_hold_ref,
-          idempotencyKey: `${input.resolution.idempotencyKey}:provider-release`,
-          fundReservationId: reservation.id,
-          fundReservationVersion: reservation.row_version,
-          reasonCode: input.resolution.reasonCode,
-          amount: { amountMinor: input.releaseMinor, currency: reservation.currency }
-        });
-      }
-    } catch (error) {
-      if (error instanceof AdminOrderActionError) {
-        throw error;
-      }
-      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
-    }
-  } else if (input.captureMinor > 0) {
-    if (!reservation.external_user_id || !input.fundingAdapter.createReservationDebit) {
-      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', 'Reservation debit capability or external account binding is unavailable.');
-    }
-    try {
-      providerCharge = await input.fundingAdapter.createReservationDebit({
-        idempotencyKey: `${input.resolution.idempotencyKey}:provider-capture`,
-        fundReservationId: reservation.id,
-        fundReservationVersion: reservation.row_version,
-        externalUserId: reservation.external_user_id,
-        amount: { amountMinor: input.captureMinor, currency: reservation.currency },
-        businessSource: 'ORDER',
-        businessReference: input.order.id,
-        metadata: { resolutionId: input.resolution.resolutionId }
-      });
-      providerCharge = await recoverReservationDebit(
-        input.fundingAdapter,
-        providerCharge,
-        `${input.resolution.idempotencyKey}:provider-capture`
-      );
-    } catch (error) {
-      throw new AdminOrderActionError('PROVIDER_UNAVAILABLE', safeProviderMessage(error));
-    }
+  const providerCharge = input.captureMinor > 0
+    ? internalWalletCharge({ amountMinor: input.captureMinor, currency: reservation.currency }, input.order.id,
+        reservation.id, reservation.row_version, `${input.resolution.idempotencyKey}:wallet-capture`, new Date(input.resolution.createdAt))
+    : null;
+  if(providerCharge){
+    const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[reservation.user_id]);
+    if(!wallet.rows[0])throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Customer wallet was not found.');
+    await client.query(`INSERT INTO wallet_entries
+      (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+      VALUES ($1,$2,'ORDER_CAPTURE_DEBIT','DEBIT',$3,'USD','FUND_RESERVATION',$4,$5,$6,$6)`,
+      [deterministicUuid(`${providerCharge.idempotencyKey}:entry`),wallet.rows[0].id,input.captureMinor,reservation.id,providerCharge.idempotencyKey,new Date(input.resolution.createdAt)]);
+    await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,new Date(input.resolution.createdAt)]);
   }
 
   let sequence = await nextFundReservationSequence(client, reservation.id);
@@ -1238,7 +1158,7 @@ FOR UPDATE OF fr
     await insertResolutionOrderCharge(client, {
       order: input.order,
       reservationId: reservation.id,
-      provider: reservation.provider ?? input.providerKey,
+      provider: 'INTERNAL_WALLET',
       providerCharge,
       idempotencyKey: input.resolution.idempotencyKey,
       createdAt: input.resolution.createdAt
@@ -1372,6 +1292,9 @@ async function insertRefundAndCorrections(client: OrderQueryClient, input: {
   resolutionId: string | null;
 }): Promise<void> {
   const refund = input.refund;
+  if(refund.currency!=='USD')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use USD.');
+  const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[refund.beneficiaryUserId]);
+  if(!wallet.rows[0])throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Customer wallet was not found.');
   await client.query(
     `
 INSERT INTO refunds (
@@ -1408,6 +1331,11 @@ VALUES (
       new Date(refund.createdAt)
     ]
   );
+  await client.query(`INSERT INTO wallet_entries
+    (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+    VALUES ($1,$2,'ORDER_REFUND_CREDIT','CREDIT',$3,'USD','ORDER_REFUND',$4,$5,$6,$6)`,
+    [deterministicUuid(`${refund.idempotencyKey}:wallet-entry`),wallet.rows[0].id,refund.amountMinor,refund.id,`${refund.idempotencyKey}:wallet`,new Date(refund.createdAt)]);
+  await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,new Date(refund.createdAt)]);
   const sourceConsumption = await client.query<{ id: string; amount_minor: string | number }>(
     `
 SELECT id, amount_minor
@@ -1761,7 +1689,7 @@ function parseMoney(value: unknown, field: string, positive: boolean): { amountM
   if (!Number.isInteger(amountMinor) || (amountMinor as number) < (positive ? 1 : 0)) {
     throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.amountMinor is invalid.`);
   }
-  if (currency !== 'CNY' && currency !== 'USD') {
+  if (currency !== 'USD') {
     throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.currency is invalid.`);
   }
   return { amountMinor: amountMinor as number, currency: currency as Currency };

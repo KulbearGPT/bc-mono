@@ -129,8 +129,7 @@ const server = buildApiServer({
     orderStore,
     accountStore,
     catalogStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     staffTaskStore
   },
   player: {
@@ -154,9 +153,7 @@ const server = buildApiServer({
     store: riskEventStore
   },
   adminOrders: {
-    orderStore: adminOrderActionStore,
-    fundingAdapter,
-    providerKey
+    orderStore: adminOrderActionStore
   },
   paymentWebhook: {
     fundingAdapter,
@@ -166,8 +163,7 @@ const server = buildApiServer({
     store: giftStore,
     orderStore,
     accountStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     broadcastChannelId: giftBroadcastChannelId
   },
   playerEarnings: {
@@ -189,7 +185,7 @@ const server = buildApiServer({
   },
   customerProfiles: {
     store: customerProfileStore,
-    fundingAdapter
+    walletFunding: walletStore
   },
   wallet: { service: walletStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
   dashboardAuth: dashboardAuthStore ? {
@@ -207,7 +203,7 @@ const server = buildApiServer({
   dashboardMetrics: dashboardAuthStore ? {
     store: new PostgresDashboardMetricsStore(databasePool),
     timeZone: 'Asia/Shanghai',
-    currency: 'CNY'
+    currency: 'USD'
   } : undefined,
   supportWorkbench: {
     store: new PostgresSupportWorkbenchStore(databasePool)

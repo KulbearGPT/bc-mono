@@ -17,7 +17,7 @@ export interface DashboardMetricsSummary {
   windowStart: string;
   windowEnd: string;
   timeZone: 'Asia/Shanghai';
-  currency: 'CNY';
+  currency: 'USD';
   metrics: {
     todayOrderCount: number;
     inProgressOrderCount: number;
@@ -37,7 +37,7 @@ export interface DashboardMetricsStore {
     guildId: string | null;
     now: Date;
     timeZone: 'Asia/Shanghai';
-    currency: 'CNY';
+    currency: 'USD';
   }): Promise<DashboardMetricsSummary> | DashboardMetricsSummary;
 }
 
