@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, test, vi } from 'vitest';
-import { ButtonStyle } from 'discord.js';
 import {
   HttpBotApiClient,
   buildCurrentUserProfileMessage,
@@ -14,7 +13,7 @@ import {
 import { toDiscordReply } from '../apps/bot/src/discord-renderer';
 
 const actor: BotActorContext = { guildId: '900000000000006500', discordUserId: '900000000000006501', interactionId: '900000000000006509', clientSource: 'DISCORD_BOT' };
-const balance = { providerBalanceMinor: 8_000, reservedMinor: 3_000, availableMinor: 5_000, currency: 'CNY', fetchedAt: '2026-07-19T20:00:00.000Z', stale: false, providerError: null };
+const balance = { ledgerBalanceMinor: 8_000, reservedMinor: 3_000, availableMinor: 5_000, currency: 'USD' as const, calculatedAt: '2026-07-19T20:00:00.000Z', version: 1 };
 
 describe('M6-US-05 Sapphire private profiles and reports', () => {
   test('keeps the API client thin and sends only actor context plus cursor/report ID', async () => {
@@ -37,23 +36,22 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
     expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/userId|playerId/u);
   });
 
-  test('renders profile, recharge Link Button, refresh, orders and consumptions as ephemeral panels', () => {
+  test('renders the internal wallet, refresh, orders and consumptions as ephemeral panels', () => {
     const profile = buildCurrentUserProfileMessage({ user: { userId: 'u', discordUserId: actor.discordUserId, displayName: '客户甲', status: 'ACTIVE' },
-      balance, statistics: { orderCount: 2, activeOrderCount: 1, orderSpendMinor: 20_000, giftSpendMinor: 2_000, totalConsumptionMinor: 22_000, currency: 'CNY' },
-      activeReservationCount: 1, rechargeUrl: 'https://payments.example.test/recharge' });
+      balance, statistics: { orderCount: 2, activeOrderCount: 1, orderSpendMinor: 20_000, giftSpendMinor: 2_000, totalConsumptionMinor: 22_000, currency: 'USD' },
+      activeReservationCount: 1 });
     expect(profile.visibility).toBe('EPHEMERAL');
-    expect(profile.body).toMatch(/总余额.*预留.*可用/su);
+    expect(profile.body).toMatch(/账本余额.*预留.*可用/su);
     const rendered = toDiscordReply(profile);
-    const link = rendered.components?.flatMap((row: any) => row.components).find((component: any) => component.data?.style === ButtonStyle.Link) as any;
-    expect(link?.data.url).toBe('https://payments.example.test/recharge');
+    expect(JSON.stringify(rendered.components)).not.toMatch(/https?:\/\/|LINK/u);
     expect(JSON.stringify(profile)).toContain('bc:profile:refresh');
     expect(JSON.stringify(profile)).toContain('bc:profile:orders:first');
     expect(JSON.stringify(profile)).toContain('bc:profile:consumptions:first');
 
     const signedCursor = `c1_${'A'.repeat(56)}`;
     const orders = buildCurrentUserOrdersMessage({ items: [{ id: 'o1', publicId: 'P-1', status: 'COMPLETED', gameKey: 'VALORANT', serviceKey: 'RANKED',
-      playerDisplayName: null, amountMinor: 10_000, currency: 'CNY', createdAt: '2026-07-19T18:00:00.000Z', completedAt: '2026-07-19T19:00:00.000Z' }], nextCursor: signedCursor });
-    const spend = buildCurrentUserConsumptionsMessage({ items: [{ id: 'c1', type: 'GIFT', sourceId: 'g1', amountMinor: 2_000, currency: 'CNY', status: 'SUCCEEDED', targetDisplay: '礼物', occurredAt: '2026-07-19T18:00:00.000Z', reversalOf: null }], nextCursor: signedCursor });
+      playerDisplayName: null, amountMinor: 10_000, currency: 'USD', createdAt: '2026-07-19T18:00:00.000Z', completedAt: '2026-07-19T19:00:00.000Z' }], nextCursor: signedCursor });
+    const spend = buildCurrentUserConsumptionsMessage({ items: [{ id: 'c1', type: 'GIFT', sourceId: 'g1', amountMinor: 2_000, currency: 'USD', status: 'SUCCEEDED', targetDisplay: '礼物', occurredAt: '2026-07-19T18:00:00.000Z', reversalOf: null }], nextCursor: signedCursor });
     expect(JSON.stringify(orders)).toContain(`bc:profile:orders:${signedCursor}`);
     expect(JSON.stringify(spend)).toContain(`bc:profile:consumptions:${signedCursor}`);
     expect(orders.visibility).toBe('EPHEMERAL');
@@ -67,7 +65,7 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
 
   test('renders only current-player report list/detail with stable private pagination IDs', () => {
     const report = { id: '00000000-0000-0000-0000-000000006550', reportType: 'PLAYER' as const, periodStart: '2026-07-12T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
-      timeZone: 'Asia/Shanghai', currency: 'CNY', status: 'READY', currentRevision: 1, metrics: { completedOrderCount: 3, cancelledOrderCount: 1, serviceMinutes: 180,
+      timeZone: 'Asia/Shanghai', currency: 'USD', status: 'READY', currentRevision: 1, metrics: { completedOrderCount: 3, cancelledOrderCount: 1, serviceMinutes: 180,
         orderEarningMinor: 12_000, giftEarningMinor: 1_000, adjustmentMinor: 0, pendingMinor: 2_000, settlementReadyMinor: 11_000, batchedMinor: 0 }, detailSnapshot: {} };
     const signedCursor = `c1_${'B'.repeat(31)}`;
     const list = buildCurrentPlayerWeeklyReportListMessage({ items: [report], nextCursor: signedCursor });

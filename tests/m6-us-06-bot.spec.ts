@@ -1,6 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { ButtonStyle } from 'discord.js';
 import { buildServiceLifecyclePanelMessage, HttpBotApiClient, parseServiceCenterCustomId, type BotActorContext } from '@blackcat/bot/service-center';
 import { buildGiftAffordabilityMessage, buildGiftPanel, createGiftContinuationToken,
   readGiftContinuationToken, buildGiftCatalogMessage } from '@blackcat/bot/gifts';
@@ -9,16 +8,16 @@ import { toDiscordReply } from '../apps/bot/src/discord-renderer';
 const actor: BotActorContext = { guildId: '900000000000006600', discordUserId: '900000000000006601',
   interactionId: '900000000000006609', clientSource: 'DISCORD_BOT' };
 const result = { giftCatalogVersionId: '00000000-0000-0000-0000-000000006610', catalogVersion: 4,
-  priceMinor: 8_800, providerBalanceMinor: 5_000, reservedMinor: 1_200, availableMinor: 3_800,
-  shortfallMinor: 5_000, currency: 'CNY', fetchedAt: '2026-07-19T21:00:00.000Z', stale: false,
-  canAfford: false, rechargeUrl: 'https://payments.example.test/recharge/guild-6600' };
+  priceMinor: 8_800, ledgerBalanceMinor: 5_000, reservedMinor: 1_200, availableMinor: 3_800,
+  shortfallMinor: 5_000, currency: 'USD', calculatedAt: '2026-07-19T21:00:00.000Z', stale: false,
+  canAfford: false, topUpInstructions: '联系客服并提交付款 receipt。' };
 
 describe('M6-US-06 Sapphire recharge continuation', () => {
   test('keeps every enabled catalog option selectable regardless of affordability', () => {
     const panel = buildGiftPanel({ orderId: 'order-1', orderPublicId: 'P-1', receiver: { userId: 'player-1', displayName: '阿岚' },
-      balance: { providerBalanceMinor: 5_000, reservedMinor: 3_000, availableMinor: 2_000, currency: 'CNY', fetchedAt: result.fetchedAt },
-      items: [{ id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1_800, currency: 'CNY', affordable: true },
-        { id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4, priceMinor: 8_800, currency: 'CNY', affordable: false }] });
+      balance: { ledgerBalanceMinor: 5_000, reservedMinor: 3_000, availableMinor: 2_000, currency: 'USD', calculatedAt: result.calculatedAt },
+      items: [{ id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1_800, currency: 'USD', affordable: true },
+        { id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4, priceMinor: 8_800, currency: 'USD', affordable: false }] });
     expect(panel.options).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'gift-18', disabled: false }),
       expect.objectContaining({ value: result.giftCatalogVersionId, disabled: false })
@@ -26,14 +25,14 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     expect(panel).not.toHaveProperty('receiverInput');
   });
 
-  test('renders an ephemeral deficit-only panel with Link, refresh, and back controls', () => {
+  test('renders an ephemeral deficit-only panel with support, refresh, and back controls', () => {
     const message = buildGiftAffordabilityMessage(result, 'ctx_abc123');
     expect(message.visibility).toBe('EPHEMERAL');
-    expect(message.body).toContain('¥50.00');
+    expect(message.body).toContain('USD\u00a050.00');
     expect(message.body).not.toMatch(/总余额|可用余额|预留/u);
     const rendered = toDiscordReply(message);
     const buttons = rendered.components!.flatMap((row: any) => row.components);
-    expect(buttons.find((button: any) => button.data.style === ButtonStyle.Link)?.data.url).toBe(result.rechargeUrl);
+    expect(JSON.stringify(buttons)).not.toMatch(/https?:\/\/|LINK/u);
     expect(JSON.stringify(message)).toContain('bc:gift:refresh:ctx_abc123');
     expect(JSON.stringify(message)).toContain('bc:gift:back:ctx_abc123');
     expect(JSON.stringify(message)).not.toContain('bc:gift:confirm:ctx_abc123');
@@ -42,10 +41,10 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
 
   test('blocks stale confirmation and shows confirm only for the current affordable snapshot', () => {
     expect(JSON.stringify(buildGiftAffordabilityMessage({ ...result, stale: true, canAfford: false }, 'ctx_stale'))).not.toContain('gift:confirm');
-    const affordable = buildGiftAffordabilityMessage({ ...result, providerBalanceMinor: 10_000, availableMinor: 8_800,
+    const affordable = buildGiftAffordabilityMessage({ ...result, ledgerBalanceMinor: 10_000, availableMinor: 8_800,
       shortfallMinor: 0, canAfford: true }, 'ctx_ready');
     expect(JSON.stringify(affordable)).toContain('bc:gift:confirm:ctx_ready');
-    expect(affordable.body).toMatch(/¥88\.00.*确认/u);
+    expect(affordable.body).toMatch(/USD\u00a088\.00.*确认/u);
   });
 
   test('uses an expiring HMAC short token with no receiver input or server-side registry', () => {
@@ -74,10 +73,10 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
   test('renders native enabled gift buttons and wires refresh/reconfirm through the shared API handler', async () => {
     const secret = 'm6-us-06-test-signing-secret-at-least-32-bytes';
     const message = buildGiftCatalogMessage({ orderId: '00000000-0000-0000-0000-000000006601', orderPublicId: 'P-6601',
-      receiver: { userId: 'player-derived', displayName: '阿岚' }, balance: { providerBalanceMinor: 5_000,
-        reservedMinor: 10_200, availableMinor: -5_200, currency: 'CNY', fetchedAt: result.fetchedAt },
+      receiver: { userId: 'player-derived', displayName: '阿岚' }, balance: { ledgerBalanceMinor: 5_000,
+        reservedMinor: 10_200, availableMinor: -5_200, currency: 'USD', calculatedAt: result.calculatedAt },
       items: [{ id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4,
-        priceMinor: 8_800, currency: 'CNY', affordable: false }] }, 7, actor, secret,
+        priceMinor: 8_800, currency: 'USD', affordable: false }] }, 7, actor, secret,
     new Date('2026-07-19T21:00:00.000Z'));
     const button = message.components[0]!.components[0]!;
     expect(button).toMatchObject({ type: 'BUTTON', disabled: false });
@@ -91,7 +90,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     const orderPanel = buildServiceLifecyclePanelMessage({ orderId: '00000000-0000-0000-0000-000000006601',
       publicId: 'P-6601', status: 'IN_SERVICE', version: 7, actorRole: 'CUSTOMER', readiness: {
         customer: 'READY', player: 'READY', bothReady: true, readyDeadlineAt: null,
-        startedAt: result.fetchedAt, staffTaskId: null } });
+        startedAt: result.calculatedAt, staffTaskId: null } });
     const openId = (orderPanel.components[0]!.components.find((item) => item.type === 'BUTTON' && item.label === '赠送礼物') as any).customId;
     expect(parseServiceCenterCustomId(openId)).toEqual({ area: 'gift', action: 'open',
       orderId: '00000000-0000-0000-0000-000000006601', expectedVersion: 7 });

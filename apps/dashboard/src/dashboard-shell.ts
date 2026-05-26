@@ -66,6 +66,8 @@ export function createDashboardApiClient(options: {
     post(path: string, body: unknown, idempotencyKey?: string) {
       return write('POST', path, body, idempotencyKey);
     },
+    upload(path:string,body:FormData,idempotencyKey?:string){const csrfToken=readCookie(cookie(),'p0_csrf');return request(path,{method:'POST',credentials:'include',
+      headers:{accept:'application/json','x-client-source':'DASHBOARD','x-csrf-token':csrfToken??'','idempotency-key':idempotencyKey??`dashboard:${crypto.randomUUID()}`},body});},
     put(path: string, body: unknown, idempotencyKey?: string) { return write('PUT', path, body, idempotencyKey); },
     patch(path: string, body: unknown, idempotencyKey?: string) { return write('PATCH', path, body, idempotencyKey); }
   };

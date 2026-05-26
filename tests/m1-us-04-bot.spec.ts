@@ -1,12 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
   buildDiscordIdempotencyKey,
-  buildBindingModal,
   buildOrderNotesModal,
   buildOrderPanelMessage,
   buildPrivateOrderChannelPlan,
   buildPublicServiceEntryMessage,
-  handleBindingSubmit,
   handleCreateOrderFromPublicEntry,
   handleOrderNotesSubmit,
   handleOrderSelectSubmit,
@@ -43,7 +41,7 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     billingUnitMinutes: 60,
     unitCount: 2,
     amountMinor: 12_000,
-    currency: 'CNY',
+    currency: 'USD',
     notes: '轻松交流，不急着上分',
     channelSpec: {
       channelId: '120000000000000001',
@@ -56,7 +54,6 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
 
 function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
   return {
-    createBinding: vi.fn(),
     createOrder: vi.fn().mockResolvedValue({ statusCode: 201, order: draftOrder() }),
     reportChannelCreationFailure: vi.fn().mockResolvedValue(undefined),
     updateOrder: vi.fn().mockResolvedValue(draftOrder({ version: 4 })),
@@ -81,22 +78,6 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
       }
     ]);
     expect(JSON.stringify(message)).not.toMatch(/balance|余额|available|reserved/i);
-  });
-
-  test('binding modal uses one native text field and no custom modal buttons or select cascade', () => {
-    const modal = buildBindingModal({ sessionId: 'sess-001' });
-
-    expect(modal.title).toBe('绑定业务账户');
-    expect(modal.customId).toBe('bc:modal:binding:sess-001');
-    expect(modal.components).toHaveLength(1);
-    expect(modal.components[0]).toMatchObject({
-      type: 'TEXT_INPUT',
-      customId: 'bindingCode',
-      label: '一次性绑定码',
-      required: true
-    });
-    expect(modal.components.every((component) => component.type === 'TEXT_INPUT')).toBe(true);
-    expect(JSON.stringify(modal)).not.toMatch(/BUTTON|SELECT|credentialValue|BIND-/);
   });
 
   test('notes modal is a single optional text field bound to expected order version', () => {
@@ -145,7 +126,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     expect(message.title).toBe('订单 #P-1042');
     expect(message.body).toContain('无畏契约');
     expect(message.body).toContain('娱乐陪玩');
-    expect(message.body).toContain('¥120.00');
+    expect(message.body).toContain('USD\u00a0120.00');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
       expect.arrayContaining([
         `bc:select:order:${orderId}:game:v3`,
@@ -171,10 +152,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
       orderId,
       expectedVersion: 3
     });
-    expect(parseServiceCenterCustomId('bc:modal:binding:sess-001')).toEqual({
-      area: 'binding-modal',
-      sessionId: 'sess-001'
-    });
+    expect(parseServiceCenterCustomId('bc:modal:binding:sess-001')).toEqual({ area: 'unknown' });
     expect(parseServiceCenterCustomId('bc:select:order:not-a-uuid:duration:v3')).toEqual({ area: 'unknown' });
     expect(buildDiscordIdempotencyKey('order:update', interactionId)).toBe('discord:order:update:777777777777777777');
   });
@@ -194,7 +172,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
 });
 
 describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning business logic', () => {
-  test('create order opens binding modal when API reports the Discord user is not bound', async () => {
+  test('create order directs an unavailable account to support', async () => {
     const client = api({
       createOrder: vi.fn().mockRejectedValue({
         code: 'ACCOUNT_NOT_BOUND',
@@ -226,8 +204,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
       actor(),
       'discord:create-order:777777777777777777'
     );
-    expect(result.kind).toBe('SHOW_MODAL');
-    expect(result.modal).toMatchObject({ title: '绑定业务账户' });
+    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' });
   });
 
   test('create order returns existing active channel without planning a second submittable order', async () => {
@@ -279,27 +256,6 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
     expect(report).toHaveBeenCalledTimes(3);
     expect(first).toEqual(second);
     expect(first).toMatchObject({ kind: 'CHANNEL_CREATION_FAILED', message: expect.not.stringContaining('故障记录上报失败') });
-  });
-
-  test('binding submit sends one-time code to createBinding and never exposes the code in the UI result', async () => {
-    const client = api({
-      createBinding: vi.fn().mockResolvedValue({ userId: '00000000-0000-0000-0000-00000000a001' })
-    });
-
-    const result = await handleBindingSubmit({
-      api: client,
-      actor: actor(),
-      bindingCode: 'BIND-OK',
-      idempotencyKey: 'discord:binding:777777777777777777'
-    });
-
-    expect(client.createBinding).toHaveBeenCalledWith(
-      { credentialType: 'ONE_TIME_CODE', credentialValue: 'BIND-OK', expectedCurrency: 'CNY' },
-      actor(),
-      'discord:binding:777777777777777777'
-    );
-    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '绑定完成，可以继续创建订单。' });
-    expect(JSON.stringify(result)).not.toContain('BIND-OK');
   });
 
   test('structured select submit calls updateOrder with expectedVersion and edits the original panel', async () => {

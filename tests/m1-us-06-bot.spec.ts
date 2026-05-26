@@ -36,19 +36,20 @@ function currentUser(overrides: Record<string, unknown> = {}) {
       version: 2
     },
     activeOrderId,
-    consumptionSummary: { totalMinor: 0, currency: 'CNY' },
-    commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
+    consumptionSummary: { totalMinor: 0, currency: 'USD' },
+    commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' },
     ...overrides
   };
 }
 
 function balance() {
   return {
-    providerBalanceMinor: 20_000,
+    ledgerBalanceMinor: 20_000,
     reservedMinor: 12_000,
     availableMinor: 8_000,
-    currency: 'CNY',
-    fetchedAt: '2026-07-17T22:00:00.000Z'
+    currency: 'USD',
+    calculatedAt: '2026-07-17T22:00:00.000Z',
+    version: 1
   };
 }
 
@@ -64,7 +65,7 @@ function currentOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     billingUnitMinutes: 60,
     unitCount: 2,
     amountMinor: 12_000,
-    currency: 'CNY',
+    currency: 'USD',
     notes: null,
     channelSpec: {
       channelId: '120000000000000001',
@@ -77,7 +78,6 @@ function currentOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
 
 function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
   return {
-    createBinding: vi.fn(),
     createOrder: vi.fn(),
     getOrder: vi.fn().mockResolvedValue(currentOrder()),
     updateOrder: vi.fn(),
@@ -85,7 +85,7 @@ function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
     getCurrentBalance: vi.fn().mockResolvedValue(balance()),
     listCurrentUserConsumptions: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listCurrentUserCommissions: vi.fn().mockResolvedValue({
-      summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
+      summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' },
       items: [],
       nextCursor: null
     }),
@@ -101,7 +101,7 @@ describe('M1-US-06 private service center Discord flow', () => {
       activeOrder: currentOrder(),
       consumptions: { items: [], nextCursor: null },
       commissions: {
-        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
+        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' },
         items: [],
         nextCursor: null
       }
@@ -109,9 +109,9 @@ describe('M1-US-06 private service center Discord flow', () => {
 
     expect(message.visibility).toBe('EPHEMERAL');
     expect(message.title).toBe('我的服务中心');
-    expect(message.body).toContain('总余额：¥200.00');
-    expect(message.body).toContain('预留中：¥120.00');
-    expect(message.body).toContain('可用余额：¥80.00');
+    expect(message.body).toContain('账本余额：USD\u00a0200.00');
+    expect(message.body).toContain('预留中：USD\u00a0120.00');
+    expect(message.body).toContain('可用余额：USD\u00a080.00');
     expect(message.body).toContain('当前订单：#P-1042 · PENDING_DISPATCH');
     expect(message.body).toContain('消费记录：暂无记录');
     expect(message.body).toContain('我的收益：暂无可领取记录');
@@ -145,7 +145,7 @@ describe('M1-US-06 private service center Discord flow', () => {
     expect(result.message.body).toContain('当前订单：#P-1042');
   });
 
-  test('falls back to binding modal when API says the actor is not bound', async () => {
+  test('directs an unavailable account to support', async () => {
     const client = api({
       getCurrentUser: vi.fn().mockRejectedValue(
         new BotApiError({
@@ -162,8 +162,7 @@ describe('M1-US-06 private service center Discord flow', () => {
       actor: actor()
     });
 
-    expect(result.kind).toBe('SHOW_MODAL');
-    expect(result.modal.title).toBe('绑定业务账户');
+    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' });
   });
 });
 

@@ -19,4 +19,4 @@ export function buildCustomerProfileView(modules: CustomerProfileModules): Custo
   hasVisibleContent: Object.values(modules).some((module) => module.kind === 'READY' || module.kind === 'EMPTY' || (module.kind === 'ERROR' && 'data' in module && module.data)) }; }
 export function appendCursor(path: string, cursor: string) { return `${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`; }
 export function formatProfileMoney(value: unknown, currency: unknown) { if (!Number.isSafeInteger(value)) return '—'; return new Intl.NumberFormat('zh-CN', {
-  style: 'currency', currency: typeof currency === 'string' ? currency : 'CNY', minimumFractionDigits: 2 }).format(Number(value) / 100); }
+  style: 'currency', currency: typeof currency === 'string' ? currency : 'USD', currencyDisplay:'code', minimumFractionDigits: 2 }).format(Number(value) / 100); }

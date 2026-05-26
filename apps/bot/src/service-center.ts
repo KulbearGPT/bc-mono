@@ -60,11 +60,12 @@ export interface CurrentUserSummary {
 }
 
 export interface BalanceSummary {
-  providerBalanceMinor: number;
+  ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
-  currency: string;
-  fetchedAt: string;
+  currency: 'USD';
+  calculatedAt: string;
+  version: number;
 }
 
 export interface ConsumptionPage {
@@ -75,11 +76,9 @@ export interface ConsumptionPage {
 
 export interface CurrentUserProfileSummary {
   user: { userId: string; discordUserId: string; displayName: string; status: string };
-  balance: { providerBalanceMinor: number | null; reservedMinor: number | null; availableMinor: number | null; currency: string | null;
-    fetchedAt: string | null; stale: boolean; providerError: { code: string; retryable: boolean; requestId: string } | null };
+  balance: BalanceSummary;
   statistics: { orderCount: number; activeOrderCount: number; orderSpendMinor: number; giftSpendMinor: number; totalConsumptionMinor: number; currency: string };
   activeReservationCount: number;
-  rechargeUrl: string;
 }
 
 export interface CurrentUserOrderPage {
@@ -281,11 +280,6 @@ export interface OrderCompletionSummary {
 }
 
 export interface BotApiClient {
-  createBinding(
-    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<unknown>;
   createOrder(
     input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
     actor: BotActorContext,
@@ -407,19 +401,6 @@ export class HttpBotApiClient implements BotApiClient {
   public constructor(input: { apiBaseUrl: string; botServiceToken: string }) {
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
     this.botServiceToken = input.botServiceToken;
-  }
-
-  public async createBinding(
-    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<unknown> {
-    return this.request('/api/v1/bindings', {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input
-    });
   }
 
   public async createOrder(
@@ -861,7 +842,6 @@ export type ServiceCenterRoute =
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
-  | { area: 'binding-modal'; sessionId: string }
   | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
   | { area: 'reports'; action: 'list'; cursor?: string }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
@@ -881,23 +861,6 @@ export function buildPublicServiceEntryMessage(): MessageSpec {
           { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '创建订单' },
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '我的服务中心' }
         ]
-      }
-    ]
-  };
-}
-
-export function buildBindingModal(input: { sessionId: string }): ModalSpec {
-  return {
-    title: '绑定业务账户',
-    customId: `bc:modal:binding:${input.sessionId}`,
-    components: [
-      {
-        type: 'TEXT_INPUT',
-        customId: 'bindingCode',
-        label: '一次性绑定码',
-        style: 'SHORT',
-        required: true,
-        maxLength: 64
       }
     ]
   };
@@ -1112,13 +1075,13 @@ export function buildServiceCenterMessage(input: {
     title: '我的服务中心',
     body: [
       `账户：${input.currentUser.user.displayName}`,
-      `总余额：${formatMoney(input.balance.providerBalanceMinor, input.balance.currency)}`,
+      `账本余额：${formatMoney(input.balance.ledgerBalanceMinor, input.balance.currency)}`,
       `预留中：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
       `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
       activeOrderLine,
       consumptionLine,
       commissionLine,
-      `更新时间：${input.balance.fetchedAt}`
+      `计算时间：${input.balance.calculatedAt}`
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
@@ -1142,28 +1105,40 @@ export function buildServiceCenterMessage(input: {
   };
 }
 
+export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec {
+  return {
+    title: '我的 USD 钱包',
+    body: [
+      `账本余额：${formatMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `已预留：${formatMoney(balance.reservedMinor, balance.currency)}`,
+      `可用余额：${formatMoney(balance.availableMinor, balance.currency)}`,
+      `计算时间：${balance.calculatedAt}`
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [{ type: 'ACTION_ROW', components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '刷新' }
+    ] }]
+  };
+}
+
 export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary): MessageSpec {
   const balance = input.balance;
-  const currency = balance.currency ?? input.statistics.currency;
-  const unavailable = balance.providerBalanceMinor === null;
   return {
     title: '个人中心',
     body: [
       `账户：${input.user.displayName}`,
-      unavailable ? '总余额：暂不可用' : `总余额：${formatMoney(balance.providerBalanceMinor!, currency)}`,
-      unavailable ? '预留：暂不可用' : `预留：${formatMoney(balance.reservedMinor!, currency)}`,
-      unavailable ? '可用：暂不可用' : `可用：${formatMoney(balance.availableMinor!, currency)}`,
+      `账本余额：${formatMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `预留：${formatMoney(balance.reservedMinor, balance.currency)}`,
+      `可用：${formatMoney(balance.availableMinor, balance.currency)}`,
       `进行中订单：${input.statistics.activeOrderCount}`,
       `累计订单消费：${formatMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
       `累计礼物消费：${formatMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
-      balance.fetchedAt ? `余额时间：${balance.fetchedAt}${balance.stale ? '（陈旧）' : ''}` : '余额时间：暂无成功快照',
-      balance.providerError ? `余额刷新失败 · request_id: ${balance.providerError.requestId}` : null
+      `余额计算时间：${balance.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       { type: 'ACTION_ROW', components: [
-        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:refresh', label: '刷新余额' },
-        { type: 'LINK_BUTTON', style: 'LINK', url: input.rechargeUrl, label: '前往充值' }
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:refresh', label: '刷新余额' }
       ] },
       { type: 'ACTION_ROW', components: [
         { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:orders:first', label: '我的订单' },
@@ -1536,7 +1511,7 @@ export function buildOrderConfirmationMessage(input: {
           },
           { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.order.id}:refresh:v${input.order.version}`, label: '刷新确认' },
           { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.order.id}:cancel:v${input.order.version}`, label: '取消订单' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '前往充值', disabled: deficitMinor === 0 }
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '联系客服充值', disabled: deficitMinor === 0 }
         ]
       }
     ]
@@ -1754,7 +1729,7 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开服务中心失败') };
   }
@@ -1868,31 +1843,9 @@ export async function handleCreateOrderFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '创建订单失败') };
-  }
-}
-
-export async function handleBindingSubmit(input: {
-  api: BotApiClient;
-  actor: BotActorContext;
-  bindingCode: string;
-  idempotencyKey: string;
-}): Promise<BotFlowResult> {
-  try {
-    await input.api.createBinding(
-      {
-        credentialType: 'ONE_TIME_CODE',
-        credentialValue: input.bindingCode,
-        expectedCurrency: 'CNY'
-      },
-      input.actor,
-      input.idempotencyKey
-    );
-    return { kind: 'EPHEMERAL_MESSAGE', message: '绑定完成，可以继续创建订单。' };
-  } catch (error) {
-    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '绑定失败') };
   }
 }
 
@@ -2001,11 +1954,6 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       orderId: notesModal[1],
       expectedVersion: Number.parseInt(notesModal[2], 10)
     };
-  }
-
-  const bindingModal = /^bc:modal:binding:([A-Za-z0-9_-]{4,80})$/u.exec(customId);
-  if (bindingModal) {
-    return { area: 'binding-modal', sessionId: bindingModal[1] };
   }
 
   const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
@@ -2119,8 +2067,8 @@ function formatEstimateDuration(estimate: OrderEstimateSummary): string {
 }
 
 function formatMoney(amountMinor: number, currency: string): string {
-  const prefix = currency === 'CNY' ? '¥' : `${currency} `;
-  return `${prefix}${(amountMinor / 100).toFixed(2)}`;
+  const prefix = `${currency}\u00a0`;
+  return `${prefix}${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
 }
 
 function missingConfirmationFields(order: OrderSummary): string[] {
@@ -2152,7 +2100,7 @@ function confirmationBlockedReason(input: {
   if (input.currencyMismatch) {
     return '币种不一致：请联系客服处理后再确认。';
   }
-  return `余额不足：还差 ${formatMoney(input.deficitMinor, input.estimateCurrency)}，请充值后刷新确认。`;
+  return `余额不足：还差 ${formatMoney(input.deficitMinor, input.estimateCurrency)}，请联系客服并提交付款 receipt，到账后刷新确认。`;
 }
 
 function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {

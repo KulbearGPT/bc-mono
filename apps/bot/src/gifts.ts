@@ -20,8 +20,8 @@ export interface GiftRequestResult {
 
 export interface GiftAffordabilityResult {
   giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
-  providerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
-  currency: string; fetchedAt: string; stale: boolean; canAfford: boolean; rechargeUrl: string;
+  ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
+  currency: 'USD'; calculatedAt: string; stale: boolean; canAfford: boolean; topUpInstructions: string;
 }
 
 export interface GiftContinuationContext {
@@ -29,11 +29,11 @@ export interface GiftContinuationContext {
 }
 
 interface BalanceData {
-  providerBalanceMinor: number;
+  ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
   currency: string;
-  fetchedAt: string;
+  calculatedAt: string;
 }
 
 export function buildGiftPanel(data: GiftPanelData) {
@@ -52,18 +52,20 @@ export function buildGiftPanel(data: GiftPanelData) {
 }
 
 export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, token: string): MessageSpec {
-  const contextButtons = data.canAfford && !data.stale
-    ? [{ type: 'BUTTON' as const, style: 'PRIMARY' as const, customId: customId('confirm', token), label: '确认赠送' }]
-    : [{ type: 'LINK_BUTTON' as const, style: 'LINK' as const, url: data.rechargeUrl, label: '前往充值' }];
+  const confirmationRow = data.canAfford && !data.stale
+    ? [{ type: 'ACTION_ROW' as const, components: [
+      { type: 'BUTTON' as const, style: 'PRIMARY' as const, customId: customId('confirm', token), label: '确认赠送' }
+    ] }]
+    : [];
   return {
     title: data.canAfford && !data.stale ? '确认礼物' : data.stale ? '余额需要刷新' : '余额不足',
     body: data.canAfford && !data.stale
       ? `${formatMinor(data.priceMinor, data.currency)} 可赠送。请基于当前价格确认。`
       : data.stale ? '当前余额已过期，请刷新后再确认。'
-        : `还差 ${formatMinor(data.shortfallMinor, data.currency)}。`,
+        : `还差 ${formatMinor(data.shortfallMinor, data.currency)}。${data.topUpInstructions}`,
     visibility: 'EPHEMERAL',
     components: [
-      { type: 'ACTION_ROW', components: contextButtons },
+      ...confirmationRow,
       { type: 'ACTION_ROW', components: [
         { type: 'BUTTON', style: 'SECONDARY', customId: customId('refresh', token), label: '刷新余额' },
         { type: 'BUTTON', style: 'SECONDARY', customId: customId('back', token), label: '返回礼物' }
@@ -163,5 +165,5 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
 }
 
 function formatMinor(amountMinor: number, currency: string): string {
-  return new Intl.NumberFormat('zh-CN', { style: 'currency', currency }).format(amountMinor / 100);
+  return `${currency}\u00a0${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
 }

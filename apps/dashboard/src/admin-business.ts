@@ -207,7 +207,7 @@ export function formatMinorCurrency(amountMinor: number, currency: string, local
   if (!Number.isSafeInteger(amountMinor)) {
     throw new TypeError('Amounts must use safe integer minor units.');
   }
-  const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency });
+  const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'code' });
   const fractionDigits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amountMinor / (10 ** fractionDigits));
 }

@@ -17,7 +17,7 @@ const actor: BotActorContext = {
 };
 const preview: CancellationPreviewSummary = {
   previewId, orderId, orderVersion: 3, automaticallyProcessable: true, fundAction: 'RELEASE_RESERVATION',
-  estimatedAmountMinor: 12000, releaseAmountMinor: 12000, refundAmountMinor: 0, currency: 'CNY',
+  estimatedAmountMinor: 12000, releaseAmountMinor: 12000, refundAmountMinor: 0, currency: 'USD',
   handlingTimeCode: 'IMMEDIATE', staffTaskRequired: false, validUntil: '2026-07-18T08:01:00.000Z'
 };
 
@@ -25,8 +25,8 @@ describe('M2-US-10 Bot cancellation preview flow', () => {
   test('renders API-provided impact and requires a second explicit confirmation', () => {
     const message = buildCancellationPreviewMessage(preview);
     expect(message.title).toContain('取消影响确认');
-    expect(message.body).toContain('释放预留：¥120.00');
-    expect(message.body).toContain('退款：¥0.00');
+    expect(message.body).toContain('释放预留：USD\u00a0120.00');
+    expect(message.body).toContain('退款：USD\u00a00.00');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual([
       `bc:cancel:${orderId}:${previewId}:confirm:v3`,
       'bc:entry:service-center'

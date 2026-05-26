@@ -32,17 +32,17 @@ function reservationResult() {
       amountMinor: 12_000,
       capturedMinor: 0,
       releasedMinor: 0,
-      currency: 'CNY',
+      currency: 'USD',
       status: 'ACTIVE',
       version: 1,
       expiresAt: '2026-07-17T23:30:00.000Z'
     },
     balance: {
-      providerBalanceMinor: 1_000_000,
+      ledgerBalanceMinor: 1_000_000,
       reservedMinor: 12_000,
       availableMinor: 988_000,
-      currency: 'CNY',
-      fetchedAt: '2026-07-17T23:00:00.000Z'
+      currency: 'USD',
+      calculatedAt: '2026-07-17T23:00:00.000Z'
     }
   };
 }
@@ -71,8 +71,8 @@ describe('M1-US-08 final submit Bot flow', () => {
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
     expect(message.title).toBe('订单已提交 · 正在匹配陪玩');
     expect(message.body).toContain('订单状态：PENDING_DISPATCH');
-    expect(message.body).toContain('本单预留：¥120.00');
-    expect(message.body).toContain('提交后可用余额：¥9880.00');
+    expect(message.body).toContain('本单预留：USD\u00a0120.00');
+    expect(message.body).toContain('提交后可用余额：USD\u00a09,880.00');
     expect(message.body).toContain('当前只预留金额，不产生正式消费。');
     expect(JSON.stringify(message)).not.toMatch(/playerEarning|playerPayout|陪玩结算/i);
   });
@@ -95,7 +95,7 @@ describe('M1-US-08 final submit Bot flow', () => {
       'discord:order:submit-final:777777777777777777'
     );
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.body).toContain('本单预留：¥120.00');
+    expect(result.message.body).toContain('本单预留：USD\u00a0120.00');
   });
 
   test('wires submit-final button to the final submit flow', async () => {

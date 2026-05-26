@@ -5,10 +5,25 @@ input, select, textarea { min-width: 0; border: 1px solid #9aabad; border-radius
 .dashboard-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 57px); }
 .dashboard-nav { padding: 16px; background: #fff; border-right: 1px solid #d9e1e3; min-width: 0; }
 .dashboard-nav a { display: block; padding: 10px 8px; color: #173238; }
+.wallet-panel { margin-top: 12px; padding: 16px; background: #fff; border: 1px solid #d8e1e3; border-radius: 6px; }
+.wallet-balance-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wallet-balance-grid > div { padding: 12px; border: 1px solid #e4eaeb; border-radius: 6px; }
+.wallet-balance-grid span, .wallet-balance-grid strong { display: block; }
+.wallet-balance-grid span { color: #64787c; font-size: 12px; }
+.wallet-balance-grid strong { margin-top: 4px; }
+.wallet-tabs { display: flex; gap: 8px; margin: 16px 0 10px; }
+.wallet-tabs button[aria-pressed='true'] { background: #173238; color: #fff; }
+.wallet-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.wallet-form label { display: grid; gap: 5px; }
+.wallet-form button { align-self: end; min-height: 38px; }
+.wallet-entry-scroll { overflow-x: auto; }
+.wallet-entry-scroll table { width: 100%; min-width: 620px; border-collapse: collapse; }
+.wallet-entry-scroll th, .wallet-entry-scroll td { padding: 9px; text-align: left; border-bottom: 1px solid #e4eaeb; }
 @media (max-width: 720px) {
   .dashboard-layout { grid-template-columns: minmax(0, 1fr); }
   .dashboard-nav { display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #d9e1e3; padding: 8px 12px; }
   .dashboard-nav a { flex: 0 0 auto; }
   h1 { font-size: 22px !important; }
   section { max-width: 100%; }
+  .wallet-balance-grid, .wallet-form { grid-template-columns: minmax(0, 1fr); }
 }
