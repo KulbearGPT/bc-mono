@@ -8,7 +8,8 @@
     "./gifts": "./src/gifts.ts",
     "./piece-manifest": "./src/piece-manifest.ts",
     "./role-sync": "./src/role-sync.ts",
-    "./service-center": "./src/service-center.ts"
+    "./service-center": "./src/service-center.ts",
+    "./wallet-display": "./src/wallet-display.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

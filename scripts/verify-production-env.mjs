@@ -29,6 +29,17 @@ export function validateProductionEnv(env) {
     if (value && !isHttps(value)) errors.push(`${key} must use HTTPS.`);
   }
   if (env.DISCORD_GUILD_ID && !/^[0-9]{17,20}$/u.test(env.DISCORD_GUILD_ID)) errors.push('DISCORD_GUILD_ID must be a Discord snowflake.');
+  if (env.WALLET_DISPLAY_NAME !== undefined || env.WALLET_DISPLAY_SYMBOL !== undefined) {
+    const displayName = env.WALLET_DISPLAY_NAME === undefined ? '猫币' : env.WALLET_DISPLAY_NAME.trim();
+    const symbol = env.WALLET_DISPLAY_SYMBOL === undefined ? 'MB' : env.WALLET_DISPLAY_SYMBOL.trim();
+    if ([...displayName].length < 1 || [...displayName].length > 20) {
+      errors.push('WALLET_DISPLAY_NAME must contain 1 to 20 Unicode characters.');
+    }
+    if (symbol !== (env.WALLET_DISPLAY_SYMBOL ?? symbol)
+      || [...symbol].length < 1 || [...symbol].length > 8 || !/^[\p{L}0-9_·-]+$/u.test(symbol)) {
+      errors.push('WALLET_DISPLAY_SYMBOL must contain 1 to 8 letters, ASCII digits, _, - or ·.');
+    }
+  }
   return errors;
 }
 
