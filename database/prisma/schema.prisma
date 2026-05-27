@@ -172,6 +172,28 @@ enum ExternalTransactionStatus {
   REFUNDED
 }
 
+enum SandboxProviderAccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum SandboxProviderAdjustmentDirection {
+  CREDIT
+  DEBIT
+}
+
+enum SandboxProviderTransactionOperation {
+  DEBIT
+  REFUND
+}
+
+enum SandboxProviderTransactionStatus {
+  UNKNOWN
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
 /// Refund execution lifecycle only. Refund aggregation lives on the original ExternalTransaction.
 enum RefundStatus {
   UNKNOWN
@@ -556,6 +578,70 @@ model ProviderBalanceSnapshot {
   @@map("provider_balance_snapshots")
 }
 
+/// Railway sandbox-only Provider account. This is not a production wallet or a FundReservation ledger.
+model SandboxProviderAccount {
+  id                    String                       @id @default(uuid()) @db.Uuid
+  externalUserId        String                       @unique @map("external_user_id") @db.VarChar(255)
+  displayName           String                       @map("display_name") @db.VarChar(200)
+  currency              String                       @default("CNY") @db.Char(3)
+  status                SandboxProviderAccountStatus @default(ACTIVE)
+  version               Int                          @default(1)
+  bindingCodeHash       String?                      @unique @map("binding_code_hash") @db.VarChar(128)
+  bindingCodeConsumedAt DateTime?                    @map("binding_code_consumed_at") @db.Timestamptz(3)
+  createdAt             DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  adjustments SandboxProviderBalanceAdjustment[]
+  transactions SandboxProviderTransaction[]
+
+  @@index([status])
+  @@map("sandbox_provider_accounts")
+}
+
+/// Append-only balance movement. Current Provider balance is SUM(CREDIT) - SUM(DEBIT).
+model SandboxProviderBalanceAdjustment {
+  id               String                             @id @default(uuid()) @db.Uuid
+  accountId        String                             @map("account_id") @db.Uuid
+  direction        SandboxProviderAdjustmentDirection
+  amountMinor      BigInt                             @map("amount_minor")
+  balanceBeforeMinor BigInt                           @map("balance_before_minor")
+  balanceAfterMinor  BigInt                           @map("balance_after_minor")
+  reasonCode       String                             @map("reason_code") @db.VarChar(100)
+  idempotencyKey   String                             @map("idempotency_key") @db.VarChar(200)
+  createdByStaffId String                             @map("created_by_staff_id") @db.Uuid
+  createdAt        DateTime                           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account        SandboxProviderAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByStaff StaffAccount           @relation("SandboxAdjustmentCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([accountId, idempotencyKey])
+  @@index([accountId, createdAt])
+  @@index([createdByStaffId, createdAt])
+  @@map("sandbox_provider_balance_adjustments")
+}
+
+/// Append-only normalized debit/refund result emitted by the sandbox FundingProvider adapter.
+model SandboxProviderTransaction {
+  id                String                              @id @default(uuid()) @db.Uuid
+  accountId         String                              @map("account_id") @db.Uuid
+  operation         SandboxProviderTransactionOperation
+  businessSource    FundReservationSourceType           @map("business_source")
+  businessSourceId  String                              @map("business_source_id") @db.Uuid
+  direction         LedgerDirection
+  amountMinor       BigInt                              @map("amount_minor")
+  currency          String                              @default("CNY") @db.Char(3)
+  status            SandboxProviderTransactionStatus
+  providerReference String                              @unique @map("provider_reference") @db.VarChar(255)
+  idempotencyKey    String                              @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt         DateTime                            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account SandboxProviderAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([businessSource, businessSourceId])
+  @@map("sandbox_provider_transactions")
+}
+
 /// Staff-only, append-only customer context. API projections never expose author identity below L3.
 model CustomerProfileNote {
   id            String   @id @default(uuid()) @db.Uuid
@@ -633,6 +719,7 @@ model StaffAccount {
   settlementPaymentsRecorded SettlementItem[]       @relation("SettlementPaymentRecordedBy")
   settlementPaymentResults   SettlementPaymentResult[] @relation("SettlementPaymentResultRecordedBy")
   weeklyReportRevisions      WeeklyReportRevision[] @relation("WeeklyReportRevisionCreatedBy")
+  sandboxBalanceAdjustments  SandboxProviderBalanceAdjustment[] @relation("SandboxAdjustmentCreatedBy")
 
   @@index([level, status])
   @@map("staff_accounts")

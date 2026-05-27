@@ -21,7 +21,7 @@ describe('M5-US-03 fail-closed release gate', () => {
     for (const id of externalIds) {
       expect(checklist.match(new RegExp(`\\b${id}\\b`, 'gu')) ?? []).toHaveLength(1);
     }
-    expect(externalIds).toHaveLength(47);
+    expect(externalIds).toHaveLength(51);
   });
 
   test('blocks the current candidate on external acceptance and unsigned roles', async () => {
@@ -69,7 +69,7 @@ describe('M5-US-03 fail-closed release gate', () => {
 
   test('passes only a complete synthetic P0 gate with four explicit approvals', () => {
     const candidate = `sha256:${'c'.repeat(64)}`;
-    const matrix = Array.from({ length: 175 }, (_, index) => index < 47
+    const matrix = Array.from({ length: 184 }, (_, index) => index < 51
       ? { acceptance_id: `AT-EXT-${index}`, execution_class: 'EXTERNAL_E2E',
           candidate_status: 'PASSED', external_candidate_ref: candidate }
       : { acceptance_id: `AT-AUTO-${index}`, execution_class: 'AUTOMATED',
@@ -80,7 +80,7 @@ describe('M5-US-03 fail-closed release gate', () => {
       config: completeConfig({ releaseCandidate: candidate })
     });
     expect(result).toMatchObject({ ready: true, blockers: [], summary: {
-      acceptanceCases: 175, pendingExternal: 0, passedExternal: 47, signedRoles: 4
+      acceptanceCases: 184, pendingExternal: 0, passedExternal: 51, signedRoles: 4
     } });
   });
 
