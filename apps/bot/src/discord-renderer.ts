@@ -10,11 +10,37 @@ import {
 } from 'discord.js';
 import type { ActionRowSpec, ComponentSpec, MessageSpec, ModalSpec, TextInputSpec } from './service-center.js';
 
+export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
+
+export function decorateSandboxPrivateMessage<T extends { visibility: 'EPHEMERAL' | 'PUBLIC' | 'PRIVATE_CHANNEL'; body: string }>(
+  message: T,
+  environment: 'SANDBOX' | 'PRODUCTION'
+): T {
+  if (environment !== 'SANDBOX' || message.visibility === 'PUBLIC') return message;
+  return { ...message, body: `${BOT_SANDBOX_WARNING}\n\n${message.body}` };
+}
+
+export function sandboxDisplayRole(level: 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' | null): 'STAFF' | 'OWNER' | null {
+  if (level === 'L2_SUPERVISOR') return 'STAFF';
+  if (level === 'L4_ADMIN_OWNER') return 'OWNER';
+  return null;
+}
+
+let rendererEnvironment: 'SANDBOX' | 'PRODUCTION' = 'PRODUCTION';
+
+export function configureDiscordRendererEnvironment(value: string | undefined): void {
+  if (value !== 'SANDBOX' && value !== 'PRODUCTION') {
+    throw new Error('BUSINESS_ENV must be explicitly set to SANDBOX or PRODUCTION.');
+  }
+  rendererEnvironment = value;
+}
+
 export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
+  const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
   return {
-    content: `**${message.title}**\n${message.body}`,
-    components: message.components.map(toDiscordActionRow),
-    ephemeral: message.visibility === 'EPHEMERAL'
+    content: `**${rendered.title}**\n${rendered.body}`,
+    components: rendered.components.map(toDiscordActionRow),
+    ephemeral: rendered.visibility === 'EPHEMERAL'
   };
 }
 

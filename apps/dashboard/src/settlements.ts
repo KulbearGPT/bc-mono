@@ -5,7 +5,8 @@ export interface SettlementPageModel {
   items: Array<Record<string, unknown>>; actions: SettlementAction[]; requestId: string | null; alert: string | null;
 }
 
-export function buildSettlementNavigation(permissions: string[]) {
+export function buildSettlementNavigation(permissions: string[], enabledFeatures?: string[]) {
+  if (enabledFeatures && !enabledFeatures.includes('M6')) return [];
   return [
     permissions.includes('settlement.read') ? { id: 'settlements', label: '结算', href: '/settlements' } : null,
     permissions.includes('weekly_report.read') ? { id: 'reports', label: '周报', href: '/reports' } : null,

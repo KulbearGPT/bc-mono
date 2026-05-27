@@ -2,8 +2,10 @@ import { SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { discoverSapphirePieces } from './piece-manifest.js';
+import { configureDiscordRendererEnvironment } from './discord-renderer.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
+configureDiscordRendererEnvironment(process.env.BUSINESS_ENV);
 
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'bot.config.invalid', errors: validation.errors }));

@@ -130,7 +130,7 @@ describe('M5-US-06 PilotFeaturePolicy', () => {
 
   it('keeps the closed capabilities schema synchronized with the Pilot payload', () => {
     const openapi = readFileSync('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8');
-    expect(openapi).toContain('required: [staffId, level, scope, permissions, thresholds, mfa, stepUp, enabledFeatures, businessEnvironment, permissionsVersion]');
+    expect(openapi).toContain('required: [staffId, level, scope, permissions, thresholds, mfa, stepUp, enabledFeatures, businessEnvironment, displayRole, permissionsVersion]');
     expect(openapi).toContain('items: {type: string, enum: [CORE_ORDER, GIFTS, REFERRALS, M6]}');
     expect(openapi).toContain('businessEnvironment: {type: string, enum: [SANDBOX, PRODUCTION]}');
   });

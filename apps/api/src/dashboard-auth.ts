@@ -795,6 +795,7 @@ export async function buildCapabilities(
     },
     enabledFeatures: [...(pilot?.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).enabledFeatures],
     businessEnvironment: pilot?.businessEnvironment ?? 'SANDBOX',
+    displayRole: level === 'L2_SUPERVISOR' ? 'STAFF' : level === 'L4_ADMIN_OWNER' ? 'OWNER' : null,
     permissionsVersion
   };
 }

@@ -13,6 +13,8 @@ import { OperationsRoute } from './OperationsRoute.js';
 import { SettlementRoute } from './SettlementRoute.js';
 import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { buildSettlementNavigation } from './settlements.js';
+import { SandboxFundingPage } from './SandboxFundingPage.js';
+import { getSandboxBanner, hasFeature, type DashboardCapabilities as PilotDashboardCapabilities } from './sandbox-funding.js';
 
 export function App() {
   const manifest = buildDashboardManifest();
@@ -26,16 +28,20 @@ export function App() {
   }, []);
 
   const state = result ? buildDashboardState(result) : null;
-  const adminNavigation = result?.capabilities ? buildAdminBusinessNavigation(result.capabilities.permissions) : [];
+  const enabledFeatures = result?.capabilities?.enabledFeatures;
+  const adminNavigation = result?.capabilities ? buildAdminBusinessNavigation(result.capabilities.permissions, enabledFeatures) : [];
   const activeAdminPage = resolveAdminBusinessPage(window.location.pathname);
   const profileMatch = window.location.pathname.match(/^\/admin\/users\/([^/]+)\/profile$/u);
-  const m6Navigation = result?.capabilities ? buildSettlementNavigation(result.capabilities.permissions) : [];
+  const m6Navigation = result?.capabilities ? buildSettlementNavigation(result.capabilities.permissions, enabledFeatures) : [];
+  const pilotCapabilities = result?.capabilities as PilotDashboardCapabilities | undefined;
+  const sandboxBanner = pilotCapabilities ? getSandboxBanner(pilotCapabilities.businessEnvironment) : null;
 
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f4f7f8', color: '#18282d' }}>
       <header style={{ padding: '18px 24px', background: '#173238', color: '#fff' }}>
-        <strong>{manifest.appName}</strong>
+        <strong>{manifest.appName}</strong>{pilotCapabilities?.displayRole && <span className="display-role">{pilotCapabilities.displayRole}</span>}
       </header>
+      {state?.kind === 'READY' && sandboxBanner && <div className="sandbox-banner" role="status">{sandboxBanner}</div>}
       {!state && <section style={{ padding: 24 }}>正在载入...</section>}
       {state?.kind === 'SIGNED_OUT' && (
         <section style={{ padding: 24 }}><h1>客服管理后台</h1><a href="/api/v1/auth/discord">使用 Discord 登录</a></section>
@@ -52,13 +58,15 @@ export function App() {
             {[...state.navigation, ...adminNavigation, ...m6Navigation].filter((item,index,all) => all.findIndex((candidate) => candidate.href === item.href) === index).map((item) => <a key={item.id} href={item.href}>{item.label}</a>)}
           </nav>
           {profileMatch
-            ? <CustomerProfileRoute userId={decodeURIComponent(profileMatch[1]!)} capabilities={result!.capabilities!} />
+            ? hasFeature(pilotCapabilities!, 'M6') ? <CustomerProfileRoute userId={decodeURIComponent(profileMatch[1]!)} capabilities={result!.capabilities!} /> : <FeatureUnavailable />
+            : window.location.pathname === '/sandbox-funding'
+            ? <SandboxFundingPage capabilities={pilotCapabilities!} />
             : window.location.pathname === '/settlements'
-            ? <SettlementRoute section="settlements" capabilities={result!.capabilities!} />
+            ? hasFeature(pilotCapabilities!, 'M6') ? <SettlementRoute section="settlements" capabilities={result!.capabilities!} /> : <FeatureUnavailable />
             : window.location.pathname === '/reports'
-            ? <SettlementRoute section="reports" capabilities={result!.capabilities!} />
+            ? hasFeature(pilotCapabilities!, 'M6') ? <SettlementRoute section="reports" capabilities={result!.capabilities!} /> : <FeatureUnavailable />
             : activeAdminPage
-            ? <AdminBusinessRoute page={activeAdminPage} capabilities={result!.capabilities!} />
+            ? adminNavigation.some((item) => item.id === activeAdminPage) ? <AdminBusinessRoute page={activeAdminPage} capabilities={result!.capabilities!} /> : <FeatureUnavailable />
             : window.location.pathname === '/support'
             ? <SupportWorkbenchPage capabilities={result!.capabilities!} />
             : window.location.pathname === '/security'
@@ -70,4 +78,8 @@ export function App() {
       )}
     </main>
   );
+}
+
+function FeatureUnavailable() {
+  return <section className="dashboard-page"><h1>功能暂未开放</h1><p>当前 Pilot 阶段未开放此功能。</p></section>;
 }

@@ -13,6 +13,7 @@ import {
 import { PostgresOrderStore, type OrderRecord } from './orders.js';
 import { TransactionTimelineError, type TransactionTimelineStore } from './transaction-timeline.js';
 import type { CustomerProfileScope } from './customer-profiles.js';
+import type { PilotFeature } from './pilot-features.js';
 
 export type AdminOrderListItem = OrderRecord;
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
@@ -336,8 +337,8 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
   if (!server.securityOptions) throw new Error('Admin directory routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
-  const read = (url: string, permission: string, action: string, targetType: string, handler: (request: FastifyRequest, actor: ActorContext) => unknown) => registerSecureReadRoute(server, security, {
-    method: 'GET', url, permission, action, targetType, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+  const read = (url: string, permission: string, action: string, targetType: string, handler: (request: FastifyRequest, actor: ActorContext) => unknown, requiredFeature?: PilotFeature) => registerSecureReadRoute(server, security, {
+    method: 'GET', url, permission, action, targetType, requiredFeature, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: (request, actor) => {
       if (!actor.actorStaffId || !actor.actorLevel) throw new AdminDirectoryError('PERMISSION_DENIED', 'An active staff account is required.');
       return handler(request, actor);
@@ -356,22 +357,22 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
       throw new AdminDirectoryError('NOT_FOUND', 'Customer was not found.');
     }
     return { userId, ...await options.store.listUserConsumptions({ ...pageQuery(request), userId, guildId: actor.guildId, type: consumptionType(request) }) };
-  });
+  }, 'M6');
   read('/api/v1/admin/players', 'player.read', 'LIST_ADMIN_PLAYERS', 'player_profile', (request) => options.store.listPlayers({ ...pageQuery(request), reviewStatus: enumQuery(request, 'reviewStatus', ['PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'SUSPENDED']) }));
   read('/api/v1/admin/players/:playerId', 'player.read', 'GET_ADMIN_PLAYER', 'player_profile', async (request) => required(await options.store.getPlayer(param(request, 'playerId')), 'Player'));
-  read('/api/v1/admin/gift-catalog', 'gift_catalog.read', 'LIST_ADMIN_GIFT_CATALOG', 'gift_catalog', (request) => options.store.listGiftCatalog(pageQuery(request)));
-  read('/api/v1/admin/gift-requests', 'gift_request.read', 'LIST_ADMIN_GIFT_REQUESTS', 'gift_request', (request, actor) => options.store.listGiftRequests({ ...pageQuery(request), status: enumQuery(request, 'status', ['PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'CAPTURED', 'ANNOUNCED', 'REJECTED', 'EXPIRED', 'WITHDRAWN', 'FAILED', 'REVERSED']), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }));
-  read('/api/v1/admin/gift-requests/:giftRequestId', 'gift_request.read', 'GET_ADMIN_GIFT_REQUEST', 'gift_request', async (request, actor) => required(await options.store.getGiftRequest({ giftRequestId: param(request, 'giftRequestId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }), 'Gift request'));
+  read('/api/v1/admin/gift-catalog', 'gift_catalog.read', 'LIST_ADMIN_GIFT_CATALOG', 'gift_catalog', (request) => options.store.listGiftCatalog(pageQuery(request)), 'GIFTS');
+  read('/api/v1/admin/gift-requests', 'gift_request.read', 'LIST_ADMIN_GIFT_REQUESTS', 'gift_request', (request, actor) => options.store.listGiftRequests({ ...pageQuery(request), status: enumQuery(request, 'status', ['PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'CAPTURED', 'ANNOUNCED', 'REJECTED', 'EXPIRED', 'WITHDRAWN', 'FAILED', 'REVERSED']), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }), 'GIFTS');
+  read('/api/v1/admin/gift-requests/:giftRequestId', 'gift_request.read', 'GET_ADMIN_GIFT_REQUEST', 'gift_request', async (request, actor) => required(await options.store.getGiftRequest({ giftRequestId: param(request, 'giftRequestId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }), 'Gift request'), 'GIFTS');
 
   registerSecureWriteRoute(server, security, { method: 'PUT', url: '/api/v1/admin/users/:userId/operational-status', permission: 'user.status.manage', action: 'SET_USER_OPERATIONAL_STATUS', targetType: 'user',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.setUserStatus({ userId: param(request, 'userId'), actorStaffId: actor.actorStaffId, now: now(), ...parseUserStatus(request.body) }), auditSink); },
     successReason: (request) => parseUserStatus(request.body).reasonCode, mapError });
-  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.manage', action: 'CREATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
+  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'CREATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
     successStatusCode: 201, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.createGiftCatalog({ ...parseGiftCreate(request.body), actorStaffId: actor.actorStaffId, now: now() }), auditSink); },
     successReason: (request) => parseGiftCreate(request.body).reasonCode, mapError });
-  registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/gift-catalog/:giftCatalogId', permission: 'gift_catalog.manage', action: 'UPDATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
+  registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/gift-catalog/:giftCatalogId', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'UPDATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
     targetId: (request) => param(request, 'giftCatalogId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.updateGiftCatalog({ giftCatalogId: param(request, 'giftCatalogId'), actorStaffId: actor.actorStaffId, now: now(), ...parseGiftUpdate(request.body) }), auditSink); },
     successReason: (request) => parseGiftUpdate(request.body).reasonCode, mapError });
