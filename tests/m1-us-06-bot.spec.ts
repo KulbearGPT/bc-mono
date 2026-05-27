@@ -109,9 +109,9 @@ describe('M1-US-06 private service center Discord flow', () => {
 
     expect(message.visibility).toBe('EPHEMERAL');
     expect(message.title).toBe('我的服务中心');
-    expect(message.body).toContain('账本余额：USD\u00a0200.00');
-    expect(message.body).toContain('预留中：USD\u00a0120.00');
-    expect(message.body).toContain('可用余额：USD\u00a080.00');
+    expect(message.body).toContain('账本余额：2,000.00 MB');
+    expect(message.body).toContain('预留中：1,200.00 MB');
+    expect(message.body).toContain('可用余额：800.00 MB');
     expect(message.body).toContain('当前订单：#P-1042 · PENDING_DISPATCH');
     expect(message.body).toContain('消费记录：暂无记录');
     expect(message.body).toContain('我的收益：暂无可领取记录');

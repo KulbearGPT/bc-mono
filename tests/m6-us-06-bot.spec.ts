@@ -28,7 +28,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
   test('renders an ephemeral deficit-only panel with support, refresh, and back controls', () => {
     const message = buildGiftAffordabilityMessage(result, 'ctx_abc123');
     expect(message.visibility).toBe('EPHEMERAL');
-    expect(message.body).toContain('USD\u00a050.00');
+    expect(message.body).toContain('500.00 MB');
     expect(message.body).not.toMatch(/总余额|可用余额|预留/u);
     const rendered = toDiscordReply(message);
     const buttons = rendered.components!.flatMap((row: any) => row.components);
@@ -44,7 +44,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     const affordable = buildGiftAffordabilityMessage({ ...result, ledgerBalanceMinor: 10_000, availableMinor: 8_800,
       shortfallMinor: 0, canAfford: true }, 'ctx_ready');
     expect(JSON.stringify(affordable)).toContain('bc:gift:confirm:ctx_ready');
-    expect(affordable.body).toMatch(/USD\u00a088\.00.*确认/u);
+    expect(affordable.body).toMatch(/880\.00 MB.*确认/u);
   });
 
   test('uses an expiring HMAC short token with no receiver input or server-side registry', () => {

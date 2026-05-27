@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
+import {
+  customerWalletLabel,
+  formatCustomerWalletAmount,
+  parseWalletDisplayConfig
+} from './wallet-display.js';
 
 export type ClientSource = 'DISCORD_BOT';
 
@@ -953,7 +958,7 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
   const body = [
     `${formatGame(order.game)} · ${formatService(order.service)}`,
     `${formatRegion(order.region)} · ${formatDuration(order)}`,
-    `预计价格：${formatMoney(order.amountMinor, order.currency)}`,
+    `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
     order.notes ? `备注：${order.notes}` : '备注：未填写'
   ].join('\n');
 
@@ -1067,17 +1072,20 @@ export function buildServiceCenterMessage(input: {
     ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.automation?.state === 'PAUSED' ? '客服处理中' : input.activeOrder.status}`
     : '当前订单：暂无进行中订单';
   const consumptionLine = input.consumptions.items.length === 0 ? '消费记录：暂无记录' : '消费记录：已有记录';
-  const commissionLine = input.commissions.items.length === 0
-    ? '我的收益：暂无可领取记录'
-    : `我的收益：待确认 ${formatMoney(input.commissions.summary.pendingMinor, input.commissions.summary.currency)}`;
+  const hasCommissionActivity = input.commissions.summary.pendingMinor !== 0
+    || input.commissions.summary.confirmedMinor !== 0
+    || input.commissions.summary.paidMinor !== 0;
+  const commissionLine = hasCommissionActivity
+    ? '我的收益：有待处理记录，请打开“我的收益”查看。'
+    : '我的收益：暂无可领取记录';
 
   return {
     title: '我的服务中心',
     body: [
       `账户：${input.currentUser.user.displayName}`,
-      `账本余额：${formatMoney(input.balance.ledgerBalanceMinor, input.balance.currency)}`,
-      `预留中：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
-      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `账本余额：${formatCustomerMoney(input.balance.ledgerBalanceMinor, input.balance.currency)}`,
+      `预留中：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       activeOrderLine,
       consumptionLine,
       commissionLine,
@@ -1107,11 +1115,11 @@ export function buildServiceCenterMessage(input: {
 
 export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec {
   return {
-    title: '我的 USD 钱包',
+    title: `我的${customerWalletLabel(parseWalletDisplayConfig(process.env))}`,
     body: [
-      `账本余额：${formatMoney(balance.ledgerBalanceMinor, balance.currency)}`,
-      `已预留：${formatMoney(balance.reservedMinor, balance.currency)}`,
-      `可用余额：${formatMoney(balance.availableMinor, balance.currency)}`,
+      `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `已预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
+      `可用余额：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
       `计算时间：${balance.calculatedAt}`
     ].join('\n'),
     visibility: 'EPHEMERAL',
@@ -1127,12 +1135,12 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
     title: '个人中心',
     body: [
       `账户：${input.user.displayName}`,
-      `账本余额：${formatMoney(balance.ledgerBalanceMinor, balance.currency)}`,
-      `预留：${formatMoney(balance.reservedMinor, balance.currency)}`,
-      `可用：${formatMoney(balance.availableMinor, balance.currency)}`,
+      `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
+      `可用：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
       `进行中订单：${input.statistics.activeOrderCount}`,
-      `累计订单消费：${formatMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
-      `累计礼物消费：${formatMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
+      `累计订单消费：${formatCustomerMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
+      `累计礼物消费：${formatCustomerMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
       `余额计算时间：${balance.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
@@ -1150,7 +1158,7 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
 
 export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): MessageSpec {
   return { title: '我的订单', body: page.items.length ? page.items.map((item) =>
-    `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatMoney(item.amountMinor, item.currency)}\n${item.createdAt}`).join('\n\n') : '暂无订单。',
+    `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.createdAt}`).join('\n\n') : '暂无订单。',
     visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
       { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
       { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:orders', page.nextCursor) : 'bc:profile:orders:end', label: '下一页', disabled: !page.nextCursor }
@@ -1159,7 +1167,7 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
 
 export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): MessageSpec {
   return { title: '消费记录', body: page.items.length ? page.items.map((item) =>
-    `${item.type} · ${item.targetDisplay} · ${formatMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`).join('\n\n') : '暂无消费记录。',
+    `${item.type} · ${item.targetDisplay} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`).join('\n\n') : '暂无消费记录。',
     visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
       { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
       { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:consumptions', page.nextCursor) : 'bc:profile:consumptions:end', label: '下一页', disabled: !page.nextCursor }
@@ -1185,10 +1193,10 @@ export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlaye
   return { title: '我的周报详情', body: [
     `${report.periodStart} 至 ${report.periodEnd} · ${report.status}`,
     `完成订单：${metrics.completedOrderCount} · 取消：${metrics.cancelledOrderCount} · 服务：${metrics.serviceMinutes} 分钟`,
-    `订单收益：${formatMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatMoney(metrics.giftEarningMinor, report.currency)}`,
-    `调整：${formatMoney(metrics.adjustmentMinor, report.currency)}`,
-    `待确认：${formatMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatMoney(metrics.settlementReadyMinor, report.currency)}`,
-    `已入批次：${formatMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
+    `订单收益：${formatUsdMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatUsdMoney(metrics.giftEarningMinor, report.currency)}`,
+    `调整：${formatUsdMoney(metrics.adjustmentMinor, report.currency)}`,
+    `待确认：${formatUsdMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatUsdMoney(metrics.settlementReadyMinor, report.currency)}`,
+    `已入批次：${formatUsdMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
   ].join('\n'), visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
     { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:reports:list:first', label: '返回周报' }
   ] }] };
@@ -1201,8 +1209,8 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
   return {
     title: '取消影响确认',
     body: [
-      `释放预留：${formatMoney(preview.releaseAmountMinor, preview.currency)}`,
-      `退款：${formatMoney(preview.refundAmountMinor, preview.currency)}`,
+      `释放预留：${formatCustomerMoney(preview.releaseAmountMinor, preview.currency)}`,
+      `退款：${formatCustomerMoney(preview.refundAmountMinor, preview.currency)}`,
       handling,
       `预览有效期：${preview.validUntil}`
     ].join('\n'),
@@ -1229,7 +1237,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     ? workbench.matchingOrders.map((match) => [
       `待接订单：#${match.order.publicId} · ${formatGame(match.order.game)} / ${formatService(match.order.service)}`,
       `需求：${match.order.requirements.join('、') || '无额外要求'} · 剩余 ${match.secondsRemaining} 秒`,
-      `预计收益：${formatMoney(match.order.playerEarningMinor, match.order.currency)}`
+      `预计收益：${formatUsdMoney(match.order.playerEarningMinor, match.order.currency)}`
     ].join('\n')).join('\n')
     : '待接订单：暂无';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
@@ -1268,9 +1276,9 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
       failedChecks.length > 0 ? `未满足条件：${failedChecks.map((check) => check.reason ?? check.code).join('；')}` : null,
       currentOrder,
       matchingLines,
-      `待确认收益：${formatMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
-      `已确认收益：${formatMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
-      `已支付收益：${formatMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
+      `待确认收益：${formatUsdMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
+      `已确认收益：${formatUsdMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
+      `已支付收益：${formatUsdMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
       `更新时间：${workbench.earningsSummary.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
@@ -1285,7 +1293,7 @@ export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageS
       `${input.game} · ${input.service}`,
       `区服：${input.region}`,
       `时长：${input.durationLabel}`,
-      `预计收益：${formatMoney(input.playerEarningMinor, input.currency)}`,
+      `预计收益：${formatUsdMoney(input.playerEarningMinor, input.currency)}`,
       input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
       input.notes ? `备注：${input.notes}` : '备注：未填写',
       `接单截止：${input.expiresAt}`
@@ -1491,8 +1499,8 @@ export function buildOrderConfirmationMessage(input: {
       `时长：${formatEstimateDuration(input.estimate)}`,
       '标签：P0 默认匹配',
       input.order.notes ? `备注：${input.order.notes}` : '备注：未填写',
-      `预计价格：${formatMoney(input.estimate.amountMinor, input.estimate.currency)}`,
-      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `预计价格：${formatCustomerMoney(input.estimate.amountMinor, input.estimate.currency)}`,
+      `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       '取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。',
       statusLine,
       `价格有效期：${input.estimate.validUntil}`
@@ -1527,10 +1535,10 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
     title: '订单已提交 · 正在匹配陪玩',
     body: [
       `订单状态：${input.status}`,
-      `本单预留：${formatMoney(input.reservation.amountMinor, input.reservation.currency)}`,
+      `本单预留：${formatCustomerMoney(input.reservation.amountMinor, input.reservation.currency)}`,
       `预留状态：${input.reservation.status}`,
-      `提交后可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
-      `当前预留总额：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      `提交后可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
       '当前只预留金额，不产生正式消费。',
       '系统正在通知符合条件且在线可接单的陪玩；服务开始前取消会释放预留。'
     ].join('\n'),
@@ -1577,7 +1585,7 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
     body: [
       `订单状态：${input.status}`,
       `资金处理：${input.fundAction}`,
-      input.releasedReservation ? `释放金额：${formatMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}` : null
+      input.releasedReservation ? `释放金额：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}` : null
     ].filter(Boolean).join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: []
@@ -1695,7 +1703,7 @@ export async function handleServiceLifecycleAction(input: {
       );
       return {
         kind: 'EPHEMERAL_MESSAGE',
-        message: `订单已确认完成。扣款 ${formatMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
+        message: `订单已确认完成。扣款 ${formatCustomerMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
       };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: '客服协助请求将在后续步骤处理。request_id: local-support-pending' };
@@ -2066,9 +2074,14 @@ function formatEstimateDuration(estimate: OrderEstimateSummary): string {
   return `${totalMinutes} 分钟`;
 }
 
-function formatMoney(amountMinor: number, currency: string): string {
+function formatUsdMoney(amountMinor: number, currency: string): string {
   const prefix = `${currency}\u00a0`;
   return `${prefix}${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
+}
+
+function formatCustomerMoney(amountMinor: number, currency: string): string {
+  if (currency !== 'USD') throw new Error('Customer wallet display requires canonical USD minor units.');
+  return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
 }
 
 function missingConfirmationFields(order: OrderSummary): string[] {
@@ -2100,7 +2113,7 @@ function confirmationBlockedReason(input: {
   if (input.currencyMismatch) {
     return '币种不一致：请联系客服处理后再确认。';
   }
-  return `余额不足：还差 ${formatMoney(input.deficitMinor, input.estimateCurrency)}，请联系客服并提交付款 receipt，到账后刷新确认。`;
+  return `余额不足：还差 ${formatCustomerMoney(input.deficitMinor, input.estimateCurrency)}，请联系客服并提交付款 receipt，到账后刷新确认。`;
 }
 
 function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {

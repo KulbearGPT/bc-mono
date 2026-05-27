@@ -1,5 +1,10 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { BotActorContext, MessageSpec } from './service-center.js';
+import {
+  customerWalletLabel,
+  formatCustomerWalletAmount,
+  parseWalletDisplayConfig
+} from './wallet-display.js';
 
 export interface GiftPanelData {
   orderId: string;
@@ -43,7 +48,7 @@ export function buildGiftPanel(data: GiftPanelData) {
     availableMinor: data.balance.availableMinor,
     currency: data.balance.currency,
     options: data.items.map((item) => ({
-      label: `${item.name} · ${formatMinor(item.priceMinor, item.currency)}`,
+      label: `${item.name} · ${formatGiftAmount(item.priceMinor, item.currency)}`,
       value: item.id,
       disabled: false
     })),
@@ -52,17 +57,19 @@ export function buildGiftPanel(data: GiftPanelData) {
 }
 
 export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, token: string): MessageSpec {
+  const displayConfig = parseWalletDisplayConfig(process.env);
+  const walletLabel = customerWalletLabel(displayConfig);
   const confirmationRow = data.canAfford && !data.stale
     ? [{ type: 'ACTION_ROW' as const, components: [
       { type: 'BUTTON' as const, style: 'PRIMARY' as const, customId: customId('confirm', token), label: '确认赠送' }
     ] }]
     : [];
   return {
-    title: data.canAfford && !data.stale ? '确认礼物' : data.stale ? '余额需要刷新' : '余额不足',
+    title: data.canAfford && !data.stale ? '确认礼物' : data.stale ? `${walletLabel}需要刷新` : `${walletLabel}余额不足`,
     body: data.canAfford && !data.stale
-      ? `${formatMinor(data.priceMinor, data.currency)} 可赠送。请基于当前价格确认。`
+      ? `${formatGiftAmount(data.priceMinor, data.currency)} 可赠送。请基于当前价格确认。`
       : data.stale ? '当前余额已过期，请刷新后再确认。'
-        : `还差 ${formatMinor(data.shortfallMinor, data.currency)}。${data.topUpInstructions}`,
+        : `还差 ${formatGiftAmount(data.shortfallMinor, data.currency)}。${data.topUpInstructions}`,
     visibility: 'EPHEMERAL',
     components: [
       ...confirmationRow,
@@ -81,14 +88,14 @@ export function buildGiftCatalogMessage(data: GiftPanelData, orderVersion: numbe
     type: 'BUTTON' as const, style: 'SECONDARY' as const,
     customId: customId('select', createGiftContinuationToken({ orderId: data.orderId, orderVersion,
       giftCatalogVersionId: item.id, catalogVersion: item.version, priceMinor: item.priceMinor }, actor, secret, now)),
-    label: `${item.name} · ${formatMinor(item.priceMinor, item.currency)}`, disabled: false
+    label: `${item.name} · ${formatGiftAmount(item.priceMinor, item.currency)}`, disabled: false
   }));
   return { title: `订单 ${data.orderPublicId} · 赠送礼物`, body: `赠送对象：${data.receiver.displayName}`,
     visibility: 'EPHEMERAL', components: chunk(buttons, 5).map((components) => ({ type: 'ACTION_ROW', components })) };
 }
 
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {
-  return { title: '送礼请求已提交', body: `${data.gift.name} 已预留 ${formatMinor(data.reservation.amountMinor, data.reservation.currency)}，等待客服核对。`,
+  return { title: '送礼请求已提交', body: `${data.gift.name} 已预留 ${formatGiftAmount(data.reservation.amountMinor, data.reservation.currency)}，等待客服核对。`,
     visibility: 'EPHEMERAL', components: [] };
 }
 
@@ -164,6 +171,7 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
   };
 }
 
-function formatMinor(amountMinor: number, currency: string): string {
-  return `${currency}\u00a0${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
+function formatGiftAmount(amountMinor: number, currency: string): string {
+  if (currency !== 'USD') throw new Error('Customer gift display requires canonical USD minor units.');
+  return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
 }

@@ -126,7 +126,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     expect(message.title).toBe('订单 #P-1042');
     expect(message.body).toContain('无畏契约');
     expect(message.body).toContain('娱乐陪玩');
-    expect(message.body).toContain('USD\u00a0120.00');
+    expect(message.body).toContain('1,200.00 MB');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
       expect.arrayContaining([
         `bc:select:order:${orderId}:game:v3`,

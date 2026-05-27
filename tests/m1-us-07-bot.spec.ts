@@ -104,10 +104,10 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(message.body).toContain('时长：2 小时');
     expect(message.body).toContain('标签：P0 默认匹配');
     expect(message.body).toContain('备注：轻松交流，不急着上分');
-    expect(message.body).toContain('预计价格：USD\u00a0120.00');
-    expect(message.body).toContain('可用余额：USD\u00a0180.00');
+    expect(message.body).toContain('预计价格：1,200.00 MB');
+    expect(message.body).toContain('可用余额：1,800.00 MB');
     expect(message.body).toContain('取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。');
-    expect(message.body).not.toContain('USD\u00a00.01');
+    expect(message.body).not.toContain('0.10 MB');
     expect(message.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -128,7 +128,7 @@ describe('M1-US-07 order confirmation panel', () => {
       balance: balance({ availableMinor: 8_000 })
     });
 
-    expect(message.body).toContain('余额不足：还差 USD\u00a040.00，请联系客服并提交付款 receipt，到账后刷新确认。');
+    expect(message.body).toContain('余额不足：还差 400.00 MB，请联系客服并提交付款 receipt，到账后刷新确认。');
     expect(message.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -164,7 +164,7 @@ describe('M1-US-07 order confirmation panel', () => {
     );
     expect(client.getCurrentBalance).toHaveBeenCalledWith(actor());
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.body).toContain('预计价格：USD\u00a0120.00');
+    expect(result.message.body).toContain('预计价格：1,200.00 MB');
   });
 
   test('refreshes the draft panel when expectedVersion is stale instead of submitting stale data', async () => {

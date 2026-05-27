@@ -14,6 +14,7 @@ export function CustomerWalletPanel(props:{userId:string;balance:WalletBalance;e
     <div role="group" aria-label="资金操作" className="wallet-tabs"><button type="button" aria-pressed={kind==='TOP_UP'} onClick={()=>setKind('TOP_UP')}>充值</button><button type="button" aria-pressed={kind==='EXTERNAL_REFUND_DEBIT'} onClick={()=>setKind('EXTERNAL_REFUND_DEBIT')}>渠道退款扣款</button></div>
     <form onSubmit={submit} className="wallet-form">
       <label>金额（USD）<input name="amount" type="number" min="0.01" step="0.01" required disabled={props.busy}/></label>
+      <p>到账后按 1 USD = 10 MB 发放。</p>
       <label>支付渠道<input name="paymentChannel" required maxLength={50} disabled={props.busy}/></label>
       <label>渠道交易号<input name="externalTransactionId" required maxLength={200} disabled={props.busy}/></label>
       <label>{kind==='TOP_UP'?'付款时间':'退款时间'}<input name="occurredAt" type="datetime-local" required disabled={props.busy}/></label>
