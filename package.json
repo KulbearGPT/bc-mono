@@ -15,6 +15,8 @@
     "db:verify:migration": "bash scripts/verify-m0-us-02-migration.sh",
     "dev": "dotenv -e .env.example -- concurrently -n api,bot,dashboard -c blue,magenta,green \"npm run dev -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",
     "m0:verify": "vitest run tests/m0-us-01.spec.ts tests/m0-us-02.spec.ts tests/m0-us-03.spec.ts tests/m0-us-04.spec.ts tests/m0-us-05.spec.ts",
+    "sandbox:provision": "dotenv -e .env.example -- tsx apps/api/src/sandbox-funding-provision.ts",
+    "sandbox:provision:prod": "NODE_ENV=production dotenv -e .env.example -- tsx apps/api/src/sandbox-funding-provision.ts",
     "test": "vitest run",
     "typecheck": "tsc -b tsconfig.build.json"
   },

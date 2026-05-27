@@ -28,8 +28,8 @@ if (!validation.ok) {
 }
 
 const discordToken = validation.values.discordBotToken!;
-const { adapter: fundingAdapter } = createRuntimeFundingAdapter(process.env);
 const pool = new Pool({ connectionString: validation.values.databaseUrl, application_name: 'blackcat_worker' });
+const { adapter: fundingAdapter } = createRuntimeFundingAdapter(process.env, { pool });
 const outboxStore = new PostgresOutboxStore({ client: pool });
 const orderStore = new PostgresOrderStore({ pool });
 const dispatchStore = new PostgresDispatchStore({ pool });

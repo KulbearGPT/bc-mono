@@ -627,11 +627,15 @@ model SandboxProviderTransaction {
   operation         SandboxProviderTransactionOperation
   businessSource    FundReservationSourceType           @map("business_source")
   businessSourceId  String                              @map("business_source_id") @db.Uuid
+  businessReference String                              @map("business_reference") @db.VarChar(255)
+  fundReservationId String?                             @map("fund_reservation_id") @db.Uuid
+  fundReservationVersion Int?                           @map("fund_reservation_version")
   direction         LedgerDirection
   amountMinor       BigInt                              @map("amount_minor")
   currency          String                              @default("CNY") @db.Char(3)
   status            SandboxProviderTransactionStatus
   providerReference String                              @unique @map("provider_reference") @db.VarChar(255)
+  originalProviderReference String?                     @map("original_provider_reference") @db.VarChar(255)
   idempotencyKey    String                              @unique @map("idempotency_key") @db.VarChar(200)
   createdAt         DateTime                            @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -639,6 +643,7 @@ model SandboxProviderTransaction {
 
   @@index([accountId, createdAt])
   @@index([businessSource, businessSourceId])
+  @@index([originalProviderReference])
   @@map("sandbox_provider_transactions")
 }
 

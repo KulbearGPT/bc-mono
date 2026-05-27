@@ -40,6 +40,7 @@ import { registerSettlementRoutes, type SettlementRouteOptions } from './settlem
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 import { configureCursorSigningSecret } from './signed-cursor.js';
+import { registerSandboxFundingRoutes, type SandboxFundingStore } from './sandbox-funding.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -127,6 +128,7 @@ export interface ApiServerOptions {
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
+  sandboxFunding?: { store: SandboxFundingStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -330,6 +332,10 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.customerProfiles) {
     if (!server.securityOptions) throw new Error('Customer profile routes require buildApiServer({ security, customerProfiles })');
     registerCustomerProfileRoutes(server, options.customerProfiles);
+  }
+  if (options.sandboxFunding) {
+    if (!server.securityOptions) throw new Error('Sandbox funding routes require buildApiServer({ security, sandboxFunding })');
+    registerSandboxFundingRoutes(server, { ...options.sandboxFunding, security: server.securityOptions });
   }
 
   return server;

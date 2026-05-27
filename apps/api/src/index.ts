@@ -27,6 +27,7 @@ import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
 import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
+import { PostgresSandboxFundingStore } from './sandbox-funding.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 
@@ -66,7 +67,7 @@ const referralStore = new PostgresReferralAttributionStore(databasePool);
 const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
-const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
+const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env, { pool: databasePool });
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
@@ -187,6 +188,7 @@ const server = buildApiServer({
     store: customerProfileStore,
     fundingAdapter
   },
+  ...(process.env.FUNDING_ADAPTER === 'SANDBOX' ? { sandboxFunding: { store: new PostgresSandboxFundingStore(databasePool) } } : {}),
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,
     oauth: new DiscordHttpOAuthProvider({

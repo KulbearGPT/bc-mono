@@ -1,5 +1,7 @@
 import { HttpFundingAdapter } from './http-payment-adapter.js';
-import { MockFundingAdapter, type FundingAdapter } from './payment-adapter.js';
+import type { Pool } from 'pg';
+import type { FundingAdapter } from './payment-adapter.js';
+import { PostgresSandboxFundingStore, SandboxFundingAdapter } from './sandbox-funding.js';
 
 export interface RuntimeFundingAdapter {
   adapter: FundingAdapter;
@@ -7,47 +9,50 @@ export interface RuntimeFundingAdapter {
 }
 
 export function createRuntimeFundingAdapter(
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  dependencies: { pool: Pool }
 ): RuntimeFundingAdapter {
-  const providerKey = env.PAYMENT_PROVIDER_KEY?.trim();
-  const baseUrl = env.PAYMENT_PROVIDER_BASE_URL?.trim();
-  const serviceToken = env.PAYMENT_PROVIDER_SERVICE_TOKEN?.trim();
-  const webhookSecret = env.PAYMENT_PROVIDER_WEBHOOK_SECRET?.trim();
-  const configuredValues = [providerKey, baseUrl, serviceToken, webhookSecret];
-  const hasAnyProviderConfig = configuredValues.some(Boolean);
-
-  if (!hasAnyProviderConfig && env.NODE_ENV !== 'production') {
-    return { adapter: new MockFundingAdapter(), providerKey: 'mock-provider' };
+  const businessEnvironment = requireEnum(env, 'BUSINESS_ENV', ['SANDBOX', 'PRODUCTION'] as const);
+  const adapterKind = requireEnum(env, 'FUNDING_ADAPTER', ['SANDBOX', 'HTTP_PROVIDER'] as const);
+  if (businessEnvironment === 'PRODUCTION' && adapterKind === 'SANDBOX') {
+    throw new Error('FUNDING_ADAPTER=SANDBOX is forbidden when BUSINESS_ENV=PRODUCTION.');
   }
-
-  const missing = [
-    ['PAYMENT_PROVIDER_KEY', providerKey],
-    ['PAYMENT_PROVIDER_BASE_URL', baseUrl],
-    ['PAYMENT_PROVIDER_SERVICE_TOKEN', serviceToken],
-    ['PAYMENT_PROVIDER_WEBHOOK_SECRET', webhookSecret]
-  ].filter(([, value]) => !value).map(([name]) => name);
-  if (missing.length > 0) {
-    throw new Error(`Payment Provider configuration is incomplete: ${missing.join(', ')}`);
+  if (adapterKind === 'SANDBOX') {
+    const bindingSecret = requireSecret(env, 'SANDBOX_BINDING_CODE_SECRET', 32);
+    return {
+      adapter: new SandboxFundingAdapter({ store: new PostgresSandboxFundingStore(dependencies.pool), bindingSecret }),
+      providerKey: 'sandbox-provider'
+    };
   }
-  if (serviceToken!.length < 32) {
-    throw new Error('PAYMENT_PROVIDER_SERVICE_TOKEN must be at least 32 characters.');
-  }
-  if (webhookSecret!.length < 32) {
-    throw new Error('PAYMENT_PROVIDER_WEBHOOK_SECRET must be at least 32 characters.');
-  }
+  const providerKey = requireValue(env, 'PAYMENT_PROVIDER_KEY');
+  const baseUrl = requireValue(env, 'PAYMENT_PROVIDER_BASE_URL');
+  const serviceToken = requireSecret(env, 'PAYMENT_PROVIDER_SERVICE_TOKEN', 32);
+  const webhookSecret = requireSecret(env, 'PAYMENT_PROVIDER_WEBHOOK_SECRET', 32);
   try {
-    new URL(baseUrl!);
+    new URL(baseUrl);
   } catch {
     throw new Error('PAYMENT_PROVIDER_BASE_URL must be a valid URL.');
   }
-
   return {
-    adapter: new HttpFundingAdapter({
-      baseUrl: baseUrl!,
-      serviceToken: serviceToken!,
-      providerKey: providerKey!,
-      webhookSecret: webhookSecret!
-    }),
-    providerKey: providerKey!
+    adapter: new HttpFundingAdapter({ baseUrl, serviceToken, providerKey, webhookSecret }),
+    providerKey
   };
+}
+
+function requireValue(env: Record<string, string | undefined>, key: string): string {
+  const value = env[key]?.trim();
+  if (!value) throw new Error(`${key} is required.`);
+  return value;
+}
+
+function requireSecret(env: Record<string, string | undefined>, key: string, minimumLength: number): string {
+  const value = requireValue(env, key);
+  if (value.length < minimumLength) throw new Error(`${key} must be at least ${minimumLength} characters.`);
+  return value;
+}
+
+function requireEnum<const T extends readonly string[]>(env: Record<string, string | undefined>, key: string, values: T): T[number] {
+  const value = env[key]?.trim();
+  if (!value || !values.includes(value)) throw new Error(`${key} must be ${values.join(' or ')}.`);
+  return value as T[number];
 }
