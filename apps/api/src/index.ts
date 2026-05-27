@@ -28,8 +28,13 @@ import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-confi
 import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
 import { PostgresSandboxFundingStore } from './sandbox-funding.js';
+import { createPilotFeaturePolicy } from './pilot-features.js';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
+const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);
+const businessEnvironment = process.env.BUSINESS_ENV === 'SANDBOX' || process.env.BUSINESS_ENV === 'PRODUCTION'
+  ? process.env.BUSINESS_ENV
+  : (() => { throw new Error('BUSINESS_ENV must be explicitly set to SANDBOX or PRODUCTION.'); })();
 
 if (!validation.ok) {
   console.error(
@@ -110,7 +115,9 @@ const server = buildApiServer({
     auditSink: new PostgresAuditSink({ client: databasePool }),
     idempotencyStore: new PostgresIdempotencyStore({ client: databasePool }),
     staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
-    dashboardSessions: dashboardAuthStore
+    dashboardSessions: dashboardAuthStore,
+    pilotFeaturePolicy,
+    businessEnvironment
   },
   catalog: {
     store: catalogStore

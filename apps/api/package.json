@@ -18,6 +18,7 @@
     "./funding-adapter-runtime": "./src/funding-adapter-runtime.ts",
     "./sandbox-funding": "./src/sandbox-funding.ts",
     "./sandbox-funding-provision": "./src/sandbox-funding-provision.ts",
+    "./pilot-features": "./src/pilot-features.ts",
     "./worker-runtime": "./src/worker-runtime.ts",
     "./worker-handlers": "./src/worker-handlers.ts",
     "./worker-delivery": "./src/worker-delivery.ts",

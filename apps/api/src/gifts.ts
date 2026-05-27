@@ -821,14 +821,14 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   const now = options.now ?? (() => new Date());
 
   registerSecureReadRoute(server, security, {
-    method: 'GET', url: '/api/v1/gifts', permission: 'gift.request', action: 'LIST_GIFTS', targetType: 'gift_catalog',
+    method: 'GET', url: '/api/v1/gifts', permission: 'gift.request', requiredFeature: 'GIFTS', action: 'LIST_GIFTS', targetType: 'gift_catalog',
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
     handler: async (request, actor) => listGifts({ ...options, actor, orderId: giftOrderIdQuery(request), now: now() }),
     mapError: mapGiftError
   });
 
   registerSecureReadRoute(server, security, {
-    method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request',
+    method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request', requiredFeature: 'GIFTS',
     action: 'CHECK_GIFT_AFFORDABILITY', targetType: 'order', targetId: giftOrderIdParam,
     acceptedSources: ['DISCORD_BOT'],
     handler: async (request, actor) => checkGiftAffordability({ ...options, actor,
@@ -837,7 +837,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/orders/:orderId/gift-requests', permission: 'gift.request',
+    method: 'POST', url: '/api/v1/orders/:orderId/gift-requests', permission: 'gift.request', requiredFeature: 'GIFTS',
     action: 'CREATE_GIFT_REQUEST', targetType: 'order', targetId: giftOrderIdParam,
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
     successStatusCode: 201,
@@ -849,7 +849,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
+    method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',requiredFeature:'GIFTS',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
     acceptedSources:['DISCORD_BOT','DASHBOARD'],handler:async(request,actor)=>{
       const binding=actor.guildId&&actor.discordUserId?await options.accountStore.findByDiscord({guildId:actor.guildId,discordUserId:actor.discordUserId}):null;
       if(!binding)throw new GiftError('PERMISSION_DENIED','A bound sender account is required.');const body=parseCancelBody(request.body);
@@ -859,7 +859,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/staff-tasks/:staffTaskId/verify', permission: 'staff_task.verify',
+    method: 'POST', url: '/api/v1/admin/staff-tasks/:staffTaskId/verify', permission: 'staff_task.verify', requiredFeature: 'GIFTS',
     action: 'VERIFY_GIFT_TASK', targetType: 'staff_task', targetId: giftTaskIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: async (request, actor) => {
@@ -872,7 +872,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/approve', permission: 'gift.approve',
+    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/approve', permission: 'gift.approve', requiredFeature: 'GIFTS',
     action: 'AUTHORIZE_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
@@ -906,7 +906,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/reject', permission: 'gift.reject',
+    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/reject', permission: 'gift.reject', requiredFeature: 'GIFTS',
     action: 'REJECT_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',

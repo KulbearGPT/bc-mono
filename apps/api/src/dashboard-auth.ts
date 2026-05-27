@@ -21,6 +21,7 @@ import {
 import type { PolicyReader } from './operations.js';
 import { InMemoryDashboardMetricsStore, type DashboardMetricsStore } from './dashboard-metrics.js';
 import { resolveStaffPolicy } from './authorization-policy.js';
+import { createPilotFeaturePolicy, type PilotFeaturePolicy } from './pilot-features.js';
 
 export interface DiscordOAuthProvider {
   getAuthorizationUrl(input: { state: string }): string;
@@ -664,7 +665,11 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
       options.store,
       parseCookies(request).p0_session,
       now(),
-      options.policyReader
+      options.policyReader,
+      {
+        pilotFeaturePolicy: server.securityOptions?.pilotFeaturePolicy,
+        businessEnvironment: server.securityOptions?.businessEnvironment
+      }
     )
   });
   registerSecureWriteRoute(server, server.securityOptions, {
@@ -752,7 +757,19 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
   });
 }
 
-export async function buildCapabilities(staffId: string, level: StaffLevel, permissionsVersion: number, store?: DashboardAuthStore, sessionToken?: string, current = new Date(), policyReader?: PolicyReader) {
+export async function buildCapabilities(
+  staffId: string,
+  level: StaffLevel,
+  permissionsVersion: number,
+  store?: DashboardAuthStore,
+  sessionToken?: string,
+  current = new Date(),
+  policyReader?: PolicyReader,
+  pilot?: {
+    pilotFeaturePolicy?: PilotFeaturePolicy;
+    businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
+  }
+) {
   const policy = resolveStaffPolicy(level);
   const mfaEnrolled = store ? await store.isMfaEnrolled(staffId) : false;
   const [giftApprovalLimitMinor, refundLimitMinor, l4DirectExecutionFromMinor] = await Promise.all([
@@ -776,6 +793,8 @@ export async function buildCapabilities(staffId: string, level: StaffLevel, perm
       requiredForSensitiveActions: level === 'L3_OPERATIONS' || level === 'L4_ADMIN_OWNER',
       validUntil: store && sessionToken ? (await store.getStepUpValidUntil(sessionToken, current))?.toISOString() ?? null : null
     },
+    enabledFeatures: [...(pilot?.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).enabledFeatures],
+    businessEnvironment: pilot?.businessEnvironment ?? 'SANDBOX',
     permissionsVersion
   };
 }
