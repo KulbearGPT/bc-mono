@@ -1,5 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { Client } from 'pg';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 import type { SecurityOptions } from './security.js';
 import { registerCatalogRoutes, type ServiceCatalogStore } from './catalog.js';
@@ -339,6 +342,24 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   }
 
   return server;
+}
+
+export async function registerDashboardAssets(server: FastifyInstance, dashboardDist: string): Promise<void> {
+  await server.register(fastifyStatic, {
+    root: join(dashboardDist, 'assets'),
+    prefix: '/assets/',
+    decorateReply: true
+  });
+  const indexHtml = await readFile(join(dashboardDist, 'index.html'), 'utf8');
+  server.get('/*', async (request, reply) => {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'
+      || pathname.startsWith('/assets/') || pathname.startsWith('/api/v1/auth/')) {
+      return reply.callNotFound();
+    }
+    if (!request.headers.accept?.includes('text/html')) return reply.callNotFound();
+    return reply.type('text/html; charset=utf-8').send(indexHtml);
+  });
 }
 
 function createRequestId(): string {

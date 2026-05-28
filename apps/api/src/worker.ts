@@ -19,8 +19,10 @@ import {
 } from './worker-handlers.js';
 import { ProductionOutboxRuntime, createPanelSyncHandler, createProductionHandlerMap } from './worker-runtime.js';
 import { PostgresWeeklyReportStore, createWeeklyReportGenerationHandler, createWeeklyReportNotificationHandler } from './weekly-reports.js';
+import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
 
 const READY_FILE = '/tmp/blackcat-worker-ready';
+requireProductionServiceEnv('worker', process.env);
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: false });
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'worker.config.invalid', errors: validation.errors }));
@@ -80,12 +82,15 @@ const runtime = new ProductionOutboxRuntime({
 });
 
 let stopping = false;
+let ready = false;
+const health = await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => { stopping = true; });
+  process.once(signal, () => { stopping = true; ready = false; });
 }
 
 try {
   const recovered = await runtime.initialize();
+  ready = true;
   await writeFile(READY_FILE, new Date().toISOString(), 'utf8');
   console.log(JSON.stringify({ level: 'info', event: 'worker.started', recoveredJobs: recovered.length }));
   const pollIntervalMs = positiveInteger(process.env.WORKER_POLL_INTERVAL_MS, 500);
@@ -102,8 +107,10 @@ try {
     if (completed.length === 0) await sleep(pollIntervalMs);
   }
 } finally {
+  ready = false;
   await unlink(READY_FILE).catch(() => undefined);
   await pool.end();
+  await health.close();
   console.log(JSON.stringify({ level: 'info', event: 'worker.stopped' }));
 }
 

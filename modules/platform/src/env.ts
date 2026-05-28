@@ -34,7 +34,8 @@ export function validateRuntimeEnv(
 ): RuntimeEnvValidation {
   const nodeEnv = normalizeNodeEnv(env.NODE_ENV);
   const errors: RuntimeEnvError[] = [];
-  const apiPort = parsePort(env.API_PORT, 'API_PORT', errors);
+  const railwayPort = env.PORT?.trim();
+  const apiPort = parsePort(railwayPort || env.API_PORT, railwayPort ? 'PORT' : 'API_PORT', errors);
   const apiBaseUrl = requireUrl(env.API_BASE_URL, 'API_BASE_URL', errors);
   const databaseUrl = requireString(env.DATABASE_URL, 'DATABASE_URL', errors);
   const botServiceToken = requireString(env.BOT_SERVICE_TOKEN, 'BOT_SERVICE_TOKEN', errors);

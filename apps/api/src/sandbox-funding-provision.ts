@@ -1,4 +1,6 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 
 const fixtures = [
@@ -59,7 +61,11 @@ export async function provisionSandboxFunding(input: {
   return results;
 }
 
-if (process.argv[1]?.endsWith('sandbox-funding-provision.ts')) {
+export function isSandboxProvisionEntrypoint(moduleUrl: string, argv1: string | undefined): boolean {
+  return Boolean(argv1) && resolve(argv1!) === fileURLToPath(moduleUrl);
+}
+
+if (isSandboxProvisionEntrypoint(import.meta.url, process.argv[1])) {
   const databaseUrl = process.env.DATABASE_URL?.trim();
   const bindingSecret = process.env.SANDBOX_BINDING_CODE_SECRET?.trim();
   if (!databaseUrl) throw new Error('DATABASE_URL is required.');

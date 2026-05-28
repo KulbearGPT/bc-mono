@@ -1,4 +1,4 @@
-import { buildApiServer } from './server.js';
+import { buildApiServer, registerDashboardAssets } from './server.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { Pool } from 'pg';
 import { PostgresServiceCatalogStore } from './catalog.js';
@@ -29,6 +29,7 @@ import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
 import { PostgresSandboxFundingStore } from './sandbox-funding.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
+import { fileURLToPath } from 'node:url';
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);
@@ -234,6 +235,9 @@ const server = buildApiServer({
     validationSecret: botConfigValidationSecret
   } : undefined
 });
+if (process.env.NODE_ENV === 'production') {
+  await registerDashboardAssets(server, fileURLToPath(new URL('../../dashboard/dist/', import.meta.url)));
+}
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(
   JSON.stringify({
