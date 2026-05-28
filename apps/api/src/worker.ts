@@ -22,7 +22,8 @@ import { PostgresWeeklyReportStore, createWeeklyReportGenerationHandler, createW
 import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
 
 const READY_FILE = '/tmp/blackcat-worker-ready';
-requireProductionServiceEnv('worker', process.env);
+const isProductionRuntime = process.env.NODE_ENV === 'production';
+if (isProductionRuntime) requireProductionServiceEnv('worker', process.env);
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: false });
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'worker.config.invalid', errors: validation.errors }));
@@ -83,7 +84,9 @@ const runtime = new ProductionOutboxRuntime({
 
 let stopping = false;
 let ready = false;
-const health = await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready });
+const health = isProductionRuntime
+  ? await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready })
+  : undefined;
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => { stopping = true; ready = false; });
 }
@@ -110,7 +113,7 @@ try {
   ready = false;
   await unlink(READY_FILE).catch(() => undefined);
   await pool.end();
-  await health.close();
+  await health?.close();
   console.log(JSON.stringify({ level: 'info', event: 'worker.stopped' }));
 }
 

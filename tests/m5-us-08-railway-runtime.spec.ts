@@ -88,6 +88,26 @@ describe('M5-US-08 Railway runtime contract', () => {
     }
   });
 
+  it('keeps the local Bot entrypoint usable without a Discord token', () => {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'apps/bot/src/index.ts'], {
+      cwd: process.cwd(),
+      env: {
+        PATH: process.env.PATH,
+        NODE_ENV: 'development',
+        BUSINESS_ENV: 'SANDBOX',
+        DATABASE_URL: 'postgresql://blackcat_app:blackcat_app@localhost:5432/blackcat',
+        API_BASE_URL: 'http://localhost:3000',
+        BOT_SERVICE_TOKEN: 'local-service'
+      },
+      encoding: 'utf8',
+      timeout: 10_000
+    });
+    expect(result.status).toBe(0);
+    const output = `${result.stdout}${result.stderr}`;
+    expect(output).toContain('bot.discord.login.skipped');
+    expect(output).not.toContain('production configuration is missing');
+  });
+
   it('accepts Railway private API HTTP while keeping public URLs HTTPS', () => {
     const env = productionEnv();
     expect(validateProductionEnv(env)).toEqual([]);
@@ -109,6 +129,7 @@ describe('M5-US-08 Railway runtime contract', () => {
     const platformPackage = JSON.parse(await readFile('modules/platform/package.json', 'utf8'));
     expect(dockerfile).toContain('FROM node:22-alpine AS build');
     expect(dockerfile).toContain('RUN npm run build:railway');
+    expect(dockerfile).toContain('RUN npm prune --omit=dev');
     expect(dockerfile).not.toMatch(/tsx|vite --host|watch/u);
     expect(dockerignore).toContain('**/*.tsbuildinfo');
     expect(rootPackage.scripts).toMatchObject({
@@ -117,6 +138,8 @@ describe('M5-US-08 Railway runtime contract', () => {
       'start:worker': 'node apps/api/dist/worker.js',
       'sandbox:provision:prod': 'NODE_ENV=production node apps/api/dist/sandbox-funding-provision.js'
     });
+    expect(rootPackage.dependencies).toHaveProperty('prisma');
+    expect(rootPackage.devDependencies).not.toHaveProperty('prisma');
     expect(platformPackage.exports['./process-health']).toEqual({
       types: './src/process-health.ts',
       import: './dist/process-health.js'
@@ -132,6 +155,17 @@ describe('M5-US-08 Railway runtime contract', () => {
       'file:///app/apps/api/dist/sandbox-funding-provision.js',
       '/app/apps/api/dist/worker.js'
     )).toBe(false);
+  });
+
+  it('does not serve Dashboard HTML for the exact API prefix', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'blackcat-dashboard-'));
+    temporaryRoots.push(root);
+    await mkdir(join(root, 'assets'));
+    await writeFile(join(root, 'index.html'), '<main id="pilot-dashboard">pilot</main>');
+    const server = buildApiServer({ env: testEnv() });
+    await registerDashboardAssets(server, root);
+    expect((await server.inject({ method: 'GET', url: '/api', headers: { accept: 'text/html' } })).body).not.toContain('pilot-dashboard');
+    await server.close();
   });
 });
 

@@ -353,7 +353,7 @@ export async function registerDashboardAssets(server: FastifyInstance, dashboard
   const indexHtml = await readFile(join(dashboardDist, 'index.html'), 'utf8');
   server.get('/*', async (request, reply) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
-    if (pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'
+    if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'
       || pathname.startsWith('/assets/') || pathname.startsWith('/api/v1/auth/')) {
       return reply.callNotFound();
     }
