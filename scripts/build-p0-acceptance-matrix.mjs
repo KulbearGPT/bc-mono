@@ -31,7 +31,9 @@ const storyOverrides = {
   'AT-TML-002': ['M4-US-08'],
   'AT-MET-003': ['M4-US-09'], 'AT-MET-004': ['M4-US-09'], 'AT-MET-005': ['M4-US-09'],
   'AT-MET-006': ['M4-US-09'], 'AT-MET-007': ['M4-US-09'], 'AT-MET-008': ['M4-US-09'],
-  'AT-UI-004': ['M1-US-04'], 'AT-UI-005': ['M3-US-01', 'M2-US-10']
+  'AT-UI-004': ['M1-US-04'], 'AT-UI-005': ['M3-US-01', 'M2-US-10'],
+  'AT-RWY-001': ['M5-US-02', 'M5-US-08'], 'AT-RWY-002': ['M5-US-02', 'M5-US-08'],
+  'AT-PILOT-001': ['M5-US-09'], 'AT-PILOT-002': ['M5-US-10']
 };
 
 const columns = [
