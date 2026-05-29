@@ -28,4 +28,17 @@ describe('Railway Sandbox release scope contracts', () => {
     expect(acceptance).not.toContain('PostgreSQL 与 Redis');
     expect(acceptance).toContain('Sandbox 交易');
   });
+
+  it('keeps current-stage runbooks free of Provider-gated release language', () => {
+    const docs = [
+      read('docs/runbooks/P0-UAT与发布检查表.md'),
+      read('docs/runbooks/P0部署与恢复Runbook.md'),
+      read('docs/runbooks/Railway-Sandbox运行手册.md'),
+      read('evidence/P0/index.md')
+    ].join('\n');
+    expect(docs).toContain('Railway Sandbox');
+    expect(docs).toContain('第三方支付 Provider 集成为后续独立 Story');
+    expect(docs).not.toContain('真实 Provider、Discord 与人工签收阻断项');
+    expect(docs).not.toContain('Provider 沙箱充值回跳仍属于发布/UAT门禁');
+  });
 });
