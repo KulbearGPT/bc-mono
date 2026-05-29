@@ -17,14 +17,22 @@ import {
   createReadinessTimeoutHandler,
   createRoleReconciliationHandler
 } from './worker-handlers.js';
-import { ProductionOutboxRuntime, createPanelSyncHandler, createProductionHandlerMap } from './worker-runtime.js';
+import {
+  ProductionOutboxRuntime,
+  createPanelSyncHandler,
+  createProductionHandlerMap,
+  shouldEnqueueWeeklyReport
+} from './worker-runtime.js';
 import { PostgresWeeklyReportStore, createWeeklyReportGenerationHandler, createWeeklyReportNotificationHandler } from './weekly-reports.js';
+import { createPilotFeaturePolicy } from './pilot-features.js';
 import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
 
 const READY_FILE = '/tmp/blackcat-worker-ready';
 const isProductionRuntime = process.env.NODE_ENV === 'production';
 if (isProductionRuntime) requireProductionServiceEnv('worker', process.env);
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: false });
+const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);
+const m6Enabled = pilotFeaturePolicy.isEnabled('M6');
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'worker.config.invalid', errors: validation.errors }));
   process.exit(1);
@@ -40,7 +48,7 @@ const lifecycleStore = new PostgresServiceLifecycleStore({ pool, fundingAdapter,
 const giftStore = new PostgresGiftStore(pool);
 const dispatchMessageStore = new PostgresDispatchMessageStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);
-const weeklyReportStore = new PostgresWeeklyReportStore(pool);
+const weeklyReportStore = m6Enabled ? new PostgresWeeklyReportStore(pool) : null;
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
@@ -76,10 +84,16 @@ const runtime = new ProductionOutboxRuntime({
     roleReconciliation: createRoleReconciliationHandler({
       reconcile: (guildId, mappingVersion, observedAt) => delivery.reconcileRoles(guildId, mappingVersion, observedAt)
     }),
-    weeklyReportGenerate: createWeeklyReportGenerationHandler({ store: weeklyReportStore }),
-    weeklyReportNotify: createWeeklyReportNotificationHandler({ store: weeklyReportStore,
-      sendDirectMessage: (message) => delivery.sendDirectMessage(message) })
-  })
+    weeklyReportGenerate: weeklyReportStore
+      ? createWeeklyReportGenerationHandler({ store: weeklyReportStore })
+      : undefined,
+    weeklyReportNotify: weeklyReportStore
+      ? createWeeklyReportNotificationHandler({
+          store: weeklyReportStore,
+          sendDirectMessage: (message) => delivery.sendDirectMessage(message)
+        })
+      : undefined
+  }, { m6Enabled })
 });
 
 let stopping = false;
@@ -101,8 +115,8 @@ try {
   let nextReportScheduleCheckAt = 0;
   while (!stopping) {
     const loopNow = Date.now();
-    if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
-      await weeklyReportStore.enqueueScheduledGeneration({ guildId: reportGuildId, scheduleKey: 'weekly-cny',
+    if (shouldEnqueueWeeklyReport({ m6Enabled, reportGuildId, loopNow, nextReportScheduleCheckAt })) {
+      await weeklyReportStore!.enqueueScheduledGeneration({ guildId: reportGuildId!, scheduleKey: 'weekly-cny',
         timeZone: process.env.WEEKLY_REPORT_TIME_ZONE?.trim() || 'Asia/Shanghai', now: new Date(loopNow), weekStartsOn: 1 });
       nextReportScheduleCheckAt = loopNow + 60_000;
     }

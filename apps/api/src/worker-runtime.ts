@@ -25,10 +25,10 @@ export function createProductionHandlerMap(input: {
   channelArchive: OutboxHandler;
   panelSync: OutboxHandler;
   roleReconciliation: OutboxHandler;
-  weeklyReportGenerate: OutboxHandler;
-  weeklyReportNotify: OutboxHandler;
-}): Record<(typeof productionJobTypes)[number], OutboxHandler> {
-  return {
+  weeklyReportGenerate?: OutboxHandler;
+  weeklyReportNotify?: OutboxHandler;
+}, options: { m6Enabled?: boolean } = {}): ProductionHandlerMap {
+  const handlers: ProductionHandlerMap = {
     GIFT_ANNOUNCEMENT: input.giftAnnouncement,
     GIFT_EXPIRY: input.giftExpiry,
     DISPATCH_MESSAGE: input.dispatchMessage,
@@ -36,10 +36,24 @@ export function createProductionHandlerMap(input: {
     READINESS_TIMEOUT: input.readinessTimeout,
     CHANNEL_ARCHIVE: input.channelArchive,
     PANEL_SYNC: input.panelSync,
-    ROLE_RECONCILIATION: input.roleReconciliation,
-    WEEKLY_REPORT_GENERATE: input.weeklyReportGenerate,
-    WEEKLY_REPORT_NOTIFY: input.weeklyReportNotify
+    ROLE_RECONCILIATION: input.roleReconciliation
   };
+  if (options.m6Enabled ?? true) {
+    handlers.WEEKLY_REPORT_GENERATE = input.weeklyReportGenerate!;
+    handlers.WEEKLY_REPORT_NOTIFY = input.weeklyReportNotify!;
+  }
+  return handlers;
+}
+
+export function shouldEnqueueWeeklyReport(input: {
+  m6Enabled: boolean;
+  reportGuildId: string | undefined;
+  loopNow: number;
+  nextReportScheduleCheckAt: number;
+}): boolean {
+  return input.m6Enabled
+    && Boolean(input.reportGuildId)
+    && input.loopNow >= input.nextReportScheduleCheckAt;
 }
 
 export class ProductionOutboxRuntime {
@@ -54,10 +68,14 @@ export class ProductionOutboxRuntime {
   async initialize(): Promise<OutboxJob[]> {
     const now = (this.input.now ?? (() => new Date()))();
     const staleLockMs = this.input.staleLockMs ?? 5 * 60_000;
+    const jobTypes = Object.entries(this.input.handlers)
+      .filter((entry): entry is [JobType, OutboxHandler] => typeof entry[1] === 'function')
+      .map(([jobType]) => jobType);
     return this.input.store.recoverStaleProcessingJobs({
       lockedBefore: new Date(now.getTime() - staleLockMs),
       now,
-      error: 'WORKER_RESTART_RECOVERY'
+      error: 'WORKER_RESTART_RECOVERY',
+      jobTypes
     });
   }
 

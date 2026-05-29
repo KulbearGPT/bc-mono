@@ -66,9 +66,11 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
     expect(authorized).toMatchObject({ status: 'APPROVED', action: 'READY_FOR_CAPTURE' });
     const adapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: reservationId, version: 2 }] });
     const captured = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
-      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId,
+      referralsEnabled: false, now });
     const replay = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
-      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId,
+      referralsEnabled: false, now });
     expect(replay).toEqual(captured);
     const facts = await pool.query(`SELECT gr.status AS gift_status, fr.status AS reservation_status,
       count(DISTINCT tx.id)::int AS transaction_count, count(DISTINCT ce.id)::int AS consumption_count,
@@ -80,6 +82,9 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
       WHERE gr.id = $1 GROUP BY gr.status, fr.status`, [giftId]);
     expect(facts.rows[0]).toEqual({ gift_status: 'CAPTURED', reservation_status: 'CAPTURED',
       transaction_count: 1, consumption_count: 1, outbox_count: 1 });
+    const commissions = await pool.query(`SELECT count(*)::int AS count FROM commissions c
+      JOIN consumption_entries ce ON ce.id = c.source_consumption_entry_id WHERE ce.gift_request_id = $1`, [giftId]);
+    expect(commissions.rows[0]).toEqual({ count: 0 });
   });
 
   test('atomically releases a pending gift without creating financial side effects', async () => {
@@ -108,6 +113,14 @@ INSERT INTO external_accounts (id,user_id,provider,external_user_id,status,activ
 VALUES ('00000000-0000-0000-0000-000000003512','${customerId}','mock-provider','mock-user-ok','ACTIVE','${customerId}:mock-provider',now(),now(),now());
 INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
 VALUES ('${staffId}','${staffId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
+INSERT INTO referral_program_versions (id,program_type,version,status,active_program_key,award_mode,rate_bps,currency,
+eligible_order_spend,eligible_gift_spend,created_by_staff_id,activated_at,created_at)
+VALUES ('00000000-0000-0000-0000-000000003520','PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME',
+'NET_SPEND_BPS',200,'CNY',true,true,'${staffId}',now(),now());
+INSERT INTO referral_attributions (id,program_version_id,beneficiary_user_id,referred_user_id,status,row_version,
+active_attribution_key,source_type,bound_by_staff_id,eligibility_checked_at,bound_at,created_at)
+VALUES ('00000000-0000-0000-0000-000000003521','00000000-0000-0000-0000-000000003520','${playerId}',
+'${customerId}','ACTIVE',1,'${customerId}','ADMIN_MANUAL','${staffId}',now(),now(),now());
 INSERT INTO orders (id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,
 currency,amount_minor,guild_id,channel_id,panel_message_id,voice_channel_id,created_at,updated_at)
 VALUES ('${orderId}','P-3504','${customerId}','${playerId}','${customerId}','${playerId}','IN_SERVICE',7,

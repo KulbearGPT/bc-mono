@@ -183,6 +183,7 @@ export interface GiftCaptureCommit {
   broadcastChannelId: string;
   senderDisplayName: string;
   receiverDisplayName: string;
+  referralsEnabled: boolean;
   now: Date;
 }
 
@@ -761,9 +762,11 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
         snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
       ]);
-      await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
-        sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
-        currency:snapshot.request.currency,source:'GIFT',now:input.now});
+      if (input.referralsEnabled) {
+        await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
+          sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
+          currency:snapshot.request.currency,source:'GIFT',now:input.now});
+      }
       await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
         captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
       const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
@@ -888,7 +891,8 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
         }
         const recovered = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
           providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId,
+          referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true, now: now() });
         return { data: recovered, statusCode: 200, commit: () => undefined };
       }
       const approvalThresholds = await giftApprovalThresholds(options.policyReader);
@@ -899,7 +903,8 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
       }
       const captured = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
         providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId,
+        referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true, now: now() });
       return { data: captured, statusCode: 200, commit: () => undefined };
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
@@ -972,6 +977,7 @@ export async function captureApprovedGift(input: {
   botConfigStore?:BotConfigStore;
   giftRequestId: string;
   actorStaffId?: string;
+  referralsEnabled?: boolean;
   now: Date;
 }): Promise<GiftCaptureResult> {
   const existing = await input.store.findCapture(input.giftRequestId);
@@ -1012,6 +1018,7 @@ export async function captureApprovedGift(input: {
     broadcastChannelId,
     senderDisplayName: context.senderDisplayName,
     receiverDisplayName: context.receiverDisplayName,
+    referralsEnabled: input.referralsEnabled ?? true,
     now: input.now });
 }
 

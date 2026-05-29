@@ -357,7 +357,7 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
       throw new AdminDirectoryError('NOT_FOUND', 'Customer was not found.');
     }
     return { userId, ...await options.store.listUserConsumptions({ ...pageQuery(request), userId, guildId: actor.guildId, type: consumptionType(request) }) };
-  }, 'M6');
+  });
   read('/api/v1/admin/players', 'player.read', 'LIST_ADMIN_PLAYERS', 'player_profile', (request) => options.store.listPlayers({ ...pageQuery(request), reviewStatus: enumQuery(request, 'reviewStatus', ['PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'SUSPENDED']) }));
   read('/api/v1/admin/players/:playerId', 'player.read', 'GET_ADMIN_PLAYER', 'player_profile', async (request) => required(await options.store.getPlayer(param(request, 'playerId')), 'Player'));
   read('/api/v1/admin/gift-catalog', 'gift_catalog.read', 'LIST_ADMIN_GIFT_CATALOG', 'gift_catalog', (request) => options.store.listGiftCatalog(pageQuery(request)), 'GIFTS');

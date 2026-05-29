@@ -14,6 +14,7 @@ const acceptedOrder: OrderLifecyclePanelSummary = {
   status: 'ACCEPTED',
   version: 4,
   actorRole: 'CUSTOMER',
+  enabledFeatures: ['CORE_ORDER', 'GIFTS'],
   readiness: {
     customer: 'NOT_READY',
     player: 'NOT_READY',
@@ -52,6 +53,30 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
         expect.objectContaining({ label: '联系客服' })
       ])
     );
+  });
+
+  test('hides gift actions unless the lifecycle response authoritatively enables GIFTS', () => {
+    const coreOnly = buildServiceLifecyclePanelMessage({
+      ...acceptedOrder,
+      enabledFeatures: ['CORE_ORDER']
+    });
+    const giftsEnabled = buildServiceLifecyclePanelMessage(acceptedOrder);
+
+    expect(JSON.stringify(coreOnly)).not.toContain('赠送礼物');
+    expect(JSON.stringify(giftsEnabled)).toContain('赠送礼物');
+  });
+
+  test('fails closed without throwing when readiness capabilities are missing or malformed', () => {
+    for (const enabledFeatures of [undefined, 'GIFTS', null]) {
+      expect(() => buildServiceLifecyclePanelMessage({
+        ...acceptedOrder,
+        enabledFeatures: enabledFeatures as never
+      })).not.toThrow();
+      expect(JSON.stringify(buildServiceLifecyclePanelMessage({
+        ...acceptedOrder,
+        enabledFeatures: enabledFeatures as never
+      }))).not.toContain('赠送礼物');
+    }
   });
 
   test('renders in-service panel with player completion request action only for the assigned player', () => {

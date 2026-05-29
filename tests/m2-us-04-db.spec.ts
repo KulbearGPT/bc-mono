@@ -562,6 +562,31 @@ WHERE source_consumption_entry_id = (
     });
   });
 
+  test('CORE_ORDER completion preserves consumption and base earning but creates no referral commission', async () => {
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter: completionFundingAdapter() });
+    await seedPlayerLifetimeReferral();
+    await moveOrderToPendingConfirmation(store);
+
+    await confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey: 'discord:order:confirm:core-no-referral',
+      referralsEnabled: false,
+      now
+    });
+
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'COMPLETED',
+      reservation_status: 'CAPTURED',
+      consumptions: '1',
+      player_earnings: '1',
+      commissions: '0'
+    });
+  });
+
   test('completion timeout creates one completion review task and leaves settlement untouched', async () => {
     const store = new PostgresServiceLifecycleStore({ pool });
     await setOrderReadiness({

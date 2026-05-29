@@ -79,28 +79,34 @@ describe('M5-US-07 Sandbox Dashboard', () => {
     await expect(buildCapabilities('staff-3', 'L3_OPERATIONS', 1)).resolves.toMatchObject({ level: 'L3_OPERATIONS', displayRole: null });
   });
 
-  it('keeps hidden admin gift and M6 routes behind the same API policy', async () => {
-    const store = { listGiftCatalog: vi.fn(), listUserConsumptions: vi.fn() };
+  it('keeps gifts hidden while CORE_ORDER still exposes scoped admin consumption history', async () => {
+    const store = {
+      listGiftCatalog: vi.fn(),
+      listUserConsumptions: vi.fn().mockResolvedValue({ items: [], nextCursor: null })
+    };
     const server = buildApiServer({
       env: { NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'test-token' },
       security: {
         pilotFeaturePolicy: createPilotFeaturePolicy('CORE_ORDER'),
+        dashboardGuildId: '999999999999999999',
         dashboardSessions: {
           resolve: () => ({ ok: true as const, staff: { staffId: '00000000-0000-0000-0000-000000000010', userId: '00000000-0000-0000-0000-000000000011',
             level: 'L4_ADMIN_OWNER' as const, permissionsVersion: 1, status: 'ACTIVE' as const }, csrfToken: 'csrf' }),
           verifyCsrf: () => true
         }
       },
-      adminDirectory: { store: store as never }
+      adminDirectory: {
+        store: store as never,
+        customerScope: { canReadCustomer: vi.fn().mockResolvedValue(true) }
+      }
     });
     const headers = { cookie: 'p0_session=owner', 'x-client-source': 'DASHBOARD' };
     const gift = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-catalog', headers });
-    const m6 = await server.inject({ method: 'GET', url: '/api/v1/admin/users/00000000-0000-0000-0000-000000000099/consumptions', headers });
-    expect([gift.statusCode, m6.statusCode]).toEqual([409, 409]);
+    const consumptions = await server.inject({ method: 'GET', url: '/api/v1/admin/users/00000000-0000-0000-0000-000000000099/consumptions', headers });
+    expect([gift.statusCode, consumptions.statusCode]).toEqual([409, 200]);
     expect(gift.json()).toMatchObject({ error: { code: 'FEATURE_DISABLED' } });
-    expect(m6.json()).toMatchObject({ error: { code: 'FEATURE_DISABLED' } });
     expect(store.listGiftCatalog).not.toHaveBeenCalled();
-    expect(store.listUserConsumptions).not.toHaveBeenCalled();
+    expect(store.listUserConsumptions).toHaveBeenCalledOnce();
   });
 });
 

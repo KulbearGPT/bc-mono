@@ -149,6 +149,7 @@ export interface ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> | OrderCompletionResult;
   commitCompletionTimeout(input: {
@@ -312,6 +313,7 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled: boolean;
     now: Date;
   }): OrderCompletionResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
@@ -343,27 +345,29 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       amountMinor: order.playerEarningMinor,
       currency: order.currency
     });
-    for (const attribution of this.referralAttributions.filter((candidate) => {
-      return candidate.referredUserId === order.customerId
-        && candidate.currency === order.currency
-        && candidate.eligibleOrderSpend;
-    })) {
-      const amountMinor = calculateReferralCommissionMinor({
-        baseAmountMinor: order.amountMinor,
-        fixedAmountMinor: attribution.fixedAmountMinor,
-        rateBps: attribution.rateBps,
-        awardMode: attribution.awardMode
-      });
-      if (amountMinor > 0) {
-        this.commissions.push({
-          orderId: order.id,
-          referralAttributionId: attribution.id,
-          beneficiaryUserId: attribution.beneficiaryUserId,
+    if (input.referralsEnabled) {
+      for (const attribution of this.referralAttributions.filter((candidate) => {
+        return candidate.referredUserId === order.customerId
+          && candidate.currency === order.currency
+          && candidate.eligibleOrderSpend;
+      })) {
+        const amountMinor = calculateReferralCommissionMinor({
           baseAmountMinor: order.amountMinor,
-          amountMinor,
-          currency: order.currency,
-          status: 'PENDING'
+          fixedAmountMinor: attribution.fixedAmountMinor,
+          rateBps: attribution.rateBps,
+          awardMode: attribution.awardMode
         });
+        if (amountMinor > 0) {
+          this.commissions.push({
+            orderId: order.id,
+            referralAttributionId: attribution.id,
+            beneficiaryUserId: attribution.beneficiaryUserId,
+            baseAmountMinor: order.amountMinor,
+            amountMinor,
+            currency: order.currency,
+            status: 'PENDING'
+          });
+        }
       }
     }
     return {
@@ -681,6 +685,7 @@ RETURNING *
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> {
     if (!this.pool || !this.fundingAdapter) {
@@ -895,6 +900,7 @@ export async function confirmOrder(input: {
   confirmation: 'CONFIRM_COMPLETED';
   actor: { guildId: string; discordUserId: string };
   idempotencyKey: string;
+  referralsEnabled?: boolean;
   now: Date;
 }): Promise<OrderCompletionResult> {
   const actorUserId = await requireActorUser(input.store, input.actor);
@@ -904,6 +910,7 @@ export async function confirmOrder(input: {
     confirmation: input.confirmation,
     actorUserId,
     idempotencyKey: input.idempotencyKey,
+    referralsEnabled: input.referralsEnabled ?? true,
     now: input.now
   });
 }
@@ -976,7 +983,7 @@ export function registerServiceLifecycleRoutes(
       if (!actor.guildId || !actor.discordUserId) {
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Discord actor context is required.');
       }
-      return setOrderReadiness({
+      const result = await setOrderReadiness({
         store: options.store,
         orderId: orderIdParam(request),
         expectedVersion: body.expectedVersion,
@@ -984,6 +991,7 @@ export function registerServiceLifecycleRoutes(
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         now: now()
       });
+      return { ...result, enabledFeatures: enabledPilotFeatures(security.pilotFeaturePolicy?.enabledFeatures) };
     },
     mapError: mapLifecycleError,
     fingerprintBody: (request) => parseReadinessBody(request.body)
@@ -1034,6 +1042,7 @@ export function registerServiceLifecycleRoutes(
         confirmation: body.confirmation,
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         idempotencyKey: idempotencyKey(request),
+        referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true,
         now: now()
       });
     },
@@ -1104,6 +1113,12 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
       staffTaskId: null
     }
   };
+}
+
+function enabledPilotFeatures(
+  configured: readonly ('CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6')[] | undefined
+): Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'> {
+  return [...(configured ?? ['CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6'])];
 }
 
 function parseReadinessBody(body: unknown): { expectedVersion: number; readiness: ReadinessValue } {
@@ -1886,6 +1901,7 @@ async function finalizeOrderCompletion(
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    referralsEnabled: boolean;
     now: Date;
   },
   intent: CompletionCaptureIntent,
@@ -1936,11 +1952,13 @@ async function finalizeOrderCompletion(
       now: input.now
     });
     await insertPlayerEarning(client, { order: current, now: input.now });
-    await insertEligibleReferralCommission(client, {
-      order: current,
-      consumptionEntryId,
-      now: input.now
-    });
+    if (input.referralsEnabled) {
+      await insertEligibleReferralCommission(client, {
+        order: current,
+        consumptionEntryId,
+        now: input.now
+      });
+    }
     await insertOrderEvent(client, {
       orderId: input.orderId,
       sequence: await nextOrderEventSequence(client, input.orderId),
