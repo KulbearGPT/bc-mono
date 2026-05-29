@@ -32,11 +32,11 @@ if (!validation.ok) {
 
 const discordToken = validation.values.discordBotToken!;
 const pool = new Pool({ connectionString: validation.values.databaseUrl, application_name: 'blackcat_worker' });
-const { adapter: fundingAdapter } = createRuntimeFundingAdapter(process.env, { pool });
+const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env, { pool });
 const outboxStore = new PostgresOutboxStore({ client: pool });
 const orderStore = new PostgresOrderStore({ pool });
 const dispatchStore = new PostgresDispatchStore({ pool });
-const lifecycleStore = new PostgresServiceLifecycleStore({ pool });
+const lifecycleStore = new PostgresServiceLifecycleStore({ pool, fundingAdapter, providerKey });
 const giftStore = new PostgresGiftStore(pool);
 const dispatchMessageStore = new PostgresDispatchMessageStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);

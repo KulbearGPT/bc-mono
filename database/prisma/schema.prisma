@@ -636,6 +636,7 @@ model SandboxProviderTransaction {
   status            SandboxProviderTransactionStatus
   providerReference String                              @unique @map("provider_reference") @db.VarChar(255)
   originalProviderReference String?                     @map("original_provider_reference") @db.VarChar(255)
+  reasonCode        String?                             @map("reason_code") @db.VarChar(100)
   idempotencyKey    String                              @unique @map("idempotency_key") @db.VarChar(200)
   createdAt         DateTime                            @default(now()) @map("created_at") @db.Timestamptz(3)
 

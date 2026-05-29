@@ -3,10 +3,18 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Pool } from 'pg';
+import type {
+  CreateReservationDebitInput,
+  FundingAdapter,
+  Hold,
+  Transaction,
+  TransactionStatus
+} from '@blackcat/api/payment-adapter';
 import {
   PostgresServiceLifecycleStore,
+  ServiceLifecycleError,
   confirmOrder,
   expireOrderCompletionConfirmation,
   expireOrderReadiness,
@@ -173,8 +181,9 @@ RESTART IDENTITY CASCADE
     expect(new Date(row.rows[0]!.confirmation_due_at).toISOString()).toBe(new Date(now.getTime() + 30 * 60_000).toISOString());
   });
 
-  test('customer confirmation completes order and creates capture, consumption and player earning facts atomically', async () => {
-    const store = new PostgresServiceLifecycleStore({ pool });
+  test('customer confirmation persists the confirmed adapter debit and creates local settlement facts atomically', async () => {
+    const fundingAdapter = completionFundingAdapter();
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
     await setOrderReadiness({
       store,
       orderId,
@@ -216,6 +225,7 @@ SELECT
   (SELECT active_player_slot_id FROM orders WHERE id = '${orderId}') AS active_player_slot_id,
   (SELECT status FROM fund_reservations WHERE order_id = '${orderId}') AS reservation_status,
   (SELECT count(*)::text FROM external_transactions WHERE order_id = '${orderId}' AND status = 'SUCCEEDED') AS external_transactions,
+  (SELECT external_ref FROM external_transactions WHERE order_id = '${orderId}' AND status = 'SUCCEEDED') AS external_ref,
   (SELECT count(*)::text FROM consumption_entries WHERE order_id = '${orderId}' AND entry_type = 'ORDER_CHARGE' AND direction = 'DEBIT') AS consumptions,
   (SELECT count(*)::text FROM player_earnings WHERE order_id = '${orderId}' AND status = 'PENDING') AS player_earnings,
   (SELECT amount_minor::text FROM player_earnings WHERE order_id = '${orderId}') AS earning_amount
@@ -235,14 +245,261 @@ SELECT
       active_player_slot_id: null,
       reservation_status: 'CAPTURED',
       external_transactions: '1',
+      external_ref: `provider:debit:order:${orderId}:v1`,
       consumptions: '1',
       player_earnings: '1',
       earning_amount: '8400'
     });
+    expect(fundingAdapter.createReservationDebit).toHaveBeenCalledExactlyOnceWith({
+      idempotencyKey: `debit:order:${orderId}:v1`,
+      fundReservationId: '00000000-0000-0000-0000-00000000f451',
+      fundReservationVersion: 1,
+      externalUserId: 'mock-customer',
+      amount: { amountMinor: 12000, currency: 'CNY' },
+      businessSource: 'ORDER',
+      businessReference: orderId,
+      metadata: { orderId }
+    });
+  });
+
+  test('customer confirmation captures the snapshotted provider-native hold and validates its transaction', async () => {
+    await pool.query(
+      `UPDATE fund_reservations
+       SET mode='PROVIDER_NATIVE_HOLD',provider_hold_ref='provider_hold_order_4451'
+       WHERE order_id=$1`,
+      [orderId]
+    );
+    const fundingAdapter = completionNativeHoldAdapter();
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    await moveOrderToPendingConfirmation(store);
+    await pool.query(
+      `UPDATE external_accounts
+       SET status='REVOKED',active_user_provider_key=NULL,updated_at=$2
+       WHERE user_id=$1`,
+      [customerId, now.toISOString()]
+    );
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey: 'discord:order:confirm:native-hold',
+      now
+    })).resolves.toMatchObject({ status: 'COMPLETED', capturedMinor: 12_000 });
+
+    expect(fundingAdapter.captureHold).toHaveBeenCalledTimes(1);
+    expect(fundingAdapter.captureHold).toHaveBeenCalledExactlyOnceWith({
+      holdRef: 'provider_hold_order_4451',
+      idempotencyKey: 'capture:hold:00000000-0000-0000-0000-00000000f451:v1',
+      fundReservationId: '00000000-0000-0000-0000-00000000f451',
+      fundReservationVersion: 1,
+      amount: { amountMinor: 12_000, currency: 'CNY' },
+      businessReference: orderId,
+      reasonCode: 'ORDER_COMPLETED'
+    });
+    expect(fundingAdapter.createReservationDebit).not.toHaveBeenCalled();
+    expect(fundingAdapter.getProviderBalance).not.toHaveBeenCalled();
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'COMPLETED',
+      reservation_status: 'CAPTURED',
+      capture_events: '1',
+      external_status: 'SUCCEEDED',
+      consumptions: '1',
+      player_earnings: '1'
+    });
+  });
+
+  test.each([
+    { initialStatus: 'FAILED' as const, recoveredStatus: 'FAILED' as const },
+    { initialStatus: 'UNKNOWN' as const, recoveredStatus: 'PENDING' as const }
+  ])('does not create settlement facts when the adapter debit is $initialStatus/$recoveredStatus', async ({
+    initialStatus,
+    recoveredStatus
+  }) => {
+    const fundingAdapter = completionFundingAdapter({ initialStatus, recoveredStatus });
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    await moveOrderToPendingConfirmation(store);
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey: `discord:order:confirm:${initialStatus.toLowerCase()}`,
+      now
+    })).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE' });
+
+    const snapshot = await completionFactSnapshot();
+    expect(snapshot).toMatchObject({
+      order_status: 'PENDING_CONFIRMATION',
+      reservation_status: 'ACTIVE',
+      capture_events: '0',
+      external_transactions: '1',
+      external_status: recoveredStatus,
+      consumptions: '0',
+      player_earnings: '0',
+      commissions: '0'
+    });
+    expect(fundingAdapter.createReservationDebit).toHaveBeenCalledTimes(1);
+    expect(fundingAdapter.getTransaction).toHaveBeenCalledTimes(initialStatus === 'UNKNOWN' ? 1 : 0);
+  });
+
+  test('rechecks fresh provider balance and all active reservations before fallback debit', async () => {
+    const fundingAdapter = completionFundingAdapter({ providerBalanceMinor: 11_999 });
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    await moveOrderToPendingConfirmation(store);
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey: 'discord:order:confirm:balance-deficit',
+      now
+    })).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    expect(fundingAdapter.getProviderBalance).toHaveBeenCalledExactlyOnceWith({
+      externalUserId: 'mock-customer'
+    });
+    expect(fundingAdapter.createReservationDebit).not.toHaveBeenCalled();
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'PENDING_CONFIRMATION',
+      reservation_status: 'ACTIVE',
+      capture_events: '0',
+      consumptions: '0',
+      player_earnings: '0'
+    });
+  });
+
+  test('rejects a successful provider result whose request fingerprint does not match the capture intent', async () => {
+    const fundingAdapter = completionFundingAdapter({
+      transformTransaction: (transaction) => ({
+        ...transaction,
+        amount: { ...transaction.amount, amountMinor: transaction.amount.amountMinor + 1 }
+      })
+    });
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    await moveOrderToPendingConfirmation(store);
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey: 'discord:order:confirm:mismatched-provider-result',
+      now
+    })).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'PENDING_CONFIRMATION',
+      reservation_status: 'ACTIVE',
+      capture_events: '0',
+      external_status: 'PENDING',
+      consumptions: '0',
+      player_earnings: '0'
+    });
+  });
+
+  test('maps a funding advisory-lock timeout to a retryable conflict without calling the provider', async () => {
+    const fundingAdapter = completionFundingAdapter();
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    await moveOrderToPendingConfirmation(store);
+    const blocker = await pool.connect();
+    try {
+      await blocker.query(
+        'SELECT pg_advisory_lock(hashtextextended($1,0))',
+        [`${customerId}:CNY`]
+      );
+
+      await expect(confirmOrder({
+        store,
+        orderId,
+        expectedVersion: 7,
+        confirmation: 'CONFIRM_COMPLETED',
+        actor: { guildId, discordUserId: '111111111111111111' },
+        idempotencyKey: 'discord:order:confirm:lock-timeout',
+        now
+      })).rejects.toEqual(expect.objectContaining({
+        code: 'CONFLICT',
+        retryable: true,
+        idempotencyFailureCode: 'FUNDING_LOCK_TIMEOUT'
+      } satisfies Partial<ServiceLifecycleError>));
+      expect(fundingAdapter.getProviderBalance).not.toHaveBeenCalled();
+      expect(fundingAdapter.createReservationDebit).not.toHaveBeenCalled();
+    } finally {
+      await blocker.query(
+        'SELECT pg_advisory_unlock(hashtextextended($1,0))',
+        [`${customerId}:CNY`]
+      );
+      blocker.release();
+    }
+  }, 10_000);
+
+  test('replays the same adapter debit after a local rollback without a duplicate provider debit', async () => {
+    const fundingAdapter = completionFundingAdapter({
+      decreaseBalanceOnDebit: true,
+      afterFirstCreate: async () => {
+        await pool.query('UPDATE orders SET row_version=8 WHERE id=$1', [orderId]);
+      }
+    });
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter });
+    const idempotencyKey = 'discord:order:confirm:recovery';
+    await moveOrderToPendingConfirmation(store);
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey,
+      now
+    })).rejects.toEqual(expect.objectContaining({
+      code: 'PROVIDER_UNAVAILABLE',
+      retryable: true,
+      idempotencyFailureCode: 'PROVIDER_CONVERGENCE_PENDING'
+    } satisfies Partial<ServiceLifecycleError>));
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'PENDING_CONFIRMATION',
+      reservation_status: 'ACTIVE',
+      capture_events: '0',
+      external_transactions: '1',
+      consumptions: '0',
+      player_earnings: '0',
+      commissions: '0'
+    });
+
+    await pool.query('UPDATE orders SET row_version=7 WHERE id=$1', [orderId]);
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 7,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '111111111111111111' },
+      idempotencyKey,
+      now
+    })).resolves.toMatchObject({ status: 'COMPLETED' });
+
+    expect(fundingAdapter.createReservationDebit).toHaveBeenCalledTimes(1);
+    expect(fundingAdapter.getTransaction).not.toHaveBeenCalled();
+    expect(fundingAdapter.uniqueDebitCount()).toBe(1);
+    expect(await completionFactSnapshot()).toMatchObject({
+      order_status: 'COMPLETED',
+      reservation_status: 'CAPTURED',
+      capture_events: '1',
+      external_transactions: '1',
+      consumptions: '1',
+      player_earnings: '1'
+    });
   });
 
   test('customer confirmation creates a pending referral commission when an eligible attribution exists', async () => {
-    const store = new PostgresServiceLifecycleStore({ pool });
+    const store = new PostgresServiceLifecycleStore({ pool, fundingAdapter: completionFundingAdapter() });
     await seedPlayerLifetimeReferral();
     await setOrderReadiness({
       store,
@@ -418,6 +675,22 @@ VALUES
   ('00000000-0000-0000-0000-00000000d551', '00000000-0000-0000-0000-00000000a551', '999999999999999999', '111111111111111111', 'customer', now()),
   ('00000000-0000-0000-0000-00000000d552', '00000000-0000-0000-0000-00000000a552', '999999999999999999', '222222222222222222', 'player', now());
 
+INSERT INTO external_accounts (
+  id, user_id, provider, external_user_id, status, active_user_provider_key,
+  verified_at, created_at, updated_at
+)
+VALUES (
+  '00000000-0000-0000-0000-00000000c551',
+  '00000000-0000-0000-0000-00000000a551',
+  'mock-provider',
+  'mock-customer',
+  'ACTIVE',
+  '00000000-0000-0000-0000-00000000a551:mock-provider',
+  now(),
+  now(),
+  now()
+);
+
 INSERT INTO orders (
   id, public_id, customer_id, player_id, active_customer_slot_id, active_player_slot_id,
   status, row_version, game_code_snapshot, game_name_snapshot, service_code_snapshot,
@@ -509,6 +782,177 @@ VALUES (
   now()
 );
   `);
+}
+
+async function moveOrderToPendingConfirmation(store: PostgresServiceLifecycleStore): Promise<void> {
+  await setOrderReadiness({
+    store,
+    orderId,
+    expectedVersion: 4,
+    readiness: 'READY',
+    actor: { guildId, discordUserId: '111111111111111111' },
+    now
+  });
+  await setOrderReadiness({
+    store,
+    orderId,
+    expectedVersion: 5,
+    readiness: 'READY',
+    actor: { guildId, discordUserId: '222222222222222222' },
+    now
+  });
+  await requestOrderCompletion({
+    store,
+    orderId,
+    expectedVersion: 6,
+    actor: { guildId, discordUserId: '222222222222222222' },
+    now
+  });
+}
+
+async function completionFactSnapshot() {
+  const result = await pool.query(`
+SELECT
+  (SELECT status FROM orders WHERE id = '${orderId}') AS order_status,
+  (SELECT status FROM fund_reservations WHERE order_id = '${orderId}') AS reservation_status,
+  (SELECT count(*)::text FROM fund_reservation_events
+    WHERE fund_reservation_id = '00000000-0000-0000-0000-00000000f451' AND event_type = 'CAPTURED') AS capture_events,
+  (SELECT count(*)::text FROM external_transactions
+    WHERE order_id = '${orderId}') AS external_transactions,
+  (SELECT status FROM external_transactions WHERE order_id = '${orderId}') AS external_status,
+  (SELECT count(*)::text FROM consumption_entries WHERE order_id = '${orderId}') AS consumptions,
+  (SELECT count(*)::text FROM player_earnings WHERE order_id = '${orderId}') AS player_earnings,
+  (SELECT count(*)::text FROM commissions WHERE source_consumption_entry_id IN (
+    SELECT id FROM consumption_entries WHERE order_id = '${orderId}'
+  )) AS commissions
+  `);
+  return result.rows[0] as Record<string, string>;
+}
+
+function completionFundingAdapter(input: {
+  initialStatus?: TransactionStatus;
+  recoveredStatus?: TransactionStatus;
+  providerBalanceMinor?: number;
+  decreaseBalanceOnDebit?: boolean;
+  transformTransaction?: (transaction: Transaction) => Transaction;
+  afterFirstCreate?: () => Promise<void>;
+} = {}) {
+  const uniqueDebits = new Map<string, Transaction>();
+  const transactionFor = (
+    request: CreateReservationDebitInput,
+    status: TransactionStatus
+  ): Transaction => ({
+    kind: 'FALLBACK_DEBIT',
+    status,
+    idempotencyKey: request.idempotencyKey,
+    fundReservationId: request.fundReservationId,
+    fundReservationVersion: request.fundReservationVersion,
+    businessSource: request.businessSource,
+    amount: request.amount,
+    businessReference: request.businessReference,
+    providerRef: `provider:${request.idempotencyKey}`,
+    originalProviderRef: null,
+    providerStatus: status,
+    observedAt: now.toISOString(),
+    providerOccurredAt: now.toISOString(),
+    failure: status === 'FAILED'
+      ? { code: 'INSUFFICIENT_FUNDS', retryable: false, safeMessage: 'Debit failed.' }
+      : null
+  });
+  const createReservationDebit = vi.fn(async (request: CreateReservationDebitInput) => {
+    const existing = uniqueDebits.get(request.idempotencyKey);
+    if (existing) return existing;
+    const base = transactionFor(request, input.initialStatus ?? 'SUCCEEDED');
+    const created = input.transformTransaction?.(base) ?? base;
+    uniqueDebits.set(request.idempotencyKey, created);
+    await input.afterFirstCreate?.();
+    return created;
+  });
+  const getTransaction = vi.fn(async (request: { lookupType: 'PROVIDER_REF' | 'IDEMPOTENCY_KEY'; lookupValue: string }) => {
+    const existing = request.lookupType === 'IDEMPOTENCY_KEY'
+      ? uniqueDebits.get(request.lookupValue)
+      : Array.from(uniqueDebits.values()).find((candidate) => candidate.providerRef === request.lookupValue);
+    if (!existing) throw new Error('Transaction was not found.');
+    return { ...existing, status: input.recoveredStatus ?? existing.status };
+  });
+  const getProviderBalance = vi.fn(async ({ externalUserId }: { externalUserId: string }) => ({
+    externalUserId,
+    providerBalanceMinor: (input.providerBalanceMinor ?? 12_000)
+      - (input.decreaseBalanceOnDebit
+        ? Array.from(uniqueDebits.values())
+          .filter((transaction) => transaction.status === 'SUCCEEDED')
+          .reduce((sum, transaction) => sum + transaction.amount.amountMinor, 0)
+        : 0),
+    currency: 'CNY',
+    fetchedAt: now.toISOString(),
+    providerAsOf: now.toISOString(),
+    stale: false
+  }));
+  return {
+    createReservationDebit,
+    getTransaction,
+    getProviderBalance,
+    uniqueDebitCount: () => uniqueDebits.size
+  } satisfies Pick<FundingAdapter, 'createReservationDebit' | 'getTransaction' | 'getProviderBalance'> & {
+    uniqueDebitCount(): number;
+  };
+}
+
+function completionNativeHoldAdapter() {
+  const captureKey = 'capture:hold:00000000-0000-0000-0000-00000000f451:v1';
+  const providerRef = `provider:${captureKey}`;
+  const hold: Hold = {
+    status: 'CAPTURED',
+    idempotencyKey: `hold:order:${orderId}:v1`,
+    fundReservationId: '00000000-0000-0000-0000-00000000f451',
+    fundReservationVersion: 1,
+    externalUserId: 'mock-customer',
+    businessSource: 'ORDER',
+    businessReference: orderId,
+    holdRef: 'provider_hold_order_4451',
+    captureTransactionRef: providerRef,
+    amount: { amountMinor: 12_000, currency: 'CNY' },
+    capturedAmount: { amountMinor: 12_000, currency: 'CNY' },
+    releasedAmount: { amountMinor: 0, currency: 'CNY' },
+    remainingAmount: { amountMinor: 0, currency: 'CNY' },
+    expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+    providerStatus: 'CAPTURED',
+    observedAt: now.toISOString(),
+    failure: null
+  };
+  const transaction: Transaction = {
+    kind: 'FALLBACK_DEBIT',
+    status: 'SUCCEEDED',
+    idempotencyKey: captureKey,
+    fundReservationId: hold.fundReservationId,
+    fundReservationVersion: hold.fundReservationVersion,
+    businessSource: 'ORDER',
+    amount: hold.amount,
+    businessReference: orderId,
+    providerRef,
+    originalProviderRef: null,
+    providerStatus: 'SUCCEEDED',
+    observedAt: now.toISOString(),
+    providerOccurredAt: now.toISOString(),
+    failure: null
+  };
+  return {
+    getProviderBalance: vi.fn(async () => ({
+      externalUserId: 'mock-customer',
+      providerBalanceMinor: 12_000,
+      currency: 'CNY',
+      fetchedAt: now.toISOString(),
+      providerAsOf: now.toISOString(),
+      stale: false
+    })),
+    createReservationDebit: vi.fn(async () => transaction),
+    getTransaction: vi.fn(async () => transaction),
+    captureHold: vi.fn(async () => hold),
+    getHold: vi.fn(async () => hold)
+  } satisfies Pick<
+    FundingAdapter,
+    'getProviderBalance' | 'createReservationDebit' | 'getTransaction' | 'captureHold' | 'getHold'
+  >;
 }
 
 async function seedPlayerLifetimeReferral(): Promise<void> {

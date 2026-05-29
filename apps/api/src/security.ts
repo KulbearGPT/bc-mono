@@ -122,9 +122,17 @@ export interface SecureRouteOptions {
   acceptedSources?: ActorSource[];
   allowServiceActor?: boolean;
   fingerprintBody?: (request: FastifyRequest) => unknown;
-  mapError?: (error: unknown) => { statusCode: number; code: string; message: string; details?: Array<{ field: string; reason: string }> } | null;
+  mapError?: (error: unknown) => {
+    statusCode: number;
+    code: string;
+    message: string;
+    details?: Array<{ field: string; reason: string }>;
+    retryable?: boolean;
+    idempotencyFailureCode?: string;
+  } | null;
   requiresRecentStepUp?: boolean | ((request: FastifyRequest, actor: ActorContext) => boolean);
   retryCommitFailures?: boolean;
+  retryableFailureCodes?: readonly string[];
   requiredFeature?: PilotFeature;
   auditSnapshots?: (
     request: FastifyRequest,
@@ -716,6 +724,9 @@ export function registerSecureWriteRoute(
       if (route.retryCommitFailures) {
         await idempotencyStore.retryFailed?.(scopeKey, fingerprint, 'COMMIT_FAILED');
       }
+      for (const failureCode of route.retryableFailureCodes ?? []) {
+        if (await idempotencyStore.retryFailed?.(scopeKey, fingerprint, failureCode)) break;
+      }
       const reservation = await idempotencyStore.reserve(scopeKey, fingerprint);
       if (!reservation.reserved) {
         if (reservation.record.fingerprint !== fingerprint) {
@@ -754,9 +765,11 @@ export function registerSecureWriteRoute(
         message: string,
         reason: string,
         statusCode = 500,
-        details: Array<{ field: string; reason: string }> = []
+        details: Array<{ field: string; reason: string }> = [],
+        retryable = false,
+        idempotencyFailureCode = reason
       ) => {
-        const failedPayload = buildErrorPayload(requestId, code, message, details);
+        const failedPayload = buildErrorPayload(requestId, code, message, details, retryable);
         try {
           await appendAudit(auditSink, {
             ...baseAudit,
@@ -767,7 +780,7 @@ export function registerSecureWriteRoute(
         } catch {
           // The idempotency record must still be resolved so duplicate writes do not hang forever.
         }
-        await idempotencyStore.fail(scopeKey, statusCode, failedPayload, reason);
+        await idempotencyStore.fail(scopeKey, statusCode, failedPayload, idempotencyFailureCode);
         reply.code(statusCode);
         return failedPayload;
       };
@@ -782,7 +795,9 @@ export function registerSecureWriteRoute(
           mappedError?.message ?? 'The operation failed before it could be completed.',
           mappedError?.code ?? 'HANDLER_FAILED',
           mappedError?.statusCode ?? 500,
-          mappedError?.details ?? []
+          mappedError?.details ?? [],
+          mappedError?.retryable ?? false,
+          mappedError?.idempotencyFailureCode ?? mappedError?.code ?? 'HANDLER_FAILED'
         );
       }
 
@@ -1196,14 +1211,15 @@ function buildErrorPayload(
   requestId: string,
   code: string,
   message: string,
-  details: Array<{ field: string; reason: string }> = []
+  details: Array<{ field: string; reason: string }> = [],
+  retryable = false
 ) {
   return {
     requestId,
     error: {
       code,
       message,
-      retryable: false,
+      retryable,
       details
     }
   };

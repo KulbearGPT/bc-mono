@@ -66,6 +66,7 @@ CREATE TABLE "sandbox_provider_transactions" (
   "status" "SandboxProviderTransactionStatus" NOT NULL,
   "provider_reference" VARCHAR(255) NOT NULL,
   "original_provider_reference" VARCHAR(255),
+  "reason_code" VARCHAR(100),
   "idempotency_key" VARCHAR(200) NOT NULL,
   "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "sandbox_provider_transactions_pkey" PRIMARY KEY ("id"),
@@ -74,6 +75,10 @@ CREATE TABLE "sandbox_provider_transactions" (
   CONSTRAINT "sandbox_transaction_operation_direction" CHECK (
     ("operation" = 'DEBIT' AND "direction" = 'DEBIT') OR
     ("operation" = 'REFUND' AND "direction" = 'CREDIT')
+  ),
+  CONSTRAINT "sandbox_transaction_reason_binding" CHECK (
+    ("operation" = 'DEBIT' AND "reason_code" IS NULL) OR
+    ("operation" = 'REFUND' AND "reason_code" IS NOT NULL)
   ),
   CONSTRAINT "sandbox_transaction_idempotency_unique" UNIQUE ("idempotency_key"),
   CONSTRAINT "sandbox_transactions_account_fkey" FOREIGN KEY ("account_id") REFERENCES "sandbox_provider_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -93,3 +98,19 @@ FOR EACH ROW EXECUTE FUNCTION deny_append_only_mutation();
 CREATE TRIGGER sandbox_transactions_append_only
 BEFORE UPDATE OR DELETE ON "sandbox_provider_transactions"
 FOR EACH ROW EXECUTE FUNCTION deny_append_only_mutation();
+
+-- Migration 000001 grants only covered tables that existed at that point.
+-- Keep the runtime role least-privileged for the later Sandbox funding tables.
+GRANT SELECT, INSERT ON TABLE "sandbox_provider_accounts" TO blackcat_app;
+GRANT UPDATE ("binding_code_consumed_at", "version", "updated_at")
+  ON TABLE "sandbox_provider_accounts" TO blackcat_app;
+REVOKE DELETE ON TABLE "sandbox_provider_accounts" FROM blackcat_app;
+
+GRANT SELECT, INSERT ON TABLE
+  "sandbox_provider_balance_adjustments",
+  "sandbox_provider_transactions"
+TO blackcat_app;
+REVOKE UPDATE, DELETE ON TABLE
+  "sandbox_provider_balance_adjustments",
+  "sandbox_provider_transactions"
+FROM blackcat_app;

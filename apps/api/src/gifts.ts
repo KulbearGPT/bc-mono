@@ -983,7 +983,9 @@ export async function captureApprovedGift(input: {
     || reservation.amountMinor !== request.priceMinor || reservation.currency !== request.currency) {
     throw new GiftError('CONFLICT', 'Gift is not ready for capture.');
   }
-  const providerIdempotencyKey = `debit:gift:${request.id}:v1`;
+  const providerIdempotencyKey = reservation.mode === 'PROVIDER_NATIVE_HOLD'
+    ? `capture:hold:${reservation.id}:v${reservation.version}`
+    : `debit:gift:${request.id}:v1`;
   let providerTransactionRef: string | null;
   if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
     if (!reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold reference is missing.');

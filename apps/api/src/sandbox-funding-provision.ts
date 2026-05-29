@@ -16,47 +16,45 @@ export async function provisionSandboxFunding(input: {
 }): Promise<Array<{ key: string; externalUserId: string; bindingCode: string }>> {
   if (input.businessEnvironment !== 'SANDBOX') throw new Error('Sandbox funding provisioning is forbidden unless BUSINESS_ENV=SANDBOX.');
   if (input.bindingSecret.length < 32) throw new Error('SANDBOX_BINDING_CODE_SECRET must be at least 32 characters.');
-  const staff = await input.pool.query<{ id: string }>(`SELECT id FROM staff_accounts
-    WHERE level='L4_ADMIN_OWNER' AND status='ACTIVE' ORDER BY created_at LIMIT 1`);
-  if (!staff.rows[0]) throw new Error('An active L4 owner is required before Sandbox funding provisioning.');
+  const client = await input.pool.connect();
   const results: Array<{ key: string; externalUserId: string; bindingCode: string }> = [];
-  for (const fixture of fixtures) {
-    const client = await input.pool.connect();
-    try {
-      await client.query('BEGIN');
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('blackcat:sandbox-funding-provision'))`);
+    const staff = await client.query<{ id: string }>(`SELECT id FROM staff_accounts
+      WHERE level='L4_ADMIN_OWNER' AND status='ACTIVE' ORDER BY created_at LIMIT 1`);
+    if (!staff.rows[0]) throw new Error('An active L4 owner is required before Sandbox funding provisioning.');
+    const externalUserIds = fixtures.map((fixture) => `sandbox-${fixture.key.toLowerCase()}`);
+    const existing = await client.query<{ external_user_id: string }>(`SELECT external_user_id
+      FROM sandbox_provider_accounts
+      WHERE external_user_id = ANY($1::text[])
+      ORDER BY external_user_id
+      FOR UPDATE`, [externalUserIds]);
+    if (existing.rows.length > 0) {
+      throw new Error('Sandbox funding fixtures are already provisioned; refusing to rotate codes or reset balances.');
+    }
+    for (const fixture of fixtures) {
       const externalUserId = `sandbox-${fixture.key.toLowerCase()}`;
       const bindingCode = randomBytes(24).toString('base64url');
       const bindingCodeHash = createHmac('sha256', input.bindingSecret).update(bindingCode).digest('hex');
       const account = await client.query<{ id: string }>(`INSERT INTO sandbox_provider_accounts
         (id,external_user_id,display_name,currency,status,version,binding_code_hash,binding_code_consumed_at,created_at,updated_at)
         VALUES ($1,$2,$3,'CNY',$4::"SandboxProviderAccountStatus",1,$5,NULL,now(),now())
-        ON CONFLICT (external_user_id) DO UPDATE SET display_name=EXCLUDED.display_name,status=EXCLUDED.status,
-          binding_code_hash=EXCLUDED.binding_code_hash,binding_code_consumed_at=NULL,updated_at=now()
         RETURNING id`, [randomUUID(), externalUserId, fixture.displayName, fixture.status, bindingCodeHash]);
       const accountId = account.rows[0]!.id;
-      await client.query('SELECT id FROM sandbox_provider_accounts WHERE id=$1 FOR UPDATE', [accountId]);
-      const balance = await client.query<{ amount: string }>(`SELECT (
-        COALESCE((SELECT SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END) FROM sandbox_provider_balance_adjustments WHERE account_id=$1),0)
-        + COALESCE((SELECT SUM(CASE direction WHEN 'CREDIT' THEN amount_minor ELSE -amount_minor END) FROM sandbox_provider_transactions WHERE account_id=$1 AND status='SUCCEEDED'),0)
-      )::text amount`, [accountId]);
-      const before = Number(balance.rows[0]!.amount);
-      const delta = fixture.targetMinor - before;
-      if (delta !== 0) {
-        await client.query(`INSERT INTO sandbox_provider_balance_adjustments
-          (id,account_id,direction,amount_minor,balance_before_minor,balance_after_minor,reason_code,idempotency_key,created_by_staff_id,created_at)
-          VALUES ($1,$2,$3::"SandboxProviderAdjustmentDirection",$4,$5,$6,'SANDBOX_TEST_SETUP',$7,$8,now())`,
-        [randomUUID(), accountId, delta > 0 ? 'CREDIT' : 'DEBIT', Math.abs(delta), before, fixture.targetMinor,
-          `provision:${fixture.key}:${randomUUID()}`, staff.rows[0].id]);
-        await client.query('UPDATE sandbox_provider_accounts SET version=version+1,updated_at=now() WHERE id=$1', [accountId]);
-      }
-      await client.query('COMMIT');
+      await client.query(`INSERT INTO sandbox_provider_balance_adjustments
+        (id,account_id,direction,amount_minor,balance_before_minor,balance_after_minor,reason_code,idempotency_key,created_by_staff_id,created_at)
+        VALUES ($1,$2,'CREDIT',$3,0,$3,'SANDBOX_TEST_SETUP',$4,$5,now())`,
+      [randomUUID(), accountId, fixture.targetMinor, `provision:${fixture.key}:v1`, staff.rows[0].id]);
+      await client.query('UPDATE sandbox_provider_accounts SET version=version+1,updated_at=now() WHERE id=$1', [accountId]);
       results.push({ key: fixture.key, externalUserId, bindingCode });
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
     }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
   return results;
 }

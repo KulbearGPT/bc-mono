@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { createRuntimeFundingAdapter } from '@blackcat/api/funding-adapter-runtime';
 import {
@@ -32,6 +33,50 @@ describe('M5-US-05 SandboxFundingAdapter', () => {
       nativeHold: { supported: false },
       fallbackDebit: { supported: true, idempotentWrites: true, lookupByIdempotencyKey: true }
     });
+  });
+
+  it('keeps provider idempotency key contracts mode-specific and mirrored', async () => {
+    const [
+      openapi,
+      openapiMirror,
+      adapterContract,
+      adapterContractMirror,
+      providerSpec,
+      providerSpecMirror,
+      supplierChecklist,
+      supplierChecklistMirror,
+      mainSpec,
+      mainSpecMirror
+    ] = await Promise.all([
+      readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('outputs/P0开发交付包/04-支付集成/adapter-contract.yaml', 'utf8'),
+      readFile('docs/P0开发交付包/04-支付集成/adapter-contract.yaml', 'utf8'),
+      readFile('outputs/P0开发交付包/04-支付集成/第三方支付与余额适配器规格.html', 'utf8'),
+      readFile('docs/P0开发交付包/04-支付集成/第三方支付与余额适配器规格.html', 'utf8'),
+      readFile('outputs/P0开发交付包/04-支付集成/供应商接入核对清单.csv', 'utf8'),
+      readFile('docs/P0开发交付包/04-支付集成/供应商接入核对清单.csv', 'utf8'),
+      readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
+      readFile('docs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8')
+    ]);
+
+    expect(openapiMirror).toBe(openapi);
+    expect(adapterContractMirror).toBe(adapterContract);
+    expect(providerSpecMirror).toBe(providerSpec);
+    expect(supplierChecklistMirror).toBe(supplierChecklist);
+    expect(mainSpecMirror).toBe(mainSpec);
+    expect(openapi).toContain('localFallback: debit:order:{orderId}:v1');
+    expect(openapi).toContain('providerNativeHold: capture:hold:{fundReservationId}:v{fundReservationVersion}');
+    expect(adapterContract).toContain('fallbackOrderDebit: debit:order:{orderId}:v1');
+    expect(adapterContract).toContain('fallbackGiftDebit: debit:gift:{giftRequestId}:v1');
+    expect(adapterContract).not.toContain('fallbackDebit: debit:reservation:');
+    expect(providerSpec).toContain('debit:order:{orderId}:v1');
+    expect(providerSpec).toContain('debit:gift:{giftRequestId}:v1');
+    expect(providerSpec).not.toContain('debit:reservation:');
+    expect(supplierChecklist).toContain('debit:order/debit:gift');
+    expect(supplierChecklist).not.toContain('debit:reservation');
+    expect(mainSpec).toContain('debit:gift:{giftRequestId}:v1');
+    expect(mainSpec).toContain('capture:hold:{fundReservationId}:v{fundReservationVersion}');
   });
 
   it('delegates idempotent debit/refund results and never mutates balance for unsupported holds', async () => {

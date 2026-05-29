@@ -175,15 +175,22 @@ export class PostgresSandboxFundingStore implements SandboxFundingStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const existing = await findTransaction(client, 'idempotency_key', input.idempotencyKey);
+      await lockSandboxIdempotencyKey(client, input.idempotencyKey);
+      const existing = await findTransactionRow(client, 'idempotency_key', input.idempotencyKey);
       if (existing) {
-        assertReplay(existing, input.amount.amountMinor, input.businessSource, input.businessReference, 'DEBIT');
+        assertDebitReplay(existing, input);
         await client.query('COMMIT');
-        return existing;
+        return mapTransaction(existing);
       }
       const accountResult = await client.query<AccountRow>(`${accountSelect} WHERE external_user_id=$1 FOR UPDATE`, [input.externalUserId]);
       const account = accountResult.rows[0];
       if (!account) throw new AdapterError('RESOURCE_NOT_FOUND', 'Sandbox Provider user was not found.');
+      const replay = await findTransactionRow(client, 'idempotency_key', input.idempotencyKey);
+      if (replay) {
+        assertDebitReplay(replay, input);
+        await client.query('COMMIT');
+        return mapTransaction(replay);
+      }
       if (account.status !== 'ACTIVE') throw new AdapterError('BUSINESS_RULE_VIOLATION', 'Sandbox Provider account is suspended.');
       const reservation = await client.query<{ row_version: number }>('SELECT row_version FROM fund_reservations WHERE id=$1', [input.fundReservationId]);
       if (!reservation.rows[0]) throw new AdapterError('RESOURCE_NOT_FOUND', 'FundReservation was not found.');
@@ -192,8 +199,8 @@ export class PostgresSandboxFundingStore implements SandboxFundingStore {
       if (balance.providerBalanceMinor < input.amount.amountMinor) throw new AdapterError('INSUFFICIENT_FUNDS', 'Sandbox Provider balance is insufficient.');
       const providerRef = `sandbox_tx_${randomUUID()}`;
       await client.query(`INSERT INTO sandbox_provider_transactions
-        (id,account_id,operation,business_source,business_source_id,business_reference,fund_reservation_id,fund_reservation_version,direction,amount_minor,currency,status,provider_reference,original_provider_reference,idempotency_key,created_at)
-        VALUES ($1,$2,'DEBIT',$3::"FundReservationSourceType",$4,$5,$6,$7,'DEBIT',$8,'CNY','SUCCEEDED',$9,NULL,$10,now())`,
+        (id,account_id,operation,business_source,business_source_id,business_reference,fund_reservation_id,fund_reservation_version,direction,amount_minor,currency,status,provider_reference,original_provider_reference,reason_code,idempotency_key,created_at)
+        VALUES ($1,$2,'DEBIT',$3::"FundReservationSourceType",$4,$5,$6,$7,'DEBIT',$8,'CNY','SUCCEEDED',$9,NULL,NULL,$10,now())`,
       [randomUUID(), account.id, input.businessSource, input.businessReference, input.businessReference, input.fundReservationId,
         input.fundReservationVersion, input.amount.amountMinor, providerRef, input.idempotencyKey]);
       await client.query('COMMIT');
@@ -211,32 +218,45 @@ export class PostgresSandboxFundingStore implements SandboxFundingStore {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const existing = await findTransaction(client, 'idempotency_key', input.idempotencyKey);
+      await lockSandboxIdempotencyKey(client, input.idempotencyKey);
+      const existing = await findTransactionRow(client, 'idempotency_key', input.idempotencyKey);
       if (existing) {
-        if (existing.kind !== 'REFUND' || existing.amount.amountMinor !== input.amount.amountMinor || existing.originalProviderRef !== input.originalTransactionRef) {
-          throw new AdapterError('IDEMPOTENCY_CONFLICT', 'Sandbox refund idempotency key conflicts with the original request.');
-        }
+        assertRefundReplay(existing, input);
         await client.query('COMMIT');
-        return existing;
+        return mapTransaction(existing);
       }
-      const originalRow = await client.query<TransactionRow>(`${transactionSelect} WHERE tx.provider_reference=$1 AND tx.operation='DEBIT' FOR UPDATE`, [input.originalTransactionRef]);
+      const originalRow = await client.query<TransactionRow>(`${transactionSelect} WHERE tx.provider_reference=$1 AND tx.operation='DEBIT' FOR UPDATE OF tx`, [input.originalTransactionRef]);
       const original = originalRow.rows[0];
       if (!original) throw new AdapterError('RESOURCE_NOT_FOUND', 'Original Sandbox debit was not found.');
       await lockAccount(client, original.account_id);
+      const replay = await findTransactionRow(client, 'idempotency_key', input.idempotencyKey);
+      if (replay) {
+        assertRefundReplay(replay, input);
+        await client.query('COMMIT');
+        return mapTransaction(replay);
+      }
       const refunded = await client.query<{ amount: string }>(`SELECT COALESCE(SUM(amount_minor),0)::text amount FROM sandbox_provider_transactions
         WHERE original_provider_reference=$1 AND operation='REFUND' AND status='SUCCEEDED'`, [input.originalTransactionRef]);
       if (Number(refunded.rows[0]!.amount) + input.amount.amountMinor > Number(original.amount_minor)) {
         throw new AdapterError('REFUND_AMOUNT_EXCEEDED', 'Refund amount exceeds the original Sandbox debit.');
       }
       const providerRef = `sandbox_refund_${randomUUID()}`;
+      const transactionId = randomUUID();
       await client.query(`INSERT INTO sandbox_provider_transactions
-        (id,account_id,operation,business_source,business_source_id,business_reference,fund_reservation_id,fund_reservation_version,direction,amount_minor,currency,status,provider_reference,original_provider_reference,idempotency_key,created_at)
-        VALUES ($1,$2,'REFUND',$3::"FundReservationSourceType",$4,$5,NULL,NULL,'CREDIT',$6,'CNY','SUCCEEDED',$7,$8,$9,now())`,
-      [randomUUID(), original.account_id, original.business_source, original.business_source_id, input.businessReference, input.amount.amountMinor,
-        providerRef, input.originalTransactionRef, input.idempotencyKey]);
+        (id,account_id,operation,business_source,business_source_id,business_reference,fund_reservation_id,fund_reservation_version,direction,amount_minor,currency,status,provider_reference,original_provider_reference,reason_code,idempotency_key,created_at)
+        VALUES ($1,$2,'REFUND',$3::"FundReservationSourceType",$4,$5,NULL,NULL,'CREDIT',$6,'CNY','SUCCEEDED',$7,$8,$9,$10,now())`,
+      [transactionId, original.account_id, original.business_source, original.business_source_id, input.businessReference, input.amount.amountMinor,
+        providerRef, input.originalTransactionRef, input.reasonCode, input.idempotencyKey]);
+      const persisted = await findTransactionRow(client, 'idempotency_key', input.idempotencyKey);
+      if (!persisted || persisted.id !== transactionId) {
+        throw new AdapterError(
+          'SCHEMA_MISMATCH',
+          'Sandbox refund result could not be persisted.',
+          { retryable: true }
+        );
+      }
       await client.query('COMMIT');
-      return mapTransaction({ ...original, id: randomUUID(), operation: 'REFUND', direction: 'CREDIT', amount_minor: String(input.amount.amountMinor),
-        provider_reference: providerRef, original_provider_reference: input.originalTransactionRef, idempotency_key: input.idempotencyKey, created_at: new Date() });
+      return mapTransaction(persisted);
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined);
       throw error;
@@ -363,14 +383,17 @@ export function hmacCode(secret: string, plaintextCode: string): string {
 
 const accountSelect = 'SELECT id,external_user_id,display_name,currency,status,version FROM sandbox_provider_accounts';
 const transactionSelect = `SELECT tx.id,tx.account_id,tx.operation,tx.business_source,tx.business_source_id,tx.direction,
-  tx.business_reference,tx.fund_reservation_id,tx.fund_reservation_version,tx.amount_minor,tx.currency,tx.status,tx.provider_reference,tx.original_provider_reference,tx.idempotency_key,tx.created_at
-  FROM sandbox_provider_transactions tx`;
+  tx.business_reference,tx.fund_reservation_id,tx.fund_reservation_version,tx.amount_minor,tx.currency,tx.status,tx.provider_reference,
+  tx.original_provider_reference,tx.reason_code,tx.idempotency_key,tx.created_at,account.external_user_id
+  FROM sandbox_provider_transactions tx
+  JOIN sandbox_provider_accounts account ON account.id=tx.account_id`;
 
 interface AccountRow { id: string; external_user_id: string; display_name: string; currency: 'CNY'; status: 'ACTIVE' | 'SUSPENDED'; version: number }
 interface TransactionRow { id: string; account_id: string; operation: 'DEBIT' | 'REFUND'; business_source: 'ORDER' | 'GIFT'; business_source_id: string;
   business_reference: string; fund_reservation_id: string | null; fund_reservation_version: number | null;
   direction: 'DEBIT' | 'CREDIT'; amount_minor: string; currency: 'CNY'; status: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
-  provider_reference: string; original_provider_reference: string | null; idempotency_key: string; created_at: Date }
+  provider_reference: string; original_provider_reference: string | null; reason_code: string | null;
+  idempotency_key: string; created_at: Date; external_user_id: string }
 
 function mapAccount(row: AccountRow): SandboxAccount {
   return { id: row.id, externalUserId: row.external_user_id, displayName: row.display_name, currency: row.currency, status: row.status, version: row.version };
@@ -402,8 +425,17 @@ async function readBalance(client: PoolClient, accountId: string, now: Date): Pr
 }
 
 async function findTransaction(client: PoolClient, field: 'idempotency_key' | 'provider_reference', value: string): Promise<Transaction | null> {
+  const row = await findTransactionRow(client, field, value);
+  return row ? mapTransaction(row) : null;
+}
+
+async function findTransactionRow(
+  client: PoolClient,
+  field: 'idempotency_key' | 'provider_reference',
+  value: string
+): Promise<TransactionRow | null> {
   const result = await client.query<TransactionRow>(`${transactionSelect} WHERE tx.${field}=$1 LIMIT 1`, [value]);
-  return result.rows[0] ? mapTransaction(result.rows[0]) : null;
+  return result.rows[0] ?? null;
 }
 
 function mapTransaction(row: TransactionRow): Transaction {
@@ -421,9 +453,44 @@ function transactionFromInput(input: CreateReservationDebitInput, providerRef: s
     providerStatus: 'SUCCEEDED', observedAt: occurredAt, providerOccurredAt: occurredAt, failure: null };
 }
 
-function assertReplay(existing: Transaction, amountMinor: number, source: string, reference: string, operation: 'DEBIT'): void {
-  if (existing.kind !== 'FALLBACK_DEBIT' || existing.amount.amountMinor !== amountMinor || existing.businessSource !== source || existing.businessReference !== reference) {
-    throw new AdapterError('IDEMPOTENCY_CONFLICT', `Sandbox ${operation.toLowerCase()} idempotency key conflicts with the original request.`);
+async function lockSandboxIdempotencyKey(client: PoolClient, idempotencyKey: string): Promise<void> {
+  await client.query(
+    'SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+    [`sandbox-provider:idempotency:${idempotencyKey}`]
+  );
+}
+
+function assertDebitReplay(existing: TransactionRow, input: CreateReservationDebitInput): void {
+  if (
+    existing.operation !== 'DEBIT'
+    || existing.external_user_id !== input.externalUserId
+    || existing.fund_reservation_id !== input.fundReservationId
+    || existing.fund_reservation_version !== input.fundReservationVersion
+    || Number(existing.amount_minor) !== input.amount.amountMinor
+    || existing.currency !== input.amount.currency
+    || existing.business_source !== input.businessSource
+    || existing.business_reference !== input.businessReference
+  ) {
+    throw new AdapterError(
+      'IDEMPOTENCY_CONFLICT',
+      'Sandbox debit idempotency key conflicts with the original request.'
+    );
+  }
+}
+
+function assertRefundReplay(existing: TransactionRow, input: CreateRefundInput): void {
+  if (
+    existing.operation !== 'REFUND'
+    || Number(existing.amount_minor) !== input.amount.amountMinor
+    || existing.currency !== input.amount.currency
+    || existing.original_provider_reference !== input.originalTransactionRef
+    || existing.reason_code !== input.reasonCode
+    || existing.business_reference !== input.businessReference
+  ) {
+    throw new AdapterError(
+      'IDEMPOTENCY_CONFLICT',
+      'Sandbox refund idempotency key conflicts with the original request.'
+    );
   }
 }
 

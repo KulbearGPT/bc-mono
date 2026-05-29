@@ -62,7 +62,6 @@ const orderStore = new PostgresOrderStore({ pool: databasePool });
 const playerStore = new PostgresPlayerStore({ pool: databasePool });
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
-const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
 const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
 const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
@@ -74,6 +73,11 @@ const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
 const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env, { pool: databasePool });
+const serviceLifecycleStore = new PostgresServiceLifecycleStore({
+  pool: databasePool,
+  fundingAdapter,
+  providerKey
+});
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
