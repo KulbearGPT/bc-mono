@@ -1,5 +1,6 @@
 import { buildApiServer, registerDashboardAssets } from './server.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
+import { validateProductionEnv } from '@blackcat/platform/production-env';
 import { Pool } from 'pg';
 import { PostgresServiceCatalogStore } from './catalog.js';
 import { PostgresAccountStore } from './accounts.js';
@@ -30,6 +31,14 @@ import { PostgresCustomerProfileStore } from './customer-profiles.js';
 import { PostgresSandboxFundingStore } from './sandbox-funding.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
+
+if (process.env.NODE_ENV === 'production') {
+  const productionErrors = validateProductionEnv(process.env);
+  if (productionErrors.length) {
+    console.error(JSON.stringify({ level: 'error', event: 'api.config.invalid', errors: productionErrors }, null, 2));
+    process.exit(1);
+  }
+}
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);

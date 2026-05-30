@@ -26,6 +26,7 @@ COPY --from=build /app/apps/dashboard/dist ./apps/dashboard/dist
 COPY --from=build /app/apps/dashboard/package.json ./apps/dashboard/package.json
 COPY --from=build /app/modules/platform/package.json ./modules/platform/package.json
 COPY --from=build /app/modules/platform/dist ./modules/platform/dist
+COPY --from=build /app/modules/platform/src/production-env.js ./modules/platform/src/production-env.js
 COPY --from=build /app/database/package.json ./database/package.json
 COPY --from=build /app/database/prisma ./database/prisma
 CMD ["npm", "run", "start:web"]

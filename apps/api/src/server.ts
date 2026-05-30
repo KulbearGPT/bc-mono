@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
+import { validateProductionEnv } from '@blackcat/platform/production-env';
 import type { SecurityOptions } from './security.js';
 import { registerCatalogRoutes, type ServiceCatalogStore } from './catalog.js';
 import {
@@ -170,6 +171,8 @@ export async function getReadinessPayload(
   options: { discordTokenPresent?: boolean; dependencyTimeoutMs?: number } = {}
 ): Promise<ReadinessPayload> {
   const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
+  const productionConfigurationReady = env.NODE_ENV !== 'production'
+    || validateProductionEnv(env).length === 0;
   const databaseStatus = await getDatabaseDependencyStatus(
     validation.values.databaseUrl,
     options.dependencyTimeoutMs
@@ -182,7 +185,7 @@ export async function getReadinessPayload(
     },
     {
       name: 'config',
-      status: validation.ok ? 'READY' : 'MISSING_CONFIG',
+      status: validation.ok && productionConfigurationReady ? 'READY' : 'MISSING_CONFIG',
       required: true
     },
     {

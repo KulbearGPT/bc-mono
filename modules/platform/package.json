@@ -11,6 +11,10 @@
     "./process-health": {
       "types": "./src/process-health.ts",
       "import": "./dist/process-health.js"
+    },
+    "./production-env": {
+      "types": "./dist/production-env.d.ts",
+      "import": "./src/production-env.js"
     }
   },
   "scripts": {
