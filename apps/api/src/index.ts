@@ -1,5 +1,6 @@
-import { buildApiServer } from './server.js';
+import { buildApiServer, registerDashboardAssets } from './server.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
+import { validateProductionEnv } from '@blackcat/platform/production-env';
 import { Pool } from 'pg';
 import { PostgresServiceCatalogStore } from './catalog.js';
 import { PostgresAccountStore } from './accounts.js';
@@ -27,8 +28,23 @@ import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
 import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
+import { PostgresSandboxFundingStore } from './sandbox-funding.js';
+import { createPilotFeaturePolicy } from './pilot-features.js';
+import { fileURLToPath } from 'node:url';
+
+if (process.env.NODE_ENV === 'production') {
+  const productionErrors = validateProductionEnv(process.env);
+  if (productionErrors.length) {
+    console.error(JSON.stringify({ level: 'error', event: 'api.config.invalid', errors: productionErrors }, null, 2));
+    process.exit(1);
+  }
+}
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
+const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);
+const businessEnvironment = process.env.BUSINESS_ENV === 'SANDBOX' || process.env.BUSINESS_ENV === 'PRODUCTION'
+  ? process.env.BUSINESS_ENV
+  : (() => { throw new Error('BUSINESS_ENV must be explicitly set to SANDBOX or PRODUCTION.'); })();
 
 if (!validation.ok) {
   console.error(
@@ -55,7 +71,6 @@ const orderStore = new PostgresOrderStore({ pool: databasePool });
 const playerStore = new PostgresPlayerStore({ pool: databasePool });
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
-const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
 const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
 const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
@@ -66,7 +81,12 @@ const referralStore = new PostgresReferralAttributionStore(databasePool);
 const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
-const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env);
+const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env, { pool: databasePool });
+const serviceLifecycleStore = new PostgresServiceLifecycleStore({
+  pool: databasePool,
+  fundingAdapter,
+  providerKey
+});
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
@@ -109,7 +129,9 @@ const server = buildApiServer({
     auditSink: new PostgresAuditSink({ client: databasePool }),
     idempotencyStore: new PostgresIdempotencyStore({ client: databasePool }),
     staffDirectory: new PostgresStaffDirectory({ client: databasePool }),
-    dashboardSessions: dashboardAuthStore
+    dashboardSessions: dashboardAuthStore,
+    pilotFeaturePolicy,
+    businessEnvironment
   },
   catalog: {
     store: catalogStore
@@ -187,6 +209,7 @@ const server = buildApiServer({
     store: customerProfileStore,
     fundingAdapter
   },
+  ...(process.env.FUNDING_ADAPTER === 'SANDBOX' ? { sandboxFunding: { store: new PostgresSandboxFundingStore(databasePool) } } : {}),
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,
     oauth: new DiscordHttpOAuthProvider({
@@ -225,6 +248,13 @@ const server = buildApiServer({
     validationSecret: botConfigValidationSecret
   } : undefined
 });
+if (process.env.NODE_ENV === 'production') {
+  await registerDashboardAssets(
+    server,
+    fileURLToPath(new URL('../../dashboard/dist/', import.meta.url)),
+    { businessEnvironment }
+  );
+}
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(
   JSON.stringify({

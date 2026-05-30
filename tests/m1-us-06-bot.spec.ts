@@ -38,6 +38,7 @@ function currentUser(overrides: Record<string, unknown> = {}) {
     activeOrderId,
     consumptionSummary: { totalMinor: 0, currency: 'CNY' },
     commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CNY' },
+    enabledFeatures: ['CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6'],
     ...overrides
   };
 }
@@ -143,6 +144,22 @@ describe('M1-US-06 private service center Discord flow', () => {
     expect(result.kind).toBe('SHOW_SERVICE_CENTER');
     expect(result.message.visibility).toBe('EPHEMERAL');
     expect(result.message.body).toContain('当前订单：#P-1042');
+  });
+
+  test('CORE_ORDER opens the core service center without calling or rendering disabled referral and M6 surfaces', async () => {
+    const commissions = vi.fn().mockRejectedValue(new Error('disabled surface must not be called'));
+    const client = api({
+      getCurrentUser: vi.fn().mockResolvedValue(currentUser({ enabledFeatures: ['CORE_ORDER'] })),
+      listCurrentUserCommissions: commissions
+    });
+
+    const result = await handleOpenServiceCenterFromPublicEntry({ api: client, actor: actor() });
+
+    expect(result.kind).toBe('SHOW_SERVICE_CENTER');
+    expect(commissions).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.message)).not.toContain('我的收益');
+    expect(JSON.stringify(result.message)).not.toContain('bc:profile:open');
+    expect(JSON.stringify(result.message)).toContain('bc:profile:consumptions:first');
   });
 
   test('falls back to binding modal when API says the actor is not bound', async () => {

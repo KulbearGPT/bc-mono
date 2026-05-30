@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { InMemoryOutboxStore, OutboxWorker, type OutboxJob } from '@blackcat/api/outbox';
-import { createProductionHandlerMap } from '@blackcat/api/worker-runtime';
+import {
+  ProductionOutboxRuntime,
+  createProductionHandlerMap,
+  shouldEnqueueWeeklyReport
+} from '@blackcat/api/worker-runtime';
 import {
   InMemoryWeeklyReportStore,
   createWeeklyReportGenerationHandler,
@@ -32,6 +36,85 @@ describe('M6-US-03 weekly report worker', () => {
       dispatchTimeout: noop, readinessTimeout: noop, channelArchive: noop, panelSync: noop, roleReconciliation: noop,
       weeklyReportGenerate: noop, weeklyReportNotify: noop });
     expect(Object.keys(handlers)).toEqual(expect.arrayContaining(['WEEKLY_REPORT_GENERATE', 'WEEKLY_REPORT_NOTIFY']));
+  });
+
+  test('CORE_ORDER installs no M6 handlers and never schedules weekly generation', () => {
+    const noop = async () => undefined;
+    const handlers = createProductionHandlerMap({
+      giftAnnouncement: noop,
+      giftExpiry: noop,
+      dispatchMessage: noop,
+      dispatchTimeout: noop,
+      readinessTimeout: noop,
+      channelArchive: noop,
+      panelSync: noop,
+      roleReconciliation: noop,
+      weeklyReportGenerate: noop,
+      weeklyReportNotify: noop
+    }, { m6Enabled: false });
+
+    expect(handlers).not.toHaveProperty('WEEKLY_REPORT_GENERATE');
+    expect(handlers).not.toHaveProperty('WEEKLY_REPORT_NOTIFY');
+    expect(shouldEnqueueWeeklyReport({
+      m6Enabled: false,
+      reportGuildId: guildId,
+      loopNow: now.getTime(),
+      nextReportScheduleCheckAt: 0
+    })).toBe(false);
+  });
+
+  test('CORE_ORDER leaves pre-existing M6 jobs pending without claiming or exhausting them', async () => {
+    const pending = job('WEEKLY_REPORT_GENERATE');
+    const store = new InMemoryOutboxStore({ now, jobs: [pending] });
+    const worker = new OutboxWorker({ store, workerId: 'core-worker', now: () => now });
+    const noop = async () => undefined;
+    const handlers = createProductionHandlerMap({
+      giftAnnouncement: noop,
+      giftExpiry: noop,
+      dispatchMessage: noop,
+      dispatchTimeout: noop,
+      readinessTimeout: noop,
+      channelArchive: noop,
+      panelSync: noop,
+      roleReconciliation: noop
+    }, { m6Enabled: false });
+
+    expect(await worker.runOnce(handlers)).toEqual([]);
+    expect(await store.getJob(pending.id)).toEqual(pending);
+  });
+
+  test('CORE_ORDER startup leaves stale M6 jobs untouched during recovery', async () => {
+    const stale = job('WEEKLY_REPORT_GENERATE', {
+      status: 'PROCESSING',
+      attempts: 3,
+      maxAttempts: 3,
+      lockedAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
+      lockedBy: 'old-worker',
+      version: 4
+    });
+    const store = new InMemoryOutboxStore({ now, jobs: [stale] });
+    const worker = new OutboxWorker({ store, workerId: 'core-worker', now: () => now });
+    const noop = async () => undefined;
+    const handlers = createProductionHandlerMap({
+      giftAnnouncement: noop,
+      giftExpiry: noop,
+      dispatchMessage: noop,
+      dispatchTimeout: noop,
+      readinessTimeout: noop,
+      channelArchive: noop,
+      panelSync: noop,
+      roleReconciliation: noop
+    }, { m6Enabled: false });
+    const runtime = new ProductionOutboxRuntime({
+      store,
+      worker,
+      handlers,
+      now: () => now,
+      staleLockMs: 60_000
+    });
+
+    expect(await runtime.initialize()).toEqual([]);
+    expect(await store.getJob(stale.id)).toEqual(stale);
   });
 
   test('notification failure retries without replaying report generation', async () => {

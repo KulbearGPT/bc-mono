@@ -21,7 +21,7 @@ describe('M5-US-03 fail-closed release gate', () => {
     for (const id of externalIds) {
       expect(checklist.match(new RegExp(`\\b${id}\\b`, 'gu')) ?? []).toHaveLength(1);
     }
-    expect(externalIds).toHaveLength(47);
+    expect(externalIds).toHaveLength(51);
   });
 
   test('blocks the current candidate on external acceptance and unsigned roles', async () => {
@@ -33,7 +33,7 @@ describe('M5-US-03 fail-closed release gate', () => {
     expect(result.summary.pendingExternal).toBe(pendingExternal);
     expect(result.blockers).toEqual(expect.arrayContaining([
       expect.stringContaining(`${pendingExternal} external acceptance cases`),
-      expect.stringContaining('product sign-off'),
+      expect.stringContaining('owner sign-off'),
       expect.stringContaining('rollbackImageDigest')
     ]));
   });
@@ -41,11 +41,11 @@ describe('M5-US-03 fail-closed release gate', () => {
   test('rejects P1 scope and typed names without explicit approval evidence', () => {
     const result = evaluateReleaseGate({
       matrix: [{ acceptance_id: 'AT-X-001', candidate_status: 'PASSED' }],
-      signoff: { approvals: [{ role: 'product', name: 'A', approved: false }] },
+      signoff: { approvals: [{ role: 'owner', name: 'A', approved: false }] },
       config: completeConfig({ scope: 'P0+P1' })
     });
     expect(result.ready).toBe(false);
-    expect(result.blockers).toEqual(expect.arrayContaining([expect.stringContaining('scope must be exactly P0'), expect.stringContaining('product sign-off')]));
+    expect(result.blockers).toEqual(expect.arrayContaining([expect.stringContaining('scope must be exactly P0'), expect.stringContaining('owner sign-off')]));
   });
 
   test('blocks failed evidence and passed evidence from another candidate', () => {
@@ -55,7 +55,7 @@ describe('M5-US-03 fail-closed release gate', () => {
         { acceptance_id: 'AT-X-001', execution_class: 'EXTERNAL_E2E', candidate_status: 'FAILED', external_candidate_ref: config.releaseCandidate },
         { acceptance_id: 'AT-X-002', execution_class: 'EXTERNAL_E2E', candidate_status: 'PASSED', external_candidate_ref: `sha256:${'b'.repeat(64)}` }
       ],
-      signoff: { approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({
+      signoff: { approvals: ['owner', 'staff'].map((role) => ({
         role, name: `${role}-reviewer`, approved: true,
         approvedAt: '2026-07-19T12:00:00.000Z', evidence: `review:${role}`
       })) },
@@ -67,21 +67,55 @@ describe('M5-US-03 fail-closed release gate', () => {
     ]));
   });
 
-  test('passes only a complete synthetic P0 gate with four explicit approvals', () => {
+  test('passes only a complete synthetic P0 gate with owner and staff approvals', () => {
     const candidate = `sha256:${'c'.repeat(64)}`;
-    const matrix = Array.from({ length: 175 }, (_, index) => index < 47
+    const matrix = Array.from({ length: 184 }, (_, index) => index < 51
       ? { acceptance_id: `AT-EXT-${index}`, execution_class: 'EXTERNAL_E2E',
           candidate_status: 'PASSED', external_candidate_ref: candidate }
       : { acceptance_id: `AT-AUTO-${index}`, execution_class: 'AUTOMATED',
           candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' });
     const result = evaluateReleaseGate({
       matrix,
-      signoff: { approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({ role, name: `${role}-reviewer`, approved: true, approvedAt: '2026-07-18T22:00:00.000Z', evidence: `review:${role}` })) },
+      signoff: { approvals: ['owner', 'staff'].map((role) => ({ role, name: `${role}-reviewer`, approved: true, approvedAt: '2026-07-18T22:00:00.000Z', evidence: `review:${role}` })) },
       config: completeConfig({ releaseCandidate: candidate })
     });
     expect(result).toMatchObject({ ready: true, blockers: [], summary: {
-      acceptanceCases: 175, pendingExternal: 0, passedExternal: 47, signedRoles: 4
+      acceptanceCases: 184, pendingExternal: 0, passedExternal: 51, signedRoles: 2
     } });
+  });
+
+  test('current Railway Sandbox gate does not require Provider sandbox evidence', () => {
+    const candidate = `sha256:${'d'.repeat(64)}`;
+    const matrix = [
+      { acceptance_id: 'AT-EXT-001', execution_class: 'EXTERNAL_E2E', candidate_status: 'PASSED', external_candidate_ref: candidate },
+      { acceptance_id: 'AT-AUTO-001', execution_class: 'AUTOMATED', candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' }
+    ];
+    const result = evaluateReleaseGate({
+      matrix,
+      signoff: { approvals: ['owner', 'staff'].map((role) => ({
+        role, name: `${role}-reviewer`, approved: true,
+        approvedAt: '2026-07-20T12:00:00.000Z', evidence: `review:${role}`
+      })) },
+      config: {
+        scope: 'P0',
+        releaseCandidate: candidate,
+        rollbackImageDigest: 'sha256:immutable-rollback',
+        railwaySandboxEvidence: 'evidence:railway',
+        fundingModeEvidence: 'evidence:sandbox',
+        discordGuildEvidence: 'evidence:discord',
+        backupRestoreEvidence: 'evidence:restore',
+        workerRecoveryEvidence: 'evidence:worker',
+        p1Excluded: true,
+        realMoneyFundingExcluded: true,
+        providerIntegrationDeferred: true,
+        blockingDefects: 0,
+        acceptedRisks: []
+      }
+    });
+    expect(result.ready).toBe(true);
+    expect(result.blockers).not.toEqual(expect.arrayContaining([
+      expect.stringContaining('providerSandboxEvidence')
+    ]));
   });
 
   test('refuses fully populated sign-off and config inputs with case-insensitive example paths', async () => {
@@ -113,7 +147,7 @@ describe('M5-US-03 fail-closed release gate', () => {
       const result = await runReleaseGate({ signoffPath, configPath });
 
       expect(result.exitCode).toBe(1);
-      expect(result.report).toMatchObject({ ready: false, summary: { signedRoles: 4 } });
+      expect(result.report).toMatchObject({ ready: false, summary: { signedRoles: 2 } });
       expect(result.report.blockers).not.toEqual(expect.arrayContaining([
         expect.stringContaining('P0_SIGNOFF_FILE must reference'),
         expect.stringContaining('P0_CONFIG_SNAPSHOT_FILE must reference'),
@@ -139,15 +173,17 @@ describe('M5-US-03 fail-closed release gate', () => {
 function completeConfig(overrides: Record<string, unknown> = {}) {
   return {
     scope: 'P0', releaseCandidate: 'sha256:immutable-candidate', rollbackImageDigest: 'sha256:immutable-rollback',
-    providerSandboxEvidence: 'evidence:provider', discordGuildEvidence: 'evidence:discord',
+    railwaySandboxEvidence: 'evidence:railway-sandbox', fundingModeEvidence: 'evidence:sandbox-funding-mode',
+    discordGuildEvidence: 'evidence:discord',
     backupRestoreEvidence: 'evidence:restore', workerRecoveryEvidence: 'evidence:worker',
-    p1Excluded: true, blockingDefects: 0, acceptedRisks: [], ...overrides
+    p1Excluded: true, realMoneyFundingExcluded: true, providerIntegrationDeferred: true,
+    blockingDefects: 0, acceptedRisks: [], ...overrides
   };
 }
 
 async function writeGateFixtures({ signoffPath, configPath }: { signoffPath: string; configPath: string }) {
   await Promise.all([
-    writeFile(signoffPath, JSON.stringify({ approvals: ['product', 'operations', 'support', 'engineering'].map((role) => ({
+    writeFile(signoffPath, JSON.stringify({ approvals: ['owner', 'staff'].map((role) => ({
       role, name: `${role}-reviewer`, approved: true,
       approvedAt: '2026-07-19T12:00:00.000Z', evidence: `review:${role}`
     })) }), 'utf8'),

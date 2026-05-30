@@ -183,6 +183,7 @@ export interface GiftCaptureCommit {
   broadcastChannelId: string;
   senderDisplayName: string;
   receiverDisplayName: string;
+  referralsEnabled: boolean;
   now: Date;
 }
 
@@ -761,9 +762,11 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
         snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
       ]);
-      await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
-        sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
-        currency:snapshot.request.currency,source:'GIFT',now:input.now});
+      if (input.referralsEnabled) {
+        await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
+          sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
+          currency:snapshot.request.currency,source:'GIFT',now:input.now});
+      }
       await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
         captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
       const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
@@ -821,14 +824,14 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   const now = options.now ?? (() => new Date());
 
   registerSecureReadRoute(server, security, {
-    method: 'GET', url: '/api/v1/gifts', permission: 'gift.request', action: 'LIST_GIFTS', targetType: 'gift_catalog',
+    method: 'GET', url: '/api/v1/gifts', permission: 'gift.request', requiredFeature: 'GIFTS', action: 'LIST_GIFTS', targetType: 'gift_catalog',
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
     handler: async (request, actor) => listGifts({ ...options, actor, orderId: giftOrderIdQuery(request), now: now() }),
     mapError: mapGiftError
   });
 
   registerSecureReadRoute(server, security, {
-    method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request',
+    method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request', requiredFeature: 'GIFTS',
     action: 'CHECK_GIFT_AFFORDABILITY', targetType: 'order', targetId: giftOrderIdParam,
     acceptedSources: ['DISCORD_BOT'],
     handler: async (request, actor) => checkGiftAffordability({ ...options, actor,
@@ -837,7 +840,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/orders/:orderId/gift-requests', permission: 'gift.request',
+    method: 'POST', url: '/api/v1/orders/:orderId/gift-requests', permission: 'gift.request', requiredFeature: 'GIFTS',
     action: 'CREATE_GIFT_REQUEST', targetType: 'order', targetId: giftOrderIdParam,
     acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
     successStatusCode: 201,
@@ -849,7 +852,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
+    method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',requiredFeature:'GIFTS',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
     acceptedSources:['DISCORD_BOT','DASHBOARD'],handler:async(request,actor)=>{
       const binding=actor.guildId&&actor.discordUserId?await options.accountStore.findByDiscord({guildId:actor.guildId,discordUserId:actor.discordUserId}):null;
       if(!binding)throw new GiftError('PERMISSION_DENIED','A bound sender account is required.');const body=parseCancelBody(request.body);
@@ -859,7 +862,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/staff-tasks/:staffTaskId/verify', permission: 'staff_task.verify',
+    method: 'POST', url: '/api/v1/admin/staff-tasks/:staffTaskId/verify', permission: 'staff_task.verify', requiredFeature: 'GIFTS',
     action: 'VERIFY_GIFT_TASK', targetType: 'staff_task', targetId: giftTaskIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: async (request, actor) => {
@@ -872,7 +875,7 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/approve', permission: 'gift.approve',
+    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/approve', permission: 'gift.approve', requiredFeature: 'GIFTS',
     action: 'AUTHORIZE_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
@@ -888,7 +891,8 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
         }
         const recovered = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
           providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId,
+          referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true, now: now() });
         return { data: recovered, statusCode: 200, commit: () => undefined };
       }
       const approvalThresholds = await giftApprovalThresholds(options.policyReader);
@@ -899,14 +903,15 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
       }
       const captured = await captureApprovedGift({ store: options.store, fundingAdapter: options.fundingAdapter,
         providerKey: options.providerKey, broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
+        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId,
+        referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true, now: now() });
       return { data: captured, statusCode: 200, commit: () => undefined };
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/reject', permission: 'gift.reject',
+    method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/reject', permission: 'gift.reject', requiredFeature: 'GIFTS',
     action: 'REJECT_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
@@ -972,6 +977,7 @@ export async function captureApprovedGift(input: {
   botConfigStore?:BotConfigStore;
   giftRequestId: string;
   actorStaffId?: string;
+  referralsEnabled?: boolean;
   now: Date;
 }): Promise<GiftCaptureResult> {
   const existing = await input.store.findCapture(input.giftRequestId);
@@ -983,7 +989,9 @@ export async function captureApprovedGift(input: {
     || reservation.amountMinor !== request.priceMinor || reservation.currency !== request.currency) {
     throw new GiftError('CONFLICT', 'Gift is not ready for capture.');
   }
-  const providerIdempotencyKey = `debit:gift:${request.id}:v1`;
+  const providerIdempotencyKey = reservation.mode === 'PROVIDER_NATIVE_HOLD'
+    ? `capture:hold:${reservation.id}:v${reservation.version}`
+    : `debit:gift:${request.id}:v1`;
   let providerTransactionRef: string | null;
   if (reservation.mode === 'PROVIDER_NATIVE_HOLD') {
     if (!reservation.providerHoldRef) throw new GiftError('CONFLICT', 'Provider hold reference is missing.');
@@ -1010,6 +1018,7 @@ export async function captureApprovedGift(input: {
     broadcastChannelId,
     senderDisplayName: context.senderDisplayName,
     receiverDisplayName: context.receiverDisplayName,
+    referralsEnabled: input.referralsEnabled ?? true,
     now: input.now });
 }
 

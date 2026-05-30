@@ -251,12 +251,12 @@ export function registerCustomerProfileRoutes(server: FastifyInstance, options: 
   if (!server.securityOptions) throw new Error('Customer profile routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary',
-    permission: 'customer_profile.read', action: 'GET_ADMIN_CUSTOMER_PROFILE_SUMMARY', targetType: 'user',
+    permission: 'customer_profile.read', requiredFeature: 'M6', action: 'GET_ADMIN_CUSTOMER_PROFILE_SUMMARY', targetType: 'user',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
     handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, fundingAdapter: options.fundingAdapter,
       actor, userId: param(request, 'userId'), window: profileWindow(request), now: now() }) });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/orders',
-    permission: 'customer_profile.read', action: 'LIST_ADMIN_CUSTOMER_ORDERS', targetType: 'order',
+    permission: 'customer_profile.read', requiredFeature: 'M6', action: 'LIST_ADMIN_CUSTOMER_ORDERS', targetType: 'order',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
     handler: (request, actor) => options.store.listOrders({ ...actorScope(actor, param(request, 'userId')), ...pageQuery(request) }) });
 }

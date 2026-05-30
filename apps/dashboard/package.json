@@ -10,12 +10,13 @@
     "./support-workbench": "./src/support-workbench.ts",
     "./operations": "./src/operations.ts",
     "./settlements": "./src/settlements.ts",
-    "./customer-profile": "./src/customer-profile.ts"
+    "./customer-profile": "./src/customer-profile.ts",
+    "./sandbox-funding": "./src/sandbox-funding.ts"
   },
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "start": "vite --host 0.0.0.0 --port 5173",
+    "start": "node -e \"throw new Error('Dashboard is served by the web service')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

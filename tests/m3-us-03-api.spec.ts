@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 import {
   InMemoryGiftStore,
@@ -77,6 +77,7 @@ describe('M3-US-03 gift capture service', () => {
     const hold = adapter.createHold({ idempotencyKey: 'gift:3610:provider-hold:v1', fundReservationId: reservationId, fundReservationVersion: 2,
       externalUserId: 'mock-user-ok', amount: { amountMinor: 500000, currency: 'CNY' }, businessSource: 'GIFT',
       businessReference: giftRequestId, expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString() });
+    const captureHold = vi.spyOn(adapter, 'captureHold');
     const native = { ...reservation('PROVIDER_NATIVE_HOLD'), providerHoldRef: hold.holdRef };
     const store = new InMemoryGiftStore({ requests: [request()], reservations: [native], staffTasks: [task()],
       externalUserIds: { [request().senderId]: 'mock-user-ok' } });
@@ -85,6 +86,15 @@ describe('M3-US-03 gift capture service', () => {
       broadcastChannelId: '900000000000000020', giftRequestId, now });
 
     expect(result.chargeOutcome.providerReferenceDisplay).toMatch(/^mock_\*\*\*/);
+    expect(captureHold).toHaveBeenCalledExactlyOnceWith({
+      holdRef: hold.holdRef,
+      idempotencyKey: `capture:hold:${reservationId}:v2`,
+      fundReservationId: reservationId,
+      fundReservationVersion: 2,
+      amount: { amountMinor: 500000, currency: 'CNY' },
+      businessReference: giftRequestId,
+      reasonCode: 'GIFT_APPROVED'
+    });
     expect(store.reservations).toHaveLength(1);
     expect(adapter.getHold({ lookupType: 'PROVIDER_HOLD_REF', lookupValue: hold.holdRef! }).status).toBe('CAPTURED');
   });

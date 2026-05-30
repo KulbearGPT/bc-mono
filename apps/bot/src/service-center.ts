@@ -57,6 +57,7 @@ export interface CurrentUserSummary {
   activeOrderId: string | null;
   consumptionSummary: { totalMinor: number; currency: string };
   commissionSummary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
+  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
 }
 
 export interface BalanceSummary {
@@ -251,6 +252,7 @@ export interface OrderLifecyclePanelSummary {
   status: 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
   version: number;
   actorRole: 'CUSTOMER' | 'PLAYER';
+  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
   readiness: {
     customer: 'READY' | 'NOT_READY';
     player: 'READY' | 'NOT_READY';
@@ -1098,13 +1100,17 @@ export function buildServiceCenterMessage(input: {
   balance: BalanceSummary;
   activeOrder: OrderSummary | null;
   consumptions: ConsumptionPage;
-  commissions: CurrentCommissionPage;
+  commissions: CurrentCommissionPage | null;
 }): MessageSpec {
+  const referralsEnabled = hasEnabledFeature(input.currentUser.enabledFeatures, 'REFERRALS');
+  const m6Enabled = hasEnabledFeature(input.currentUser.enabledFeatures, 'M6');
   const activeOrderLine = input.activeOrder
     ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.automation?.state === 'PAUSED' ? '客服处理中' : input.activeOrder.status}`
     : '当前订单：暂无进行中订单';
   const consumptionLine = input.consumptions.items.length === 0 ? '消费记录：暂无记录' : '消费记录：已有记录';
-  const commissionLine = input.commissions.items.length === 0
+  const commissionLine = !referralsEnabled || !input.commissions
+    ? null
+    : input.commissions.items.length === 0
     ? '我的收益：暂无可领取记录'
     : `我的收益：待确认 ${formatMoney(input.commissions.summary.pendingMinor, input.commissions.summary.currency)}`;
 
@@ -1119,7 +1125,7 @@ export function buildServiceCenterMessage(input: {
       consumptionLine,
       commissionLine,
       `更新时间：${input.balance.fetchedAt}`
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       {
@@ -1133,9 +1139,14 @@ export function buildServiceCenterMessage(input: {
             label: '当前订单',
             disabled: !input.activeOrder
           },
-          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:profile:open', label: '个人中心' },
+          ...(m6Enabled
+            ? [{ type: 'BUTTON' as const, style: 'PRIMARY' as const, customId: 'bc:profile:open', label: '个人中心' }]
+            : []),
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:consumptions:first', label: '消费记录' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:commissions', label: '我的收益' }
+          ...(referralsEnabled
+            ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
+              customId: 'bc:service-center:commissions', label: '我的收益' }]
+            : [])
         ]
       }
     ]
@@ -1377,6 +1388,7 @@ export function buildAcceptedDispatchMessage(input: {
 }
 
 export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSummary): MessageSpec {
+  const giftsEnabled = hasEnabledFeature(order.enabledFeatures, 'GIFTS');
   if (order.status === 'ACCEPTED') {
     return {
       title: `订单 #${order.publicId} · 等待双方就绪`,
@@ -1402,7 +1414,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
               customId: `bc:service:support:${order.orderId}:v${order.version}`,
               label: '联系客服'
             },
-            ...(order.actorRole === 'CUSTOMER' ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
+            ...(order.actorRole === 'CUSTOMER' && giftsEnabled ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
               customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' }] : [])
           ]
         }
@@ -1426,7 +1438,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         label: '申请完成'
       });
     }
-    if (order.actorRole === 'CUSTOMER') components.unshift({ type: 'BUTTON', style: 'SECONDARY',
+    if (order.actorRole === 'CUSTOMER' && giftsEnabled) components.unshift({ type: 'BUTTON', style: 'SECONDARY',
       customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     return {
       title: `订单 #${order.publicId} · 服务中`,
@@ -1451,8 +1463,10 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
         label: '确认完成'
       });
-      components.push({ type: 'BUTTON', style: 'SECONDARY',
-        customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
+      if (giftsEnabled) {
+        components.push({ type: 'BUTTON', style: 'SECONDARY',
+          customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
+      }
     }
     return {
       title: `订单 #${order.publicId} · 等待用户确认`,
@@ -1738,7 +1752,9 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     const [balance, consumptions, commissions, activeOrder] = await Promise.all([
       input.api.getCurrentBalance(input.actor),
       input.api.listCurrentUserConsumptions(input.actor),
-      input.api.listCurrentUserCommissions(input.actor),
+      hasEnabledFeature(currentUser.enabledFeatures, 'REFERRALS')
+        ? input.api.listCurrentUserCommissions(input.actor)
+        : Promise.resolve(null),
       currentUser.activeOrderId ? input.api.getOrder(currentUser.activeOrderId, input.actor) : Promise.resolve(null)
     ]);
 
@@ -1758,6 +1774,13 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开服务中心失败') };
   }
+}
+
+function hasEnabledFeature(
+  enabledFeatures: unknown,
+  feature: 'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'
+): boolean {
+  return Array.isArray(enabledFeatures) && enabledFeatures.includes(feature);
 }
 
 export async function handleOpenPlayerWorkbench(input: {

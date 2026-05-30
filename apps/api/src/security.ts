@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
 import { hasStaffPermission } from './authorization-policy.js';
+import { createPilotFeaturePolicy, type PilotFeature, type PilotFeaturePolicy } from './pilot-features.js';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK' | 'UNKNOWN';
@@ -104,6 +105,8 @@ export interface SecurityOptions {
   staffDirectory?: StaffDirectory;
   dashboardSessions?: DashboardSessionResolver;
   dashboardGuildId?: string;
+  pilotFeaturePolicy?: PilotFeaturePolicy;
+  businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
   stepUpVerifier?: {
     verify(input: { request: FastifyRequest; actor: ActorContext }): boolean | Promise<boolean>;
   };
@@ -119,9 +122,18 @@ export interface SecureRouteOptions {
   acceptedSources?: ActorSource[];
   allowServiceActor?: boolean;
   fingerprintBody?: (request: FastifyRequest) => unknown;
-  mapError?: (error: unknown) => { statusCode: number; code: string; message: string; details?: Array<{ field: string; reason: string }> } | null;
+  mapError?: (error: unknown) => {
+    statusCode: number;
+    code: string;
+    message: string;
+    details?: Array<{ field: string; reason: string }>;
+    retryable?: boolean;
+    idempotencyFailureCode?: string;
+  } | null;
   requiresRecentStepUp?: boolean | ((request: FastifyRequest, actor: ActorContext) => boolean);
   retryCommitFailures?: boolean;
+  retryableFailureCodes?: readonly string[];
+  requiredFeature?: PilotFeature;
   auditSnapshots?: (
     request: FastifyRequest,
     actor: ActorContext,
@@ -487,6 +499,23 @@ export function registerSecureReadRoute(
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
       }
 
+      if (route.requiredFeature && !(securityOptions.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).isEnabled(route.requiredFeature)) {
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: 'REJECTED',
+          reason: `FEATURE_DISABLED:${route.requiredFeature}`
+        });
+        return sendError(
+          reply,
+          requestId,
+          409,
+          'FEATURE_DISABLED',
+          'This feature is disabled for the current pilot phase.',
+          [{ field: 'feature', reason: route.requiredFeature }]
+        );
+      }
+
       if (!hasPermission(actor, route.permission)) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -595,6 +624,23 @@ export function registerSecureWriteRoute(
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
       }
 
+      if (route.requiredFeature && !(securityOptions.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).isEnabled(route.requiredFeature)) {
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: 'REJECTED',
+          reason: `FEATURE_DISABLED:${route.requiredFeature}`
+        });
+        return sendError(
+          reply,
+          requestId,
+          409,
+          'FEATURE_DISABLED',
+          'This feature is disabled for the current pilot phase.',
+          [{ field: 'feature', reason: route.requiredFeature }]
+        );
+      }
+
       if (actor.actorSource === 'DASHBOARD' && !(await hasValidDashboardCsrf(request, securityOptions))) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -678,6 +724,9 @@ export function registerSecureWriteRoute(
       if (route.retryCommitFailures) {
         await idempotencyStore.retryFailed?.(scopeKey, fingerprint, 'COMMIT_FAILED');
       }
+      for (const failureCode of route.retryableFailureCodes ?? []) {
+        if (await idempotencyStore.retryFailed?.(scopeKey, fingerprint, failureCode)) break;
+      }
       const reservation = await idempotencyStore.reserve(scopeKey, fingerprint);
       if (!reservation.reserved) {
         if (reservation.record.fingerprint !== fingerprint) {
@@ -716,9 +765,11 @@ export function registerSecureWriteRoute(
         message: string,
         reason: string,
         statusCode = 500,
-        details: Array<{ field: string; reason: string }> = []
+        details: Array<{ field: string; reason: string }> = [],
+        retryable = false,
+        idempotencyFailureCode = reason
       ) => {
-        const failedPayload = buildErrorPayload(requestId, code, message, details);
+        const failedPayload = buildErrorPayload(requestId, code, message, details, retryable);
         try {
           await appendAudit(auditSink, {
             ...baseAudit,
@@ -729,7 +780,7 @@ export function registerSecureWriteRoute(
         } catch {
           // The idempotency record must still be resolved so duplicate writes do not hang forever.
         }
-        await idempotencyStore.fail(scopeKey, statusCode, failedPayload, reason);
+        await idempotencyStore.fail(scopeKey, statusCode, failedPayload, idempotencyFailureCode);
         reply.code(statusCode);
         return failedPayload;
       };
@@ -744,7 +795,9 @@ export function registerSecureWriteRoute(
           mappedError?.message ?? 'The operation failed before it could be completed.',
           mappedError?.code ?? 'HANDLER_FAILED',
           mappedError?.statusCode ?? 500,
-          mappedError?.details ?? []
+          mappedError?.details ?? [],
+          mappedError?.retryable ?? false,
+          mappedError?.idempotencyFailureCode ?? mappedError?.code ?? 'HANDLER_FAILED'
         );
       }
 
@@ -1158,14 +1211,15 @@ function buildErrorPayload(
   requestId: string,
   code: string,
   message: string,
-  details: Array<{ field: string; reason: string }> = []
+  details: Array<{ field: string; reason: string }> = [],
+  retryable = false
 ) {
   return {
     requestId,
     error: {
       code,
       message,
-      retryable: false,
+      retryable,
       details
     }
   };

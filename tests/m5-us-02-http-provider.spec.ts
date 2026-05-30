@@ -33,24 +33,26 @@ beforeAll(async () => {
 afterAll(() => server.close());
 
 describe('M5-US-02 HTTP Payment Provider adapter', () => {
-  test('selects mock locally, HTTP when configured, and fails closed for incomplete production config', () => {
-    expect(createRuntimeFundingAdapter({ NODE_ENV: 'development' })).toMatchObject({ providerKey: 'mock-provider' });
-
+  test('selects HTTP only when explicitly configured and fails closed for incomplete production config', () => {
     const configured = createRuntimeFundingAdapter({
       NODE_ENV: 'production',
+      BUSINESS_ENV: 'PRODUCTION',
+      FUNDING_ADAPTER: 'HTTP_PROVIDER',
       PAYMENT_PROVIDER_KEY: 'supplier-sandbox',
       PAYMENT_PROVIDER_BASE_URL: baseUrl,
       PAYMENT_PROVIDER_SERVICE_TOKEN: 'supplier-service-token-value-1234567890',
       PAYMENT_PROVIDER_WEBHOOK_SECRET: 'webhook-secret-value-1234567890123456'
-    });
+    }, { pool: {} as never });
     expect(configured.providerKey).toBe('supplier-sandbox');
     expect(configured.adapter).toBeInstanceOf(HttpFundingAdapter);
 
     expect(() => createRuntimeFundingAdapter({
       NODE_ENV: 'production',
+      BUSINESS_ENV: 'PRODUCTION',
+      FUNDING_ADAPTER: 'HTTP_PROVIDER',
       PAYMENT_PROVIDER_KEY: 'supplier-sandbox',
       PAYMENT_PROVIDER_BASE_URL: baseUrl
-    })).toThrow(/PAYMENT_PROVIDER_SERVICE_TOKEN/u);
+    }, { pool: {} as never })).toThrow(/PAYMENT_PROVIDER_SERVICE_TOKEN/u);
   });
 
   test('executes all 11 provider-neutral operations with auth and stable idempotency headers', async () => {

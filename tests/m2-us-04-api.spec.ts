@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
+import { createPilotFeaturePolicy } from '@blackcat/api/pilot-features';
 import {
   InMemoryServiceLifecycleStore,
+  ServiceLifecycleError,
   confirmOrder,
   expireOrderCompletionConfirmation,
   registerServiceLifecycleRoutes,
@@ -98,7 +100,11 @@ describe('M2-US-04 service lifecycle API', () => {
     const store = buildStore();
     const server = buildApiServer({
       env,
-      security: { auditSink, idempotencyStore: new InMemoryIdempotencyStore() }
+      security: {
+        auditSink,
+        idempotencyStore: new InMemoryIdempotencyStore(),
+        pilotFeaturePolicy: createPilotFeaturePolicy('CORE_ORDER')
+      }
     });
     registerServiceLifecycleRoutes(server, { store, now: () => now });
 
@@ -123,6 +129,7 @@ describe('M2-US-04 service lifecycle API', () => {
         orderId,
         status: 'ACCEPTED',
         actorRole: 'CUSTOMER',
+        enabledFeatures: ['CORE_ORDER'],
         readiness: { customer: 'READY', player: 'NOT_READY', bothReady: false }
       }
     });
@@ -265,6 +272,105 @@ describe('M2-US-04 service lifecycle API', () => {
       })
     ]);
     expect(direct).toMatchObject({ orderId, status: 'COMPLETED', version: 8 });
+  });
+
+  test('CORE_ORDER confirmation creates core settlement facts without referral commission', async () => {
+    const store = buildStore(
+      {
+        status: 'PENDING_CONFIRMATION',
+        version: 7,
+        customerReadyAt: now.toISOString(),
+        playerReadyAt: now.toISOString(),
+        serviceStartedAt: now.toISOString(),
+        completionRequestedAt: now.toISOString(),
+        confirmationDueAt: new Date(now.getTime() + 30 * 60_000).toISOString()
+      },
+      {
+        referralAttributions: [{
+          id: '00000000-0000-0000-0000-00000000r502',
+          beneficiaryUserId: '00000000-0000-0000-0000-00000000a503',
+          referredUserId: customerId,
+          programType: 'PLAYER_LIFETIME',
+          programVersion: 1,
+          awardMode: 'NET_SPEND_BPS',
+          fixedAmountMinor: null,
+          rateBps: 200,
+          currency: 'CNY',
+          eligibleOrderSpend: true
+        }]
+      }
+    );
+    const server = buildApiServer({
+      env,
+      security: {
+        auditSink: new InMemoryAuditSink(),
+        idempotencyStore: new InMemoryIdempotencyStore(),
+        pilotFeaturePolicy: createPilotFeaturePolicy('CORE_ORDER')
+      },
+      serviceLifecycle: { store, now: () => now }
+    });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/v1/orders/${orderId}/confirm`,
+      headers: botHeaders('111111111111111111', 'discord:order:confirm:core-no-referral'),
+      payload: { expectedVersion: 7, confirmation: 'CONFIRM_COMPLETED' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(store.consumptionEntries).toHaveLength(1);
+    expect(store.playerEarnings).toHaveLength(1);
+    expect(store.commissions).toHaveLength(0);
+  });
+
+  test('same-key confirmation retries a pending local convergence instead of replaying the cached error', async () => {
+    const store = buildStore({
+      status: 'PENDING_CONFIRMATION',
+      version: 7,
+      customerReadyAt: now.toISOString(),
+      playerReadyAt: now.toISOString(),
+      serviceStartedAt: now.toISOString(),
+      completionRequestedAt: now.toISOString(),
+      confirmationDueAt: new Date(now.getTime() + 30 * 60_000).toISOString()
+    });
+    const commit = store.commitOrderConfirmation.bind(store);
+    let attempts = 0;
+    store.commitOrderConfirmation = (input) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new ServiceLifecycleError(
+          'PROVIDER_UNAVAILABLE',
+          'Provider capture succeeded but local convergence is pending.',
+          {
+            retryable: true,
+            idempotencyFailureCode: 'PROVIDER_CONVERGENCE_PENDING'
+          }
+        );
+      }
+      return commit(input);
+    };
+    const server = buildApiServer({
+      env,
+      security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
+      serviceLifecycle: { store, now: () => now }
+    });
+    const request = {
+      method: 'POST' as const,
+      url: `/api/v1/orders/${orderId}/confirm`,
+      headers: botHeaders('111111111111111111', 'discord:order:confirm:provider-recovery'),
+      payload: { expectedVersion: 7, confirmation: 'CONFIRM_COMPLETED' }
+    };
+
+    const unresolved = await server.inject(request);
+    const recovered = await server.inject(request);
+
+    expect(unresolved.statusCode).toBe(503);
+    expect(unresolved.json()).toMatchObject({
+      error: { code: 'PROVIDER_UNAVAILABLE', retryable: true }
+    });
+    expect(recovered.statusCode).toBe(200);
+    expect(recovered.json()).toMatchObject({ data: { orderId, status: 'COMPLETED' } });
+    expect(attempts).toBe(2);
   });
 
   test('completion confirmation timeout creates exactly one staff review task without settling money', async () => {

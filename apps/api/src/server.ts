@@ -1,6 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { Client } from 'pg';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
+import { validateProductionEnv } from '@blackcat/platform/production-env';
 import type { SecurityOptions } from './security.js';
 import { registerCatalogRoutes, type ServiceCatalogStore } from './catalog.js';
 import {
@@ -40,6 +44,7 @@ import { registerSettlementRoutes, type SettlementRouteOptions } from './settlem
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 import { configureCursorSigningSecret } from './signed-cursor.js';
+import { registerSandboxFundingRoutes, type SandboxFundingStore } from './sandbox-funding.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -127,6 +132,7 @@ export interface ApiServerOptions {
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
+  sandboxFunding?: { store: SandboxFundingStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -165,6 +171,8 @@ export async function getReadinessPayload(
   options: { discordTokenPresent?: boolean; dependencyTimeoutMs?: number } = {}
 ): Promise<ReadinessPayload> {
   const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
+  const productionConfigurationReady = env.NODE_ENV !== 'production'
+    || validateProductionEnv(env).length === 0;
   const databaseStatus = await getDatabaseDependencyStatus(
     validation.values.databaseUrl,
     options.dependencyTimeoutMs
@@ -177,7 +185,7 @@ export async function getReadinessPayload(
     },
     {
       name: 'config',
-      status: validation.ok ? 'READY' : 'MISSING_CONFIG',
+      status: validation.ok && productionConfigurationReady ? 'READY' : 'MISSING_CONFIG',
       required: true
     },
     {
@@ -331,8 +339,42 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) throw new Error('Customer profile routes require buildApiServer({ security, customerProfiles })');
     registerCustomerProfileRoutes(server, options.customerProfiles);
   }
+  if (options.sandboxFunding) {
+    if (!server.securityOptions) throw new Error('Sandbox funding routes require buildApiServer({ security, sandboxFunding })');
+    registerSandboxFundingRoutes(server, { ...options.sandboxFunding, security: server.securityOptions });
+  }
 
   return server;
+}
+
+export async function registerDashboardAssets(
+  server: FastifyInstance,
+  dashboardDist: string,
+  options: { businessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}
+): Promise<void> {
+  await server.register(fastifyStatic, {
+    root: join(dashboardDist, 'assets'),
+    prefix: '/assets/',
+    decorateReply: true
+  });
+  const indexTemplate = await readFile(join(dashboardDist, 'index.html'), 'utf8');
+  const environmentMarker = '__BLACKCAT_BUSINESS_ENV__';
+  const businessEnvironment = options.businessEnvironment ?? server.securityOptions?.businessEnvironment;
+  if (indexTemplate.includes(environmentMarker) && !businessEnvironment) {
+    throw new Error('Dashboard assets require a validated business environment.');
+  }
+  const indexHtml = businessEnvironment
+    ? indexTemplate.replaceAll(environmentMarker, businessEnvironment)
+    : indexTemplate;
+  server.get('/*', async (request, reply) => {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'
+      || pathname.startsWith('/assets/') || pathname.startsWith('/api/v1/auth/')) {
+      return reply.callNotFound();
+    }
+    if (!request.headers.accept?.includes('text/html')) return reply.callNotFound();
+    return reply.type('text/html; charset=utf-8').send(indexHtml);
+  });
 }
 
 function createRequestId(): string {

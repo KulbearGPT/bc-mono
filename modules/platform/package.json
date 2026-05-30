@@ -4,7 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./env": "./src/env.ts"
+    "./env": {
+      "types": "./src/env.ts",
+      "import": "./dist/env.js"
+    },
+    "./process-health": {
+      "types": "./src/process-health.ts",
+      "import": "./dist/process-health.js"
+    },
+    "./production-env": {
+      "types": "./dist/production-env.d.ts",
+      "import": "./src/production-env.js"
+    }
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

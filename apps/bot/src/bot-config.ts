@@ -66,6 +66,9 @@ export interface BotConfigSnapshot {
   manageableFields: string[];
   updatedByStaffId: string | null;
   updatedAt: string;
+  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
+  businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
+  displayRole?: 'STAFF' | 'OWNER' | null;
 }
 
 export interface BotConfigChangeRequest {
@@ -296,7 +299,7 @@ export class BotConfigFlow {
     const snapshot = await this.api.getBotConfig(actor.guildId, actor);
     this.cache.set(snapshot);
     const session = this.sessions.create(actor, snapshot);
-    return presentFieldPicker(session,snapshot.manageableFields);
+    return presentFieldPicker(session, snapshot);
   }
 
   public chooseField(actor: BotConfigActorContext, sessionId: string, field: string): BotConfigReply {
@@ -443,14 +446,19 @@ function toDiscordComponent(component: BotConfigComponentSpec) {
     .setStyle(component.style === 'PRIMARY' ? ButtonStyle.Primary : component.style === 'DANGER' ? ButtonStyle.Danger : ButtonStyle.Secondary);
 }
 
-function presentFieldPicker(session: BotConfigSession,manageableFields:string[]): BotConfigReply {
+function presentFieldPicker(session: BotConfigSession, snapshot: BotConfigSnapshot): BotConfigReply {
+  const manageableFields = snapshot.manageableFields;
   const operational = manageableFields.filter((field) => isManageableField(field) && !isSecurityRoleField(field)).map((field) => ({ label: fieldLabel(field), value: field }));
   const security = manageableFields.filter(isSecurityRoleField).map((field) => ({ label: fieldLabel(field), value: field }));
   const components: BotConfigReply['components'] = [];
   if (operational.length) components.push({ components: [{ type: 'STRING_SELECT', customId: customId('field', session.id), placeholder: '选择运营配置字段', options: operational }] });
   if (security.length) components.push({ components: [{ type: 'STRING_SELECT', customId: customId('security', session.id), placeholder: '选择安全 Role 映射', options: security }] });
   return {
-    content: `**Bot 配置**\n当前版本 ${session.version}。请选择要修改的配置字段。`,
+    content: [
+      snapshot.businessEnvironment === 'SANDBOX' ? 'SANDBOX 测试环境 · 测试余额不代表真实资金' : null,
+      `**Bot 配置${snapshot.displayRole ? ` · ${snapshot.displayRole}` : ''}**`,
+      `当前版本 ${session.version}。请选择要修改的配置字段。`
+    ].filter(Boolean).join('\n'),
     components,
     ephemeral: true
   };

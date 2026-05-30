@@ -681,14 +681,17 @@ export function registerAccountRoutes(
     permission: 'account.self.read',
     action: 'GET_CURRENT_USER',
     targetType: 'user',
-    handler: (_request, actor) => getCurrentUser({ store: options.store, actor }),
+    handler: async (_request, actor) => ({
+      ...await getCurrentUser({ store: options.store, actor }),
+      enabledFeatures: [...(security.pilotFeaturePolicy?.enabledFeatures ?? ['CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6'])]
+    }),
     mapError: mapAccountError
   });
 
   if (options.profileStore && options.rechargeUrl) {
     registerSecureReadRoute(server, security, {
       method: 'GET', url: '/api/v1/me/profile', permission: 'account.self.read', action: 'GET_CURRENT_USER_PROFILE',
-      targetType: 'user', acceptedSources: ['DISCORD_BOT'], mapError: mapSelfProfileError,
+      targetType: 'user', acceptedSources: ['DISCORD_BOT'], requiredFeature: 'M6', mapError: mapSelfProfileError,
       handler: (_request, actor) => getCurrentUserProfileSummary({ store: options.store, profileStore: options.profileStore!,
         fundingAdapter: options.fundingAdapter, actor, rechargeUrl: options.rechargeUrl!, now: now() })
     });
@@ -729,6 +732,7 @@ export function registerAccountRoutes(
     permission: 'commission.self.read',
     action: 'LIST_CURRENT_USER_COMMISSIONS',
     targetType: 'commission',
+    requiredFeature: 'REFERRALS',
     handler: (request, actor) => listCurrentUserCommissions({ store: options.store, actor, ...pageQuery(request) }),
     mapError: mapAccountError
   });

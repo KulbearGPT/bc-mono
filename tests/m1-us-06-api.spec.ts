@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
+import { createPilotFeaturePolicy, type PilotPhase } from '@blackcat/api/pilot-features';
 import {
   InMemoryAccountStore,
   registerAccountRoutes,
@@ -47,13 +48,14 @@ function botHeaders(discordUserId: string) {
   };
 }
 
-function buildAccountServer() {
+function buildAccountServer(pilotPhase: PilotPhase = 'OFF') {
   const store = new InMemoryAccountStore({ bindings: [boundAccount()], reservations: [] });
   const server = buildApiServer({
     env,
     security: {
       auditSink: new InMemoryAuditSink(),
-      idempotencyStore: new InMemoryIdempotencyStore()
+      idempotencyStore: new InMemoryIdempotencyStore(),
+      pilotFeaturePolicy: createPilotFeaturePolicy(pilotPhase)
     }
   });
   registerAccountRoutes(server, {
@@ -117,6 +119,33 @@ describe('M1-US-06 private current-user service center API contract', () => {
     });
     expect(owned.body).not.toMatch(/sourceCustomerId|beneficiaryId|referredCustomerId|rateBps|referralAttributionId/i);
     expect(unbound.statusCode).toBe(403);
+  });
+
+  test('CORE_ORDER keeps consumption history but rejects the referral commission surface', async () => {
+    const { server } = buildAccountServer('CORE_ORDER');
+
+    const currentUser = await server.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: botHeaders('111111111111111111')
+    });
+    const consumptions = await server.inject({
+      method: 'GET',
+      url: '/api/v1/me/consumptions',
+      headers: botHeaders('111111111111111111')
+    });
+    const commissions = await server.inject({
+      method: 'GET',
+      url: '/api/v1/me/commissions',
+      headers: botHeaders('111111111111111111')
+    });
+
+    expect(currentUser.json().data.enabledFeatures).toEqual(['CORE_ORDER']);
+    expect(consumptions.statusCode).toBe(200);
+    expect(commissions.statusCode).toBe(409);
+    expect(commissions.json()).toMatchObject({
+      error: { code: 'FEATURE_DISABLED', details: [{ field: 'feature', reason: 'REFERRALS' }] }
+    });
   });
 
   test('documents current-user service center operationIds on the expected OpenAPI paths', async () => {

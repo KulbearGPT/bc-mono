@@ -3,6 +3,7 @@ import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
 import { InMemoryCustomerProfileStore, type CustomerProfileOrder } from '@blackcat/api/customer-profiles';
 import { AdapterError } from '@blackcat/api/payment-adapter';
+import { createPilotFeaturePolicy, type PilotPhase } from '@blackcat/api/pilot-features';
 
 const guildId = '900000000000006500';
 const otherGuildId = '900000000000006599';
@@ -23,7 +24,12 @@ function order(id: string, customerId: string, createdAt: string, guild = guildI
     serviceKey: 'RANKED', playerUserId: null, playerDisplayName: null, amountMinor: 10_000, currency: 'CNY', createdAt, completedAt: createdAt };
 }
 
-async function fixture(input: { providerFails?: boolean; providerStale?: boolean; noSnapshot?: boolean } = {}) {
+async function fixture(input: {
+  providerFails?: boolean;
+  providerStale?: boolean;
+  noSnapshot?: boolean;
+  pilotPhase?: PilotPhase;
+} = {}) {
   const accountStore = new InMemoryAccountStore({ bindings: [binding(userA, discordA, 'provider-a'), binding(userA, discordA, 'provider-a', otherGuildId), binding(userB, discordB, 'provider-b')], consumptions: [
     { id: '00000000-0000-0000-0000-000000006521', userId: userA, type: 'ORDER', sourceId: 'a1', amountMinor: 10_000,
       guildId, currency: 'CNY', status: 'SUCCEEDED', targetDisplay: '订单 P-6511', occurredAt: '2026-07-19T18:01:00.000Z', reversalOf: null },
@@ -65,7 +71,7 @@ async function fixture(input: { providerFails?: boolean; providerStale?: boolean
   } };
   const server = buildApiServer({
     env: { NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'bot-token' },
-    security: {},
+    security: { pilotFeaturePolicy: createPilotFeaturePolicy(input.pilotPhase ?? 'OFF') },
     account: { store: accountStore, fundingAdapter, providerKey: 'mock', profileStore, rechargeUrl: 'https://payments.example.test/recharge', now: () => now }
   });
   const headers = (discordUserId = discordA) => ({ authorization: 'Bearer bot-token', 'x-client-source': 'DISCORD_BOT',
@@ -74,6 +80,23 @@ async function fixture(input: { providerFails?: boolean; providerStale?: boolean
 }
 
 describe('M6-US-05 current-user profile API', () => {
+  test('CORE_ORDER rejects the M6 profile before provider or profile writes', async () => {
+    const f = await fixture({ pilotPhase: 'CORE_ORDER' });
+    const before = f.profileStore.balanceSnapshots.length;
+
+    const response = await f.server.inject({
+      method: 'GET',
+      url: '/api/v1/me/profile',
+      headers: f.headers()
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: { code: 'FEATURE_DISABLED', details: [{ field: 'feature', reason: 'M6' }] }
+    });
+    expect(f.profileStore.balanceSnapshots).toHaveLength(before);
+  });
+
   test('derives the user only from trusted DISCORD_BOT actor context and scopes all facts to its Guild', async () => {
     const f = await fixture();
     const profile = await f.server.inject({ method: 'GET', url: `/api/v1/me/profile?userId=${userB}`, headers: f.headers() });
