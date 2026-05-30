@@ -240,7 +240,11 @@ const server = buildApiServer({
   } : undefined
 });
 if (process.env.NODE_ENV === 'production') {
-  await registerDashboardAssets(server, fileURLToPath(new URL('../../dashboard/dist/', import.meta.url)));
+  await registerDashboardAssets(
+    server,
+    fileURLToPath(new URL('../../dashboard/dist/', import.meta.url)),
+    { businessEnvironment }
+  );
 }
 await server.listen({ port: validation.values.apiPort, host: '0.0.0.0' });
 console.log(

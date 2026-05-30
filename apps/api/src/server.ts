@@ -344,13 +344,25 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   return server;
 }
 
-export async function registerDashboardAssets(server: FastifyInstance, dashboardDist: string): Promise<void> {
+export async function registerDashboardAssets(
+  server: FastifyInstance,
+  dashboardDist: string,
+  options: { businessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}
+): Promise<void> {
   await server.register(fastifyStatic, {
     root: join(dashboardDist, 'assets'),
     prefix: '/assets/',
     decorateReply: true
   });
-  const indexHtml = await readFile(join(dashboardDist, 'index.html'), 'utf8');
+  const indexTemplate = await readFile(join(dashboardDist, 'index.html'), 'utf8');
+  const environmentMarker = '__BLACKCAT_BUSINESS_ENV__';
+  const businessEnvironment = options.businessEnvironment ?? server.securityOptions?.businessEnvironment;
+  if (indexTemplate.includes(environmentMarker) && !businessEnvironment) {
+    throw new Error('Dashboard assets require a validated business environment.');
+  }
+  const indexHtml = businessEnvironment
+    ? indexTemplate.replaceAll(environmentMarker, businessEnvironment)
+    : indexTemplate;
   server.get('/*', async (request, reply) => {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'

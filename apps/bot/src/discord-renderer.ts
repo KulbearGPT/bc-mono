@@ -16,7 +16,7 @@ export function decorateSandboxPrivateMessage<T extends { visibility: 'EPHEMERAL
   message: T,
   environment: 'SANDBOX' | 'PRODUCTION'
 ): T {
-  if (environment !== 'SANDBOX' || message.visibility === 'PUBLIC') return message;
+  if (environment !== 'SANDBOX') return message;
   return { ...message, body: `${BOT_SANDBOX_WARNING}\n\n${message.body}` };
 }
 

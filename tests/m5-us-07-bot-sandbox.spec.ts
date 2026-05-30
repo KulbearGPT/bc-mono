@@ -8,10 +8,11 @@ import {
 } from '@blackcat/bot/discord-renderer';
 
 describe('M5-US-07 Sandbox Bot presentation', () => {
-  it('adds the warning only to private Sandbox messages', () => {
-    expect(decorateSandboxPrivateMessage({ visibility: 'EPHEMERAL', body: '余额' }, 'SANDBOX').body)
-      .toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
-    expect(decorateSandboxPrivateMessage({ visibility: 'PUBLIC', body: '入口' }, 'SANDBOX').body).toBe('入口');
+  it('adds the warning to every Sandbox message visibility', () => {
+    for (const visibility of ['EPHEMERAL', 'PRIVATE_CHANNEL', 'PUBLIC'] as const) {
+      expect(decorateSandboxPrivateMessage({ visibility, body: '余额或入口' }, 'SANDBOX').body)
+        .toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
+    }
     expect(decorateSandboxPrivateMessage({ visibility: 'EPHEMERAL', body: '余额' }, 'PRODUCTION').body).toBe('余额');
   });
 

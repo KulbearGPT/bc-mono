@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildCapabilities } from '@blackcat/api/dashboard-auth';
 import { createPilotFeaturePolicy } from '@blackcat/api/pilot-features';
-import { buildApiServer } from '@blackcat/api/server';
+import { buildApiServer, registerDashboardAssets } from '@blackcat/api/server';
 import { buildAdminBusinessNavigation } from '@blackcat/dashboard/admin-business';
 import { buildDashboardNavigation } from '@blackcat/dashboard/dashboard-shell';
 import { buildSettlementNavigation } from '@blackcat/dashboard/settlements';
@@ -10,6 +13,7 @@ import {
   canManageSandboxFunding,
   getSandboxBanner,
   hasFeature,
+  resolveDashboardBusinessEnvironment,
   setSandboxTargetBalance,
   type DashboardCapabilities
 } from '@blackcat/dashboard/sandbox-funding';
@@ -30,6 +34,13 @@ describe('M5-US-07 Sandbox Dashboard', () => {
     expect(hasFeature(capabilities, 'M6')).toBe(false);
     expect(canManageSandboxFunding({ ...capabilities, displayRole: 'STAFF' })).toBe(false);
     expect(getSandboxBanner('PRODUCTION')).toBeNull();
+  });
+
+  it('lets authenticated capabilities override the public environment only with a closed enum value', () => {
+    expect(resolveDashboardBusinessEnvironment('SANDBOX', 'PRODUCTION')).toBe('PRODUCTION');
+    expect(resolveDashboardBusinessEnvironment('SANDBOX', 'SANDBOX')).toBe('SANDBOX');
+    expect(resolveDashboardBusinessEnvironment('SANDBOX', 'malformed')).toBe('SANDBOX');
+    expect(resolveDashboardBusinessEnvironment(undefined, 'malformed')).toBeUndefined();
   });
 
   it('submits only server-owned target fields', () => {
@@ -70,6 +81,55 @@ describe('M5-US-07 Sandbox Dashboard', () => {
       buildTargetBalanceRequest(account(3), 100_000)
     );
     expect(get).toHaveBeenCalledWith('/api/v1/admin/sandbox-funding/accounts/user-1');
+  });
+
+  it('rejects a loaded-account and requested-user mismatch before any network write', async () => {
+    const get = vi.fn();
+    const post = vi.fn();
+
+    await expect(setSandboxTargetBalance(
+      { get, post },
+      'user-2',
+      account(3),
+      100_000
+    )).rejects.toThrow(/loaded account userId/u);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('injects the runtime Sandbox environment into public Dashboard HTML before authentication', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'blackcat-m5-us-07-'));
+    const server = buildApiServer({
+      env: {
+        NODE_ENV: 'test',
+        DATABASE_URL: '',
+        API_PORT: '0',
+        API_BASE_URL: 'http://localhost:3000',
+        BOT_SERVICE_TOKEN: 'test-token'
+      }
+    });
+    try {
+      await mkdir(join(root, 'assets'));
+      await writeFile(
+        join(root, 'index.html'),
+        '<div id="root" data-business-environment="__BLACKCAT_BUSINESS_ENV__"></div>'
+      );
+      await registerDashboardAssets(server, root, { businessEnvironment: 'SANDBOX' });
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/',
+        headers: { accept: 'text/html' }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain('data-business-environment="SANDBOX"');
+      expect(response.body).not.toContain('__BLACKCAT_BUSINESS_ENV__');
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('publishes presentation-only STAFF and OWNER roles without changing internal levels', async () => {

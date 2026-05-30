@@ -30,6 +30,19 @@ export function getSandboxBanner(environment: 'SANDBOX' | 'PRODUCTION'): string 
   return environment === 'SANDBOX' ? SANDBOX_WARNING : null;
 }
 
+export function resolveDashboardBusinessEnvironment(
+  publicEnvironment: unknown,
+  authenticatedEnvironment: unknown
+): 'SANDBOX' | 'PRODUCTION' | undefined {
+  if (authenticatedEnvironment === 'SANDBOX' || authenticatedEnvironment === 'PRODUCTION') {
+    return authenticatedEnvironment;
+  }
+  if (publicEnvironment === 'SANDBOX' || publicEnvironment === 'PRODUCTION') {
+    return publicEnvironment;
+  }
+  return undefined;
+}
+
 export function hasFeature(
   capabilities: Pick<DashboardCapabilities, 'enabledFeatures'>,
   feature: PilotFeature
@@ -78,13 +91,17 @@ export async function setSandboxTargetBalance(
   | { kind: 'UPDATED'; account: SandboxFundingAccount }
   | { kind: 'CONFLICT'; account: SandboxFundingAccount; errorCode: string; requestId: string | null }
 > {
-  const basePath = `/api/v1/admin/sandbox-funding/accounts/${encodeURIComponent(requireUserId(userId))}`;
+  const requestedUserId = requireUserId(userId);
+  if (requestedUserId !== requireUserId(account.userId)) {
+    throw new Error('Requested userId must match the loaded account userId.');
+  }
+  const basePath = `/api/v1/admin/sandbox-funding/accounts/${encodeURIComponent(requestedUserId)}`;
   const response = await client.post(`${basePath}/target-balance`, buildTargetBalanceRequest(account, targetProviderBalanceMinor));
   if (response.status === 409) {
     const envelope = await response.json().catch(() => null) as { requestId?: string; error?: { code?: string } } | null;
     return {
       kind: 'CONFLICT',
-      account: await getSandboxFundingAccount(client, userId),
+      account: await getSandboxFundingAccount(client, requestedUserId),
       errorCode: envelope?.error?.code ?? 'CONFLICT',
       requestId: envelope?.requestId ?? null
     };
