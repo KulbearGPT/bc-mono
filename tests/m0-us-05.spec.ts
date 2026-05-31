@@ -269,7 +269,12 @@ describe('M0-US-05 outbox/job runner and observability', () => {
     };
     const store = new PostgresOutboxStore({ client });
 
-    const claimed = await store.claimDueJobs({ workerId: 'worker-a', limit: 1, now });
+    const claimed = await store.claimDueJobs({
+      workerId: 'worker-a',
+      limit: 1,
+      now,
+      jobTypes: ['GIFT_ANNOUNCEMENT']
+    });
 
     expect(claimed).toHaveLength(1);
     expect(claimed[0]).toMatchObject({
@@ -287,18 +292,34 @@ describe('M0-US-05 outbox/job runner and observability', () => {
       now,
       'worker-a',
       1,
-      [
-        'GIFT_ANNOUNCEMENT',
-        'GIFT_EXPIRY',
-        'DISPATCH_MESSAGE',
-        'DISPATCH_TIMEOUT',
-        'READINESS_TIMEOUT',
-        'CHANNEL_ARCHIVE',
-        'PANEL_SYNC',
-        'ROLE_RECONCILIATION',
-        'WEEKLY_REPORT_GENERATE',
-        'WEEKLY_REPORT_NOTIFY'
-      ]
+      ['GIFT_ANNOUNCEMENT']
+    ]);
+  });
+
+  test('database store limits stale recovery to the worker installed job types', async () => {
+    const queries: Array<{ sql: string; values: unknown[] }> = [];
+    const client: OutboxQueryClient = {
+      async query(sql, values = []) {
+        queries.push({ sql, values });
+        return { rows: [] };
+      }
+    };
+    const store = new PostgresOutboxStore({ client });
+    const lockedBefore = new Date(now.getTime() - 5 * 60_000);
+
+    expect(await store.recoverStaleProcessingJobs({
+      lockedBefore,
+      now,
+      error: 'WORKER_RESTART_RECOVERY',
+      jobTypes: ['GIFT_ANNOUNCEMENT', 'PANEL_SYNC']
+    })).toEqual([]);
+
+    expect(queries[0].sql).toContain('event_type = ANY($4::text[])');
+    expect(queries[0].values).toEqual([
+      lockedBefore,
+      now,
+      'WORKER_RESTART_RECOVERY',
+      ['GIFT_ANNOUNCEMENT', 'PANEL_SYNC']
     ]);
   });
 

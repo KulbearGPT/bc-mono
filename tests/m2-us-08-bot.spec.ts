@@ -88,4 +88,10 @@ describe('M2-US-08 Sapphire player workbench', () => {
     expect(source).toContain(".setName('player-workbench')");
     expect(source).toContain('handleOpenPlayerWorkbench');
   });
+
+  test('loads repository pieces and targets the configured test guild for immediate slash-command registration', async () => {
+    const source = await readFile('apps/bot/src/index.ts', 'utf8');
+    expect(source).toContain('baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), \'pieces\')');
+    expect(source).toContain('ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId])');
+  });
 });

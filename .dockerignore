@@ -1,0 +1,11 @@
+.git
+.worktrees
+node_modules
+**/dist
+**/*.tsbuildinfo
+evidence
+outputs
+docs
+.env*
+!.env.example
+npm-debug.log*

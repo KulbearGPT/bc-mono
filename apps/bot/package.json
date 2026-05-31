@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "pieces": "tsx src/piece-manifest.ts",
-    "start": "tsx src/index.ts",
+    "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

@@ -88,7 +88,8 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     expect(source).toContain('createOrderGiftRequest');
     expect(source).toContain('readGiftContinuationToken');
     const orderPanel = buildServiceLifecyclePanelMessage({ orderId: '00000000-0000-0000-0000-000000006601',
-      publicId: 'P-6601', status: 'IN_SERVICE', version: 7, actorRole: 'CUSTOMER', readiness: {
+      publicId: 'P-6601', status: 'IN_SERVICE', version: 7, actorRole: 'CUSTOMER',
+      enabledFeatures: ['CORE_ORDER', 'GIFTS'], readiness: {
         customer: 'READY', player: 'READY', bothReady: true, readyDeadlineAt: null,
         startedAt: result.calculatedAt, staffTaskId: null } });
     const openId = (orderPanel.components[0]!.components.find((item) => item.type === 'BUTTON' && item.label === '赠送礼物') as any).customId;

@@ -156,13 +156,13 @@ export class PostgresCommissionStore implements CommissionStore {
 export function registerCommissionRoutes(server: FastifyInstance, options: { store: CommissionStore; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Commission routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions', permission: 'commission.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions', permission: 'commission.read', requiredFeature: 'REFERRALS',
     action: 'LIST_COMMISSIONS', targetType: 'commission', acceptedSources: ['DASHBOARD','DISCORD_BOT'],
     handler: (request) => options.store.listPage(commissionPageQuery(request)), mapError });
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.read', requiredFeature: 'REFERRALS',
     action: 'GET_COMMISSION_CONFIDENTIAL', targetType: 'commission', targetId: commissionIdParam, acceptedSources: ['DASHBOARD','DISCORD_BOT'],
     handler: (request) => options.store.get(commissionIdParam(request)), mapError });
-  registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.manage',
+  registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.manage', requiredFeature: 'REFERRALS',
     action: 'UPDATE_COMMISSION', targetType: 'commission', targetId: commissionIdParam, acceptedSources: ['DASHBOARD','DISCORD_BOT'], requiresRecentStepUp: true,
     handler: (request, actor) => {
       if (!actor.actorStaffId) throw new CommissionError('PERMISSION_DENIED','A staff actor is required.');

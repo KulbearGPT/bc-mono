@@ -8,4 +8,9 @@ if (!root) {
   throw new Error('Dashboard root element is missing.');
 }
 
-createRoot(root).render(<App />);
+const runtimeEnvironment = root.dataset.businessEnvironment;
+const businessEnvironment = runtimeEnvironment === 'SANDBOX' || runtimeEnvironment === 'PRODUCTION'
+  ? runtimeEnvironment
+  : undefined;
+
+createRoot(root).render(<App publicBusinessEnvironment={businessEnvironment} />);

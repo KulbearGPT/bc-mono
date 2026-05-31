@@ -521,18 +521,18 @@ export function registerWeeklyReportRoutes(server: FastifyInstance, options: { s
   const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
   security.auditSink = auditSink;
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports', permission: 'weekly_report.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports', permission: 'weekly_report.read', requiredFeature: 'M6',
     action: 'LIST_ADMIN_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => weeklyReportPage(request, (limit) => options.store.list({ guildId: requireGuild(actor), limit })) });
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports/:weeklyReportId', permission: 'weekly_report.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports/:weeklyReportId', permission: 'weekly_report.read', requiredFeature: 'M6',
     action: 'GET_ADMIN_WEEKLY_REPORT', targetType: 'weekly_report', targetId: reportIdParam, acceptedSources: ['DASHBOARD'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => requireReport(await options.store.getInGuild(reportIdParam(request), requireGuild(actor))) });
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports/:weeklyReportId/export', permission: 'weekly_report.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/weekly-reports/:weeklyReportId/export', permission: 'weekly_report.read', requiredFeature: 'M6',
     action: 'EXPORT_WEEKLY_REPORT', targetType: 'weekly_report', targetId: reportIdParam, acceptedSources: ['DASHBOARD'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => exportWeeklyReport(requireReport(await options.store.getInGuild(reportIdParam(request), requireGuild(actor)))),
     rawResponse: (payload, reply) => { const csv = payload as string; reply.type('text/csv; charset=utf-8'); return reply.send(csv); } });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/weekly-reports/:weeklyReportId/revisions',
-    permission: 'weekly_report.manage', action: 'CREATE_WEEKLY_REPORT_REVISION', targetType: 'weekly_report', targetId: reportIdParam,
+    permission: 'weekly_report.manage', requiredFeature: 'M6', action: 'CREATE_WEEKLY_REPORT_REVISION', targetType: 'weekly_report', targetId: reportIdParam,
     acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true, successStatusCode: 201,
     fingerprintBody: (request) => parseRevision(request.body), successReason: (request) => parseRevision(request.body).reason,
     retryCommitFailures: true, mapError: mapWeeklyReportError, handler: async (request, actor) => {
@@ -546,14 +546,14 @@ export function registerWeeklyReportRoutes(server: FastifyInstance, options: { s
         else { await auditSink.append(record); await staged.commit(record); }
       } };
     } });
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports', permission: 'player.workspace.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports', permission: 'player.workspace.read', requiredFeature: 'M6',
     action: 'LIST_MY_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DISCORD_BOT'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => {
       const playerUserId = await resolveCurrentPlayer(options.store, actor);
       const page = await weeklyReportPage(request, (limit) => options.store.list({ guildId: requireGuild(actor), playerUserId, limit }));
       return { items: page.items.map(mapCurrentPlayerWeeklyReport), nextCursor: page.nextCursor };
     } });
-  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports/:weeklyReportId', permission: 'player.workspace.read',
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/players/me/weekly-reports/:weeklyReportId', permission: 'player.workspace.read', requiredFeature: 'M6',
     action: 'GET_MY_WEEKLY_REPORT', targetType: 'weekly_report', targetId: reportIdParam, acceptedSources: ['DISCORD_BOT'], mapError: mapWeeklyReportError,
     handler: async (request, actor) => {
       const report = await options.store.getInGuild(reportIdParam(request), requireGuild(actor));

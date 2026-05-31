@@ -56,11 +56,12 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
           authorization: 'Bearer bot-token',
           'content-type': 'application/json',
           'x-client-source': 'DISCORD_BOT',
-          'idempotency-key': `discord:role-sync:${observation.sourceEventId}:v${observation.mappingVersion}`
+          'idempotency-key': expect.stringMatching(/^discord:role-sync:[a-f0-9]{64}$/u)
         })
       })
     );
     const requestHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(requestHeaders['idempotency-key']).toMatch(/^[A-Za-z0-9:_-]{16,200}$/u);
     expect(requestHeaders).not.toHaveProperty('x-actor-guild-id');
     expect(requestHeaders).not.toHaveProperty('x-actor-discord-user-id');
     expect(JSON.stringify(observation)).not.toMatch(/effectiveLevel|staffLevel|permission/i);
@@ -110,6 +111,20 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
     const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
     const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
     expect(secondHeaders['idempotency-key']).not.toBe(firstHeaders['idempotency-key']);
+  });
+
+  test('adopts mapping version zero when the API has no role mappings', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: { code: 'MAPPING_VERSION_STALE', details: [{ field: 'mappingVersion', reason: 'expected 0' }] } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { status: 'NO_CHANGE' } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HttpRoleSyncApiClient({ apiBaseUrl: 'https://api.example.test', botServiceToken: 'bot-token', retryDelaysMs: [] });
+    const observation = buildRoleSyncObservation({ guildId, discordUserId, observedRoleIds: [], mappingVersion: 1, source: 'STARTUP_RECONCILIATION', observedAt });
+
+    await client.syncDiscordRoles(observation);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({ mappingVersion: 0 });
   });
 
   test('guildMemberUpdate ignores non-role changes and forwards the current role snapshot when roles change', async () => {
@@ -175,6 +190,11 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
     }));
     expect(onError).toHaveBeenCalledOnce();
     expect(result).toEqual({ guilds: 1, observedMembers: 2, syncedMembers: 1, failedMembers: 1 });
+  });
+
+  test('accepts mapping version zero before the first Discord Role mapping exists', async () => {
+    const { readRoleMappingVersion } = await import('../apps/bot/src/role-sync.js');
+    expect(readRoleMappingVersion('0')).toBe(0);
   });
 
   test('registers Sapphire ready and guildMemberUpdate listeners without local access policy', async () => {

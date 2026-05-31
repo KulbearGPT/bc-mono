@@ -36,7 +36,12 @@ export interface OutboxJob {
 }
 
 export interface OutboxStore {
-  claimDueJobs(input: { workerId: string; limit: number; now: Date }): Promise<OutboxJob[]>;
+  claimDueJobs(input: {
+    workerId: string;
+    limit: number;
+    now: Date;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]>;
   markSucceeded(input: { jobId: string; workerId: string; now: Date }): Promise<OutboxJob>;
   markFailed(input: {
     jobId: string;
@@ -46,7 +51,12 @@ export interface OutboxStore {
     now: Date;
   }): Promise<OutboxJob>;
   retryFailedJob(input: { jobId: string; expectedVersion: number; now: Date }): Promise<OutboxJob>;
-  recoverStaleProcessingJobs(input: { lockedBefore: Date; now: Date; error: string }): Promise<OutboxJob[]>;
+  recoverStaleProcessingJobs(input: {
+    lockedBefore: Date;
+    now: Date;
+    error: string;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]>;
   renewProcessingJob?(input: { jobId: string; workerId: string; now: Date }): Promise<void>;
   getJob(jobId: string): Promise<OutboxJob | null>;
 }
@@ -108,10 +118,18 @@ export class InMemoryOutboxStore implements OutboxStore {
     }
   }
 
-  async claimDueJobs(input: { workerId: string; limit: number; now: Date }): Promise<OutboxJob[]> {
+  async claimDueJobs(input: {
+    workerId: string;
+    limit: number;
+    now: Date;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]> {
     assertPositiveLimit(input.limit);
+    const claimableTypes = new Set(input.jobTypes ?? deliveryJobTypes);
     const dueJobs = Array.from(this.jobs.values())
-      .filter((job) => job.status === 'PENDING' && Date.parse(job.runAfter) <= input.now.getTime())
+      .filter((job) => claimableTypes.has(job.type)
+        && job.status === 'PENDING'
+        && Date.parse(job.runAfter) <= input.now.getTime())
       .sort(compareClaimPriority)
       .slice(0, input.limit);
 
@@ -187,10 +205,17 @@ export class InMemoryOutboxStore implements OutboxStore {
     return clone(retried);
   }
 
-  async recoverStaleProcessingJobs(input: { lockedBefore: Date; now: Date; error: string }): Promise<OutboxJob[]> {
+  async recoverStaleProcessingJobs(input: {
+    lockedBefore: Date;
+    now: Date;
+    error: string;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]> {
     const recovered: OutboxJob[] = [];
+    const recoverableTypes = new Set(input.jobTypes ?? deliveryJobTypes);
     for (const job of Array.from(this.jobs.values()).sort(compareClaimPriority)) {
       if (
+        !recoverableTypes.has(job.type) ||
         job.status !== 'PROCESSING' ||
         !job.lockedAt ||
         Date.parse(job.lockedAt) > input.lockedBefore.getTime()
@@ -246,7 +271,12 @@ export class PostgresOutboxStore implements OutboxStore {
     this.client = options.client;
   }
 
-  async claimDueJobs(input: { workerId: string; limit: number; now: Date }): Promise<OutboxJob[]> {
+  async claimDueJobs(input: {
+    workerId: string;
+    limit: number;
+    now: Date;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]> {
     assertPositiveLimit(input.limit);
     const result = await this.client.query<OutboxRow>(
       `
@@ -273,7 +303,7 @@ RETURNING job.id, job.event_type, job.aggregate_type, job.aggregate_id, job.dedu
           job.available_at, job.locked_at, job.locked_by, job.completed_at,
           job.last_error, job.created_at, job.updated_at
       `,
-      [input.now, input.workerId, input.limit, Array.from(deliveryJobTypes)]
+      [input.now, input.workerId, input.limit, Array.from(input.jobTypes ?? deliveryJobTypes)]
     );
     return result.rows.map(mapOutboxRow);
   }
@@ -353,7 +383,12 @@ RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
     throw new OutboxError('CONFLICT', 'Job version is stale.');
   }
 
-  async recoverStaleProcessingJobs(input: { lockedBefore: Date; now: Date; error: string }): Promise<OutboxJob[]> {
+  async recoverStaleProcessingJobs(input: {
+    lockedBefore: Date;
+    now: Date;
+    error: string;
+    jobTypes?: readonly JobType[];
+  }): Promise<OutboxJob[]> {
     const result = await this.client.query<OutboxRow>(
       `
 UPDATE outbox_events
@@ -368,12 +403,13 @@ SET status = CASE
     row_version = row_version + 1,
     updated_at = $2
 WHERE status = 'PROCESSING' AND locked_at IS NOT NULL AND locked_at <= $1
+  AND event_type = ANY($4::text[])
 RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
           payload, status, row_version, attempt_count, max_attempts,
           available_at, locked_at, locked_by, completed_at,
           last_error, created_at, updated_at
       `,
-      [input.lockedBefore, input.now, input.error]
+      [input.lockedBefore, input.now, input.error, Array.from(input.jobTypes ?? deliveryJobTypes)]
     );
     return result.rows.map(mapOutboxRow);
   }
@@ -428,7 +464,10 @@ export class OutboxWorker {
 
   async runOnce(handlers: HandlerMap): Promise<OutboxJob[]> {
     const now = this.now();
-    const claimed = await this.store.claimDueJobs({ workerId: this.workerId, limit: 1, now });
+    const jobTypes = Object.entries(handlers)
+      .filter((entry): entry is [JobType, NonNullable<HandlerMap[JobType]>] => typeof entry[1] === 'function')
+      .map(([jobType]) => jobType);
+    const claimed = await this.store.claimDueJobs({ workerId: this.workerId, limit: 1, now, jobTypes });
     const results: OutboxJob[] = [];
 
     for (const job of claimed) {

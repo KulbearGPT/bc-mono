@@ -78,6 +78,7 @@ interface AdminPageDefinition {
   readPermission: string;
   filters: ReadonlyArray<{ id: string; label: string }>;
   actions: ReadonlyArray<AdminBusinessAction & { permission: string }>;
+  feature?: 'GIFTS' | 'REFERRALS';
 }
 
 const pageDefinitions: readonly AdminPageDefinition[] = [
@@ -108,6 +109,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   },
   {
     id: 'giftCatalog', label: '礼物目录', href: '/admin/gift-catalog', endpoint: '/api/v1/admin/gift-catalog', readPermission: 'gift_catalog.read',
+    feature: 'GIFTS',
     filters: [],
     actions: [
       { id: 'CREATE_GIFT', label: '创建礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'COLLECTION' },
@@ -116,10 +118,12 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   },
   {
     id: 'giftRequests', label: '礼物请求', href: '/admin/gift-requests', endpoint: '/api/v1/admin/gift-requests', readPermission: 'gift_request.read',
+    feature: 'GIFTS',
     filters: [{ id: 'status', label: '礼物状态' }], actions: []
   },
   {
     id: 'commissions', label: '返佣', href: '/admin/commissions', endpoint: '/api/v1/admin/commissions', readPermission: 'commission.read',
+    feature: 'REFERRALS',
     filters: [{ id: 'status', label: '返佣状态' }],
     actions: []
   },
@@ -133,10 +137,10 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   }
 ];
 
-export function buildAdminBusinessNavigation(permissions: string[]): AdminBusinessNavigationItem[] {
+export function buildAdminBusinessNavigation(permissions: string[], enabledFeatures?: string[]): AdminBusinessNavigationItem[] {
   const allowed = new Set(permissions);
   return pageDefinitions
-    .filter((page) => allowed.has(page.readPermission))
+    .filter((page) => allowed.has(page.readPermission) && (!enabledFeatures || !page.feature || enabledFeatures.includes(page.feature)))
     .map(({ id, label, href }) => ({ id, label, href }));
 }
 

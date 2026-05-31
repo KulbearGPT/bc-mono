@@ -76,6 +76,13 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
     const staffId = this.staffByDiscord.get(key(input.guildId, input.discordUserId));
     const current = staffId ? this.staff.get(staffId)! : null;
     const previousLevel = current?.status === 'ACTIVE' ? current.level : null;
+    if (!active.length && current) {
+      const data = noChange(input.discordUserId, previousLevel, current.status === 'ACTIVE' ? current.level : null, current.permissionsVersion);
+      return staged(data, async (audit, sink) => {
+        await sink.append(audit);
+        this.syncResults.set(replayKey, clone(data));
+      });
+    }
     const nextVersion = (current?.permissionsVersion ?? 0) + 1;
     let next: StaffAccessRecord | null = current ? cloneStaff(current) : null;
     let data: RoleSyncResult | PendingRoleElevation;
@@ -198,7 +205,25 @@ export class PostgresAccessStore implements AccessStore {
          ) AS used`
       );
       if (existing.rows[0]?.used) throw new AccessError('BOOTSTRAP_ALREADY_USED', 'The one-time L4 bootstrap has already been used or an active L4 already exists.');
-      const resolved = await loadStaffByDiscord(client, input.guildId, input.discordUserId, true);
+      let resolved: { userId: string; staff: StaffRow | null };
+      try {
+        resolved = await loadStaffByDiscord(client, input.guildId, input.discordUserId, true);
+      } catch (error) {
+        if (!(error instanceof AccessError) || error.code !== 'NOT_FOUND') throw error;
+        const userId = randomUUID();
+        await client.query(
+          `INSERT INTO users (id,display_name,status,row_version,created_at,updated_at)
+           VALUES ($1::uuid,'Bootstrap Owner','ACTIVE',1,$2::timestamptz,$2::timestamptz)`,
+          [userId, input.now]
+        );
+        await client.query(
+          `INSERT INTO discord_accounts
+             (id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at)
+           VALUES ($1::uuid,$2::uuid,$3,$4,$5::timestamptz,$5::timestamptz,$5::timestamptz)`,
+          [randomUUID(), userId, input.guildId, input.discordUserId, input.now]
+        );
+        resolved = { userId, staff: null };
+      }
       const staffId = resolved.staff?.staff_id ?? randomUUID();
       const permissionsVersion = (resolved.staff?.permissions_version ?? 0) + 1;
       if (resolved.staff) {
@@ -532,6 +557,22 @@ async function buildSyncPlan(db: AccessDb, input: SyncInput, lock = false): Prom
     .filter((item) => input.observedRoleIds.includes(item.discord_role_id))
     .sort((left, right) => rank[right.target_level] - rank[left.target_level])[0]?.target_level ?? null;
   const previousLevel = current?.status === 'ACTIVE' ? current.level : null;
+
+  // An empty mapping set means Role authorization has not been configured for
+  // this Guild yet. It must not revoke an existing bootstrap/manual account.
+  if (!mappings.length && current) {
+    const currentRecord = toAccessRecord(current);
+    return {
+      staff: currentRecord,
+      userId: resolved.userId,
+      outcome: noChange(input.discordUserId, previousLevel, current.status === 'ACTIVE' ? current.level : null, current.permissions_version),
+      eventStatus: 'APPLIED',
+      previousLevel,
+      revokeSessions: false,
+      approvalRequestId: null,
+      persistStaff: false
+    };
+  }
 
   if (!candidate && !current) {
     return {

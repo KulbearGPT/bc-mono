@@ -66,6 +66,9 @@ export interface BotConfigSnapshot {
   manageableFields: string[];
   updatedByStaffId: string | null;
   updatedAt: string;
+  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
+  businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
+  displayRole?: 'STAFF' | 'OWNER' | null;
 }
 
 export interface BotConfigChangeRequest {
@@ -187,16 +190,40 @@ export class HttpBotConfigApiClient implements BotConfigApiClient {
     if (input.idempotencyKey) headers['idempotency-key'] = input.idempotencyKey;
     if (input.body !== undefined) headers['content-type'] = 'application/json';
 
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
-      method: input.method,
-      headers,
-      body: input.body === undefined ? undefined : JSON.stringify(input.body)
-    });
-    const envelope = await response.json() as {
+    let response: Response;
+    try {
+      response = await fetch(`${this.apiBaseUrl}${path}`, {
+        method: input.method,
+        headers,
+        body: input.body === undefined ? undefined : JSON.stringify(input.body)
+      });
+    } catch {
+      throw new BotConfigApiError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Unified API is unavailable.',
+        requestId: 'bot-api-unreachable',
+        statusCode: 503
+      });
+    }
+    let envelope: {
       requestId?: string;
       data?: T;
       error?: { code?: string; message?: string };
     };
+    try {
+      envelope = await response.json() as {
+        requestId?: string;
+        data?: T;
+        error?: { code?: string; message?: string };
+      };
+    } catch {
+      throw new BotConfigApiError({
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Unified API returned an invalid response.',
+        requestId: 'bot-api-invalid-response',
+        statusCode: 502
+      });
+    }
     if (!response.ok) {
       throw new BotConfigApiError({
         code: envelope.error?.code ?? 'SERVICE_UNAVAILABLE',
@@ -296,7 +323,7 @@ export class BotConfigFlow {
     const snapshot = await this.api.getBotConfig(actor.guildId, actor);
     this.cache.set(snapshot);
     const session = this.sessions.create(actor, snapshot);
-    return presentFieldPicker(session,snapshot.manageableFields);
+    return presentFieldPicker(session, snapshot);
   }
 
   public chooseField(actor: BotConfigActorContext, sessionId: string, field: string): BotConfigReply {
@@ -443,14 +470,19 @@ function toDiscordComponent(component: BotConfigComponentSpec) {
     .setStyle(component.style === 'PRIMARY' ? ButtonStyle.Primary : component.style === 'DANGER' ? ButtonStyle.Danger : ButtonStyle.Secondary);
 }
 
-function presentFieldPicker(session: BotConfigSession,manageableFields:string[]): BotConfigReply {
+function presentFieldPicker(session: BotConfigSession, snapshot: BotConfigSnapshot): BotConfigReply {
+  const manageableFields = snapshot.manageableFields;
   const operational = manageableFields.filter((field) => isManageableField(field) && !isSecurityRoleField(field)).map((field) => ({ label: fieldLabel(field), value: field }));
   const security = manageableFields.filter(isSecurityRoleField).map((field) => ({ label: fieldLabel(field), value: field }));
   const components: BotConfigReply['components'] = [];
   if (operational.length) components.push({ components: [{ type: 'STRING_SELECT', customId: customId('field', session.id), placeholder: '选择运营配置字段', options: operational }] });
-  if (security.length) components.push({ components: [{ type: 'STRING_SELECT', customId: customId('security', session.id), placeholder: '选择安全 Role 映射', options: security }] });
+  if (security.length) components.push({ components: [{ type: 'STRING_SELECT', customId: customId('security', session.id), placeholder: '选择权限角色映射', options: security }] });
   return {
-    content: `**Bot 配置**\n当前版本 ${session.version}。请选择要修改的配置字段。`,
+    content: [
+      snapshot.businessEnvironment === 'SANDBOX' ? 'SANDBOX 测试环境 · 测试余额不代表真实资金' : null,
+      `**Bot 配置${snapshot.displayRole ? ` · ${snapshot.displayRole}` : ''}**`,
+      `当前版本 ${session.version}。请选择要修改的配置字段。`
+    ].filter(Boolean).join('\n'),
     components,
     ephemeral: true
   };
@@ -466,7 +498,7 @@ function presentValuePicker(session: BotConfigSession): BotConfigReply {
         ? { type: 'STRING_SELECT', customId: customId('value', session.id), placeholder: '选择开关状态', options: [{ label: '开启', value: 'true' }, { label: '关闭', value: 'false' }] }
         : { type: 'BUTTON', customId: customId('input', session.id), label: '填写新值', style: 'PRIMARY' };
   const rows: BotConfigReply['components'] = [{ components: [component] }];
-  if (isNullableRoleField(field)) rows.push({ components: [{ type: 'BUTTON', customId: customId('clear', session.id), label: '清除当前 Role', style: 'DANGER' }] });
+  if (isNullableRoleField(field)) rows.push({ components: [{ type: 'BUTTON', customId: customId('clear', session.id), label: '清除当前角色', style: 'DANGER' }] });
   return {
     content: `**Bot 配置 · ${fieldLabel(field)}**\n当前值：${formatConfigValue(field, session.currentValue)}`,
     components: rows,
@@ -528,7 +560,36 @@ function formatConfigValue(field: BotConfigManageableField, value: BotConfigValu
 }
 
 function fieldLabel(field: BotConfigManageableField): string {
-  return field.replaceAll('_', ' ');
+  const labels: Record<BotConfigManageableField, string> = {
+    public_entry_channel_id: '公共下单入口频道',
+    private_order_category_id: '私密订单频道分类',
+    order_archive_category_id: '订单归档频道分类',
+    dispatch_channel_id: '派单频道',
+    player_workbench_channel_id: '陪玩工作台频道',
+    gift_review_channel_id: '礼物审核频道',
+    gift_broadcast_channel_id: '礼物播报频道',
+    staff_task_channel_id: '客服任务频道',
+    operations_alert_channel_id: '运营告警频道',
+    player_role_id: '陪玩角色',
+    staff_l1_role_id: 'L1 客服角色',
+    staff_l2_role_id: 'L2 客服主管角色',
+    staff_l3_role_id: 'L3 运营负责人角色',
+    staff_l4_role_id: 'L4 管理员/所有者角色',
+    staff_notification_role_id: '客服通知角色',
+    operations_notification_role_id: '运营通知角色',
+    dispatch_timeout_minutes: '派单超时时间（分钟）',
+    dispatch_max_rounds: '派单最大轮次',
+    readiness_timeout_minutes: '就绪确认超时时间（分钟）',
+    completion_confirmation_minutes: '完单确认时限（分钟）',
+    gift_review_reminder_minutes: '礼物审核提醒间隔（分钟）',
+    channel_archive_after_completion_minutes: '完单后频道归档时间（分钟）',
+    new_orders_enabled: '允许新订单',
+    auto_dispatch_enabled: '启用自动派单',
+    gift_requests_enabled: '允许礼物申请',
+    maintenance_notice: '启用维护公告',
+    gift_broadcast_template: '礼物播报模板'
+  };
+  return labels[field];
 }
 
 function parseIntegerInput(raw:string){if(!/^(?:0|[1-9][0-9]{0,5})$/u.test(raw.trim()))throw new Error('请输入有效整数。');return Number(raw.trim());}

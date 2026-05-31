@@ -3,10 +3,10 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAcceptanceMatrix } from './build-p0-acceptance-matrix.mjs';
 
-const requiredRoles = ['product', 'operations', 'support', 'engineering'];
+const requiredRoles = ['owner', 'staff'];
 const requiredConfig = [
-  'releaseCandidate', 'rollbackImageDigest', 'providerSandboxEvidence', 'discordGuildEvidence',
-  'backupRestoreEvidence', 'workerRecoveryEvidence'
+  'releaseCandidate', 'rollbackImageDigest', 'railwaySandboxEvidence', 'fundingModeEvidence',
+  'discordGuildEvidence', 'backupRestoreEvidence', 'workerRecoveryEvidence'
 ];
 
 export function evaluateReleaseGate({ matrix, signoff, config }) {
@@ -26,6 +26,8 @@ export function evaluateReleaseGate({ matrix, signoff, config }) {
   if (config?.scope !== 'P0') blockers.push('Release scope must be exactly P0.');
   if (config?.p1Excluded !== true) blockers.push('P1 and Nice to Have exclusion is not confirmed.');
   if (!Number.isInteger(config?.blockingDefects) || config.blockingDefects !== 0) blockers.push('Blocking defect count must be exactly zero.');
+  if (config?.realMoneyFundingExcluded !== true) blockers.push('Real-money funding exclusion is not confirmed.');
+  if (config?.providerIntegrationDeferred !== true) blockers.push('Third-party Provider integration deferral is not confirmed.');
   for (const field of requiredConfig) if (typeof config?.[field] !== 'string' || !config[field].trim()) blockers.push(`${field} evidence is required.`);
   return {
     ready: blockers.length === 0,

@@ -221,18 +221,18 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   const acceptedSources = ['DASHBOARD'] as const;
 
   registerSecureReadRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/settlement-batches/preview', permission: 'settlement.manage',
+    method: 'POST', url: '/api/v1/admin/settlement-batches/preview', permission: 'settlement.manage', requiredFeature: 'M6',
     action: 'PREVIEW_SETTLEMENT_BATCH', targetType: 'settlement_batch', acceptedSources: [...acceptedSources],
     handler: (request, actor) => previewSettlement({ store: options.store, input: parseCreateInput(request.body, actor) }),
     mapError: mapSettlementError
   });
   registerSecureReadRoute(server, security, {
-    method: 'GET', url: '/api/v1/admin/settlement-batches', permission: 'settlement.read',
+    method: 'GET', url: '/api/v1/admin/settlement-batches', permission: 'settlement.read', requiredFeature: 'M6',
     action: 'LIST_SETTLEMENT_BATCHES', targetType: 'settlement_batch', acceptedSources: [...acceptedSources],
     handler: async (_request, actor) => ({ items: await options.store.list(requireGuild(actor)), nextCursor: null }), mapError: mapSettlementError
   });
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/settlement-batches', permission: 'settlement.manage',
+    method: 'POST', url: '/api/v1/admin/settlement-batches', permission: 'settlement.manage', requiredFeature: 'M6',
     action: 'CREATE_SETTLEMENT_BATCH', targetType: 'settlement_batch', acceptedSources: [...acceptedSources],
     successStatusCode: 201, fingerprintBody: (request) => parseCreateInput(request.body, null),
     retryCommitFailures: true,
@@ -240,12 +240,12 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     mapError: mapSettlementError
   });
   registerSecureReadRoute(server, security, {
-    method: 'GET', url: '/api/v1/admin/settlement-batches/:settlementBatchId', permission: 'settlement.read',
+    method: 'GET', url: '/api/v1/admin/settlement-batches/:settlementBatchId', permission: 'settlement.read', requiredFeature: 'M6',
     action: 'GET_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], handler: (request, actor) => options.store.get(requireGuild(actor), batchIdParam(request)), mapError: mapSettlementError
   });
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/submit', permission: 'settlement.manage',
+    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/submit', permission: 'settlement.manage', requiredFeature: 'M6',
     action: 'SUBMIT_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseMutation(request.body),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,
@@ -253,7 +253,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     handler: (request, actor) => stageSettlementWrite(options.store, auditSink, 'submit', requireGuild(actor), batchIdParam(request), mutationContext(request, actor, now))
   });
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/approve', permission: 'settlement.approve',
+    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/approve', permission: 'settlement.approve', requiredFeature: 'M6',
     action: 'APPROVE_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseMutation(request.body),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,
@@ -262,7 +262,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   });
   registerSecureReadRoute(server, security, {
     method: 'GET', url: '/api/v1/admin/settlement-batches/:settlementBatchId/exports/:exportType',
-    permission: 'settlement.manage', action: 'EXPORT_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
+    permission: 'settlement.manage', requiredFeature: 'M6', action: 'EXPORT_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, mapError: mapSettlementError,
     handler: async (request, actor) => {
       const batch = await options.store.get(requireGuild(actor), batchIdParam(request));
@@ -279,7 +279,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
   });
   registerSecureWriteRoute(server, security, {
     method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/payment-results',
-    permission: 'settlement.manage', action: 'RECORD_SETTLEMENT_PAYMENT_RESULTS', targetType: 'settlement_batch',
+    permission: 'settlement.manage', requiredFeature: 'M6', action: 'RECORD_SETTLEMENT_PAYMENT_RESULTS', targetType: 'settlement_batch',
     targetId: batchIdParam, acceptedSources: [...acceptedSources], requiresRecentStepUp: true,
     fingerprintBody: (request) => parsePaymentResults(request.body), mapError: mapSettlementError,
     successReason: () => 'EXTERNAL_PAYMENT_RESULTS_RECORDED',
@@ -290,7 +290,7 @@ export function registerSettlementRoutes(server: FastifyInstance, options: Settl
     })
   });
   registerSecureWriteRoute(server, security, {
-    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/void', permission: 'settlement.void',
+    method: 'POST', url: '/api/v1/admin/settlement-batches/:settlementBatchId/void', permission: 'settlement.void', requiredFeature: 'M6',
     action: 'VOID_SETTLEMENT_BATCH', targetType: 'settlement_batch', targetId: batchIdParam,
     acceptedSources: [...acceptedSources], requiresRecentStepUp: true, fingerprintBody: (request) => parseVoidInput(request.body, null, now),
     successReason: (request) => parseMutation(request.body).reason, mapError: mapSettlementError,

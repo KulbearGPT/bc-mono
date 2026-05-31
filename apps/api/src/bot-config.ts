@@ -13,6 +13,7 @@ import {
   type StaffLevel
 } from './security.js';
 import { hasStaffPermission } from './authorization-policy.js';
+import { createPilotFeaturePolicy } from './pilot-features.js';
 
 export type BotConfigValue = string | number | boolean | null;
 export type BotConfigValues = Partial<Record<BotConfigFieldName, BotConfigValue>>;
@@ -234,7 +235,13 @@ export function registerBotConfigRoutes(server: FastifyInstance, options: BotCon
     handler: async (request, actor) => {
       const guildId = queryGuildId(request); assertGuildActor(actor, guildId);
       const snapshot = await options.store.get(guildId); if (!snapshot) throw new BotConfigError('NOT_FOUND', 'Bot configuration was not found.');
-      return { ...snapshot, manageableFields: actor.actorLevel ? manageableFields(actor.actorLevel) : [] };
+      return {
+        ...snapshot,
+        manageableFields: actor.actorLevel ? manageableFields(actor.actorLevel) : [],
+        enabledFeatures: [...(security.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).enabledFeatures],
+        businessEnvironment: security.businessEnvironment ?? 'SANDBOX',
+        displayRole: actor.actorLevel === 'L2_SUPERVISOR' ? 'STAFF' : actor.actorLevel === 'L4_ADMIN_OWNER' ? 'OWNER' : null
+      };
     }
   });
 

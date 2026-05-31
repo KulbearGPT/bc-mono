@@ -1,3 +1,5 @@
+import type { PilotFeature } from './sandbox-funding.js';
+
 export interface DashboardCapabilities {
   permissions: string[];
   staffId?: string;
@@ -5,10 +7,13 @@ export interface DashboardCapabilities {
   thresholds?: { giftApprovalLimitMinor: number | null; refundLimitMinor: number | null; l4DirectExecutionFromMinor: number; currency: string };
   stepUp?: { requiredForSensitiveActions: boolean; validUntil: string | null };
   mfa?: { enrolled: boolean; method: 'TOTP' | null };
+  enabledFeatures?: PilotFeature[];
+  businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
+  displayRole?: 'STAFF' | 'OWNER' | null;
 }
 
 export interface DashboardNavigationItem {
-  id: 'overview' | 'support' | 'security' | 'operations' | 'access';
+  id: 'overview' | 'support' | 'security' | 'operations' | 'access' | 'sandboxFunding';
   label: string;
   href: string;
 }
@@ -23,9 +28,15 @@ const navigationRules: Array<DashboardNavigationItem & { permission: string }> =
 
 export function buildDashboardNavigation(capabilities: DashboardCapabilities): DashboardNavigationItem[] {
   const permissions = new Set(capabilities.permissions);
-  return navigationRules
+  const base = navigationRules
     .filter((item) => permissions.has(item.permission))
     .map(({ permission: _permission, ...item }) => item);
+  if (capabilities.businessEnvironment === 'SANDBOX'
+    && capabilities.displayRole === 'OWNER'
+    && permissions.has('sandbox_funding.manage')) {
+    base.push({ id: 'sandboxFunding', label: '测试余额', href: '/sandbox-funding' });
+  }
+  return base;
 }
 
 export function buildDashboardState(input: { status: number; capabilities?: DashboardCapabilities }) {
