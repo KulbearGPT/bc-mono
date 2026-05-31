@@ -198,7 +198,25 @@ export class PostgresAccessStore implements AccessStore {
          ) AS used`
       );
       if (existing.rows[0]?.used) throw new AccessError('BOOTSTRAP_ALREADY_USED', 'The one-time L4 bootstrap has already been used or an active L4 already exists.');
-      const resolved = await loadStaffByDiscord(client, input.guildId, input.discordUserId, true);
+      let resolved: { userId: string; staff: StaffRow | null };
+      try {
+        resolved = await loadStaffByDiscord(client, input.guildId, input.discordUserId, true);
+      } catch (error) {
+        if (!(error instanceof AccessError) || error.code !== 'NOT_FOUND') throw error;
+        const userId = randomUUID();
+        await client.query(
+          `INSERT INTO users (id,display_name,status,row_version,created_at,updated_at)
+           VALUES ($1::uuid,'Bootstrap Owner','ACTIVE',1,$2::timestamptz,$2::timestamptz)`,
+          [userId, input.now]
+        );
+        await client.query(
+          `INSERT INTO discord_accounts
+             (id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at)
+           VALUES ($1::uuid,$2::uuid,$3,$4,$5::timestamptz,$5::timestamptz,$5::timestamptz)`,
+          [randomUUID(), userId, input.guildId, input.discordUserId, input.now]
+        );
+        resolved = { userId, staff: null };
+      }
       const staffId = resolved.staff?.staff_id ?? randomUUID();
       const permissionsVersion = (resolved.staff?.permissions_version ?? 0) + 1;
       if (resolved.staff) {
