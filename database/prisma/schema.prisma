@@ -36,7 +36,7 @@ enum WalletEntryType {
   ORDER_CAPTURE_DEBIT
   GIFT_CAPTURE_DEBIT
   ORDER_REFUND_CREDIT
-  EXTERNAL_REFUND_DEBIT
+  CASH_REFUND_DEBIT
   ADJUSTMENT_CREDIT
   ADJUSTMENT_DEBIT
 }
@@ -52,6 +52,7 @@ enum AuditChangeType {
 enum PlayerReviewStatus {
   PENDING_REVIEW
   ACTIVE
+  REJECTED
   PAUSED
   SUSPENDED
 }
@@ -552,7 +553,7 @@ model DiscordAccount {
 model WalletAccount {
   id         String              @id @default(uuid()) @db.Uuid
   userId     String              @unique @map("user_id") @db.Uuid
-  currency   String              @default("USD") @db.Char(3)
+  currency   String              @default("CAT") @db.Char(3)
   status     WalletAccountStatus @default(ACTIVE)
   rowVersion Int                 @default(1) @map("row_version")
   createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -574,7 +575,7 @@ model WalletEntry {
   entryType             WalletEntryType      @map("entry_type")
   direction             WalletEntryDirection
   amountMinor           BigInt               @map("amount_minor")
-  currency              String               @default("USD") @db.Char(3)
+  currency              String               @default("CAT") @db.Char(3)
   sourceType            String               @map("source_type") @db.VarChar(50)
   sourceId              String               @map("source_id") @db.Uuid
   reversalOfEntryId     String?              @map("reversal_of_entry_id") @db.Uuid
@@ -598,12 +599,15 @@ model TopUp {
   id                    String   @id @default(uuid()) @db.Uuid
   walletAccountId       String   @map("wallet_account_id") @db.Uuid
   walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
-  amountMinor           BigInt   @map("amount_minor")
-  currency              String   @default("USD") @db.Char(3)
-  paymentChannel        String   @map("payment_channel") @db.VarChar(50)
-  externalTransactionId String   @map("external_transaction_id") @db.VarChar(200)
+  paidAmountUsdCents     BigInt   @map("paid_amount_usd_cents")
+  paidCurrency          String   @default("USD") @map("paid_currency") @db.Char(3)
+  rateCatPerUsd         Int      @default(10) @map("rate_cat_per_usd")
+  creditedCatSubunits   BigInt   @map("credited_cat_subunits")
+  paymentMethod         String   @map("payment_method") @db.VarChar(50)
+  receiptNumber         String   @map("receipt_number") @db.VarChar(200)
   paidAt                DateTime @map("paid_at") @db.Timestamptz(3)
   note                  String   @db.VarChar(1000)
+  reasonCode            String   @map("reason_code") @db.VarChar(80)
   createdByStaffId      String   @map("created_by_staff_id") @db.Uuid
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -612,7 +616,7 @@ model TopUp {
   createdBy     StaffAccount        @relation(fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   attachments   ReceiptAttachment[]
 
-  @@unique([paymentChannel, externalTransactionId])
+  @@unique([paymentMethod, receiptNumber])
   @@index([walletAccountId, createdAt])
   @@map("top_ups")
 }
@@ -622,7 +626,7 @@ model ExternalRefundDebit {
   walletAccountId       String   @map("wallet_account_id") @db.Uuid
   walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
   amountMinor           BigInt   @map("amount_minor")
-  currency              String   @default("USD") @db.Char(3)
+  currency              String   @default("CAT") @db.Char(3)
   paymentChannel        String   @map("payment_channel") @db.VarChar(50)
   externalTransactionId String   @map("external_transaction_id") @db.VarChar(200)
   refundedAt            DateTime @map("refunded_at") @db.Timestamptz(3)
@@ -803,6 +807,56 @@ model GuildBotConfigEvent {
   @@map("guild_bot_config_events")
 }
 
+/// One durable projection for the Bot-managed newcomer entry message per Guild.
+model GuildOnboardingMessage {
+  guildId          String   @id @map("guild_id") @db.VarChar(32)
+  channelId        String   @map("channel_id") @db.VarChar(32)
+  messageId        String?  @map("message_id") @db.VarChar(32)
+  renderedVersion  Int      @default(1) @map("rendered_version")
+  lastEnsuredAt    DateTime @map("last_ensured_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([guildId, channelId])
+  @@map("guild_onboarding_messages")
+}
+
+/// Append-only companion review history; PlayerProfile stores only the current projection.
+model CompanionReviewEvent {
+  id               String             @id @default(uuid()) @db.Uuid
+  playerProfileId  String             @map("player_profile_id") @db.Uuid
+  fromStatus       PlayerReviewStatus? @map("from_status")
+  toStatus         PlayerReviewStatus  @map("to_status")
+  actorStaffId     String?             @map("actor_staff_id") @db.Uuid
+  reasonCode       String?             @map("reason_code") @db.VarChar(80)
+  note             String?             @db.VarChar(1000)
+  idempotencyKey   String              @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([playerProfileId, createdAt])
+  @@map("companion_review_events")
+}
+
+/// Retryable Discord product-role synchronization; never used as an authorization fact.
+model DiscordProductRoleTask {
+  id               String   @id @default(uuid()) @db.Uuid
+  guildId          String   @map("guild_id") @db.VarChar(32)
+  userId           String   @map("user_id") @db.Uuid
+  discordUserId    String   @map("discord_user_id") @db.VarChar(32)
+  roleId           String   @map("role_id") @db.VarChar(32)
+  action           String   @db.VarChar(10)
+  status           String   @default("PENDING") @db.VarChar(20)
+  dedupeKey        String   @unique @map("dedupe_key") @db.VarChar(200)
+  attemptCount     Int      @default(0) @map("attempt_count")
+  lastErrorCode    String?  @map("last_error_code") @db.VarChar(100)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([guildId, discordUserId])
+  @@map("discord_product_role_tasks")
+}
+
 model StaffSession {
   id                 String    @id @default(uuid()) @db.Uuid
   staffAccountId     String    @map("staff_account_id") @db.Uuid
@@ -972,6 +1026,9 @@ model PlayerProfile {
   presenceObservedAt DateTime?             @map("presence_observed_at") @db.Timestamptz(3)
   approvedByStaffId  String?               @map("approved_by_staff_id") @db.Uuid
   approvedAt         DateTime?             @map("approved_at") @db.Timestamptz(3)
+  rejectedAt         DateTime?             @map("rejected_at") @db.Timestamptz(3)
+  rejectionReasonCode String?              @map("rejection_reason_code") @db.VarChar(80)
+  rejectionNote      String?               @map("rejection_note") @db.VarChar(1000)
   pausedAt           DateTime?             @map("paused_at") @db.Timestamptz(3)
   suspendedAt        DateTime?             @map("suspended_at") @db.Timestamptz(3)
   createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)

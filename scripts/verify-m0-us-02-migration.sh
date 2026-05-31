@@ -171,7 +171,7 @@ expect_sql_failure "source-less-reservation-rejected" "
     'ORDER',
     'LOCAL_RESERVATION',
     100,
-    'USD',
+    'CAT',
     'PENDING',
     'bad-source',
     now()
@@ -214,7 +214,7 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000101',
     'LOCAL_RESERVATION',
     100,
-    'USD',
+    'CAT',
     'PENDING',
     'valid-reservation',
     now()
@@ -313,7 +313,7 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000103',
     'LOCAL_RESERVATION',
     100,
-    'USD',
+    'CAT',
     'PENDING',
     'terminal-reservation',
     now()
@@ -549,7 +549,7 @@ psql_db -qAtc "
     'ACTIVE',
     'Rose',
     20,
-    'USD',
+    'CAT',
     '{sender} sent {gift}',
     '00000000-0000-0000-0000-000000000501'
   );
@@ -569,7 +569,7 @@ psql_db -qAtc "
     'rose',
     'Rose',
     20,
-    'USD',
+    'CAT',
     '{sender} sent {gift}',
     now() + interval '1 hour',
     now()
@@ -623,14 +623,14 @@ psql_db -qAtc "
   ) VALUES (
     '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY', '900000000000000001',
     '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-    'COMPLETED', 'USD', 1000, now()
+    'COMPLETED', 'CAT', 1000, now()
   );
   INSERT INTO player_earnings (
     id, order_id, player_user_id, base_units, unit_payout_minor, amount_minor, currency,
     status, confirmed_by_staff_id, confirmed_at, updated_at
   ) VALUES (
     '00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000701',
-    '00000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'USD', 'CONFIRMED',
+    '00000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'CAT', 'CONFIRMED',
     '00000000-0000-0000-0000-000000000501', now(), now()
   );
   INSERT INTO settlement_batches (
@@ -638,30 +638,30 @@ psql_db -qAtc "
     gross_amount_minor, adjustment_amount_minor, net_amount_minor, created_by_staff_id, updated_at
   ) VALUES
     ('00000000-0000-0000-0000-000000000703', 'SET-VERIFY-A', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
-      'Asia/Shanghai', 'USD', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
+      'Asia/Shanghai', 'CAT', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
     ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
-      'Asia/Shanghai', 'USD', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
+      'Asia/Shanghai', 'CAT', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
   INSERT INTO settlement_items (
     id, settlement_batch_id, player_user_id, player_display_name, gross_amount_minor, adjustment_amount_minor,
     net_amount_minor, currency, updated_at
   ) VALUES
     ('00000000-0000-0000-0000-000000000705', '00000000-0000-0000-0000-000000000703',
-      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'USD', now()),
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CAT', now()),
     ('00000000-0000-0000-0000-000000000706', '00000000-0000-0000-0000-000000000704',
-      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'USD', now());
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CAT', now());
   INSERT INTO settlement_item_entries (
     id, settlement_item_id, entry_type, player_earning_id, amount_minor, currency, occurred_at
   ) VALUES (
     '00000000-0000-0000-0000-000000000707', '00000000-0000-0000-0000-000000000705',
-    'PLAYER_EARNING', '00000000-0000-0000-0000-000000000702', 1000, 'USD',
+    'PLAYER_EARNING', '00000000-0000-0000-0000-000000000702', 1000, 'CAT',
     (SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702')
   );
 "
 
 expect_sql_failure "settlement-negative-net-rejected" "SET ROLE blackcat_app; UPDATE settlement_items SET net_amount_minor=-1 WHERE id='00000000-0000-0000-0000-000000000705';"
-expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','USD',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
-expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'USD',(SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702'));"
-expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'USD','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','CAT',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'CAT',(SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702'));"
+expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'CAT','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
 expect_sql_failure "settlement-entry-update-rejected" "SET ROLE blackcat_app; UPDATE settlement_item_entries SET amount_minor=999 WHERE id='00000000-0000-0000-0000-000000000707';"
 expect_sql_failure "settlement-entry-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_item_entries WHERE id='00000000-0000-0000-0000-000000000707';"
 expect_sql_failure "settlement-item-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_items WHERE id='00000000-0000-0000-0000-000000000705';"
