@@ -41,7 +41,7 @@ async function listTypeScriptFiles(rootDir: string): Promise<string[]> {
       if (entry.isDirectory()) {
         return listTypeScriptFiles(absolutePath);
       }
-      if (entry.isFile() && entry.name.endsWith('.ts')) {
+      if (entry.isFile() && (entry.name.endsWith('.js') || (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')))) {
         return [absolutePath];
       }
       return [];

@@ -1,5 +1,7 @@
-import { SapphireClient } from '@sapphire/framework';
+import { ApplicationCommandRegistries, SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { discoverSapphirePieces } from './piece-manifest.js';
 import { configureDiscordRendererEnvironment } from './discord-renderer.js';
@@ -31,7 +33,14 @@ if (!validation.values.discordBotToken) {
     })
   );
 } else {
+  const configuredGuildId = process.env.DISCORD_GUILD_ID?.trim();
+  if (configuredGuildId) ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId]);
+
   const client = new SapphireClient({
+    // The entrypoint lives beside the pieces directory in both src/ and dist/.
+    // Without this, Sapphire scans the process working directory and never loads
+    // the repository's command, listener, or interaction-handler pieces.
+    baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), 'pieces'),
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences]
   });
   await client.login(validation.values.discordBotToken);

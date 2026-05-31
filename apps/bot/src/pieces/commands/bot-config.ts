@@ -19,6 +19,7 @@ export default class BotConfigCommand extends Command {
       const reply=toDiscordBotConfigReply(await botConfigFlow.open(actorFromInteraction(interaction)));
       await interaction.editReply({content:reply.content,components:reply.components});
     } catch (error) {
+      interaction.client.logger.error({ event: 'bot.config.command_failed', guildId: interaction.guildId, discordUserId: interaction.user.id, error });
       await interaction.editReply({ content: errorMessage(error), components:[] });
     }
   }

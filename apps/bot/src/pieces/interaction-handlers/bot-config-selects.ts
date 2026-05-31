@@ -27,6 +27,7 @@ export default class BotConfigSelectHandler extends InteractionHandler {
       const rendered = toDiscordBotConfigReply(reply);
       await interaction.editReply({ content: rendered.content, components: rendered.components });
     } catch (error) {
+      interaction.client.logger.error({ event: 'bot.config.select_failed', guildId: interaction.guildId, discordUserId: interaction.user.id, customId: interaction.customId, error });
       await interaction.editReply({ content: errorMessage(error), components: [] });
     }
   }

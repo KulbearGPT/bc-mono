@@ -9,7 +9,7 @@ export default class BotConfigModalHandler extends InteractionHandler {
     const actor=actorFrom(interaction);if(!actor){await interaction.reply({content:'请在服务器内管理 Bot 配置。',ephemeral:true});return;}
     await interaction.deferReply({ephemeral:true});
     try{const reply=toDiscordBotConfigReply(await botConfigFlow.previewTextInput(actor,route.sessionId,interaction.fields.getTextInputValue('value'),`discord:bot-config:validate:${interaction.id}`));await interaction.editReply({content:reply.content,components:reply.components});}
-    catch(error){const requestId=typeof error==='object'&&error&&'requestId'in error?String(error.requestId):'local-bot-config';await interaction.editReply({content:`Bot 配置校验失败，请重新打开命令。request_id: ${requestId}`,components:[]});}
+    catch(error){interaction.client.logger.error({event:'bot.config.modal_failed',guildId:interaction.guildId,discordUserId:interaction.user.id,customId:interaction.customId,error});const requestId=typeof error==='object'&&error&&'requestId'in error?String(error.requestId):'local-bot-config';await interaction.editReply({content:`Bot 配置校验失败，请重新打开命令。request_id: ${requestId}`,components:[]});}
   }
 }
 function actorFrom(interaction:ModalSubmitInteraction):BotConfigActorContext|null{return interaction.guildId?{guildId:interaction.guildId,discordUserId:interaction.user.id,interactionId:interaction.id,clientSource:'DISCORD_BOT'}:null;}

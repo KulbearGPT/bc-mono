@@ -38,6 +38,7 @@ export default class BotConfigButtonHandler extends InteractionHandler {
       const rendered = toDiscordBotConfigReply(reply);
       await interaction.editReply({ content: rendered.content, components: rendered.components });
     } catch (error) {
+      interaction.client.logger.error({ event: 'bot.config.button_failed', guildId: interaction.guildId, discordUserId: interaction.user.id, customId: interaction.customId, error });
       if(interaction.deferred||interaction.replied)await interaction.editReply({content:errorMessage(error),components:[]});
       else await interaction.reply({content:errorMessage(error),ephemeral:true});
     }

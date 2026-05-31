@@ -74,7 +74,7 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
         authorization: `Bearer ${this.botServiceToken}`,
         'content-type': 'application/json',
         'x-client-source': 'DISCORD_BOT',
-        'idempotency-key': `discord:role-sync:${currentObservation.sourceEventId}:v${currentObservation.mappingVersion}`
+        'idempotency-key': buildRoleSyncIdempotencyKey(currentObservation)
       };
       try {
         const response = await fetch(`${this.apiBaseUrl}/api/v1/internal/discord/role-sync`, {
@@ -89,7 +89,7 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
 
         const expectedMappingVersion = getExpectedMappingVersion(envelope.error?.details);
         const error = new RoleSyncApiError(envelope.error?.message ?? `Role sync failed with HTTP ${response.status}.`, response.status, envelope.error?.code ?? null, expectedMappingVersion);
-        if (error.code === 'MAPPING_VERSION_STALE' && error.expectedMappingVersion && !refreshedMappingVersion) {
+        if (error.code === 'MAPPING_VERSION_STALE' && error.expectedMappingVersion !== null && !refreshedMappingVersion) {
           currentObservation = { ...currentObservation, mappingVersion: error.expectedMappingVersion };
           refreshedMappingVersion = true;
           attempt -= 1;
@@ -110,6 +110,13 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
       await sleep(this.retryDelaysMs[attempt] ?? 0);
     }
   }
+}
+
+function buildRoleSyncIdempotencyKey(observation: Pick<RoleSyncObservation, 'sourceEventId' | 'mappingVersion'>): string {
+  const identity = createHash('sha256')
+    .update(`${observation.sourceEventId}:v${observation.mappingVersion}`)
+    .digest('hex');
+  return `discord:role-sync:${identity}`;
 }
 
 export function buildRoleSyncObservation(input: {
@@ -169,6 +176,7 @@ export async function reconcileDiscordGuilds(input: {
   api: RoleSyncApi;
   mappingVersion: number;
   now?: () => Date;
+  isIgnorableError?: (error: unknown) => boolean;
   onError?: (error: unknown, context: { guildId: string; discordUserId?: string }) => void;
 }): Promise<ReconciliationResult> {
   const result: ReconciliationResult = {
@@ -205,6 +213,7 @@ export async function reconcileDiscordGuilds(input: {
         }));
         result.syncedMembers += 1;
       } catch (error) {
+        if (input.isIgnorableError?.(error)) continue;
         result.failedMembers += 1;
         input.onError?.(error, { guildId: guild.id, discordUserId: member.id });
       }
@@ -216,8 +225,8 @@ export async function reconcileDiscordGuilds(input: {
 
 export function readRoleMappingVersion(value: string | undefined): number {
   const mappingVersion = Number(value);
-  if (!Number.isSafeInteger(mappingVersion) || mappingVersion < 1) {
-    throw new Error('DISCORD_ROLE_MAPPING_VERSION must be a positive integer.');
+  if (!Number.isSafeInteger(mappingVersion) || mappingVersion < 0) {
+    throw new Error('DISCORD_ROLE_MAPPING_VERSION must be a non-negative integer.');
   }
   return mappingVersion;
 }
@@ -253,7 +262,7 @@ function getExpectedMappingVersion(details: Array<{ field?: string; reason?: str
   const reason = details?.find((detail) => detail.field === 'mappingVersion')?.reason;
   const match = reason?.match(/^expected (\d+)$/u);
   const value = match ? Number(match[1]) : NaN;
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 async function sleep(delayMs: number): Promise<void> {

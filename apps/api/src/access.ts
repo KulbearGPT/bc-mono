@@ -76,6 +76,13 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
     const staffId = this.staffByDiscord.get(key(input.guildId, input.discordUserId));
     const current = staffId ? this.staff.get(staffId)! : null;
     const previousLevel = current?.status === 'ACTIVE' ? current.level : null;
+    if (!active.length && current) {
+      const data = noChange(input.discordUserId, previousLevel, current.status === 'ACTIVE' ? current.level : null, current.permissionsVersion);
+      return staged(data, async (audit, sink) => {
+        await sink.append(audit);
+        this.syncResults.set(replayKey, clone(data));
+      });
+    }
     const nextVersion = (current?.permissionsVersion ?? 0) + 1;
     let next: StaffAccessRecord | null = current ? cloneStaff(current) : null;
     let data: RoleSyncResult | PendingRoleElevation;
@@ -550,6 +557,22 @@ async function buildSyncPlan(db: AccessDb, input: SyncInput, lock = false): Prom
     .filter((item) => input.observedRoleIds.includes(item.discord_role_id))
     .sort((left, right) => rank[right.target_level] - rank[left.target_level])[0]?.target_level ?? null;
   const previousLevel = current?.status === 'ACTIVE' ? current.level : null;
+
+  // An empty mapping set means Role authorization has not been configured for
+  // this Guild yet. It must not revoke an existing bootstrap/manual account.
+  if (!mappings.length && current) {
+    const currentRecord = toAccessRecord(current);
+    return {
+      staff: currentRecord,
+      userId: resolved.userId,
+      outcome: noChange(input.discordUserId, previousLevel, current.status === 'ACTIVE' ? current.level : null, current.permissions_version),
+      eventStatus: 'APPLIED',
+      previousLevel,
+      revokeSessions: false,
+      approvalRequestId: null,
+      persistStaff: false
+    };
+  }
 
   if (!candidate && !current) {
     return {
