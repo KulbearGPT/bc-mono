@@ -109,14 +109,14 @@ INSERT INTO orders (
 ) VALUES (
   '${orderId}', 'P-A10', '${binding().userId}', '${binding().userId}', 'PENDING_DISPATCH', 3,
   'VALORANT', 'ENTERTAINMENT', 'NA', 60, 2, 6000, 4200, 12000, 8400,
-  'USD', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
+  'CAT', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
 );
 INSERT INTO fund_reservations (
   id, user_id, source_type, order_id, mode, provider, amount_minor, currency, status, row_version,
   idempotency_key, expires_at, activated_at, created_at, updated_at
 ) VALUES (
   '00000000-0000-0000-0000-00000000fa10', '${binding().userId}', 'ORDER', '${orderId}',
-  'LOCAL_RESERVATION', 'mock-provider', 12000, 'USD', 'ACTIVE', 1,
+  'LOCAL_RESERVATION', 'mock-provider', 12000, 'CAT', 'ACTIVE', 1,
   'submit:P-A10', now() + interval '30 minutes', now(), now(), now()
 );
 INSERT INTO fund_reservation_events (

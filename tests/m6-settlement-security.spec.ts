@@ -43,7 +43,7 @@ function headers(guildId: string, key?: string) {
 
 function earning(id: string, playerUserId: string, guildId: string): SettlementCandidateEarning {
   return {
-    id, orderId: id, playerUserId, guildId, amountMinor: 10_000, currency: 'USD', status: 'CONFIRMED',
+    id, orderId: id, playerUserId, guildId, amountMinor: 10_000, currency: 'CAT', status: 'CONFIRMED',
     playerDisplayName: playerUserId, playerDiscordUserId: null, externalAccountDisplay: null,
     confirmedAt: '2026-07-19T12:00:00.000Z', paidAt: null,
     createdAt: '2026-07-19T11:00:00.000Z', adjustments: []
@@ -54,7 +54,7 @@ function createInput(guildId: string, playerUserIds: string[] | null): Settlemen
   return {
     guildId, source: 'MANUAL', scheduleKey: null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
-    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD',
+    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT',
     playerUserIds, createdByStaffId: staffId
   };
 }
@@ -152,7 +152,7 @@ describe('settlement security remediation', () => {
     });
     expect(replaced.statusCode, replaced.body).toBe(200);
     expect(replaced.json()).toMatchObject({ data: { status: 'VOIDED', replacementBatchId } });
-    expect(store.get(guildA, replacementBatchId)).toMatchObject({ guildId: guildA, currency: 'USD', status: 'DRAFT' });
+    expect(store.get(guildA, replacementBatchId)).toMatchObject({ guildId: guildA, currency: 'CAT', status: 'DRAFT' });
   });
 
   test('wires PostgreSQL settlement and durable idempotency stores in production', () => {

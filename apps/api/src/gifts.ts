@@ -730,7 +730,7 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
       const walletEntryId=deterministicUuid(`wallet:gift:${snapshot.request.id}:capture:v1`);
       await client.query(`INSERT INTO wallet_entries
         (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-        VALUES ($1,$2,'GIFT_CAPTURE_DEBIT','DEBIT',$3,'USD','FUND_RESERVATION',$4,$5,$6,$6)`,
+        VALUES ($1,$2,'GIFT_CAPTURE_DEBIT','DEBIT',$3,'CAT','FUND_RESERVATION',$4,$5,$6,$6)`,
         [walletEntryId,wallet.rows[0].id,snapshot.request.priceMinor,snapshot.reservation.id,`wallet:gift:${snapshot.request.id}:capture:v1`,input.now]);
       await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
       const transactionId = deterministicUuid(`gift-transaction:${snapshot.request.id}`);
@@ -1015,7 +1015,7 @@ export async function listGifts(input: {
   const order = await requireEligibleOrder(input.orderStore, input.orderId, binding.userId, binding.guildId, input.now);
   const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
   const availableMinor = Math.max(0, walletBalance.availableMinor);
-  const items = (await input.store.listActiveCatalog()).filter((item) => item.currency === 'USD');
+  const items = (await input.store.listActiveCatalog()).filter((item) => item.currency === 'CAT');
   return {
     orderId: order.id, orderPublicId: order.publicId, receiver: { userId: order.playerId, displayName: '当前订单陪玩' },
     balance: walletBalance,
@@ -1068,7 +1068,7 @@ async function prepareGiftRequest(input: {
     throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
   }
   const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
-  if (catalog.currency !== 'USD') throw new GiftError('VALIDATION_ERROR', 'Gifts must use USD.');
+  if (catalog.currency !== 'CAT') throw new GiftError('VALIDATION_ERROR', 'Gifts must use USD.');
   const reservedMinor = walletBalance.reservedMinor;
   if (walletBalance.availableMinor < catalog.priceMinor) {
     const availableMinor=Math.max(0,walletBalance.availableMinor);

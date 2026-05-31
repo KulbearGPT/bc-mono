@@ -37,7 +37,7 @@ function headers(discordUserId: string, key?: string, source = 'DASHBOARD') {
 
 function earning(id: string, playerUserId: string, amountMinor: number): SettlementCandidateEarning {
   return {
-    id, orderId: id, guildId, playerUserId, amountMinor, currency: 'USD', status: 'CONFIRMED',
+    id, orderId: id, guildId, playerUserId, amountMinor, currency: 'CAT', status: 'CONFIRMED',
     playerDisplayName: playerUserId === playerA ? '陪玩甲' : '陪玩乙',
     playerDiscordUserId: playerUserId === playerA ? '900000000000006201' : '900000000000006202',
     externalAccountDisplay: playerUserId === playerA ? 'provider:***1001' : 'provider:***1002',
@@ -51,7 +51,7 @@ function batchInput(source: 'MANUAL' | 'SCHEDULED' = 'MANUAL'): SettlementCreate
     guildId,
     source, scheduleKey: source === 'SCHEDULED' ? 'weekly-cny' : null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
-    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD',
+    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT',
     playerUserIds: null, createdByStaffId: makerId
   };
 }
@@ -196,8 +196,8 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
     expect(response.body.charCodeAt(0)).toBe(0xfeff);
     const lines = response.body.slice(1).split('\r\n').filter(Boolean);
     expect(lines[0]).toBe('batch_public_id,period_start,period_end,player_user_id,player_display_name,discord_user_id,external_account_display,currency,gross_amount,adjustment_amount,net_amount,payment_status');
-    expect(lines[1]).toContain(`${playerA},陪玩甲,900000000000006201,provider:***1001,USD,200.00,0.00,200.00,PENDING`);
-    expect(lines[2]).toContain(`${playerB},陪玩乙,900000000000006202,provider:***1002,USD,100.00,0.00,100.00,PENDING`);
+    expect(lines[1]).toContain(`${playerA},陪玩甲,900000000000006201,provider:***1001,CAT,2000.0,0.0,2000.0,PENDING`);
+    expect(lines[2]).toContain(`${playerB},陪玩乙,900000000000006202,provider:***1002,CAT,1000.0,0.0,1000.0,PENDING`);
     expect(response.body.toLowerCase()).not.toMatch(/bank|card|account_number|银行卡|收款账号/u);
     expect(f.store.batches[0]?.status).toBe('APPROVED');
   });
@@ -217,8 +217,8 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain(`${playerA},陪玩甲,900000000000006201,provider:***,USD`);
-    expect(response.body).toContain(`${playerB},陪玩乙,900000000000006202,provider:***2345,USD`);
+    expect(response.body).toContain(`${playerA},陪玩甲,900000000000006201,provider:***,CAT`);
+    expect(response.body).toContain(`${playerB},陪玩乙,900000000000006202,provider:***2345,CAT`);
     expect(response.body).not.toContain('provider:1234');
     expect(response.body).not.toContain('provider:12345');
   });
@@ -240,7 +240,7 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
     const item = f.store.batches[0]!.items[0]!;
     const paymentPayload = { expectedBatchVersion: 3, results: [{
       settlementItemId: item.id, expectedVersion: 1, result: 'SUCCEEDED',
-      amountMinor: item.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-STAGED'
+      amountMinor: item.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-STAGED'
     }] };
     auditSink.failNextSuccess = true;
     expect((await postResults(f, 'm6:payment:staged:01', paymentPayload)).statusCode).toBe(500);
@@ -318,8 +318,8 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
       method: 'POST', url: `/api/v1/admin/settlement-batches/${f.batch.id}/payment-results`,
       headers: headers('checker', 'm6:payment:batch:0001'),
       payload: { expectedBatchVersion: 3, results: [
-        { settlementItemId: firstItem!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: firstItem!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-001' },
-        { settlementItemId: secondItem!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'USD', note: 'provider rejected row' }
+        { settlementItemId: firstItem!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: firstItem!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-001' },
+        { settlementItemId: secondItem!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CAT', note: 'provider rejected row' }
       ] }
     });
     expect(first.statusCode).toBe(200);
@@ -342,8 +342,8 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
       method: 'POST', url: `/api/v1/admin/settlement-batches/${f.batch.id}/payment-results`,
       headers: headers('checker', 'm6:payment:batch:0001'),
       payload: { expectedBatchVersion: 3, results: [
-        { settlementItemId: firstItem!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: firstItem!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-001' },
-        { settlementItemId: secondItem!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'USD', note: 'provider rejected row' }
+        { settlementItemId: firstItem!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: firstItem!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-001' },
+        { settlementItemId: secondItem!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CAT', note: 'provider rejected row' }
       ] }
     });
     expect(replay.headers['x-idempotency-replayed']).toBe('true');
@@ -353,7 +353,7 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
       method: 'POST', url: `/api/v1/admin/settlement-batches/${f.batch.id}/payment-results`,
       headers: headers('checker', 'm6:payment:batch:0002'),
       payload: { expectedBatchVersion: 5, results: [
-        { settlementItemId: secondItem!.id, expectedVersion: 2, result: 'SUCCEEDED', amountMinor: secondItem!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-002' }
+        { settlementItemId: secondItem!.id, expectedVersion: 2, result: 'SUCCEEDED', amountMinor: secondItem!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-002' }
       ] }
     });
     expect(retry.statusCode).toBe(200);
@@ -364,7 +364,7 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
   test('rejects partial successful amounts, missing evidence, duplicate success, and stale item versions', async () => {
     const f = await approvedAndExported();
     const item = f.store.batches[0]!.items[0]!;
-    const base = { expectedBatchVersion: 3, results: [{ settlementItemId: item.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: item.netAmountMinor - 1, currency: 'USD', note: 'wrong amount' }] };
+    const base = { expectedBatchVersion: 3, results: [{ settlementItemId: item.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: item.netAmountMinor - 1, currency: 'CAT', note: 'wrong amount' }] };
     expect((await postResults(f, 'm6:payment:invalid:01', base)).statusCode).toBe(400);
     expect((await postResults(f, 'm6:payment:invalid:02', { ...base, results: [{ ...base.results[0], amountMinor: item.netAmountMinor, note: '' }] })).statusCode).toBe(400);
     expect((await postResults(f, 'm6:payment:valid:0001', { ...base, results: [{ ...base.results[0], amountMinor: item.netAmountMinor, note: 'paid externally' }] })).statusCode).toBe(200);

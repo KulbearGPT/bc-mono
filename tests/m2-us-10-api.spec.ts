@@ -25,7 +25,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     id: orderId, publicId: 'P-A10', customerId: userId, playerId: null, status: 'PENDING_DISPATCH', version: 3,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
-    amountMinor: 12000, playerEarningMinor: 8400, currency: 'USD', notes: null,
+    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CAT', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: '666666666666666666' },
     createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides
   };
@@ -35,7 +35,7 @@ function reservation(overrides: Partial<FundReservationRecord> = {}): FundReserv
   return {
     id: '00000000-0000-0000-0000-00000000fa10', userId, sourceType: 'ORDER', orderId,
     mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: 12000, currency: 'USD', status: 'ACTIVE', version: 1, idempotencyKey: 'submit:P-A10',
+    amountMinor: 12000, currency: 'CAT', status: 'ACTIVE', version: 1, idempotencyKey: 'submit:P-A10',
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), activatedAt: now.toISOString(), settledAt: null,
     createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides
   };
@@ -78,7 +78,7 @@ describe('M2-US-10 cancellation preview and execution', () => {
     expect(response.json()).toMatchObject({ data: {
       orderId, orderVersion: 3, automaticallyProcessable: true, fundAction: 'RELEASE_RESERVATION',
       estimatedAmountMinor: 12000, releaseAmountMinor: 12000, refundAmountMinor: 0,
-      currency: 'USD', handlingTimeCode: 'IMMEDIATE', staffTaskRequired: false
+      currency: 'CAT', handlingTimeCode: 'IMMEDIATE', staffTaskRequired: false
     } });
     expect(orderStore.orders[0]).toMatchObject({ status: 'PENDING_DISPATCH', version: 3 });
     expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });

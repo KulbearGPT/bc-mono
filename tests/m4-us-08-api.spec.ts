@@ -14,12 +14,12 @@ const accounts = levels.map((level, index) => ({ staffId: `00000000-0000-0000-00
 function order(): OrderRecord {
   return { id: orderId, publicId: 'P-8001', customerId: '00000000-0000-0000-0000-000000008301', playerId: '00000000-0000-0000-0000-000000008302', status: 'COMPLETED', version: 8,
     serviceCatalogId: '00000000-0000-0000-0000-000000008303', catalogVersion: 1, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', billingUnitMinutes: 60, unitCount: 2,
-    customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4000, amountMinor: 12000, playerEarningMinor: 8000, currency: 'USD', notes: null,
+    customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4000, amountMinor: 12000, playerEarningMinor: 8000, currency: 'CAT', notes: null,
     channelSpec: { channelId: '900000000000008401', panelMessageId: '900000000000008402', voiceChannelId: null }, createdAt: '2026-07-18T20:00:00.000Z', updatedAt: '2026-07-18T20:10:00.000Z', completedAt: '2026-07-18T20:10:00.000Z' };
 }
 
 function item(id: string, type: TransactionTimelineItem['type'], occurredAt: string, amountMinor: number | null, direction: TransactionTimelineItem['direction'] = 'INFO'): TransactionTimelineItem {
-  return { id, type, status: type.endsWith('ADJUSTMENT') ? 'REVERSAL' : 'SUCCEEDED', direction, amountMinor, currency: amountMinor === null ? null : 'USD', sourceType: type, sourceId: id,
+  return { id, type, status: type.endsWith('ADJUSTMENT') ? 'REVERSAL' : 'SUCCEEDED', direction, amountMinor, currency: amountMinor === null ? null : 'CAT', sourceType: type, sourceId: id,
     requestId: `req_${id.slice(-3)}`, actor: { source: 'DASHBOARD', userId: 'private-user', staffId: 'private-staff' }, occurredAt };
 }
 

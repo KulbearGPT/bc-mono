@@ -16,15 +16,15 @@ function binding(): AccountBindingRecord {
 }
 
 function consumption(id: string, occurredAt: string, type: ConsumptionRecord['type']): ConsumptionRecord & { userId: string } {
-  return { id, userId, type, sourceId: id, amountMinor: type === 'REVERSAL' ? -2000 : 12000, currency: 'USD',
+  return { id, userId, type, sourceId: id, amountMinor: type === 'REVERSAL' ? -2000 : 12000, currency: 'CAT',
     status: type === 'REVERSAL' ? 'REVERSED' : 'SUCCEEDED', targetDisplay: type === 'GIFT' ? 'Gift 星光礼盒' : 'Order P-4010',
     occurredAt, reversalOf: type === 'REVERSAL' ? '00000000-0000-0000-0000-000000004021' : null };
 }
 
 function commission(id: string, beneficiaryUserId: string): BeneficiaryCommissionRecord & { beneficiaryUserId: string } {
   return { id, beneficiaryUserId, programType: 'PLAYER_LIFETIME', sourceCustomerMasked: { display: 'Customer ***' },
-    amountMinor: 240, currency: 'USD', status: 'PENDING', adjustments: [{ type: 'REVERSAL_DEBIT', amountMinor: 40,
-      currency: 'USD', createdAt: now.toISOString() }], netAmountMinor: 200, version: 2, createdAt: now.toISOString() };
+    amountMinor: 240, currency: 'CAT', status: 'PENDING', adjustments: [{ type: 'REVERSAL_DEBIT', amountMinor: 40,
+      currency: 'CAT', createdAt: now.toISOString() }], netAmountMinor: 200, version: 2, createdAt: now.toISOString() };
 }
 
 function fixture() {

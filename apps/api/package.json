@@ -8,6 +8,7 @@
     "./security": "./src/security.ts",
     "./audit-changes": "./src/audit-changes.ts",
     "./wallet": "./src/wallet.ts",
+    "./onboarding": "./src/onboarding.ts",
     "./receipt-storage": "./src/receipt-storage.ts",
     "./mfa": "./src/mfa.ts",
     "./access": "./src/access.ts",
@@ -16,9 +17,6 @@
     "./transaction-timeline": "./src/transaction-timeline.ts",
     "./dashboard-metrics": "./src/dashboard-metrics.ts",
     "./bot-config": "./src/bot-config.ts",
-    "./payment-adapter": "./src/payment-adapter.ts",
-    "./http-payment-adapter": "./src/http-payment-adapter.ts",
-    "./funding-adapter-runtime": "./src/funding-adapter-runtime.ts",
     "./worker-runtime": "./src/worker-runtime.ts",
     "./worker-handlers": "./src/worker-handlers.ts",
     "./worker-delivery": "./src/worker-delivery.ts",
@@ -49,6 +47,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@fastify/multipart": "^9.4.0"
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^10.1.2"
   }
 }

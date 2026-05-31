@@ -15,10 +15,10 @@ const staffId = '00000000-0000-0000-0000-000000007423';
 const now = new Date('2026-07-21T17:00:00.000Z');
 let root = ''; let data = ''; let pool: Pool;
 
-function topUpInput(key: string) { return { userId, amountMinor: 500_000, paymentChannel: 'stripe', externalTransactionId: `pi_${key}`,
-  paidAt: now.toISOString(), note: 'receipt checked', idempotencyKey: key, actorStaffId: staffId,
-  actorLevel: 'L1_SUPPORT' as const, now }; }
-function audit(id: string, broken = false): AuditRecord { return { id, actorId: staffUserId, actorStaffId: staffId, actorLevel: 'L1_SUPPORT',
+function topUpInput(key: string) { return { userId, amountMinor: 500_000, paymentChannel: 'ZELLE', externalTransactionId: `pi_${key}`,
+  paidAt: now.toISOString(), note: 'receipt checked',reasonCode:'MANUAL_TOP_UP', idempotencyKey: key, actorStaffId: staffId,
+  actorLevel: 'L2_SUPERVISOR' as const, now }; }
+function audit(id: string, broken = false): AuditRecord { return { id, actorId: staffUserId, actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR',
   actorSource: 'DASHBOARD', clientId: 'DASHBOARD', interactionId: null, permissionCode: 'wallet.top_up', action: 'CREATE_ADMIN_TOP_UP',
   targetType: 'top_up', targetId: userId, outcome: 'SUCCEEDED', reason: null, requestId: `req_${id}`, approvalRequestId: null,
   occurredAt: now.toISOString(), changes: [{ targetType: 'top_up', targetId: userId,
@@ -40,7 +40,7 @@ describe('M7-US-04 PostgreSQL wallet transaction', () => {
     await pool.query(`INSERT INTO users (id,display_name,status,row_version,created_at,updated_at) VALUES
       ($1,'Customer','ACTIVE',1,$3,$3),($2,'Staff','ACTIVE',1,$3,$3)`, [userId, staffUserId, now]);
     await pool.query(`INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
-      VALUES ($1,$2,'L1_SUPPORT','ACTIVE','MANUAL',1,$3,$3)`, [staffId, staffUserId, now]);
+      VALUES ($1,$2,'L2_SUPERVISOR','ACTIVE','MANUAL',1,$3,$3)`, [staffId, staffUserId, now]);
   });
   afterAll(async () => { await pool?.end().catch(() => undefined); if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
     if (root) await rm(root, { recursive: true, force: true }); });
@@ -49,7 +49,7 @@ describe('M7-US-04 PostgreSQL wallet transaction', () => {
     const store = new PostgresWalletStore({ pool });
     const staged = await store.stageCreateTopUp(topUpInput('m7:db:topup:0001'));
     await staged.commit(audit('00000000-0000-0000-0000-000000007424'));
-    expect(await store.getBalance({ userId, now })).toMatchObject({ ledgerBalanceMinor: 500_000, availableMinor: 500_000, currency: 'USD', version: 2 });
+    expect(await store.getBalance({ userId, now })).toMatchObject({ ledgerBalanceMinor: 500_000, availableMinor: 500_000, currency: 'CAT', version: 2 });
     const facts = await pool.query(`SELECT (SELECT count(*) FROM top_ups)::int topups,(SELECT count(*) FROM wallet_entries)::int entries,
       (SELECT count(*) FROM audit_logs)::int audits,(SELECT count(*) FROM audit_log_changes)::int changes`);
     expect(facts.rows[0]).toEqual({ topups: 1, entries: 1, audits: 1, changes: 1 });
@@ -67,7 +67,7 @@ describe('M7-US-04 PostgreSQL wallet transaction', () => {
   test('locks available balance for external refund debit and rolls it back with failed audit', async () => {
     const store = new PostgresWalletStore({ pool });
     await (await store.stageCreateTopUp(topUpInput('m7:db:topup:0003'))).commit(audit('00000000-0000-0000-0000-000000007426'));
-    const input = { userId,amountMinor:500_001,paymentChannel:'stripe',externalTransactionId:'re_m7_1',refundedAt:now.toISOString(),
+    const input = { userId,amountMinor:500_001,paymentChannel:'ZELLE',externalTransactionId:'re_m7_1',refundedAt:now.toISOString(),
       note:'offline refund complete',expectedWalletVersion:2,idempotencyKey:'m7:db:refund:0001',actorStaffId:staffId,actorLevel:'L2_SUPERVISOR' as const,now };
     await expect(store.stageCreateExternalRefundDebit(input)).rejects.toMatchObject({ code: 'INSUFFICIENT_AVAILABLE_BALANCE' });
     const staged=await store.stageCreateExternalRefundDebit({...input,amountMinor:100,idempotencyKey:'m7:db:refund:0002'});

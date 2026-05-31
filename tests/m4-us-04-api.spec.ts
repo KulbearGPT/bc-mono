@@ -437,7 +437,7 @@ function policyOrder(id: string, amountMinor: number, status: OrderRecord['statu
     playerUnitPayoutMinor: 4200,
     amountMinor,
     playerEarningMinor: 8400,
-    currency: 'USD',
+    currency: 'CAT',
     notes: null,
     channelSpec: {
       channelId: '900000000000000003',
@@ -462,7 +462,7 @@ function verifiedGiftRequest(priceMinor = 200100): GiftRequestRecord {
     giftCodeSnapshot: 'STAR',
     giftNameSnapshot: '星光礼盒',
     priceMinor,
-    currency: 'USD',
+    currency: 'CAT',
     broadcastTemplateSnapshot: '{sender_name} 送出 {gift_name}',
     verifiedByStaffId: staffId,
     verifiedAt: initialNow.toISOString(),
@@ -489,7 +489,7 @@ function giftReservation(priceMinor = 200100): GiftReservationRecord {
     provider: 'mock-provider',
     providerHoldRef: null,
     amountMinor: priceMinor,
-    currency: 'USD',
+    currency: 'CAT',
     status: 'ACTIVE',
     version: 2,
     idempotencyKey: 'gift:m4-us-04',
@@ -523,7 +523,7 @@ function giftTask(priceMinor = 200100): GiftStaffTaskRecord {
       giftCode: 'STAR',
       giftName: '星光礼盒',
       priceMinor,
-      currency: 'USD',
+      currency: 'CAT',
       reservationId: giftReservation(priceMinor).id
     },
     createdAt: initialNow.toISOString(),
@@ -542,7 +542,7 @@ function refundChargeMirror(providerRef: string | null): ExternalTransactionMirr
     externalRef: providerRef,
     idempotencyKey: 'provider:m4-us-04:order-charge',
     amountMinor: 200000,
-    currency: 'USD',
+    currency: 'CAT',
     status: 'SUCCEEDED',
     createdAt: initialNow.toISOString()
   };
@@ -636,7 +636,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l2, 'm4:refund:l2:50000'),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50000, currency: 'USD' },
+        amount: { amountMinor: 50000, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'L2 boundary refund.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
@@ -652,7 +652,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l2, pendingKey),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50100, currency: 'USD' },
+        amount: { amountMinor: 50100, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'L2 must request L3 execution.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
@@ -672,7 +672,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l3, 'm4:refund:l3:execute'),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50100, currency: 'USD' },
+        amount: { amountMinor: 50100, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'Same staff member completed L3 step-up.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'

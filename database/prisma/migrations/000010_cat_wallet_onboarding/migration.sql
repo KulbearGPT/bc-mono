@@ -39,6 +39,7 @@ ALTER TABLE top_ups RENAME COLUMN amount_minor TO paid_amount_usd_cents;
 ALTER TABLE top_ups RENAME COLUMN currency TO paid_currency;
 ALTER TABLE top_ups RENAME COLUMN payment_channel TO payment_method;
 ALTER TABLE top_ups RENAME COLUMN external_transaction_id TO receipt_number;
+ALTER TABLE top_ups DROP CONSTRAINT IF EXISTS top_ups_currency_cat_chk;
 ALTER TABLE top_ups ADD COLUMN rate_cat_per_usd INTEGER NOT NULL DEFAULT 10;
 ALTER TABLE top_ups ADD COLUMN credited_cat_subunits BIGINT;
 ALTER TABLE top_ups ADD COLUMN reason_code VARCHAR(80) NOT NULL DEFAULT 'MANUAL_TOP_UP';

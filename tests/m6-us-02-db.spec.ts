@@ -35,7 +35,7 @@ function batchInput(): SettlementCreateInput {
     guildId,
     source: 'MANUAL', scheduleKey: null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
-    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD',
+    cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT',
     playerUserIds: null, createdByStaffId: staffId
   };
 }
@@ -79,8 +79,8 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     const { store, batch } = await approvedBatch();
     const [itemA, itemB] = batch.items;
     const result = await store.recordPaymentResults(guildId, batch.id, paymentInput(batch.version, 'm6:db:pay:01', [
-      { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-A', note: null },
-      { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'USD', externalBatchReference: null, note: 'row rejected' }
+      { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-A', note: null },
+      { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CAT', externalBatchReference: null, note: 'row rejected' }
     ]));
 
     expect(result.status).toBe('PARTIALLY_PAID');
@@ -97,11 +97,11 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     const { store, batch } = await approvedBatch();
     const [itemA, itemB] = batch.items;
     const partial = await store.recordPaymentResults(guildId, batch.id, paymentInput(3, 'm6:db:pay:02', [
-      { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-A', note: null },
-      { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'USD', externalBatchReference: null, note: 'retry later' }
+      { settlementItemId: itemA!.id, expectedVersion: 1, result: 'SUCCEEDED', amountMinor: itemA!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-A', note: null },
+      { settlementItemId: itemB!.id, expectedVersion: 1, result: 'FAILED', amountMinor: 0, currency: 'CAT', externalBatchReference: null, note: 'retry later' }
     ]));
     const paid = await store.recordPaymentResults(guildId, batch.id, paymentInput(partial.version, 'm6:db:pay:03', [
-      { settlementItemId: itemB!.id, expectedVersion: 2, result: 'SUCCEEDED', amountMinor: itemB!.netAmountMinor, currency: 'USD', externalBatchReference: 'EXT-B', note: null }
+      { settlementItemId: itemB!.id, expectedVersion: 2, result: 'SUCCEEDED', amountMinor: itemB!.netAmountMinor, currency: 'CAT', externalBatchReference: 'EXT-B', note: null }
     ]));
 
     expect(paid.status).toBe('PAID');
@@ -162,13 +162,13 @@ function paymentInput(expectedBatchVersion: number, requestIdempotencyKey: strin
 }
 
 function success(settlementItemId: string, amountMinor: number, externalBatchReference: string): SettlementPaymentResultsInput['results'][number] {
-  return { settlementItemId, expectedVersion: 1, result: 'SUCCEEDED', amountMinor, currency: 'USD', externalBatchReference, note: null };
+  return { settlementItemId, expectedVersion: 1, result: 'SUCCEEDED', amountMinor, currency: 'CAT', externalBatchReference, note: null };
 }
 
 function directResult(itemId: string, id: string, result: 'SUCCEEDED' | 'FAILED', amount: number, reference: string | null, note: string | null, key: string) {
   return pool.query(`INSERT INTO settlement_payment_results
     (id,settlement_item_id,result,amount_minor,currency,external_batch_reference,note,idempotency_key,recorded_by_staff_id,recorded_at)
-    VALUES ($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9)`, [id, itemId, result, amount, reference, note, key, staffId, now]);
+    VALUES ($1,$2,$3,$4,'CAT',$5,$6,$7,$8,$9)`, [id, itemId, result, amount, reference, note, key, staffId, now]);
 }
 
 async function seed(): Promise<void> {
@@ -187,13 +187,13 @@ async function seed(): Promise<void> {
 function insertOrder(id: string, publicId: string, playerId: string) {
   return pool.query(`INSERT INTO orders
     (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,'COMPLETED',8,'USD',30000,'900000000000000001',$5,$6,'2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
+    VALUES ($1,$2,$3,$4,'COMPLETED',8,'CAT',30000,'900000000000000001',$5,$6,'2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
   [id, publicId, customerId, playerId, `channel-${publicId}`, `panel-${publicId}`]);
 }
 
 function insertEarning(id: string, orderId: string, playerId: string, amount: number) {
   return pool.query(`INSERT INTO player_earnings
     (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,confirmed_by_staff_id,confirmed_at,created_at,updated_at)
-    VALUES ($1,$2,$3,1,$4,$4,'USD','CONFIRMED',1,$5,'2026-07-19T12:00:00.000Z','2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
+    VALUES ($1,$2,$3,1,$4,$4,'CAT','CONFIRMED',1,$5,'2026-07-19T12:00:00.000Z','2026-07-19T11:00:00.000Z','2026-07-19T11:00:00.000Z')`,
   [id, orderId, playerId, amount, staffId]);
 }

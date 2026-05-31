@@ -17,21 +17,21 @@ function catalog(overrides: Partial<GiftCatalogRecord> = {}): GiftCatalogRecord 
   return {
     id: '00000000-0000-0000-0000-000000006610', itemId: '00000000-0000-0000-0000-000000006611',
     code: 'STAR_BOX', version: 4, status: 'ACTIVE', name: '星光礼盒', priceMinor: 8_800,
-    currency: 'USD', broadcastTemplate: '{sender_name} 向 {receiver_name} 送出 {gift_name}', ...overrides
+    currency: 'CAT', broadcastTemplate: '{sender_name} 向 {receiver_name} 送出 {gift_name}', ...overrides
   };
 }
 
 function fixture(input: { balance?: number; orderGuildId?: string } = {}) {
   const giftStore = new InMemoryGiftStore({ catalog: [catalog()] });
   const balanceReservations = [
-    { id: 'r-order', userId: customerId, amountMinor: 500, currency: 'USD', status: 'ACTIVE' as const },
-    { id: 'r-other-guild', userId: customerId, amountMinor: 9_000, currency: 'USD', status: 'ACTIVE' as const }
+    { id: 'r-order', userId: customerId, amountMinor: 500, currency: 'CAT', status: 'ACTIVE' as const },
+    { id: 'r-other-guild', userId: customerId, amountMinor: 9_000, currency: 'CAT', status: 'ACTIVE' as const }
   ];
   const orderStore = new InMemoryOrderStore({ orders: [{
     id: orderId, publicId: 'P-6601', customerId, playerId, guildId: input.orderGuildId ?? guildId, status: 'IN_SERVICE', version: 7,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 1, customerUnitPriceMinor: 6_000, playerUnitPayoutMinor: 4_200,
-    amountMinor: 6_000, playerEarningMinor: 4_200, currency: 'USD', notes: null,
+    amountMinor: 6_000, playerEarningMinor: 4_200, currency: 'CAT', notes: null,
     channelSpec: { channelId: '900000000000006620', panelMessageId: '900000000000006621', voiceChannelId: '900000000000006622' },
     createdAt: now.toISOString(), updatedAt: now.toISOString()
   } satisfies OrderRecord] });
@@ -80,14 +80,14 @@ describe('M6-US-06 gift affordability API', () => {
     const { server, giftStore, walletFunding } = fixture();
     giftStore.reservations.push({ id: 'r-active', userId: customerId, sourceType: 'GIFT', orderId: null,
       giftRequestId: 'g-existing', mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
-      amountMinor: 700, currency: 'USD', status: 'ACTIVE', version: 1, idempotencyKey: 'existing-reservation',
+      amountMinor: 700, currency: 'CAT', status: 'ACTIVE', version: 1, idempotencyKey: 'existing-reservation',
       expiresAt: now.toISOString(), activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     walletFunding.addReservation('r-active', 700);
     const response = await affordability(server);
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toEqual({ giftCatalogVersionId: catalog().id, catalogVersion: 4, priceMinor: 8_800,
       ledgerBalanceMinor: 5_000, reservedMinor: 10_200, availableMinor: -5_200, shortfallMinor: 14_000,
-      currency: 'USD', calculatedAt: now.toISOString(), stale: false, canAfford: false, topUpInstructions });
+      currency: 'CAT', calculatedAt: now.toISOString(), stale: false, canAfford: false, topUpInstructions });
     expectZeroWrites(giftStore, 1);
   });
 
@@ -134,7 +134,7 @@ describe('M6-US-06 gift affordability API', () => {
     const checked = (await affordability(state.server)).json().data;
     state.giftStore.reservations.push({ id: 'r-racing', userId: customerId, sourceType: 'GIFT', orderId: null,
       giftRequestId: 'g-racing', mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
-      amountMinor: 2_000, currency: 'USD', status: 'ACTIVE', version: 1, idempotencyKey: 'race-reservation',
+      amountMinor: 2_000, currency: 'CAT', status: 'ACTIVE', version: 1, idempotencyKey: 'race-reservation',
       expiresAt: now.toISOString(), activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     state.walletFunding.addReservation('r-racing', 2_000);
     const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,

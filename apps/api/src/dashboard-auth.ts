@@ -590,7 +590,7 @@ export interface DashboardAuthOptions {
   policyReader?: PolicyReader;
   metricsStore?: DashboardMetricsStore;
   metricsTimeZone?: 'Asia/Shanghai';
-  metricsCurrency?: 'USD';
+  metricsCurrency?: 'CAT';
 }
 
 export function registerDashboardAuthRoutes(server: FastifyInstance, options: DashboardAuthOptions): void {
@@ -760,7 +760,7 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: (_request, actor) => (options.metricsStore ?? new InMemoryDashboardMetricsStore({})).getSummary({
       actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId,
-      now: now(), timeZone: options.metricsTimeZone ?? 'Asia/Shanghai', currency: options.metricsCurrency ?? 'USD'
+      now: now(), timeZone: options.metricsTimeZone ?? 'Asia/Shanghai', currency: options.metricsCurrency ?? 'CAT'
     })
   });
 }
@@ -794,7 +794,7 @@ export async function buildCapabilities(
       giftApprovalLimitMinor: level === 'L1_SUPPORT' ? null : giftApprovalLimitMinor,
       refundLimitMinor: level === 'L1_SUPPORT' ? null : refundLimitMinor,
       l4DirectExecutionFromMinor,
-      currency: 'USD'
+      currency: 'CAT'
     },
     mfa: { enrolled: mfaEnrolled, method: mfaEnrolled ? 'TOTP' : null },
     stepUp: {

@@ -11,6 +11,6 @@ describe('M2-US-06 internal wallet refunds and resolutions',()=>{
   });
   test('refund and resolution inputs accept only USD',async()=>{
     const source=await readFile('apps/api/src/admin-order-actions.ts','utf8');
-    expect(source).toContain("if (currency !== 'USD')");
+    expect(source).toContain("if (currency !== 'CAT')");
   });
 });

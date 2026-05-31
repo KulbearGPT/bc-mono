@@ -1256,7 +1256,7 @@ export async function prepareSubmitOrder(input: {
   validateSubmittableDraft(order);
   await validateCurrentCatalogSnapshot(input.catalogStore, order);
 
-  if (order.currency !== 'USD') throw new OrderError('VALIDATION_ERROR', 'Orders must use USD.');
+  if (order.currency !== 'CAT') throw new OrderError('VALIDATION_ERROR', 'Orders must use USD.');
   const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
   const reservedMinor = walletBalance.reservedMinor;
   const availableMinor = walletBalance.availableMinor;
@@ -1313,7 +1313,7 @@ export async function prepareSubmitOrder(input: {
         ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
         reservedMinor: reservedMinor + activatedReservation.amountMinor,
         availableMinor: walletBalance.ledgerBalanceMinor - reservedMinor - activatedReservation.amountMinor,
-        currency: 'USD',
+        currency: 'CAT',
         calculatedAt: walletBalance.calculatedAt,
         version: walletBalance.version
       }
@@ -2067,7 +2067,7 @@ function buildDraftOrder(input: {
     playerUnitPayoutMinor: null,
     amountMinor: 0,
     playerEarningMinor: 0,
-    currency: 'USD',
+    currency: 'CAT',
     notes: null,
     channelSpec: clone(input.channelSpec),
     createdAt,
@@ -2976,7 +2976,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerUnitPayoutMinor: toNullableNumber(row.player_unit_payout_minor),
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
-    currency: (row.currency ?? 'USD') as Currency,
+    currency: (row.currency ?? 'CAT') as Currency,
     notes: row.customer_note,
     channelSpec: {
       channelId: row.channel_id ?? '',

@@ -103,7 +103,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     minimumUnits: 1,
     customerUnitPriceMinor: 6000,
     playerUnitPayoutMinor: 4200,
-    currency: 'USD',
+    currency: 'CAT',
     status: 'ACTIVE',
     version: 3,
     createdByStaffId: '00000000-0000-0000-0000-000000000333',
@@ -133,7 +133,7 @@ function draftOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerUnitPayoutMinor: null,
     amountMinor: 0,
     playerEarningMinor: 0,
-    currency: 'USD',
+    currency: 'CAT',
     notes: null,
     channelSpec: channelSpec(),
     createdAt: now.toISOString(),
@@ -162,7 +162,7 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
         status: 'DRAFT',
         version: 1,
         orderType: 'IMMEDIATE',
-        currency: 'USD',
+        currency: 'CAT',
         amountMinor: 0,
         playerEarningMinor: 0,
         fundReservation: null,
@@ -248,7 +248,7 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
         playerUnitPayoutMinor: 4200,
         amountMinor: 12000,
         playerEarningMinor: 8400,
-        currency: 'USD',
+        currency: 'CAT',
         region: 'NA',
         notes: '轻松交流，不急着上分',
         channelSpec: {
@@ -309,7 +309,7 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
       playerUnitPayoutMinor: 4200,
       amountMinor: 12000,
       playerEarningMinor: 8400,
-      currency: 'USD'
+      currency: 'CAT'
     });
     const { server, orderStore } = buildOrderServer({ orders: [order] });
 
@@ -328,7 +328,7 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
         unitCount: 2,
         billingUnitMinutes: 60,
         amountMinor: 12000,
-        currency: 'USD',
+        currency: 'CAT',
         validUntil: new Date(now.getTime() + 5 * 60_000).toISOString()
       }
     });

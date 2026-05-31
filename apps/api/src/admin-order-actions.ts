@@ -1081,7 +1081,7 @@ FOR UPDATE OF fr
     if(!wallet.rows[0])throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Customer wallet was not found.');
     await client.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-      VALUES ($1,$2,'ORDER_CAPTURE_DEBIT','DEBIT',$3,'USD','FUND_RESERVATION',$4,$5,$6,$6)`,
+      VALUES ($1,$2,'ORDER_CAPTURE_DEBIT','DEBIT',$3,'CAT','FUND_RESERVATION',$4,$5,$6,$6)`,
       [deterministicUuid(`${providerCharge.idempotencyKey}:entry`),wallet.rows[0].id,input.captureMinor,reservation.id,providerCharge.idempotencyKey,new Date(input.resolution.createdAt)]);
     await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,new Date(input.resolution.createdAt)]);
   }
@@ -1261,7 +1261,7 @@ async function insertRefundAndCorrections(client: OrderQueryClient, input: {
   resolutionId: string | null;
 }): Promise<void> {
   const refund = input.refund;
-  if(refund.currency!=='USD')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use USD.');
+  if(refund.currency!=='CAT')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use USD.');
   const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[refund.beneficiaryUserId]);
   if(!wallet.rows[0])throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Customer wallet was not found.');
   await client.query(
@@ -1302,7 +1302,7 @@ VALUES (
   );
   await client.query(`INSERT INTO wallet_entries
     (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-    VALUES ($1,$2,'ORDER_REFUND_CREDIT','CREDIT',$3,'USD','ORDER_REFUND',$4,$5,$6,$6)`,
+    VALUES ($1,$2,'ORDER_REFUND_CREDIT','CREDIT',$3,'CAT','ORDER_REFUND',$4,$5,$6,$6)`,
     [deterministicUuid(`${refund.idempotencyKey}:wallet-entry`),wallet.rows[0].id,refund.amountMinor,refund.id,`${refund.idempotencyKey}:wallet`,new Date(refund.createdAt)]);
   await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,new Date(refund.createdAt)]);
   const sourceConsumption = await client.query<{ id: string; amount_minor: string | number }>(
@@ -1658,7 +1658,7 @@ function parseMoney(value: unknown, field: string, positive: boolean): { amountM
   if (!Number.isInteger(amountMinor) || (amountMinor as number) < (positive ? 1 : 0)) {
     throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.amountMinor is invalid.`);
   }
-  if (currency !== 'USD') {
+  if (currency !== 'CAT') {
     throw new AdminOrderActionError('VALIDATION_ERROR', `${field}.currency is invalid.`);
   }
   return { amountMinor: amountMinor as number, currency: currency as Currency };

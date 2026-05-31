@@ -1,6 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { Client } from 'pg';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { validateRuntimeEnv, type RuntimeEnvInput } from '@blackcat/platform/env';
+import { validateProductionEnv } from '@blackcat/platform/production-env';
 import type { SecurityOptions } from './security.js';
 import { registerCatalogRoutes, type ServiceCatalogStore } from './catalog.js';
 import {
@@ -39,6 +43,7 @@ import { registerCustomerProfileRoutes, type CustomerProfileScope, type Customer
 import { configureCursorSigningSecret } from './signed-cursor.js';
 import { registerWalletRoutes, type WalletApplicationService, type WalletFundingService } from './wallet.js';
 import type { ReceiptStorage } from './receipt-storage.js';
+import { registerOnboardingRoutes, type OnboardingStore } from './onboarding.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -106,7 +111,7 @@ export interface ApiServerOptions {
   commissions?: { store: CommissionStore; now?: () => Date };
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
-  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'USD' };
+  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CAT' };
   botConfig?: BotConfigRouteOptions;
   settlements?: SettlementRouteOptions;
   weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
@@ -116,6 +121,7 @@ export interface ApiServerOptions {
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
   wallet?: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date };
+  onboarding?: { store: OnboardingStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -154,6 +160,8 @@ export async function getReadinessPayload(
   options: { discordTokenPresent?: boolean; dependencyTimeoutMs?: number } = {}
 ): Promise<ReadinessPayload> {
   const validation = validateRuntimeEnv(env, { allowMissingDiscordToken: true });
+  const productionConfigurationReady = env.NODE_ENV !== 'production'
+    || validateProductionEnv(env).length === 0;
   const databaseStatus = await getDatabaseDependencyStatus(
     validation.values.databaseUrl,
     options.dependencyTimeoutMs
@@ -166,7 +174,7 @@ export async function getReadinessPayload(
     },
     {
       name: 'config',
-      status: validation.ok ? 'READY' : 'MISSING_CONFIG',
+      status: validation.ok && productionConfigurationReady ? 'READY' : 'MISSING_CONFIG',
       required: true
     },
     {
@@ -320,8 +328,42 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) throw new Error('Wallet routes require buildApiServer({ security, wallet })');
     registerWalletRoutes(server, options.wallet);
   }
+  if (options.onboarding) {
+    if (!server.securityOptions) throw new Error('Onboarding routes require buildApiServer({ security, onboarding })');
+    registerOnboardingRoutes(server, options.onboarding);
+  }
 
   return server;
+}
+
+export async function registerDashboardAssets(
+  server: FastifyInstance,
+  dashboardDist: string,
+  options: { businessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}
+): Promise<void> {
+  await server.register(fastifyStatic, {
+    root: join(dashboardDist, 'assets'),
+    prefix: '/assets/',
+    decorateReply: true
+  });
+  const indexTemplate = await readFile(join(dashboardDist, 'index.html'), 'utf8');
+  const environmentMarker = '__BLACKCAT_BUSINESS_ENV__';
+  const businessEnvironment = options.businessEnvironment ?? server.securityOptions?.businessEnvironment;
+  if (indexTemplate.includes(environmentMarker) && !businessEnvironment) {
+    throw new Error('Dashboard assets require a validated business environment.');
+  }
+  const indexHtml = businessEnvironment
+    ? indexTemplate.replaceAll(environmentMarker, businessEnvironment)
+    : indexTemplate;
+  server.get('/*', async (request, reply) => {
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname === '/api' || pathname.startsWith('/api/') || pathname === '/health' || pathname === '/ready'
+      || pathname.startsWith('/assets/') || pathname.startsWith('/api/v1/auth/')) {
+      return reply.callNotFound();
+    }
+    if (!request.headers.accept?.includes('text/html')) return reply.callNotFound();
+    return reply.type('text/html; charset=utf-8').send(indexHtml);
+  });
 }
 
 function createRequestId(): string {

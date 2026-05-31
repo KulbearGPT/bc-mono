@@ -142,6 +142,7 @@ export interface ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled?: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> | OrderCompletionResult;
   commitCompletionTimeout(input: {
@@ -293,6 +294,7 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled?: boolean;
     now: Date;
   }): OrderCompletionResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
@@ -324,7 +326,7 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       amountMinor: order.playerEarningMinor,
       currency: order.currency
     });
-    for (const attribution of this.referralAttributions.filter((candidate) => {
+    for (const attribution of (input.referralsEnabled !== false ? this.referralAttributions : []).filter((candidate) => {
       return candidate.referredUserId === order.customerId
         && candidate.currency === order.currency
         && candidate.eligibleOrderSpend;
@@ -653,6 +655,7 @@ RETURNING *
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
+    referralsEnabled?: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> {
     const transactionClient = this.pool ? await this.pool.connect() : this.client;
@@ -697,11 +700,13 @@ RETURNING *
         order: current,
         now: input.now
       });
-      await insertEligibleReferralCommission(transactionClient, {
-        order: current,
-        consumptionEntryId,
-        now: input.now
-      });
+      if (input.referralsEnabled !== false) {
+        await insertEligibleReferralCommission(transactionClient, {
+          order: current,
+          consumptionEntryId,
+          now: input.now
+        });
+      }
       await insertOrderEvent(transactionClient, {
         orderId: input.orderId,
         sequence: await nextOrderEventSequence(transactionClient, input.orderId),
@@ -873,7 +878,7 @@ async function insertOrderWalletCapture(client: ServiceLifecycleQueryClient, inp
   if(!wallet.rows[0])throw new ServiceLifecycleError('CONFLICT','Customer wallet was not found.');
   await client.query(`INSERT INTO wallet_entries
     (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-    VALUES (gen_random_uuid(),$1,'ORDER_CAPTURE_DEBIT','DEBIT',$2,'USD','FUND_RESERVATION',$3,$4,$5,$5)`,
+    VALUES (gen_random_uuid(),$1,'ORDER_CAPTURE_DEBIT','DEBIT',$2,'CAT','FUND_RESERVATION',$3,$4,$5,$5)`,
     [wallet.rows[0].id,input.reservation.amount_minor,input.reservation.id,input.idempotencyKey,input.now]);
   await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
 }
@@ -919,6 +924,7 @@ export async function confirmOrder(input: {
   confirmation: 'CONFIRM_COMPLETED';
   actor: { guildId: string; discordUserId: string };
   idempotencyKey: string;
+  referralsEnabled?: boolean;
   now: Date;
 }): Promise<OrderCompletionResult> {
   const actorUserId = await requireActorUser(input.store, input.actor);
@@ -928,6 +934,7 @@ export async function confirmOrder(input: {
     confirmation: input.confirmation,
     actorUserId,
     idempotencyKey: input.idempotencyKey,
+    referralsEnabled: input.referralsEnabled ?? true,
     now: input.now
   });
 }
@@ -1000,7 +1007,7 @@ export function registerServiceLifecycleRoutes(
       if (!actor.guildId || !actor.discordUserId) {
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Discord actor context is required.');
       }
-      return setOrderReadiness({
+      const result = await setOrderReadiness({
         store: options.store,
         orderId: orderIdParam(request),
         expectedVersion: body.expectedVersion,
@@ -1008,6 +1015,7 @@ export function registerServiceLifecycleRoutes(
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         now: now()
       });
+      return { ...result, enabledFeatures: enabledPilotFeatures(security.pilotFeaturePolicy?.enabledFeatures) };
     },
     mapError: mapLifecycleError,
     fingerprintBody: (request) => parseReadinessBody(request.body)
@@ -1058,6 +1066,7 @@ export function registerServiceLifecycleRoutes(
         confirmation: body.confirmation,
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         idempotencyKey: idempotencyKey(request),
+        referralsEnabled: security.pilotFeaturePolicy?.isEnabled('REFERRALS') ?? true,
         now: now()
       });
     },
@@ -1123,6 +1132,12 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
       staffTaskId: null
     }
   };
+}
+
+function enabledPilotFeatures(
+  configured: readonly ('CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6')[] | undefined
+): Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'> {
+  return [...(configured ?? ['CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6'])];
 }
 
 function parseReadinessBody(body: unknown): { expectedVersion: number; readiness: ReadinessValue } {
@@ -1577,7 +1592,7 @@ function mapOrderRow(row: ServiceLifecycleOrderRow): ServiceLifecycleOrderRecord
     playerId: row.player_id ?? '',
     status: row.status,
     version: row.row_version,
-    currency: row.currency ?? 'USD',
+    currency: row.currency ?? 'CAT',
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
     unitCount: row.unit_count,

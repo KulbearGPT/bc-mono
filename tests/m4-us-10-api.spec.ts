@@ -233,7 +233,7 @@ function approvedGiftFixture(): { request: GiftRequestRecord; reservation: GiftR
     orderId: '00000000-0000-0000-0000-000000010101', giftCatalogVersionId: '00000000-0000-0000-0000-000000010102',
     senderId: '00000000-0000-0000-0000-000000010103', receiverId: '00000000-0000-0000-0000-000000010104',
     status: 'APPROVED', version: 3, giftCodeSnapshot: 'STAR', giftNameSnapshot: '星光礼盒', priceMinor: 5000,
-    currency: 'USD', broadcastTemplateSnapshot: '{sender_name} 送给 {receiver_name} {gift_name}',
+    currency: 'CAT', broadcastTemplateSnapshot: '{sender_name} 送给 {receiver_name} {gift_name}',
     verifiedByStaffId: accounts.l3.staffId, verifiedAt: now.toISOString(), verificationNote: 'confirmed',
     verificationPayloadHash: 'hash', executionCredentialExpiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
     approvedByStaffId: accounts.l3.staffId, approvedAt: now.toISOString(), rejectedReason: null,
@@ -242,7 +242,7 @@ function approvedGiftFixture(): { request: GiftRequestRecord; reservation: GiftR
   const reservation: GiftReservationRecord = {
     id: '00000000-0000-0000-0000-000000010105', userId: request.senderId, sourceType: 'GIFT', orderId: null,
     giftRequestId: request.id, mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: request.priceMinor, currency: 'USD', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:10100',
+    amountMinor: request.priceMinor, currency: 'CAT', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:10100',
     expiresAt: request.expiresAt, activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString()
   };
   const task: GiftStaffTaskRecord = {

@@ -26,7 +26,7 @@ function request(priceMinor = 200000, overrides: Partial<GiftRequestRecord> = {}
   return { id: giftRequestId, publicId: 'G-3410', orderId: order().id,
     giftCatalogVersionId: '00000000-0000-0000-0000-000000003413', senderId: order().customerId,
     receiverId: order().playerId!, status: 'PENDING_REVIEW', version: 1, giftCodeSnapshot: 'STAR',
-    giftNameSnapshot: '星光礼盒', priceMinor, currency: 'USD', broadcastTemplateSnapshot: '{sender_name}',
+    giftNameSnapshot: '星光礼盒', priceMinor, currency: 'CAT', broadcastTemplateSnapshot: '{sender_name}',
     verifiedByStaffId: null, verifiedAt: null, verificationNote: null, verificationPayloadHash: null,
     executionCredentialExpiresAt: null, approvedByStaffId: null, approvedAt: null, rejectedReason: null,
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides };
@@ -35,7 +35,7 @@ function request(priceMinor = 200000, overrides: Partial<GiftRequestRecord> = {}
 function reservation(priceMinor = 200000): GiftReservationRecord {
   return { id: '00000000-0000-0000-0000-000000003414', userId: order().customerId, sourceType: 'GIFT', orderId: null,
     giftRequestId, mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: priceMinor, currency: 'USD', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:3410',
+    amountMinor: priceMinor, currency: 'CAT', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:3410',
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), activatedAt: now.toISOString(), settledAt: null,
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
@@ -45,7 +45,7 @@ function task(status: GiftStaffTaskRecord['status'] = 'CLAIMED'): GiftStaffTaskR
     orderId: order().id, giftRequestId, claimedBy: staffId, voiceChannelId: order().channelSpec.voiceChannelId,
     contextSnapshot: { orderId: order().id, orderPublicId: order().publicId, channelId: order().channelSpec.channelId,
       voiceChannelId: order().channelSpec.voiceChannelId, senderId: order().customerId, receiverId: order().playerId!,
-      giftCode: 'STAR', giftName: '星光礼盒', priceMinor: 200000, currency: 'USD', reservationId: reservation().id },
+      giftCode: 'STAR', giftName: '星光礼盒', priceMinor: 200000, currency: 'CAT', reservationId: reservation().id },
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
@@ -54,7 +54,7 @@ function order(): OrderRecord {
     playerId: '00000000-0000-0000-0000-000000003403', status: 'IN_SERVICE', version: 7, serviceCatalogId: null,
     catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', billingUnitMinutes: 60, unitCount: 2,
     customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200, amountMinor: 12000, playerEarningMinor: 8400,
-    currency: 'USD', notes: null, channelSpec: { channelId: '900000000000000003', panelMessageId: '900000000000000004', voiceChannelId: '900000000000000005' },
+    currency: 'CAT', notes: null, channelSpec: { channelId: '900000000000000003', panelMessageId: '900000000000000004', voiceChannelId: '900000000000000005' },
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 

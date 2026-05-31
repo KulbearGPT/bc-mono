@@ -22,7 +22,7 @@ let root = '';
 let data = '';
 let pool: Pool;
 
-describe('M7-US-02 immutable internal USD wallet persistence', () => {
+describe('M7-US-02 immutable internal CAT wallet persistence', () => {
   beforeAll(async () => {
     const migration = await readFile(
       'database/prisma/migrations/000009_internal_usd_wallet/migration.sql',
@@ -59,7 +59,7 @@ describe('M7-US-02 immutable internal USD wallet persistence', () => {
       VALUES ($1,$2,'L2_SUPERVISOR','ACTIVE','MANUAL',now())`, [staffId, staffUserId]);
     await pool.query(`INSERT INTO wallet_accounts
       (id,user_id,currency,status,row_version,updated_at)
-      VALUES ($1,$2,'USD','ACTIVE',1,now())`, [walletId, userId]);
+      VALUES ($1,$2,'CAT','ACTIVE',1,now())`, [walletId, userId]);
   });
 
   afterAll(async () => {
@@ -82,28 +82,28 @@ describe('M7-US-02 immutable internal USD wallet persistence', () => {
     ]) expect(runtime).toContain(`model ${model}`);
   });
 
-  test('enforces USD, positive amounts, unique payment references, and non-negative ledger funds', async () => {
+  test('enforces CAT, positive amounts, unique USD payment references, and non-negative ledger funds', async () => {
     await pool.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,
        idempotency_key,occurred_at)
-      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',500000,'USD','TOP_UP',$3,'m7:topup:1',now())`,
+      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',500000,'CAT','TOP_UP',$3,'m7:topup:1',now())`,
     [entryId, walletId, topUpId]);
     await pool.query(`INSERT INTO top_ups
-      (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,
-       external_transaction_id,paid_at,note,created_by_staff_id)
-      VALUES ($1,$2,$3,500000,'USD','PAYPAL','txn-1',now(),'receipt checked',$4)`,
+      (id,wallet_account_id,wallet_entry_id,paid_amount_usd_cents,paid_currency,rate_cat_per_usd,credited_cat_subunits,payment_method,
+       receipt_number,paid_at,note,reason_code,created_by_staff_id)
+      VALUES ($1,$2,$3,500000,'USD',10,500000,'PAYPAL','txn-1',now(),'receipt checked','MANUAL_TOP_UP',$4)`,
     [topUpId, walletId, entryId, staffId]);
 
     const secondEntryId = '00000000-0000-0000-0000-000000007208';
     await pool.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,
        idempotency_key,occurred_at)
-      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',1,'USD','TOP_UP',$3,'m7:topup:2',now())`,
+      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',1,'CAT','TOP_UP',$3,'m7:topup:2',now())`,
     [secondEntryId, walletId, '00000000-0000-0000-0000-000000007209']);
     await expect(pool.query(`INSERT INTO top_ups
-      (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,
-       external_transaction_id,paid_at,note,created_by_staff_id)
-      VALUES ($1,$2,$3,1,'USD','PAYPAL','txn-1',now(),'duplicate',$4)`,
+      (id,wallet_account_id,wallet_entry_id,paid_amount_usd_cents,paid_currency,rate_cat_per_usd,credited_cat_subunits,payment_method,
+       receipt_number,paid_at,note,reason_code,created_by_staff_id)
+      VALUES ($1,$2,$3,1,'USD',10,1,'PAYPAL','txn-1',now(),'duplicate','MANUAL_TOP_UP',$4)`,
     ['00000000-0000-0000-0000-000000007209', walletId, secondEntryId, staffId]))
       .rejects.toThrow(/unique|duplicate/i);
 
@@ -112,11 +112,11 @@ describe('M7-US-02 immutable internal USD wallet persistence', () => {
        idempotency_key,occurred_at)
       VALUES (gen_random_uuid(),$1,'ADJUSTMENT_CREDIT','CREDIT',1,'EUR','ADJUSTMENT',
        gen_random_uuid(),'m7:bad-currency',now())`, [walletId]))
-      .rejects.toThrow(/USD|currency|check constraint/i);
+      .rejects.toThrow(/CAT|currency|check constraint/i);
     await expect(pool.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,
        idempotency_key,occurred_at)
-      VALUES (gen_random_uuid(),$1,'ADJUSTMENT_DEBIT','DEBIT',500002,'USD','ADJUSTMENT',
+      VALUES (gen_random_uuid(),$1,'ADJUSTMENT_DEBIT','DEBIT',500002,'CAT','ADJUSTMENT',
        gen_random_uuid(),'m7:overdraft',now())`, [walletId]))
       .rejects.toThrow(/negative|insufficient/i);
   });
@@ -125,12 +125,12 @@ describe('M7-US-02 immutable internal USD wallet persistence', () => {
     await pool.query(`INSERT INTO wallet_entries
       (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,
        idempotency_key,occurred_at)
-      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',500000,'USD','TOP_UP',$3,'m7:immutable',now())`,
+      VALUES ($1,$2,'TOP_UP_CREDIT','CREDIT',500000,'CAT','TOP_UP',$3,'m7:immutable',now())`,
     [entryId, walletId, topUpId]);
     await pool.query(`INSERT INTO top_ups
-      (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,
-       external_transaction_id,paid_at,note,created_by_staff_id)
-      VALUES ($1,$2,$3,500000,'USD','STRIPE','txn-immutable',now(),'checked',$4)`,
+      (id,wallet_account_id,wallet_entry_id,paid_amount_usd_cents,paid_currency,rate_cat_per_usd,credited_cat_subunits,payment_method,
+       receipt_number,paid_at,note,reason_code,created_by_staff_id)
+      VALUES ($1,$2,$3,500000,'USD',10,500000,'OTHER','txn-immutable',now(),'checked','MANUAL_TOP_UP',$4)`,
     [topUpId, walletId, entryId, staffId]);
     await pool.query(`INSERT INTO audit_logs
       (id,actor_staff_id,actor_level,actor_source,client_id,permission_code,action,target_type,

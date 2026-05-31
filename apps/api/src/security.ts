@@ -8,6 +8,7 @@ import {
   redactAuditSnapshot,
   type AuditChangeInput
 } from './audit-changes.js';
+import { createPilotFeaturePolicy, type PilotFeature, type PilotFeaturePolicy } from './pilot-features.js';
 
 export type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 export type ActorSource = 'DISCORD_BOT' | 'DASHBOARD' | 'SYSTEM_JOB' | 'THIRD_PARTY_WEBHOOK' | 'UNKNOWN';
@@ -123,6 +124,8 @@ export interface SecurityOptions {
   staffDirectory?: StaffDirectory;
   dashboardSessions?: DashboardSessionResolver;
   dashboardGuildId?: string;
+  pilotFeaturePolicy?: PilotFeaturePolicy;
+  businessEnvironment?: 'SANDBOX' | 'PRODUCTION';
   stepUpVerifier?: {
     verify(input: { request: FastifyRequest; actor: ActorContext }): boolean | Promise<boolean>;
   };
@@ -141,6 +144,8 @@ export interface SecureRouteOptions {
   mapError?: (error: unknown) => { statusCode: number; code: string; message: string; details?: Array<{ field: string; reason: string }> } | null;
   requiresRecentStepUp?: boolean | ((request: FastifyRequest, actor: ActorContext) => boolean);
   retryCommitFailures?: boolean;
+  retryableFailureCodes?: readonly string[];
+  requiredFeature?: PilotFeature;
   auditSnapshots?: (
     request: FastifyRequest,
     actor: ActorContext,
@@ -165,6 +170,8 @@ const authenticatedActorPermissions = new Set([
   'service.read',
   'service.estimate',
   'account.bind',
+  'account.register_self',
+  'player.apply_self',
   'account.self.read',
   'balance.self.read',
   'consumption.self.read',
@@ -190,7 +197,7 @@ const authenticatedActorPermissions = new Set([
   'access.role_sync',
   'operations.failure.report'
 ]);
-const serviceActorPermissions = new Set(['access.role_sync', 'bot_config.read']);
+const serviceActorPermissions = new Set(['access.role_sync', 'bot_config.read', 'onboarding.message.manage']);
 
 export class InMemoryAuditSink implements AuditSink {
   readonly records: AuditRecord[] = [];
@@ -602,6 +609,18 @@ export function registerSecureReadRoute(
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
       }
 
+      if (route.requiredFeature && !(securityOptions.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).isEnabled(route.requiredFeature)) {
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: 'REJECTED',
+          reason: `FEATURE_DISABLED:${route.requiredFeature}`
+        });
+        return sendError(reply, requestId, 409, 'FEATURE_DISABLED', 'This feature is disabled for the current pilot phase.', [
+          { field: 'feature', reason: route.requiredFeature }
+        ]);
+      }
+
       if (!hasPermission(actor, route.permission)) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -709,6 +728,19 @@ export function registerSecureWriteRoute(
           reason: 'CLIENT_SOURCE_NOT_ACCEPTED'
         });
         return sendError(reply, requestId, 403, 'CLIENT_SOURCE_NOT_ACCEPTED', 'This client source is not accepted for the route.');
+      }
+
+
+      if (route.requiredFeature && !(securityOptions.pilotFeaturePolicy ?? createPilotFeaturePolicy('OFF')).isEnabled(route.requiredFeature)) {
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: 'REJECTED',
+          reason: `FEATURE_DISABLED:${route.requiredFeature}`
+        });
+        return sendError(reply, requestId, 409, 'FEATURE_DISABLED', 'This feature is disabled for the current pilot phase.', [
+          { field: 'feature', reason: route.requiredFeature }
+        ]);
       }
 
       if (actor.actorSource === 'DASHBOARD' && !(await hasValidDashboardCsrf(request, securityOptions))) {

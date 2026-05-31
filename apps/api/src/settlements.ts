@@ -842,8 +842,8 @@ export function buildSettlementCsv(batch: SettlementBatchRecord, exportType: Set
   const rows: string[][] = [];
   if (exportType === 'SUMMARY') {
     rows.push(['batch_public_id', 'period_start', 'period_end', 'currency', 'gross_amount', 'adjustment_amount', 'net_amount', 'status']);
-    rows.push([batch.publicId, batch.periodStart, batch.periodEnd, batch.currency, formatMinor(batch.grossAmountMinor),
-      formatMinor(batch.adjustmentAmountMinor), formatMinor(batch.netAmountMinor), batch.status]);
+    rows.push([batch.publicId, batch.periodStart, batch.periodEnd, batch.currency, formatMinor(batch.grossAmountMinor,batch.currency),
+      formatMinor(batch.adjustmentAmountMinor,batch.currency), formatMinor(batch.netAmountMinor,batch.currency), batch.status]);
   } else if (exportType === 'TRANSFER_LIST') {
     rows.push(['batch_public_id', 'period_start', 'period_end', 'player_user_id', 'player_display_name', 'discord_user_id',
       'external_account_display', 'currency', 'gross_amount', 'adjustment_amount', 'net_amount', 'payment_status']);
@@ -851,7 +851,7 @@ export function buildSettlementCsv(batch: SettlementBatchRecord, exportType: Set
       if (item.paymentStatus === 'SUCCEEDED') continue;
       rows.push([batch.publicId, batch.periodStart, batch.periodEnd, item.playerUserId, item.playerDisplayName,
         item.playerDiscordUserId ?? '', item.externalAccountDisplay ?? '', item.currency,
-        formatMinor(item.grossAmountMinor), formatMinor(item.adjustmentAmountMinor), formatMinor(item.netAmountMinor), item.paymentStatus]);
+        formatMinor(item.grossAmountMinor,item.currency), formatMinor(item.adjustmentAmountMinor,item.currency), formatMinor(item.netAmountMinor,item.currency), item.paymentStatus]);
     }
   } else {
     rows.push(['batch_public_id', 'settlement_item_id', 'player_user_id', 'entry_type', 'source_id', 'occurred_at', 'currency', 'amount']);
@@ -859,7 +859,7 @@ export function buildSettlementCsv(batch: SettlementBatchRecord, exportType: Set
     for (const item of items) {
       for (const entry of [...item.entries].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))) {
         rows.push([batch.publicId, item.id, item.playerUserId, entry.entryType,
-          entry.playerEarningId ?? entry.playerEarningAdjustmentId ?? '', entry.occurredAt, entry.currency, formatMinor(entry.amountMinor)]);
+          entry.playerEarningId ?? entry.playerEarningAdjustmentId ?? '', entry.occurredAt, entry.currency, formatMinor(entry.amountMinor,entry.currency)]);
       }
     }
   }
@@ -870,16 +870,17 @@ function csvCell(value: string): string {
   return /[",\r\n]/u.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
-function formatMinor(value: number): string {
+function formatMinor(value: number,currency:string): string {
   if (!Number.isSafeInteger(value)) throw new SettlementError('VALIDATION_ERROR', 'CSV amount exceeds the supported range.');
   const sign = value < 0 ? '-' : '';
   const absolute = Math.abs(value);
-  return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`;
+  const scale=currency==='CAT'?10:100;const digits=currency==='CAT'?1:2;
+  return `${sign}${Math.floor(absolute/scale)}.${String(absolute%scale).padStart(digits,'0')}`;
 }
 
 function validateInput(input: SettlementCreateInput): void {
   if (!input.guildId.trim()) throw new SettlementError('PERMISSION_DENIED', 'Trusted Guild context is required.');
-  if (input.currency !== 'USD') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support USD only.');
+  if (input.currency !== 'CAT') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support USD only.');
   if (input.source === 'SCHEDULED' && !input.scheduleKey) {
     throw new SettlementError('VALIDATION_ERROR', 'Scheduled settlements require scheduleKey.');
   }
@@ -1218,7 +1219,7 @@ async function loadPostgresMemberships(client: SettlementDatabaseClient, guildId
     batch.items[0]!.entries.push({
       id: `${row.id}:${batch.items[0]!.entries.length}`, entryType: row.entry_type,
       playerEarningId: row.player_earning_id, playerEarningAdjustmentId: row.player_earning_adjustment_id,
-      amountMinor: 0, currency: 'USD', occurredAt: ''
+      amountMinor: 0, currency: 'CAT', occurredAt: ''
     });
     grouped.set(row.id, batch);
   }
@@ -1324,12 +1325,12 @@ async function loadPostgresBatch(client: SettlementDatabaseClient, id: string, g
 }
 
 function emptyMembershipBatch(id: string, status: SettlementBatchStatus, guildId: string): SettlementBatchRecord {
-  return { id, guildId, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'USD',
+  return { id, guildId, publicId: '', source: 'MANUAL', scheduleKey: null, periodStart: '', periodEnd: '', cutoffAt: '', timeZone: '', currency: 'CAT',
     grossAmountMinor: 0, adjustmentAmountMinor: 0, netAmountMinor: 0, status, version: 1, createdByStaffId: null,
     submittedByStaffId: null, approvedByStaffId: null, voidedByStaffId: null, submittedAt: null, approvedAt: null,
     exportedAt: null, voidedAt: null, voidReason: null, replacementBatchId: null, createdAt: '',
     items: [{ id: '', playerUserId: '', playerDisplayName: '', playerDiscordUserId: null, externalAccountDisplay: null, grossAmountMinor: 0,
-      adjustmentAmountMinor: 0, netAmountMinor: 0, currency: 'USD', paymentStatus: 'PENDING', version: 1,
+      adjustmentAmountMinor: 0, netAmountMinor: 0, currency: 'CAT', paymentStatus: 'PENDING', version: 1,
       entries: [], paymentResults: [] }] };
 }
 

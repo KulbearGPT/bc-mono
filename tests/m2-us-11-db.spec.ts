@@ -83,7 +83,7 @@ INSERT INTO orders (
 ) VALUES (
   '${orderId}', 'P-611', '${customerId}', '${customerId}', 'PENDING_DISPATCH', 3,
   'VALORANT', 'ENTERTAINMENT', 'NA', 60, 2, 6000, 4200, 12000, 8400,
-  'USD', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
+  'CAT', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
 );
 INSERT INTO staff_tasks (
   id, public_id, type, reason_code, status, row_version, order_id, claimed_by_staff_id,

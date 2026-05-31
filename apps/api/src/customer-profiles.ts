@@ -255,7 +255,7 @@ function buildStatistics(window: CustomerProfileWindow, orders: CustomerProfileO
     orderSpendMinor, giftSpendMinor, refundMinor, totalConsumptionMinor: orderSpendMinor + giftSpendMinor - refundMinor + corrections,
     averageOrderAmountMinor: completedOrderCount ? Math.floor(orderSpendMinor / completedOrderCount) : 0,
     lastConsumptionAt: entries.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))[0]?.occurredAt ?? null,
-    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'USD' };
+    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'CAT' };
 }
 function buildPreferences(orders: CustomerProfileOrder[]) { const sorted = [...orders].sort(descCreated); return {
   preferredGameKeys: frequency(sorted.map((item) => item.gameKey)), preferredServiceKeys: frequency(sorted.map((item) => item.serviceKey)),
@@ -282,7 +282,7 @@ function decodeCursor(value: string | null, resource: string): { id: string; cre
 }
 function mapOrder(row: Record<string, unknown>, customerId: string, guildId: string): CustomerProfileOrder { return { id: String(row.id), publicId: String(row.public_id ?? ''), customerId, guildId,
   status: String(row.status), gameKey: nullable(row.game_code_snapshot), serviceKey: nullable(row.service_code_snapshot), playerUserId: nullable(row.player_id),
-  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'USD'),
+  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'CAT'),
   createdAt: iso(row.created_at), completedAt: row.completed_at ? iso(row.completed_at) : null }; }
 function mapConsumption(row: Record<string, unknown>): CustomerProfileConsumption { const type = row.entry_type === 'ORDER_CHARGE' ? 'ORDER' : row.entry_type === 'GIFT_CHARGE' ? 'GIFT' : row.entry_type;
   const amount = safeInteger(row.amount_minor); return { id: String(row.id), userId: '', type: type as CustomerProfileConsumptionType, sourceId: String(row.source_id),

@@ -124,7 +124,7 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     expect(user.rows[0]).toEqual({ status: 'ACTIVE', row_version: 1 });
 
     const itemCountBefore = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM gift_catalog_items`);
-    const createWrite = await store.createGiftCatalog({ name: 'Bouquet', amountMinor: 1800, currency: 'USD', enabled: true,
+    const createWrite = await store.createGiftCatalog({ name: 'Bouquet', amountMinor: 1800, currency: 'CAT', enabled: true,
       broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_VERSION', actorStaffId: ids.staff, now: new Date('2026-07-18T11:10:00Z') });
     await expect(createWrite.commit(audit({ actorStaffId: invalidStaffId, targetType: 'gift_catalog', targetId: createWrite.data.id }), auditSink)).rejects.toThrow();
     const itemCountAfter = await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM gift_catalog_items`);
@@ -176,17 +176,17 @@ async function seed() {
     INSERT INTO player_profiles (id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at)
     VALUES ('${ids.playerProfile}','${ids.player}','ACTIVE',1,'AVAILABLE','ONLINE',now(),now());
     INSERT INTO orders (id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at)
-    VALUES ('${ids.order}','P-4305','${ids.customer}','${ids.player}','${ids.customer}','${ids.player}','IN_SERVICE',2,'USD',12000,'900000000000004300','900000000000004303','900000000000004304',now(),now());
+    VALUES ('${ids.order}','P-4305','${ids.customer}','${ids.player}','${ids.customer}','${ids.player}','IN_SERVICE',2,'CAT',12000,'900000000000004300','900000000000004303','900000000000004304',now(),now());
     INSERT INTO staff_tasks (id,public_id,type,reason_code,status,row_version,order_id,claimed_by_staff_id,context_snapshot,claimed_at,created_at,updated_at)
     VALUES ('00000000-0000-0000-0000-000000004316','T-4316','ORDER_ASSIST','CUSTOMER_ASSIST','CLAIMED',1,'${ids.order}','${ids.staff}','{}',now(),now(),now());
     INSERT INTO consumption_entries (id,user_id,entry_type,source_type,source_id,idempotency_key,order_id,amount_minor,currency,direction,occurred_at,created_at)
-    VALUES ('00000000-0000-0000-0000-000000004314','${ids.customer}','ORDER_CHARGE','ORDER','${ids.order}','m4:admin:order:4305','${ids.order}',12000,'USD','DEBIT',now(),now()),
-      ('00000000-0000-0000-0000-000000004318','${ids.customer}','ADMIN_CORRECTION','ADMIN','00000000-0000-0000-0000-000000004319','m4:admin:correction:4318',NULL,300,'USD','CREDIT',now(),now());
+    VALUES ('00000000-0000-0000-0000-000000004314','${ids.customer}','ORDER_CHARGE','ORDER','${ids.order}','m4:admin:order:4305','${ids.order}',12000,'CAT','DEBIT',now(),now()),
+      ('00000000-0000-0000-0000-000000004318','${ids.customer}','ADMIN_CORRECTION','ADMIN','00000000-0000-0000-0000-000000004319','m4:admin:correction:4318',NULL,300,'CAT','CREDIT',now(),now());
     INSERT INTO gift_catalog_items (id,code,created_at,updated_at) VALUES ('${ids.gift}','ROCKET',now(),now());
     INSERT INTO gift_catalog_versions (id,gift_catalog_item_id,version,status,active_gift_key,name,price_minor,currency,broadcast_template,created_by_staff_id,activated_at,created_at)
-    VALUES ('00000000-0000-0000-0000-000000004315','${ids.gift}',1,'ACTIVE','${ids.gift}','Rocket',5200,'USD','{sender} sent {gift}','${ids.staff}',now(),now());
+    VALUES ('00000000-0000-0000-0000-000000004315','${ids.gift}',1,'ACTIVE','${ids.gift}','Rocket',5200,'CAT','{sender} sent {gift}','${ids.staff}',now(),now());
     INSERT INTO gift_requests (id,public_id,order_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,captured_at,expires_at,created_at,updated_at)
-    VALUES ('${ids.giftRequest}','G-4307','${ids.order}','00000000-0000-0000-0000-000000004315','${ids.customer}','${ids.player}','CAPTURED',4,'ROCKET','Rocket',5200,'USD','{sender} sent {gift}',now(),now() + interval '1 hour',now(),now());
+    VALUES ('${ids.giftRequest}','G-4307','${ids.order}','00000000-0000-0000-0000-000000004315','${ids.customer}','${ids.player}','CAPTURED',4,'ROCKET','Rocket',5200,'CAT','{sender} sent {gift}',now(),now() + interval '1 hour',now(),now());
     INSERT INTO outbox_events (id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,last_error,created_at,updated_at)
     VALUES ('${ids.outbox}','GIFT_ANNOUNCEMENT','GIFT_REQUEST','${ids.giftRequest}','${ids.giftRequest}','gift:announcement:${ids.giftRequest}:v1','{}','FAILED',4,8,8,now(),'Discord unavailable',now(),now());`);
 }

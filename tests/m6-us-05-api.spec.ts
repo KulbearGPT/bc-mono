@@ -20,19 +20,19 @@ function binding(userId: string, discordUserId: string, externalUserId: string, 
 
 function order(id: string, customerId: string, createdAt: string, guild = guildId): CustomerProfileOrder {
   return { id, publicId: `P-${id.slice(-4)}`, customerId, guildId: guild, status: 'COMPLETED', gameKey: 'VALORANT',
-    serviceKey: 'RANKED', playerUserId: null, playerDisplayName: null, amountMinor: 10_000, currency: 'USD', createdAt, completedAt: createdAt };
+    serviceKey: 'RANKED', playerUserId: null, playerDisplayName: null, amountMinor: 10_000, currency: 'CAT', createdAt, completedAt: createdAt };
 }
 
 async function fixture() {
   const accountStore = new InMemoryAccountStore({ bindings: [binding(userA, discordA, 'provider-a'), binding(userA, discordA, 'provider-a', otherGuildId), binding(userB, discordB, 'provider-b')], consumptions: [
     { id: '00000000-0000-0000-0000-000000006521', userId: userA, type: 'ORDER', sourceId: 'a1', amountMinor: 10_000,
-      guildId, currency: 'USD', status: 'SUCCEEDED', targetDisplay: '订单 P-6511', occurredAt: '2026-07-19T18:01:00.000Z', reversalOf: null },
+      guildId, currency: 'CAT', status: 'SUCCEEDED', targetDisplay: '订单 P-6511', occurredAt: '2026-07-19T18:01:00.000Z', reversalOf: null },
     { id: '00000000-0000-0000-0000-000000006522', userId: userA, type: 'GIFT', sourceId: 'a2', amountMinor: 2_000,
-      guildId, currency: 'USD', status: 'SUCCEEDED', targetDisplay: '礼物', occurredAt: '2026-07-18T18:01:00.000Z', reversalOf: null },
+      guildId, currency: 'CAT', status: 'SUCCEEDED', targetDisplay: '礼物', occurredAt: '2026-07-18T18:01:00.000Z', reversalOf: null },
     { id: '00000000-0000-0000-0000-000000006524', userId: userA, type: 'ORDER', sourceId: 'other-guild', amountMinor: 77_000,
-      guildId: otherGuildId, currency: 'USD', status: 'SUCCEEDED', targetDisplay: '跨 Guild 订单', occurredAt: '2026-07-19T19:30:00.000Z', reversalOf: null },
+      guildId: otherGuildId, currency: 'CAT', status: 'SUCCEEDED', targetDisplay: '跨 Guild 订单', occurredAt: '2026-07-19T19:30:00.000Z', reversalOf: null },
     { id: '00000000-0000-0000-0000-000000006523', userId: userB, type: 'ORDER', sourceId: 'b1', amountMinor: 99_000,
-      guildId, currency: 'USD', status: 'SUCCEEDED', targetDisplay: '订单 P-6513', occurredAt: '2026-07-19T19:01:00.000Z', reversalOf: null }
+      guildId, currency: 'CAT', status: 'SUCCEEDED', targetDisplay: '订单 P-6513', occurredAt: '2026-07-19T19:01:00.000Z', reversalOf: null }
   ] });
   const profileStore = new InMemoryCustomerProfileStore({
     users: [
@@ -46,13 +46,13 @@ async function fixture() {
       order('00000000-0000-0000-0000-000000006514', userA, '2026-07-19T19:30:00.000Z', otherGuildId)
     ],
     consumptions: [
-      { id: '00000000-0000-0000-0000-000000006521', userId: userA, type: 'ORDER', sourceId: 'a1', orderId: '00000000-0000-0000-0000-000000006511', amountMinor: 10_000, currency: 'USD', occurredAt: '2026-07-19T18:01:00.000Z' },
-      { id: '00000000-0000-0000-0000-000000006522', userId: userA, type: 'GIFT', sourceId: 'a2', orderId: '00000000-0000-0000-0000-000000006512', amountMinor: 2_000, currency: 'USD', occurredAt: '2026-07-18T18:01:00.000Z' },
-      { id: '00000000-0000-0000-0000-000000006523', userId: userB, type: 'ORDER', sourceId: 'b1', orderId: '00000000-0000-0000-0000-000000006513', amountMinor: 99_000, currency: 'USD', occurredAt: '2026-07-19T19:01:00.000Z' }
+      { id: '00000000-0000-0000-0000-000000006521', userId: userA, type: 'ORDER', sourceId: 'a1', orderId: '00000000-0000-0000-0000-000000006511', amountMinor: 10_000, currency: 'CAT', occurredAt: '2026-07-19T18:01:00.000Z' },
+      { id: '00000000-0000-0000-0000-000000006522', userId: userA, type: 'GIFT', sourceId: 'a2', orderId: '00000000-0000-0000-0000-000000006512', amountMinor: 2_000, currency: 'CAT', occurredAt: '2026-07-18T18:01:00.000Z' },
+      { id: '00000000-0000-0000-0000-000000006523', userId: userB, type: 'ORDER', sourceId: 'b1', orderId: '00000000-0000-0000-0000-000000006513', amountMinor: 99_000, currency: 'CAT', occurredAt: '2026-07-19T19:01:00.000Z' }
     ],
     reservations: [
-      { userId: userA, currency: 'USD', remainingMinor: 3_000, guildId },
-      { userId: userA, currency: 'USD', remainingMinor: 2_000, guildId: otherGuildId }
+      { userId: userA, currency: 'CAT', remainingMinor: 3_000, guildId },
+      { userId: userA, currency: 'CAT', remainingMinor: 2_000, guildId: otherGuildId }
     ],
     notes: [{ id: crypto.randomUUID(), userId: userA, guildId, text: 'internal', authorStaffId: crypto.randomUUID(), createdAt: now.toISOString() }],
     riskFlags: [{ userId: userA, value: 'RISK' }],
@@ -84,7 +84,7 @@ describe('M6-US-05 current-user profile API', () => {
     const state = await fixture();
     expect((await state.server.inject({ method: 'GET', url: '/api/v1/me/profile', headers: state.headers() })).json().data.balance)
       .toEqual({ ledgerBalanceMinor: 8_000, reservedMinor: 5_000, availableMinor: 3_000,
-        currency: 'USD', calculatedAt: now.toISOString(), version: 1 });
+        currency: 'CAT', calculatedAt: now.toISOString(), version: 1 });
     expect('balanceSnapshots' in state.profileStore).toBe(false);
   });
 

@@ -9,13 +9,13 @@ import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 
 export type WalletEntryType = 'TOP_UP_CREDIT' | 'ORDER_CAPTURE_DEBIT' | 'GIFT_CAPTURE_DEBIT' |
-  'ORDER_REFUND_CREDIT' | 'EXTERNAL_REFUND_DEBIT' | 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT';
+  'ORDER_REFUND_CREDIT' | 'CASH_REFUND_DEBIT' | 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT';
 
 export interface WalletBalance {
   ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
-  currency: 'USD';
+  currency: 'CAT';
   calculatedAt: string;
   version: number;
 }
@@ -26,7 +26,7 @@ export interface WalletEntry {
   entryType: WalletEntryType;
   direction: 'CREDIT' | 'DEBIT';
   amountMinor: number;
-  currency: 'USD';
+  currency: 'CAT';
   sourceType: string;
   sourceId: string;
   reversalOfEntryId: string | null;
@@ -40,6 +40,7 @@ export interface CreateTopUpInput {
   externalTransactionId: string;
   paidAt: string;
   note: string;
+  reasonCode?: string;
   idempotencyKey: string;
   actorStaffId: string;
   actorLevel: StaffLevel;
@@ -64,7 +65,14 @@ export interface TopUpResult {
   id: string;
   userId: string;
   amountMinor: number;
-  currency: 'USD';
+  currency: 'CAT';
+  paidAmountUsdCents: number;
+  paidCurrency: 'USD';
+  rateCatPerUsd: 10;
+  creditedCatSubunits: number;
+  paymentMethod: string;
+  receiptNumber: string;
+  reasonCode: string;
   paymentChannel: string;
   externalTransactionId: string;
   paidAt: string;
@@ -75,14 +83,16 @@ export interface TopUpResult {
   createdAt: string;
 }
 
-export interface ExternalRefundDebitResult extends Omit<TopUpResult, 'paidAt'> {
+export interface ExternalRefundDebitResult extends Omit<TopUpResult,
+  'paidAt' | 'paidAmountUsdCents' | 'paidCurrency' | 'rateCatPerUsd' | 'creditedCatSubunits' |
+  'paymentMethod' | 'receiptNumber' | 'reasonCode'> {
   refundedAt: string;
 }
 
 export interface ReceiptAttachmentMetadata {
   id: string; mediaType: ReceiptMediaType; originalFileName: string; byteSize: number; sha256: string; uploadedAt: string;
 }
-interface StoredReceipt extends ReceiptAttachmentMetadata { userId: string; evidenceType: 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT'; evidenceId: string; storageKey: string }
+interface StoredReceipt extends ReceiptAttachmentMetadata { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string; storageKey: string }
 
 export interface ReserveInput {
   userId: string;
@@ -164,10 +174,8 @@ export class WalletService {
   }
 
   async createTopUp(input: CreateTopUpInput): Promise<TopUpResult> {
-    validateFundingEvidence(input.amountMinor, input.paymentChannel, input.externalTransactionId, input.paidAt, input.note);
-    if (input.amountMinor > 500_000 && levelRank(input.actorLevel) < levelRank('L2_SUPERVISOR')) {
-      throw new WalletError('PERMISSION_DENIED', 'Top-ups above 500000 USD minor units require L2_SUPERVISOR.');
-    }
+    validateTopUpEvidence(input);
+    if (levelRank(input.actorLevel) < levelRank('L2_SUPERVISOR')) throw new WalletError('PERMISSION_DENIED', 'Manual CAT top-up requires L2_SUPERVISOR.');
     const replay = this.store.idempotentResults.get(input.idempotencyKey);
     if (replay) return replay as TopUpResult;
     const reference = referenceKey(input.paymentChannel, input.externalTransactionId);
@@ -180,7 +188,8 @@ export class WalletService {
     wallet.entries.push(entry);
     wallet.version += 1;
     const result: TopUpResult = {
-      id, userId: input.userId, amountMinor: input.amountMinor, currency: 'USD',
+      id, userId: input.userId, amountMinor: input.amountMinor, currency: 'CAT',
+      ...topUpEvidenceProjection(input),
       paymentChannel: input.paymentChannel.trim(), externalTransactionId: input.externalTransactionId.trim(),
       paidAt: new Date(input.paidAt).toISOString(), note: input.note.trim(), attachmentIds: [],
       walletEntry: entry, balance: balance(wallet, input.now), createdAt: input.now.toISOString()
@@ -247,11 +256,11 @@ export class WalletService {
     const reference = referenceKey(input.paymentChannel, input.externalTransactionId);
     if (this.store.externalReferences.has(reference)) throw new WalletError('DUPLICATE_EXTERNAL_TRANSACTION', 'The channel transaction is already recorded.');
     const id = crypto.randomUUID();
-    const entry = makeEntry(wallet.id, 'EXTERNAL_REFUND_DEBIT', input.amountMinor, 'EXTERNAL_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
+    const entry = makeEntry(wallet.id, 'CASH_REFUND_DEBIT', input.amountMinor, 'CASH_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
     wallet.entries.push(entry);
     wallet.version += 1;
     const result: ExternalRefundDebitResult = {
-      id, userId: input.userId, amountMinor: input.amountMinor, currency: 'USD', paymentChannel: input.paymentChannel.trim(),
+      id, userId: input.userId, amountMinor: input.amountMinor, currency: 'CAT', paymentChannel: input.paymentChannel.trim(),
       externalTransactionId: input.externalTransactionId.trim(), refundedAt: new Date(input.refundedAt).toISOString(),
       note: input.note.trim(), attachmentIds: [], walletEntry: entry,
       balance: balance(wallet, input.now), createdAt: input.now.toISOString()
@@ -288,7 +297,7 @@ export class WalletService {
     return structuredClone(this.store.getOrCreate(input.userId).entries).reverse();
   }
 
-  async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT'; evidenceId: string;
+  async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
     stored: { storageKey: string; byteSize: number; sha256: string }; mediaType: ReceiptMediaType; originalFileName: string; actorStaffId: string; now: Date }) {
     const exists = input.evidenceType === 'TOP_UP' ? this.store.topUps.has(input.evidenceId) : this.store.externalRefundDebits.has(input.evidenceId);
     if (!exists) throw new WalletError('RESOURCE_NOT_FOUND', 'Funding evidence was not found.');
@@ -316,14 +325,14 @@ function validateFundingEvidence(amountMinor: number, channel: string, reference
 function makeEntry(walletAccountId: string, entryType: WalletEntryType, amountMinor: number, sourceType: string,
   sourceId: string, _idempotencyKey: string, reversalOfEntryId: string | null, now: Date): WalletEntry {
   return { id: crypto.randomUUID(), walletAccountId, entryType, direction: entryType.endsWith('CREDIT') ? 'CREDIT' : 'DEBIT',
-    amountMinor, currency: 'USD', sourceType, sourceId, reversalOfEntryId, occurredAt: now.toISOString() };
+    amountMinor, currency: 'CAT', sourceType, sourceId, reversalOfEntryId, occurredAt: now.toISOString() };
 }
 
 function balance(wallet: StoredWallet, now: Date): WalletBalance {
   const ledgerBalanceMinor = wallet.entries.reduce((sum, entry) => sum + (entry.direction === 'CREDIT' ? entry.amountMinor : -entry.amountMinor), 0);
   const reservedMinor = wallet.reservations.filter((item) => item.active).reduce((sum, item) => sum + item.amountMinor, 0);
   return { ledgerBalanceMinor, reservedMinor, availableMinor: ledgerBalanceMinor - reservedMinor,
-    currency: 'USD', calculatedAt: now.toISOString(), version: wallet.version };
+    currency: 'CAT', calculatedAt: now.toISOString(), version: wallet.version };
 }
 
 function referenceKey(channel: string, externalTransactionId: string): string {
@@ -368,7 +377,7 @@ export class PostgresWalletStore {
       const reservationId = crypto.randomUUID();
       await client.query(`INSERT INTO fund_reservations
         (id,user_id,source_type,order_id,gift_request_id,mode,provider,provider_hold_ref,amount_minor,currency,status,row_version,idempotency_key,expires_at,activated_at,created_at,updated_at)
-        VALUES ($1,$2,$3::"FundReservationSourceType",$4,$5,'LOCAL_RESERVATION',NULL,NULL,$6,'USD','ACTIVE',1,$7,$8,$9,$9,$9)`,
+        VALUES ($1,$2,$3::"FundReservationSourceType",$4,$5,'LOCAL_RESERVATION',NULL,NULL,$6,'CAT','ACTIVE',1,$7,$8,$9,$9,$9)`,
         [reservationId,input.userId,input.sourceType,input.sourceType==='ORDER'?input.sourceId:null,input.sourceType==='GIFT'?input.sourceId:null,
           input.amountMinor,input.idempotencyKey,input.expiresAt,input.now]);
       await insertWalletReservationEvent(client, { reservationId, sequence: 1, eventType: 'CREATED', fromStatus: null,
@@ -430,8 +439,8 @@ export class PostgresWalletStore {
   }
 
   async createTopUp(input: CreateTopUpInput): Promise<TopUpResult> {
-    validateFundingEvidence(input.amountMinor, input.paymentChannel, input.externalTransactionId, input.paidAt, input.note);
-    if (input.amountMinor > 500_000 && levelRank(input.actorLevel) < 2) throw new WalletError('PERMISSION_DENIED', 'Top-ups above 500000 require L2_SUPERVISOR.');
+    validateTopUpEvidence(input);
+    if (levelRank(input.actorLevel) < 2) throw new WalletError('PERMISSION_DENIED', 'Manual CAT top-up requires L2_SUPERVISOR.');
     return inWalletTransaction(this.options.pool, async (client) => {
       const wallet = await ensureWallet(client, input.userId, input.now, true);
       const replay = await findPostgresTopUpByIdempotency(client, input.idempotencyKey, input.userId, input.now);
@@ -441,21 +450,21 @@ export class PostgresWalletStore {
       try {
         await insertWalletEntry(client, entry, input.idempotencyKey);
         await client.query(`INSERT INTO top_ups
-          (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,external_transaction_id,paid_at,note,created_by_staff_id,created_at)
-          VALUES ($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9,$10)`,
+          (id,wallet_account_id,wallet_entry_id,paid_amount_usd_cents,paid_currency,rate_cat_per_usd,credited_cat_subunits,payment_method,receipt_number,paid_at,note,reason_code,created_by_staff_id,created_at)
+          VALUES ($1,$2,$3,$4,'USD',10,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [id, wallet.walletAccountId, entry.id, input.amountMinor, input.paymentChannel.trim(), input.externalTransactionId.trim(),
-            new Date(input.paidAt), input.note.trim(), input.actorStaffId, input.now]);
+            new Date(input.paidAt), input.note.trim(), input.reasonCode?.trim() || 'MANUAL_TOP_UP', input.actorStaffId, input.now]);
       } catch (error) { throw mapPostgresWalletError(error); }
       const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
-      return { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'USD', paymentChannel: input.paymentChannel.trim(),
+      return { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'CAT', ...topUpEvidenceProjection(input), paymentChannel: input.paymentChannel.trim(),
         externalTransactionId: input.externalTransactionId.trim(), paidAt: new Date(input.paidAt).toISOString(), note: input.note.trim(),
         attachmentIds: [], walletEntry: entry, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now), createdAt: input.now.toISOString() };
     });
   }
 
   async stageCreateTopUp(input: CreateTopUpInput): Promise<{ data: TopUpResult; commit: (audit: AuditRecord) => Promise<void> }> {
-    validateFundingEvidence(input.amountMinor, input.paymentChannel, input.externalTransactionId, input.paidAt, input.note);
-    if (input.amountMinor > 500_000 && levelRank(input.actorLevel) < 2) throw new WalletError('PERMISSION_DENIED', 'Top-ups above 500000 require L2_SUPERVISOR.');
+    validateTopUpEvidence(input);
+    if (levelRank(input.actorLevel) < 2) throw new WalletError('PERMISSION_DENIED', 'Manual CAT top-up requires L2_SUPERVISOR.');
     const current = await this.options.pool.query<{ id: string; row_version: number }>('SELECT id,row_version FROM wallet_accounts WHERE user_id=$1', [input.userId]);
     const walletAccountId = current.rows[0]?.id ?? crypto.randomUUID();
     const currentVersion = current.rows[0]?.row_version ?? 1;
@@ -463,8 +472,8 @@ export class PostgresWalletStore {
     const entry = makeEntry(walletAccountId, 'TOP_UP_CREDIT', input.amountMinor, 'TOP_UP', id, input.idempotencyKey, null, input.now);
     const existingBalance = current.rows[0]
       ? await this.getBalance({ userId: input.userId, now: input.now })
-      : { ledgerBalanceMinor: 0, reservedMinor: 0, availableMinor: 0, currency: 'USD' as const, calculatedAt: input.now.toISOString(), version: 1 };
-    const data: TopUpResult = { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'USD', paymentChannel: input.paymentChannel.trim(),
+      : { ledgerBalanceMinor: 0, reservedMinor: 0, availableMinor: 0, currency: 'CAT' as const, calculatedAt: input.now.toISOString(), version: 1 };
+    const data: TopUpResult = { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'CAT', ...topUpEvidenceProjection(input), paymentChannel: input.paymentChannel.trim(),
       externalTransactionId: input.externalTransactionId.trim(), paidAt: new Date(input.paidAt).toISOString(), note: input.note.trim(), attachmentIds: [],
       walletEntry: entry, balance: { ...existingBalance, ledgerBalanceMinor: existingBalance.ledgerBalanceMinor + input.amountMinor,
         availableMinor: existingBalance.availableMinor + input.amountMinor, version: currentVersion + 1 }, createdAt: input.now.toISOString() };
@@ -473,16 +482,16 @@ export class PostgresWalletStore {
       const locked = await client.query<{ id: string; row_version: number }>('SELECT id,row_version FROM wallet_accounts WHERE user_id=$1 FOR UPDATE', [input.userId]);
       if (!locked.rows[0]) {
         await client.query(`INSERT INTO wallet_accounts (id,user_id,currency,status,row_version,created_at,updated_at)
-          VALUES ($1,$2,'USD','ACTIVE',1,$3,$3)`, [walletAccountId, input.userId, input.now]);
+          VALUES ($1,$2,'CAT','ACTIVE',1,$3,$3)`, [walletAccountId, input.userId, input.now]);
       } else if (locked.rows[0].id !== walletAccountId || locked.rows[0].row_version !== currentVersion) {
         throw new WalletError('CONFLICT', 'Wallet changed while the top-up was staged.');
       }
       try {
         await insertWalletEntry(client, entry, input.idempotencyKey);
         await client.query(`INSERT INTO top_ups
-          (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,external_transaction_id,paid_at,note,created_by_staff_id,created_at)
-          VALUES ($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9,$10)`, [id,walletAccountId,entry.id,input.amountMinor,input.paymentChannel.trim(),
-            input.externalTransactionId.trim(),new Date(input.paidAt),input.note.trim(),input.actorStaffId,input.now]);
+          (id,wallet_account_id,wallet_entry_id,paid_amount_usd_cents,paid_currency,rate_cat_per_usd,credited_cat_subunits,payment_method,receipt_number,paid_at,note,reason_code,created_by_staff_id,created_at)
+          VALUES ($1,$2,$3,$4,'USD',10,$4,$5,$6,$7,$8,$9,$10,$11)`, [id,walletAccountId,entry.id,input.amountMinor,input.paymentChannel.trim(),
+            input.externalTransactionId.trim(),new Date(input.paidAt),input.note.trim(),input.reasonCode?.trim() || 'MANUAL_TOP_UP',input.actorStaffId,input.now]);
         await incrementWalletVersion(client, walletAccountId, currentVersion, input.now);
         await insertPostgresAuditRecord(client, audit);
       } catch (error) { throw mapPostgresWalletError(error); }
@@ -498,17 +507,17 @@ export class PostgresWalletStore {
       const before = await readPostgresBalance(client, wallet.walletAccountId, wallet.version, input.now);
       if (before.availableMinor < input.amountMinor) throw new WalletError('INSUFFICIENT_AVAILABLE_BALANCE', 'External refund debit exceeds available balance.');
       const id = crypto.randomUUID();
-      const entry = makeEntry(wallet.walletAccountId, 'EXTERNAL_REFUND_DEBIT', input.amountMinor, 'EXTERNAL_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
+      const entry = makeEntry(wallet.walletAccountId, 'CASH_REFUND_DEBIT', input.amountMinor, 'CASH_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
       try {
         await insertWalletEntry(client, entry, input.idempotencyKey);
         await client.query(`INSERT INTO external_refund_debits
           (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,external_transaction_id,refunded_at,note,created_by_staff_id,created_at)
-          VALUES ($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9,$10)`,
+          VALUES ($1,$2,$3,$4,'CAT',$5,$6,$7,$8,$9,$10)`,
           [id, wallet.walletAccountId, entry.id, input.amountMinor, input.paymentChannel.trim(), input.externalTransactionId.trim(),
             new Date(input.refundedAt), input.note.trim(), input.actorStaffId, input.now]);
       } catch (error) { throw mapPostgresWalletError(error); }
       const version = await incrementWalletVersion(client, wallet.walletAccountId, wallet.version, input.now);
-      return { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'USD', paymentChannel: input.paymentChannel.trim(),
+      return { id, userId: input.userId, amountMinor: input.amountMinor, currency: 'CAT', paymentChannel: input.paymentChannel.trim(),
         externalTransactionId: input.externalTransactionId.trim(), refundedAt: new Date(input.refundedAt).toISOString(), note: input.note.trim(),
         attachmentIds: [], walletEntry: entry, balance: await readPostgresBalance(client, wallet.walletAccountId, version, input.now), createdAt: input.now.toISOString() };
     });
@@ -523,8 +532,8 @@ export class PostgresWalletStore {
     const before = await this.getBalance({ userId: input.userId, now: input.now });
     if (before.availableMinor < input.amountMinor) throw new WalletError('INSUFFICIENT_AVAILABLE_BALANCE', 'External refund debit exceeds available balance.');
     const walletAccountId = current.rows[0].id; const id = crypto.randomUUID();
-    const entry = makeEntry(walletAccountId, 'EXTERNAL_REFUND_DEBIT', input.amountMinor, 'EXTERNAL_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
-    const data: ExternalRefundDebitResult = { id,userId:input.userId,amountMinor:input.amountMinor,currency:'USD',paymentChannel:input.paymentChannel.trim(),
+    const entry = makeEntry(walletAccountId, 'CASH_REFUND_DEBIT', input.amountMinor, 'CASH_REFUND_DEBIT', id, input.idempotencyKey, null, input.now);
+    const data: ExternalRefundDebitResult = { id,userId:input.userId,amountMinor:input.amountMinor,currency:'CAT',paymentChannel:input.paymentChannel.trim(),
       externalTransactionId:input.externalTransactionId.trim(),refundedAt:new Date(input.refundedAt).toISOString(),note:input.note.trim(),attachmentIds:[],walletEntry:entry,
       balance:{...before,ledgerBalanceMinor:before.ledgerBalanceMinor-input.amountMinor,availableMinor:before.availableMinor-input.amountMinor,version:before.version+1},createdAt:input.now.toISOString() };
     return { data, commit: async (audit) => inWalletTransaction(this.options.pool, async (client) => {
@@ -534,7 +543,7 @@ export class PostgresWalletStore {
       if(lockedBalance.availableMinor<input.amountMinor)throw new WalletError('INSUFFICIENT_AVAILABLE_BALANCE','External refund debit exceeds available balance.');
       try { await insertWalletEntry(client,entry,input.idempotencyKey); await client.query(`INSERT INTO external_refund_debits
         (id,wallet_account_id,wallet_entry_id,amount_minor,currency,payment_channel,external_transaction_id,refunded_at,note,created_by_staff_id,created_at)
-        VALUES ($1,$2,$3,$4,'USD',$5,$6,$7,$8,$9,$10)`,[id,walletAccountId,entry.id,input.amountMinor,input.paymentChannel.trim(),input.externalTransactionId.trim(),new Date(input.refundedAt),input.note.trim(),input.actorStaffId,input.now]);
+        VALUES ($1,$2,$3,$4,'CAT',$5,$6,$7,$8,$9,$10)`,[id,walletAccountId,entry.id,input.amountMinor,input.paymentChannel.trim(),input.externalTransactionId.trim(),new Date(input.refundedAt),input.note.trim(),input.actorStaffId,input.now]);
         await incrementWalletVersion(client,walletAccountId,input.expectedWalletVersion,input.now); await insertPostgresAuditRecord(client,audit);
       } catch(error){throw mapPostgresWalletError(error);}
     }) };
@@ -584,7 +593,7 @@ export class PostgresWalletStore {
     return result.rows.map(mapPostgresEntry);
   }
 
-  async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT'; evidenceId: string;
+  async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
     stored: { storageKey: string; byteSize: number; sha256: string }; mediaType: ReceiptMediaType; originalFileName: string; actorStaffId: string; now: Date }) {
     return inWalletTransaction(this.options.pool, async (client) => {
       const wallet = await ensureWallet(client, input.userId, input.now, true);
@@ -597,13 +606,13 @@ export class PostgresWalletStore {
       await client.query(`INSERT INTO receipt_attachments
         (id,wallet_account_id,top_up_id,external_refund_debit_id,media_type,original_file_name,byte_size,sha256,storage_key,uploaded_by_staff_id,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [receipt.id,wallet.walletAccountId,
-        input.evidenceType === 'TOP_UP' ? input.evidenceId : null,input.evidenceType === 'EXTERNAL_REFUND_DEBIT' ? input.evidenceId : null,
+        input.evidenceType === 'TOP_UP' ? input.evidenceId : null,input.evidenceType === 'CASH_REFUND_DEBIT' ? input.evidenceId : null,
         input.mediaType,input.originalFileName,input.stored.byteSize,input.stored.sha256,input.stored.storageKey,input.actorStaffId,input.now]);
       return publicReceipt(receipt);
     });
   }
 
-  async stageCreateReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT'; evidenceId: string;
+  async stageCreateReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
     stored: { storageKey: string; byteSize: number; sha256: string }; mediaType: ReceiptMediaType; originalFileName: string; actorStaffId: string; now: Date }) {
     const wallet=await this.options.pool.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1',[input.userId]);
     if(!wallet.rows[0])throw new WalletError('RESOURCE_NOT_FOUND','Wallet was not found.');
@@ -617,7 +626,7 @@ export class PostgresWalletStore {
       if(!locked.rows[0])throw new WalletError('RESOURCE_NOT_FOUND','Funding evidence was not found.');
       await client.query(`INSERT INTO receipt_attachments
         (id,wallet_account_id,top_up_id,external_refund_debit_id,media_type,original_file_name,byte_size,sha256,storage_key,uploaded_by_staff_id,created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[receipt.id,walletId,input.evidenceType==='TOP_UP'?input.evidenceId:null,input.evidenceType==='EXTERNAL_REFUND_DEBIT'?input.evidenceId:null,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[receipt.id,walletId,input.evidenceType==='TOP_UP'?input.evidenceId:null,input.evidenceType==='CASH_REFUND_DEBIT'?input.evidenceId:null,
         input.mediaType,input.originalFileName,input.stored.byteSize,input.stored.sha256,input.stored.storageKey,input.actorStaffId,input.now]);
       await insertPostgresAuditRecord(client,audit);
     })};
@@ -625,7 +634,7 @@ export class PostgresWalletStore {
 
   async getReceiptAttachment(input: { attachmentId: string }): Promise<StoredReceipt> {
     const result = await this.options.pool.query<Record<string, unknown>>(`SELECT r.*,w.user_id,
-      CASE WHEN r.top_up_id IS NOT NULL THEN 'TOP_UP' ELSE 'EXTERNAL_REFUND_DEBIT' END evidence_type,
+      CASE WHEN r.top_up_id IS NOT NULL THEN 'TOP_UP' ELSE 'CASH_REFUND_DEBIT' END evidence_type,
       COALESCE(r.top_up_id,r.external_refund_debit_id) evidence_id FROM receipt_attachments r JOIN wallet_accounts w ON w.id=r.wallet_account_id WHERE r.id=$1`, [input.attachmentId]);
     const row = result.rows[0]; if (!row) throw new WalletError('RESOURCE_NOT_FOUND', 'Receipt attachment was not found.');
     return { id: String(row.id), userId: String(row.user_id), evidenceType: row.evidence_type as StoredReceipt['evidenceType'], evidenceId: String(row.evidence_id),
@@ -647,7 +656,7 @@ export interface WalletApplicationService {
   stageCreateTopUp?(input: CreateTopUpInput): Promise<{ data: TopUpResult; commit: (audit: AuditRecord) => Promise<void> }>;
   stageCreateExternalRefundDebit?(input: CreateExternalRefundDebitInput): Promise<{ data: ExternalRefundDebitResult; commit: (audit: AuditRecord) => Promise<void> }>;
   stageCreateAdjustment?(input: CreateWalletAdjustmentInput): Promise<{ data: WalletEntry; commit: (audit: AuditRecord) => Promise<void> }>;
-  createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT'; evidenceId: string;
+  createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
     stored: { storageKey: string; byteSize: number; sha256: string }; mediaType: ReceiptMediaType; originalFileName: string; actorStaffId: string; now: Date }): Promise<ReceiptAttachmentMetadata>;
   getReceiptAttachment(input: { attachmentId: string }): Promise<StoredReceipt>;
   stageCreateReceiptAttachment?(input: Parameters<WalletApplicationService['createReceiptAttachment']>[0]): Promise<{ data: ReceiptAttachmentMetadata; commit: (audit: AuditRecord) => Promise<void> }>;
@@ -674,7 +683,7 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST', url: '/api/v1/admin/users/:userId/top-ups', permission: 'wallet.top_up', action: 'CREATE_ADMIN_TOP_UP',
     targetType: 'top_up', targetId: userTarget, acceptedSources: ['DASHBOARD'], successStatusCode: 201,
-    mapError: mapWalletError,
+    mapError: mapWalletError, requiresRecentStepUp: true,
     auditChanges: (_request, _actor, payload) => fundingAuditChanges(payload as TopUpResult, 'top_up'),
     handler: (request, actor) => {
       const input = { ...fundingBody(request, 'paidAt'), userId: userTarget(request), idempotencyKey: requireIdempotencyKey(request),
@@ -684,7 +693,7 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
   });
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST', url: '/api/v1/admin/users/:userId/external-refund-debits', permission: 'wallet.external_refund',
-    action: 'CREATE_ADMIN_EXTERNAL_REFUND_DEBIT', targetType: 'external_refund_debit', targetId: userTarget,
+    action: 'CREATE_ADMIN_CASH_REFUND_DEBIT', targetType: 'external_refund_debit', targetId: userTarget,
     acceptedSources: ['DASHBOARD'], successStatusCode: 201, mapError: mapWalletError,
     auditChanges: (_request, _actor, payload) => fundingAuditChanges(payload as ExternalRefundDebitResult, 'external_refund_debit'),
     handler: (request, actor) => {
@@ -722,8 +731,8 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
           mediaType = part.mimetype; originalFileName = part.filename;
           stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
         }
-        if ((evidenceType !== 'TOP_UP' && evidenceType !== 'EXTERNAL_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
-        const input = { userId: userTarget(request), evidenceType: evidenceType as 'TOP_UP' | 'EXTERNAL_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
+        if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
+        const input = { userId: userTarget(request), evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
           originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
         return options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input);
       }
@@ -746,10 +755,16 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
 
 function fundingBody(request: FastifyRequest, timestamp: 'paidAt' | 'refundedAt') {
   const body = request.body as Record<string, unknown>;
-  return { amountMinor: requiredInteger(body.amountMinor, 'amountMinor'), paymentChannel: String(body.paymentChannel ?? ''),
-    externalTransactionId: String(body.externalTransactionId ?? ''), [timestamp]: String(body[timestamp] ?? ''), note: String(body.note ?? ''),
+  const topUp = timestamp === 'paidAt';
+  if (topUp && body.paidCurrency !== undefined && body.paidCurrency !== 'USD') {
+    throw new WalletError('VALIDATION_ERROR', 'paidCurrency must be USD.');
+  }
+  return { amountMinor: requiredInteger(topUp ? body.paidAmountUsdCents : body.amountMinor, topUp ? 'paidAmountUsdCents' : 'amountMinor'),
+    paymentChannel: String(topUp ? body.paymentMethod : body.paymentChannel ?? ''),
+    externalTransactionId: String(topUp ? body.receiptNumber : body.externalTransactionId ?? ''), [timestamp]: String(body[timestamp] ?? ''), note: String(body.note ?? ''),
+    reasonCode: topUp ? String(body.reasonCode ?? '') : undefined,
     expectedWalletVersion: body.expectedWalletVersion } as { amountMinor: number; paymentChannel: string; externalTransactionId: string;
-      paidAt: string; refundedAt: string; note: string; expectedWalletVersion?: unknown };
+      paidAt: string; refundedAt: string; note: string; reasonCode?: string; expectedWalletVersion?: unknown };
 }
 function userTarget(request: FastifyRequest): string { return String((request.params as { userId?: string }).userId ?? ''); }
 function requireIdempotencyKey(request: FastifyRequest): string { return String(request.headers['idempotency-key'] ?? ''); }
@@ -768,10 +783,33 @@ function fundingAuditChanges(payload: TopUpResult | ExternalRefundDebitResult, e
     { targetType: 'wallet_account', targetId: payload.walletEntry.walletAccountId, changeType: 'UPDATE' as const,
       beforeSnapshot: null, afterSnapshot: payload.balance, changedFields: ['rowVersion'] },
     { targetType: evidenceType, targetId: payload.id, changeType: 'APPEND' as const,
-      beforeSnapshot: null, afterSnapshot: { amountMinor: payload.amountMinor, currency: 'USD' }, changedFields: ['amountMinor', 'currency'] },
+      beforeSnapshot: null, afterSnapshot: 'paidAmountUsdCents' in payload
+        ? { paidAmountUsdCents: payload.paidAmountUsdCents, paidCurrency: 'USD', creditedCatSubunits: payload.creditedCatSubunits, currency: 'CAT' }
+        : { amountMinor: payload.amountMinor, currency: 'CAT' },
+      changedFields: 'paidAmountUsdCents' in payload ? ['paidAmountUsdCents', 'creditedCatSubunits'] : ['amountMinor', 'currency'] },
     { targetType: 'wallet_entry', targetId: payload.walletEntry.id, changeType: 'APPEND' as const,
       beforeSnapshot: null, afterSnapshot: payload.walletEntry, changedFields: ['amountMinor', 'direction', 'entryType'] }
   ];
+}
+
+function topUpEvidenceProjection(input: CreateTopUpInput) {
+  return {
+    paidAmountUsdCents: input.amountMinor,
+    paidCurrency: 'USD' as const,
+    rateCatPerUsd: 10 as const,
+    creditedCatSubunits: input.amountMinor,
+    paymentMethod: input.paymentChannel.trim(),
+    receiptNumber: input.externalTransactionId.trim(),
+    reasonCode: input.reasonCode?.trim() || 'MANUAL_TOP_UP'
+  };
+}
+
+function validateTopUpEvidence(input: CreateTopUpInput): void {
+  validateFundingEvidence(input.amountMinor, input.paymentChannel, input.externalTransactionId, input.paidAt, input.note);
+  if (!['ZELLE', 'PAYPAL', 'BANK_TRANSFER', 'CASH', 'OTHER'].includes(input.paymentChannel.trim())) {
+    throw new WalletError('VALIDATION_ERROR', 'paymentMethod is invalid.');
+  }
+  if (input.reasonCode !== undefined) assertNonEmpty(input.reasonCode, 'reasonCode', 80);
 }
 
 interface PostgresEntryRow {
@@ -790,7 +828,7 @@ async function inWalletTransaction<T>(pool: Pool, run: (client: PoolClient) => P
 async function ensureWallet(client: PoolClient, userId: string, now: Date, lock = false): Promise<{ walletAccountId: string; version: number }> {
   assertUuid(userId, 'userId');
   await client.query(`INSERT INTO wallet_accounts (id,user_id,currency,status,row_version,created_at,updated_at)
-    VALUES ($1,$2,'USD','ACTIVE',1,$3,$3) ON CONFLICT (user_id) DO NOTHING`, [crypto.randomUUID(), userId, now]);
+    VALUES ($1,$2,'CAT','ACTIVE',1,$3,$3) ON CONFLICT (user_id) DO NOTHING`, [crypto.randomUUID(), userId, now]);
   const result = await client.query<{ id: string; row_version: number }>(
     `SELECT id,row_version FROM wallet_accounts WHERE user_id=$1${lock ? ' FOR UPDATE' : ''}`, [userId]);
   if (!result.rows[0]) throw new WalletError('RESOURCE_NOT_FOUND', 'Wallet user was not found.');
@@ -811,13 +849,13 @@ async function readPostgresBalance(client: PoolClient, walletAccountId: string, 
   const ledgerBalanceMinor = Number(result.rows[0]?.ledger ?? 0);
   const reservedMinor = Number(result.rows[0]?.reserved ?? 0);
   return { ledgerBalanceMinor, reservedMinor, availableMinor: ledgerBalanceMinor - reservedMinor,
-    currency: 'USD', calculatedAt: now.toISOString(), version };
+    currency: 'CAT', calculatedAt: now.toISOString(), version };
 }
 
 async function insertWalletEntry(client: PoolClient, entry: WalletEntry, idempotencyKey: string): Promise<void> {
   await client.query(`INSERT INTO wallet_entries
     (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,reversal_of_entry_id,idempotency_key,occurred_at,created_at)
-    VALUES ($1,$2,$3,$4,$5,'USD',$6,$7,$8,$9,$10,$10)`,
+    VALUES ($1,$2,$3,$4,$5,'CAT',$6,$7,$8,$9,$10,$10)`,
     [entry.id, entry.walletAccountId, entry.entryType, entry.direction, entry.amountMinor, entry.sourceType,
       entry.sourceId, entry.reversalOfEntryId, idempotencyKey, new Date(entry.occurredAt)]);
 }
@@ -872,24 +910,27 @@ async function findPostgresTopUpByIdempotency(client: PoolClient, key: string, u
   const row = result.rows[0]; if (!row) return null;
   if (row.user_id !== userId) throw new WalletError('CONFLICT', 'Idempotency key belongs to another wallet.');
   const entry = mapPostgresEntry({ id: String(row.entry_id), wallet_account_id: String(row.wallet_account_id), entry_type: row.entry_type as WalletEntryType,
-    direction: row.direction as 'CREDIT' | 'DEBIT', amount_minor: row.amount_minor as string, currency: 'USD', source_type: String(row.source_type),
+    direction: row.direction as 'CREDIT' | 'DEBIT', amount_minor: row.credited_cat_subunits as string, currency: 'CAT', source_type: String(row.source_type),
     source_id: String(row.source_id), reversal_of_entry_id: row.reversal_of_entry_id as string | null, occurred_at: row.occurred_at as Date });
-  return { id: String(row.id), userId, amountMinor: Number(row.amount_minor), currency: 'USD', paymentChannel: String(row.payment_channel),
-    externalTransactionId: String(row.external_transaction_id), paidAt: new Date(row.paid_at as string).toISOString(), note: String(row.note),
+  return { id: String(row.id), userId, amountMinor: Number(row.credited_cat_subunits), currency: 'CAT',
+    paidAmountUsdCents: Number(row.paid_amount_usd_cents), paidCurrency: 'USD', rateCatPerUsd: 10,
+    creditedCatSubunits: Number(row.credited_cat_subunits), paymentMethod: String(row.payment_method), receiptNumber: String(row.receipt_number),
+    reasonCode: String(row.reason_code), paymentChannel: String(row.payment_method),
+    externalTransactionId: String(row.receipt_number), paidAt: new Date(row.paid_at as string).toISOString(), note: String(row.note),
     attachmentIds: [], walletEntry: entry, balance: await readPostgresBalance(client, String(row.wallet_account_id), Number(row.row_version), now),
     createdAt: new Date(row.created_at as string).toISOString() };
 }
 
 function mapPostgresEntry(row: PostgresEntryRow): WalletEntry {
   return { id: row.id, walletAccountId: row.wallet_account_id, entryType: row.entry_type, direction: row.direction,
-    amountMinor: Number(row.amount_minor), currency: 'USD', sourceType: row.source_type, sourceId: row.source_id,
+    amountMinor: Number(row.amount_minor), currency: 'CAT', sourceType: row.source_type, sourceId: row.source_id,
     reversalOfEntryId: row.reversal_of_entry_id, occurredAt: new Date(row.occurred_at).toISOString() };
 }
 
 function mapPostgresWalletError(error: unknown): Error {
   if (error instanceof WalletError) return error;
   const constraint = error && typeof error === 'object' ? String((error as { constraint?: unknown }).constraint ?? '') : '';
-  if (constraint.includes('payment_channel_external_transaction_id')) return new WalletError('DUPLICATE_EXTERNAL_TRANSACTION', 'The channel transaction is already recorded.');
+  if (constraint.includes('payment_method_receipt_number')) return new WalletError('DUPLICATE_EXTERNAL_TRANSACTION', 'The receipt number is already recorded for this payment method.');
   if (constraint.includes('idempotency_key')) return new WalletError('CONFLICT', 'Idempotency key conflicts with another wallet operation.');
   return error instanceof Error ? error : new Error(String(error));
 }

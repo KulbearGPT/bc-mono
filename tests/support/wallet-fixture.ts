@@ -61,6 +61,6 @@ export class TestWalletFunding implements WalletFundingService {
     const reservedMinor = [...this.reservations.values()].filter((item) => item.active)
       .reduce((total, item) => total + item.amountMinor, 0);
     return { ledgerBalanceMinor: this.ledgerBalanceMinor, reservedMinor,
-      availableMinor: this.ledgerBalanceMinor - reservedMinor, currency: 'USD', calculatedAt: now.toISOString(), version: this.version };
+      availableMinor: this.ledgerBalanceMinor - reservedMinor, currency: 'CAT', calculatedAt: now.toISOString(), version: this.version };
   }
 }

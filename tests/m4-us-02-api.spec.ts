@@ -103,7 +103,7 @@ function task(overrides: Partial<StaffTaskRecord>): StaffTaskRecord {
 function order(): OrderRecord {
   return { id: orderId, publicId: 'P-1001', customerId: '00000000-0000-0000-0000-000000003001', playerId: '00000000-0000-0000-0000-000000003002',
     status: 'ACCEPTED', version: 4, orderType: 'IMMEDIATE', serviceCatalogId: null, catalogVersion: null, unitCount: 2, billingUnitMinutes: 60,
-    customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4000, currency: 'USD', amountMinor: 12000, playerEarningMinor: 8000,
+    customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4000, currency: 'CAT', amountMinor: 12000, playerEarningMinor: 8000,
     game: 'VALORANT', service: '娱乐陪玩', region: 'NA', language: '中文', scheduledStartAt: null, notes: null,
     channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: '120000000000000003' },
     automationState: 'RUNNING', automationVersion: 1, automationScope: null, automationPausedByStaffId: null, automationStaffTaskId: null,

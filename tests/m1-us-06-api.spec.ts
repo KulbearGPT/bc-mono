@@ -111,7 +111,7 @@ describe('M1-US-06 private current-user service center API contract', () => {
     expect(owned.json()).toEqual({
       requestId: expect.any(String),
       data: {
-        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' },
+        summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' },
         items: [],
         nextCursor: null
       }

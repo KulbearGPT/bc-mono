@@ -104,9 +104,9 @@ INSERT INTO users (id, display_name, status, row_version, created_at, updated_at
 ('${customerId}', 'Customer', 'ACTIVE', 1, now(), now()), ('${playerId}', 'Player', 'ACTIVE', 1, now(), now()),
 ('${staffId}', 'Supervisor', 'ACTIVE', 1, now(), now());
 INSERT INTO wallet_accounts (id,user_id,currency,status,row_version,created_at,updated_at)
-VALUES ('00000000-0000-0000-0000-000000003520','${customerId}','USD','ACTIVE',1,now(),now());
+VALUES ('00000000-0000-0000-0000-000000003520','${customerId}','CAT','ACTIVE',1,now(),now());
 INSERT INTO wallet_entries (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-VALUES ('00000000-0000-0000-0000-000000003521','00000000-0000-0000-0000-000000003520','TOP_UP_CREDIT','CREDIT',500000,'USD','TOP_UP','00000000-0000-0000-0000-000000003522','seed:wallet:3501',now(),now());
+VALUES ('00000000-0000-0000-0000-000000003521','00000000-0000-0000-0000-000000003520','TOP_UP_CREDIT','CREDIT',500000,'CAT','TOP_UP','00000000-0000-0000-0000-000000003522','seed:wallet:3501',now(),now());
 INSERT INTO external_accounts (id,user_id,provider,external_user_id,status,active_user_provider_key,verified_at,created_at,updated_at)
 VALUES ('00000000-0000-0000-0000-000000003512','${customerId}','mock-provider','mock-user-ok','ACTIVE','${customerId}:mock-provider',now(),now(),now());
 INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
@@ -114,16 +114,16 @@ VALUES ('${staffId}','${staffId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now(
 INSERT INTO orders (id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,
 currency,amount_minor,guild_id,channel_id,panel_message_id,voice_channel_id,created_at,updated_at)
 VALUES ('${orderId}','P-3504','${customerId}','${playerId}','${customerId}','${playerId}','IN_SERVICE',7,
-'USD',12000,'900000000000000001','900000000000000003','900000000000000004','900000000000000005',now(),now());
+'CAT',12000,'900000000000000001','900000000000000003','900000000000000004','900000000000000005',now(),now());
 INSERT INTO gift_catalog_items (id,code,created_at,updated_at) VALUES ('${itemId}','STAR',now(),now());
 INSERT INTO gift_catalog_versions (id,gift_catalog_item_id,version,status,active_gift_key,name,price_minor,currency,broadcast_template,created_by_staff_id,activated_at,created_at)
-VALUES ('${versionId}','${itemId}',1,'ACTIVE','${itemId}','星光礼盒',200100,'USD','{sender_name}','${staffId}',now(),now());
+VALUES ('${versionId}','${itemId}',1,'ACTIVE','${itemId}','星光礼盒',200100,'CAT','{sender_name}','${staffId}',now(),now());
 INSERT INTO gift_requests (id,public_id,order_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,expires_at,created_at,updated_at)
-VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'USD','{sender_name}',now()+interval '30 minutes',now(),now()),
-('${releaseGiftId}','G-3515','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'USD','{sender_name}',now()+interval '30 minutes',now(),now());
+VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CAT','{sender_name}',now()+interval '30 minutes',now(),now()),
+('${releaseGiftId}','G-3515','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CAT','{sender_name}',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservations (id,user_id,source_type,gift_request_id,mode,provider,amount_minor,currency,status,row_version,idempotency_key,expires_at,created_at,updated_at)
-VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION','mock-provider',200100,'USD','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now()),
-('${releaseReservationId}','${customerId}','GIFT','${releaseGiftId}','LOCAL_RESERVATION','mock-provider',200100,'USD','PENDING',1,'gift:3515',now()+interval '30 minutes',now(),now());
+VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION','mock-provider',200100,'CAT','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now()),
+('${releaseReservationId}','${customerId}','GIFT','${releaseGiftId}','LOCAL_RESERVATION','mock-provider',200100,'CAT','PENDING',1,'gift:3515',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)
 VALUES ('00000000-0000-0000-0000-000000003510','${reservationId}',1,'CREATED',NULL,'PENDING',200100,1,'gift:3505:created','${customerId}','DISCORD_BOT',now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)

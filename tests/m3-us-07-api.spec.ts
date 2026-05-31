@@ -4,8 +4,8 @@ import {InMemoryReferralAttributionStore,calculateReferralCommissionMinor,regist
 import {InMemoryAuditSink,InMemoryIdempotencyStore,type StaffDirectory} from '@blackcat/api/security';
 
 const now=new Date('2026-07-18T21:00:00Z');const customerId='00000000-0000-0000-0000-000000004510';const beneficiaryId='00000000-0000-0000-0000-000000004511';
-const policies:ReferralProgramPolicy[]=[{id:'00000000-0000-0000-0000-000000004520',programType:'PROMOTER_FIRST_PURCHASE',version:1,rewardMode:'PERCENT_FIRST_PURCHASE',rateBps:500,fixedAmountMinor:null,currency:'USD'},
-{id:'00000000-0000-0000-0000-000000004521',programType:'PLAYER_LIFETIME',version:1,rewardMode:'PERCENT_LIFETIME',rateBps:200,fixedAmountMinor:null,currency:'USD'}];
+const policies:ReferralProgramPolicy[]=[{id:'00000000-0000-0000-0000-000000004520',programType:'PROMOTER_FIRST_PURCHASE',version:1,rewardMode:'PERCENT_FIRST_PURCHASE',rateBps:500,fixedAmountMinor:null,currency:'CAT'},
+{id:'00000000-0000-0000-0000-000000004521',programType:'PLAYER_LIFETIME',version:1,rewardMode:'PERCENT_LIFETIME',rateBps:200,fixedAmountMinor:null,currency:'CAT'}];
 function headers(key?:string){return{authorization:'Bearer valid-bot-token','x-client-source':'DASHBOARD','x-actor-discord-user-id':'900000000000000071','x-actor-guild-id':'900000000000000001','x-discord-interaction-id':'900000000000000072',...(key?{'idempotency-key':key}:{})};}
 function fixture(level:'L1_SUPPORT'|'L2_SUPERVISOR'|'L3_OPERATIONS',stepUp=false,input:{consumed?:string[]}={}){const store=new InMemoryReferralAttributionStore({users:[customerId,beneficiaryId,'00000000-0000-0000-0000-000000004512'],playerUsers:[beneficiaryId,'00000000-0000-0000-0000-000000004512'],policies,consumedUsers:input.consumed});
  const directory:StaffDirectory={resolveByDiscord:()=>({staffId:'00000000-0000-0000-0000-000000004513',userId:'00000000-0000-0000-0000-000000004513',level,status:'ACTIVE',permissionsVersion:1})};

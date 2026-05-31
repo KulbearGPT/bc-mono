@@ -47,7 +47,7 @@ export interface BalanceResult {
   ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
-  currency: 'USD';
+  currency: 'CAT';
   calculatedAt: string;
   version: number;
 }
@@ -56,7 +56,7 @@ export interface CurrentUserProfileResult {
   user: { userId: string; discordUserId: string; displayName: string; status: string };
   balance: {
     ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number;
-    currency: 'USD'; calculatedAt: string; version: number;
+    currency: 'CAT'; calculatedAt: string; version: number;
   };
   statistics: CustomerStatistics;
   activeReservationCount: number;
@@ -243,7 +243,7 @@ LIMIT 1
         FROM commission_adjustments WHERE commission_id=c.id) a ON true
       WHERE c.beneficiary_user_id=$1 GROUP BY c.status`, [input.userId]);
     const items = result.rows.slice(0, input.limit).map(mapSelfCommission);
-    const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: result.rows[0]?.currency ?? 'USD' };
+    const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: result.rows[0]?.currency ?? 'CAT' };
     for (const row of summaryResult.rows) {
       if (row.status === 'PENDING') summary.pendingMinor = Number(row.amount);
       if (row.status === 'CONFIRMED') summary.confirmedMinor = Number(row.amount);
@@ -283,8 +283,8 @@ export async function getCurrentUser(input: {
       version: binding.userVersion
     },
     activeOrderId: null,
-    consumptionSummary: { totalMinor: 0, currency: 'USD' },
-    commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' }
+    consumptionSummary: { totalMinor: 0, currency: 'CAT' },
+    commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }
   };
 }
 
@@ -318,7 +318,7 @@ export async function listCurrentUserCommissions(input: {
   limit?: number;
 }): Promise<CurrentCommissionPageResult> {
   const binding = await requireCurrentBinding(input.store, input.actor);
-  if (!input.store.listBeneficiaryCommissions) return { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' }, items: [], nextCursor: null };
+  if (!input.store.listBeneficiaryCommissions) return { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }, items: [], nextCursor: null };
   return input.store.listBeneficiaryCommissions({ userId: binding.userId, cursor: decodeCursor(input.cursor, 'account-commissions'), limit: input.limit ?? 50 });
 }
 
@@ -552,7 +552,7 @@ function paginate<T extends { id: string; occurredAt?: string; createdAt?: strin
 }
 
 function commissionSummary(records: Array<BeneficiaryCommissionRecord & { beneficiaryUserId: string }>) {
-  const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: records[0]?.currency ?? 'USD' };
+  const summary = { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: records[0]?.currency ?? 'CAT' };
   for (const record of records) {
     if (record.status === 'PENDING') summary.pendingMinor += record.netAmountMinor;
     if (record.status === 'CONFIRMED') summary.confirmedMinor += record.netAmountMinor;

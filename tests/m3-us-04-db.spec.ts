@@ -43,7 +43,7 @@ describe('M3-US-04 PostgreSQL player earnings', () => {
     await store.mutate({ earningId, expectedVersion: 2, action: 'MARK_PAID', reason: 'manual payment recorded',
       idempotencyKey: 'earning:paid:3910', actorStaffId: staffId, now });
     const reversed = await store.mutate({ earningId, expectedVersion: 3, action: 'CREATE_REVERSAL',
-      reversalAmount: { amountMinor: 2400, currency: 'USD' }, reason: 'partial refund',
+      reversalAmount: { amountMinor: 2400, currency: 'CAT' }, reason: 'partial refund',
       idempotencyKey: 'earning:reversal:3910', actorStaffId: staffId, now });
     expect(reversed).toMatchObject({ resultType: 'ADJUSTMENT_CREATED',
       playerEarning: { amountMinor: 8400, netAmountMinor: 6000, status: 'PAID', version: 4 },
@@ -69,12 +69,12 @@ async function seed() {
     INSERT INTO discord_accounts (id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at)
     VALUES ('00000000-0000-0000-0000-000000003915','${playerId}','900000000000000001','900000000000000041',now(),now(),now());
     INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,currency,amount_minor,guild_id,channel_id,panel_message_id,created_at,updated_at) VALUES
-    ('${orderId}','P-3914','${customerId}','${playerId}','COMPLETED',8,'USD',12000,'900000000000000001','900000000000000003','900000000000000004','2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
-    ('${olderOrderId}','P-3917','${customerId}','${playerId}','COMPLETED',8,'USD',12000,'900000000000000001','900000000000000005','900000000000000006','2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');
+    ('${orderId}','P-3914','${customerId}','${playerId}','COMPLETED',8,'CAT',12000,'900000000000000001','900000000000000003','900000000000000004','2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
+    ('${olderOrderId}','P-3917','${customerId}','${playerId}','COMPLETED',8,'CAT',12000,'900000000000000001','900000000000000005','900000000000000006','2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');
     INSERT INTO player_earnings (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,created_at,updated_at)
     VALUES
-    ('${earningId}','${orderId}','${playerId}',2,4200,8400,'USD','PENDING',1,'2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
-    ('${olderEarningId}','${olderOrderId}','${playerId}',2,4200,8400,'USD','PENDING',1,'2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');`);
+    ('${earningId}','${orderId}','${playerId}',2,4200,8400,'CAT','PENDING',1,'2026-07-18T16:00:00Z','2026-07-18T16:00:00Z'),
+    ('${olderEarningId}','${olderOrderId}','${playerId}',2,4200,8400,'CAT','PENDING',1,'2026-07-18T15:00:00Z','2026-07-18T15:00:00Z');`);
 }
 
 function decodeCursor(value: string): { createdAt: string; id: string } {
