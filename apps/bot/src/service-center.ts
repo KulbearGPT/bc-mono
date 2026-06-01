@@ -68,7 +68,7 @@ export interface BalanceSummary {
   ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
-  currency: 'USD';
+  currency: 'CAT';
   calculatedAt: string;
   version: number;
 }
@@ -255,6 +255,7 @@ export interface OrderLifecyclePanelSummary {
   status: 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
   version: number;
   actorRole: 'CUSTOMER' | 'PLAYER';
+  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
   readiness: {
     customer: 'READY' | 'NOT_READY';
     player: 'READY' | 'NOT_READY';
@@ -1193,10 +1194,10 @@ export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlaye
   return { title: '我的周报详情', body: [
     `${report.periodStart} 至 ${report.periodEnd} · ${report.status}`,
     `完成订单：${metrics.completedOrderCount} · 取消：${metrics.cancelledOrderCount} · 服务：${metrics.serviceMinutes} 分钟`,
-    `订单收益：${formatUsdMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatUsdMoney(metrics.giftEarningMinor, report.currency)}`,
-    `调整：${formatUsdMoney(metrics.adjustmentMinor, report.currency)}`,
-    `待确认：${formatUsdMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatUsdMoney(metrics.settlementReadyMinor, report.currency)}`,
-    `已入批次：${formatUsdMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
+    `订单收益：${formatPlatformMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatPlatformMoney(metrics.giftEarningMinor, report.currency)}`,
+    `调整：${formatPlatformMoney(metrics.adjustmentMinor, report.currency)}`,
+    `待确认：${formatPlatformMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatPlatformMoney(metrics.settlementReadyMinor, report.currency)}`,
+    `已入批次：${formatPlatformMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
   ].join('\n'), visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
     { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:reports:list:first', label: '返回周报' }
   ] }] };
@@ -1237,7 +1238,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     ? workbench.matchingOrders.map((match) => [
       `待接订单：#${match.order.publicId} · ${formatGame(match.order.game)} / ${formatService(match.order.service)}`,
       `需求：${match.order.requirements.join('、') || '无额外要求'} · 剩余 ${match.secondsRemaining} 秒`,
-      `预计收益：${formatUsdMoney(match.order.playerEarningMinor, match.order.currency)}`
+      `预计收益：${formatPlatformMoney(match.order.playerEarningMinor, match.order.currency)}`
     ].join('\n')).join('\n')
     : '待接订单：暂无';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
@@ -1276,9 +1277,9 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
       failedChecks.length > 0 ? `未满足条件：${failedChecks.map((check) => check.reason ?? check.code).join('；')}` : null,
       currentOrder,
       matchingLines,
-      `待确认收益：${formatUsdMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
-      `已确认收益：${formatUsdMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
-      `已支付收益：${formatUsdMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
+      `待确认收益：${formatPlatformMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
+      `已确认收益：${formatPlatformMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
+      `已支付收益：${formatPlatformMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
       `更新时间：${workbench.earningsSummary.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
@@ -1293,7 +1294,7 @@ export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageS
       `${input.game} · ${input.service}`,
       `区服：${input.region}`,
       `时长：${input.durationLabel}`,
-      `预计收益：${formatUsdMoney(input.playerEarningMinor, input.currency)}`,
+      `预计收益：${formatPlatformMoney(input.playerEarningMinor, input.currency)}`,
       input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
       input.notes ? `备注：${input.notes}` : '备注：未填写',
       `接单截止：${input.expiresAt}`
@@ -1360,6 +1361,7 @@ export function buildAcceptedDispatchMessage(input: {
 }
 
 export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSummary): MessageSpec {
+  const giftsEnabled = Array.isArray(order.enabledFeatures) && order.enabledFeatures.includes('GIFTS');
   if (order.status === 'ACCEPTED') {
     return {
       title: `订单 #${order.publicId} · 等待双方就绪`,
@@ -1385,7 +1387,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
               customId: `bc:service:support:${order.orderId}:v${order.version}`,
               label: '联系客服'
             },
-            ...(order.actorRole === 'CUSTOMER' ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
+            ...(order.actorRole === 'CUSTOMER' && giftsEnabled ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
               customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' }] : [])
           ]
         }
@@ -1409,7 +1411,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         label: '申请完成'
       });
     }
-    if (order.actorRole === 'CUSTOMER') components.unshift({ type: 'BUTTON', style: 'SECONDARY',
+    if (order.actorRole === 'CUSTOMER' && giftsEnabled) components.unshift({ type: 'BUTTON', style: 'SECONDARY',
       customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     return {
       title: `订单 #${order.publicId} · 服务中`,
@@ -1434,7 +1436,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
         label: '确认完成'
       });
-      components.push({ type: 'BUTTON', style: 'SECONDARY',
+      if (giftsEnabled) components.push({ type: 'BUTTON', style: 'SECONDARY',
         customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     }
     return {
@@ -2074,13 +2076,14 @@ function formatEstimateDuration(estimate: OrderEstimateSummary): string {
   return `${totalMinutes} 分钟`;
 }
 
-function formatUsdMoney(amountMinor: number, currency: string): string {
+function formatPlatformMoney(amountMinor: number, currency: string): string {
+  if (currency === 'CAT') return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
   const prefix = `${currency}\u00a0`;
   return `${prefix}${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
 }
 
 function formatCustomerMoney(amountMinor: number, currency: string): string {
-  if (currency !== 'USD') throw new Error('Customer wallet display requires canonical USD minor units.');
+  if (currency !== 'CAT') throw new Error('Customer wallet display requires canonical CAT subunits.');
   return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
 }
 

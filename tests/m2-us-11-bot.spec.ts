@@ -23,12 +23,12 @@ describe('M2-US-11 Discord paused automation state', () => {
       currentUser: {
         user: { id: 'u1', displayName: '用户小林', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: pausedOrder().id, riskFlags: [], version: 1 },
         activeOrderId: pausedOrder().id,
-        consumptionSummary: { totalMinor: 0, currency: 'USD' },
-        commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' }
+        consumptionSummary: { totalMinor: 0, currency: 'CAT' },
+        commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }
       },
-      balance: { ledgerBalanceMinor: 20000, reservedMinor: 12000, availableMinor: 8000, currency: 'USD', calculatedAt: '2026-07-18T09:00:00.000Z' },
+      balance: { ledgerBalanceMinor: 20000, reservedMinor: 12000, availableMinor: 8000, currency: 'CAT', calculatedAt: '2026-07-18T09:00:00.000Z' },
       activeOrder: pausedOrder(), consumptions: { items: [], nextCursor: null },
-      commissions: { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'USD' }, items: [], nextCursor: null }
+      commissions: { summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }, items: [], nextCursor: null }
     });
     expect(message.body).toContain('客服处理中');
   });
@@ -38,7 +38,7 @@ function pausedOrder(): OrderSummary {
   return {
     id: '00000000-0000-0000-0000-00000000b611', publicId: 'P-611', status: 'PENDING_DISPATCH', version: 4,
     game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', billingUnitMinutes: 60, unitCount: 2,
-    amountMinor: 12000, currency: 'USD', notes: null,
+    amountMinor: 12000, currency: 'CAT', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: null },
     matching: { stage: 'WAITING_FOR_ACCEPTANCE', notifiedCandidateCount: 3, timeoutAt: '2026-07-18T09:05:00.000Z', nextStep: 'WAIT_FOR_PLAYER', playerSummary: null },
     automation: { state: 'PAUSED', reasonCode: 'STAFF_TAKEOVER', expiresAt: '2026-07-18T09:30:00.000Z' }

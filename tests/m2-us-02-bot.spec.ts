@@ -33,7 +33,7 @@ function offer(overrides: Partial<DispatchOfferSummary> = {}): DispatchOfferSumm
     region: 'NA',
     durationLabel: '2 小时',
     playerEarningMinor: 8400,
-    currency: 'USD',
+    currency: 'CAT',
     notes: '中文交流',
     expiresAt: '2026-07-18T01:05:00.000Z',
     voiceChannelId: '666666666666666666',
@@ -48,7 +48,7 @@ describe('M2-US-02 Bot dispatch card', () => {
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
     expect(message.title).toBe('新订单 #P-2001');
     expect(message.body).toContain('VALORANT · ENTERTAINMENT');
-    expect(message.body).toContain('预计收益：USD\u00a084.00');
+    expect(message.body).toContain('预计收益：840.0 CAT');
     expect(message.body).toContain('语音频道：666666666666666666');
     expect(message.body).not.toMatch(/余额|用户账户|内部定价/);
     expect(message.components[0]?.components).toEqual(

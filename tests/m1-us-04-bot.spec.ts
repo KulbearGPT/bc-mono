@@ -41,7 +41,7 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     billingUnitMinutes: 60,
     unitCount: 2,
     amountMinor: 12_000,
-    currency: 'USD',
+    currency: 'CAT',
     notes: '轻松交流，不急着上分',
     channelSpec: {
       channelId: '120000000000000001',
@@ -126,7 +126,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     expect(message.title).toBe('订单 #P-1042');
     expect(message.body).toContain('无畏契约');
     expect(message.body).toContain('娱乐陪玩');
-    expect(message.body).toContain('1,200.00 MB');
+    expect(message.body).toContain('1,200.0 CAT');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
       expect.arrayContaining([
         `bc:select:order:${orderId}:game:v3`,

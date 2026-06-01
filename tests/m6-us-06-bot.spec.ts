@@ -9,15 +9,15 @@ const actor: BotActorContext = { guildId: '900000000000006600', discordUserId: '
   interactionId: '900000000000006609', clientSource: 'DISCORD_BOT' };
 const result = { giftCatalogVersionId: '00000000-0000-0000-0000-000000006610', catalogVersion: 4,
   priceMinor: 8_800, ledgerBalanceMinor: 5_000, reservedMinor: 1_200, availableMinor: 3_800,
-  shortfallMinor: 5_000, currency: 'USD', calculatedAt: '2026-07-19T21:00:00.000Z', stale: false,
+  shortfallMinor: 5_000, currency: 'CAT', calculatedAt: '2026-07-19T21:00:00.000Z', stale: false,
   canAfford: false, topUpInstructions: '联系客服并提交付款 receipt。' };
 
 describe('M6-US-06 Sapphire recharge continuation', () => {
   test('keeps every enabled catalog option selectable regardless of affordability', () => {
     const panel = buildGiftPanel({ orderId: 'order-1', orderPublicId: 'P-1', receiver: { userId: 'player-1', displayName: '阿岚' },
-      balance: { ledgerBalanceMinor: 5_000, reservedMinor: 3_000, availableMinor: 2_000, currency: 'USD', calculatedAt: result.calculatedAt },
-      items: [{ id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1_800, currency: 'USD', affordable: true },
-        { id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4, priceMinor: 8_800, currency: 'USD', affordable: false }] });
+      balance: { ledgerBalanceMinor: 5_000, reservedMinor: 3_000, availableMinor: 2_000, currency: 'CAT', calculatedAt: result.calculatedAt },
+      items: [{ id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1_800, currency: 'CAT', affordable: true },
+        { id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4, priceMinor: 8_800, currency: 'CAT', affordable: false }] });
     expect(panel.options).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'gift-18', disabled: false }),
       expect.objectContaining({ value: result.giftCatalogVersionId, disabled: false })
@@ -28,7 +28,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
   test('renders an ephemeral deficit-only panel with support, refresh, and back controls', () => {
     const message = buildGiftAffordabilityMessage(result, 'ctx_abc123');
     expect(message.visibility).toBe('EPHEMERAL');
-    expect(message.body).toContain('500.00 MB');
+    expect(message.body).toContain('500.0 CAT');
     expect(message.body).not.toMatch(/总余额|可用余额|预留/u);
     const rendered = toDiscordReply(message);
     const buttons = rendered.components!.flatMap((row: any) => row.components);
@@ -44,7 +44,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     const affordable = buildGiftAffordabilityMessage({ ...result, ledgerBalanceMinor: 10_000, availableMinor: 8_800,
       shortfallMinor: 0, canAfford: true }, 'ctx_ready');
     expect(JSON.stringify(affordable)).toContain('bc:gift:confirm:ctx_ready');
-    expect(affordable.body).toMatch(/880\.00 MB.*确认/u);
+    expect(affordable.body).toMatch(/880\.0 CAT.*确认/u);
   });
 
   test('uses an expiring HMAC short token with no receiver input or server-side registry', () => {
@@ -74,9 +74,9 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     const secret = 'm6-us-06-test-signing-secret-at-least-32-bytes';
     const message = buildGiftCatalogMessage({ orderId: '00000000-0000-0000-0000-000000006601', orderPublicId: 'P-6601',
       receiver: { userId: 'player-derived', displayName: '阿岚' }, balance: { ledgerBalanceMinor: 5_000,
-        reservedMinor: 10_200, availableMinor: -5_200, currency: 'USD', calculatedAt: result.calculatedAt },
+        reservedMinor: 10_200, availableMinor: -5_200, currency: 'CAT', calculatedAt: result.calculatedAt },
       items: [{ id: result.giftCatalogVersionId, code: 'BOX', name: '礼盒', version: 4,
-        priceMinor: 8_800, currency: 'USD', affordable: false }] }, 7, actor, secret,
+        priceMinor: 8_800, currency: 'CAT', affordable: false }] }, 7, actor, secret,
     new Date('2026-07-19T21:00:00.000Z'));
     const button = message.components[0]!.components[0]!;
     expect(button).toMatchObject({ type: 'BUTTON', disabled: false });

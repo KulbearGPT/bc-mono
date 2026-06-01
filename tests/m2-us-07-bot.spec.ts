@@ -65,7 +65,7 @@ function order(overrides: Partial<OrderSummary> = {}): OrderSummary {
     billingUnitMinutes: 60,
     unitCount: 2,
     amountMinor: 12000,
-    currency: 'USD',
+    currency: 'CAT',
     notes: null,
     channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: null },
     matching: null,

@@ -1,13 +1,13 @@
 export interface WalletDisplayConfig {
   displayName: string;
   symbol: string;
-  unitsPerUsd: 10;
+  subunitsPerCat: 10;
 }
 
 export const DEFAULT_WALLET_DISPLAY_CONFIG: Readonly<WalletDisplayConfig> = Object.freeze({
-  displayName: '猫币',
-  symbol: 'MB',
-  unitsPerUsd: 10
+  displayName: '猫条',
+  symbol: 'CAT',
+  subunitsPerCat: 10
 });
 
 const SYMBOL_PATTERN = /^[\p{L}0-9_·-]+$/u;
@@ -15,9 +15,10 @@ const SYMBOL_PATTERN = /^[\p{L}0-9_·-]+$/u;
 export function parseWalletDisplayConfig(
   env: Record<string, string | undefined> = process.env
 ): WalletDisplayConfig {
-  const displayName = validateDisplayName(env.WALLET_DISPLAY_NAME);
-  const symbol = validateDisplaySymbol(env.WALLET_DISPLAY_SYMBOL);
-  return { displayName, symbol, unitsPerUsd: 10 };
+  if (env.WALLET_DISPLAY_NAME !== undefined || env.WALLET_DISPLAY_SYMBOL !== undefined) {
+    throw new Error('CAT wallet display is fixed; remove WALLET_DISPLAY_NAME and WALLET_DISPLAY_SYMBOL.');
+  }
+  return { ...DEFAULT_WALLET_DISPLAY_CONFIG };
 }
 
 export function formatCustomerWalletAmount(
@@ -25,15 +26,15 @@ export function formatCustomerWalletAmount(
   config: WalletDisplayConfig = DEFAULT_WALLET_DISPLAY_CONFIG
 ): string {
   if (!Number.isSafeInteger(amountMinor)) {
-    throw new Error('amountMinor must be a safe integer in USD minor units.');
+    throw new Error('amountMinor must be a safe integer in CAT subunits.');
   }
   assertWalletDisplayConfig(config);
 
-  const hundredths = BigInt(amountMinor) * 10n;
-  const sign = hundredths < 0n ? '-' : '';
-  const absolute = hundredths < 0n ? -hundredths : hundredths;
-  const whole = (absolute / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
-  const fraction = (absolute % 100n).toString().padStart(2, '0');
+  const subunits = BigInt(amountMinor);
+  const sign = subunits < 0n ? '-' : '';
+  const absolute = subunits < 0n ? -subunits : subunits;
+  const whole = (absolute / 10n).toString().replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
+  const fraction = (absolute % 10n).toString();
   return `${sign}${whole}.${fraction} ${config.symbol}`;
 }
 
@@ -47,7 +48,7 @@ export function customerWalletLabel(
 function assertWalletDisplayConfig(config: WalletDisplayConfig): void {
   validateDisplayName(config.displayName, false);
   validateDisplaySymbol(config.symbol, false);
-  if (config.unitsPerUsd !== 10) throw new Error('unitsPerUsd must remain fixed at 10.');
+  if (config.subunitsPerCat !== 10) throw new Error('subunitsPerCat must remain fixed at 10.');
 }
 
 function validateDisplayName(value: string | undefined, useDefault = true): string {

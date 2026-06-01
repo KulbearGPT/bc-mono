@@ -10,6 +10,7 @@
     "./role-sync": "./src/role-sync.ts",
     "./service-center": "./src/service-center.ts",
     "./wallet-display": "./src/wallet-display.ts"
+    ,"./onboarding": "./src/onboarding.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

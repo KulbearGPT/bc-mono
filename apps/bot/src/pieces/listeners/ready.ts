@@ -11,6 +11,7 @@ import {
   botConfigCache,
   reloadBotConfigCache
 } from '../../bot-config.js';
+import { ensureOnboardingMessage, onboardingApi, reconcileProductRoleTasks } from '../../onboarding.js';
 
 export default class ReadyListener extends Listener {
   public constructor(context: Listener.LoaderContext) {
@@ -56,5 +57,13 @@ export default class ReadyListener extends Listener {
       }
     });
     this.container.logger.info({ event: 'bot.config.reload_complete', ...reload });
+    for (const guild of this.container.client.guilds.cache.values()) {
+      const channelId=botConfigCache.get(guild.id)?.values.public_entry_channel_id;
+      if(typeof channelId!=='string'||!channelId)continue;
+      try{const result=await ensureOnboardingMessage({guild,channelId,api:onboardingApi});this.container.logger.info({event:'bot.onboarding_message.ensured',guildId:guild.id,...result});}
+      catch(error){this.container.logger.error({event:'bot.onboarding_message.ensure_failed',guildId:guild.id,error});}
+      try{const result=await reconcileProductRoleTasks({guild,api:onboardingApi});this.container.logger.info({event:'bot.product_roles.reconciled',guildId:guild.id,...result});}
+      catch(error){this.container.logger.error({event:'bot.product_roles.reconcile_failed',guildId:guild.id,error});}
+    }
   }
 }

@@ -1,15 +1,27 @@
-import { SapphireClient } from '@sapphire/framework';
+import { ApplicationCommandRegistries, SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { discoverSapphirePieces } from './piece-manifest.js';
 import { parseWalletDisplayConfig } from './wallet-display.js';
+import { configureDiscordRendererEnvironment } from './discord-renderer.js';
+import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
+
+const isProductionRuntime = process.env.NODE_ENV === 'production';
+if (isProductionRuntime) requireProductionServiceEnv('bot', process.env);
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
+configureDiscordRendererEnvironment(process.env.BUSINESS_ENV);
+let ready = false;
 
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'bot.config.invalid', errors: validation.errors }));
   process.exit(1);
 }
+const health = isProductionRuntime
+  ? await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready })
+  : undefined;
 
 try {
   parseWalletDisplayConfig(process.env);
@@ -34,8 +46,21 @@ if (!validation.values.discordBotToken) {
     })
   );
 } else {
+  const configuredGuildId = process.env.DISCORD_GUILD_ID?.trim();
+  if (configuredGuildId) ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId]);
   const client = new SapphireClient({
+    baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), 'pieces'),
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences]
   });
   await client.login(validation.values.discordBotToken);
+  const apiHealth = await fetch(new URL('/health', validation.values.apiBaseUrl));
+  if (!apiHealth.ok) throw new Error('Unified API health check failed during Bot startup.');
+  ready = true;
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      ready = false;
+      client.destroy();
+      void health?.close().finally(() => process.exit(0));
+    });
+  }
 }

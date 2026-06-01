@@ -26,7 +26,7 @@ export interface GiftRequestResult {
 export interface GiftAffordabilityResult {
   giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
   ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
-  currency: 'USD'; calculatedAt: string; stale: boolean; canAfford: boolean; topUpInstructions: string;
+  currency: 'CAT'; calculatedAt: string; stale: boolean; canAfford: boolean; topUpInstructions: string;
 }
 
 export interface GiftContinuationContext {
@@ -172,6 +172,6 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
 }
 
 function formatGiftAmount(amountMinor: number, currency: string): string {
-  if (currency !== 'USD') throw new Error('Customer gift display requires canonical USD minor units.');
+  if (currency !== 'CAT') throw new Error('Customer gift display requires canonical USD minor units.');
   return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
 }

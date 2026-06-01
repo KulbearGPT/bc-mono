@@ -29,10 +29,10 @@ const workbench: PlayerWorkbenchSummary = {
     order: {
       id: '00000000-0000-0000-0000-00000000b001', publicId: 'P-1042', status: 'PENDING_DISPATCH', version: 5,
       game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', durationMinutes: 120, playerEarningMinor: 8_000,
-      currency: 'USD', requirements: ['中文交流'], voiceChannelId: null
+      currency: 'CAT', requirements: ['中文交流'], voiceChannelId: null
     }
   }],
-  earningsSummary: { pendingMinor: 8_000, confirmedMinor: 3_000, paidMinor: 20_000, currency: 'USD', calculatedAt: '2026-07-18T00:00:00.000Z' },
+  earningsSummary: { pendingMinor: 8_000, confirmedMinor: 3_000, paidMinor: 20_000, currency: 'CAT', calculatedAt: '2026-07-18T00:00:00.000Z' },
   nextActions: ['REVIEW_MATCH', 'ACCEPT_ORDER']
 };
 
@@ -45,8 +45,8 @@ describe('M2-US-08 Sapphire player workbench', () => {
     expect(message.body).toContain('业务可接单开关：AVAILABLE');
     expect(message.body).toContain('#P-1042');
     expect(message.body).toContain('剩余 120 秒');
-    expect(message.body).toContain('预计收益：USD\u00a080.00');
-    expect(message.body).toContain('待确认收益：USD\u00a080.00');
+    expect(message.body).toContain('预计收益：800.0 CAT');
+    expect(message.body).toContain('待确认收益：800.0 CAT');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual([
       'bc:entry:player-workbench',
       'bc:reports:list:first',
