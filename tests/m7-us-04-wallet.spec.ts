@@ -21,36 +21,36 @@ describe('M7-US-04 internal USD wallet domain', () => {
   test('creates one USD wallet automatically and credits a required receipt reference immediately', async () => {
     const wallet = service();
     const result = await wallet.createTopUp({
-      userId, amountMinor: 500_000, paymentChannel: 'stripe', externalTransactionId: 'pi_m7_001',
+      userId, amountMinor: 500_000, paymentChannel: 'ZELLE', externalTransactionId: 'pi_m7_001',
       paidAt: now.toISOString(), note: 'receipt checked', idempotencyKey: 'm7:topup:1',
-      actorStaffId: staffId, actorLevel: 'L1_SUPPORT', now
+      actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now
     });
-    expect(result).toMatchObject({ amountMinor: 500_000, currency: 'USD', balance: {
-      ledgerBalanceMinor: 500_000, reservedMinor: 0, availableMinor: 500_000, currency: 'USD', version: 2
+    expect(result).toMatchObject({ amountMinor: 500_000, currency: 'CAT', balance: {
+      ledgerBalanceMinor: 500_000, reservedMinor: 0, availableMinor: 500_000, currency: 'CAT', version: 2
     }});
     expect(await wallet.getBalance({ userId, now })).toMatchObject({ availableMinor: 500_000 });
     await expect(wallet.createTopUp({
-      userId, amountMinor: 1, paymentChannel: 'stripe', externalTransactionId: 'pi_m7_001',
+      userId, amountMinor: 1, paymentChannel: 'ZELLE', externalTransactionId: 'pi_m7_001',
       paidAt: now.toISOString(), note: 'duplicate', idempotencyKey: 'm7:topup:2',
-      actorStaffId: staffId, actorLevel: 'L1_SUPPORT', now
+      actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now
     })).rejects.toMatchObject({ code: 'DUPLICATE_EXTERNAL_TRANSACTION' });
   });
 
-  test('requires L2 only above 500000 and validates every mandatory field', async () => {
+  test('requires L2 for every manual top-up and validates every mandatory field', async () => {
     const wallet = service();
     await expect(wallet.createTopUp({
-      userId, amountMinor: 500_001, paymentChannel: 'paypal', externalTransactionId: 'pp_m7_001',
+      userId, amountMinor: 500_001, paymentChannel: 'PAYPAL', externalTransactionId: 'pp_m7_001',
       paidAt: now.toISOString(), note: 'checked', idempotencyKey: 'm7:topup:3',
       actorStaffId: staffId, actorLevel: 'L1_SUPPORT', now
     })).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
     await expect(wallet.createTopUp({
-      userId, amountMinor: 500_001, paymentChannel: 'paypal', externalTransactionId: 'pp_m7_001',
+      userId, amountMinor: 500_001, paymentChannel: 'PAYPAL', externalTransactionId: 'pp_m7_001',
       paidAt: now.toISOString(), note: 'checked', idempotencyKey: 'm7:topup:4',
       actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now
     })).resolves.toMatchObject({ balance: { availableMinor: 500_001 } });
     for (const field of ['paymentChannel', 'externalTransactionId', 'note'] as const) {
       await expect(wallet.createTopUp({
-        userId, amountMinor: 1, paymentChannel: 'card', externalTransactionId: 'card_m7', paidAt: now.toISOString(),
+        userId, amountMinor: 1, paymentChannel: 'BANK_TRANSFER', externalTransactionId: 'card_m7', paidAt: now.toISOString(),
         note: 'checked', idempotencyKey: `m7:required:${field}`, actorStaffId: staffId,
         actorLevel: 'L2_SUPERVISOR', now, [field]: ''
       })).rejects.toBeInstanceOf(WalletError);
@@ -60,7 +60,7 @@ describe('M7-US-04 internal USD wallet domain', () => {
   test('replays idempotently and external refund debit cannot spend reserved or make available negative', async () => {
     const wallet = service();
     const input = {
-      userId, amountMinor: 1_000, paymentChannel: 'card', externalTransactionId: 'card_m7_002',
+      userId, amountMinor: 1_000, paymentChannel: 'BANK_TRANSFER', externalTransactionId: 'card_m7_002',
       paidAt: now.toISOString(), note: 'checked', idempotencyKey: 'm7:topup:5',
       actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR' as const, now
     };
@@ -69,13 +69,13 @@ describe('M7-US-04 internal USD wallet domain', () => {
     await wallet.reserve({ userId, sourceType: 'ORDER', sourceId: '00000000-0000-0000-0000-000000007403',
       amountMinor: 800, idempotencyKey: 'm7:reserve:1', expiresAt: new Date(now.getTime() + 60_000), now });
     await expect(wallet.createExternalRefundDebit({
-      userId, amountMinor: 201, paymentChannel: 'card', externalTransactionId: 'refund_m7_001',
+      userId, amountMinor: 201, paymentChannel: 'BANK_TRANSFER', externalTransactionId: 'refund_m7_001',
       refundedAt: now.toISOString(), note: 'offline refund complete',
       expectedWalletVersion: 3, idempotencyKey: 'm7:external-refund:1', actorStaffId: staffId,
       actorLevel: 'L2_SUPERVISOR', now
     })).rejects.toMatchObject({ code: 'INSUFFICIENT_AVAILABLE_BALANCE' });
     const debit = await wallet.createExternalRefundDebit({
-      userId, amountMinor: 200, paymentChannel: 'card', externalTransactionId: 'refund_m7_002',
+      userId, amountMinor: 200, paymentChannel: 'BANK_TRANSFER', externalTransactionId: 'refund_m7_002',
       refundedAt: now.toISOString(), note: 'offline refund complete', expectedWalletVersion: 3,
       idempotencyKey: 'm7:external-refund:2', actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now
     });
@@ -84,7 +84,7 @@ describe('M7-US-04 internal USD wallet domain', () => {
 
   test('requires L3 and an existing reversal link for append-only adjustments', async () => {
     const wallet = service();
-    const topUp = await wallet.createTopUp({ userId, amountMinor: 1_000, paymentChannel: 'cash', externalTransactionId: 'cash_m7_1',
+    const topUp = await wallet.createTopUp({ userId, amountMinor: 1_000, paymentChannel: 'CASH', externalTransactionId: 'cash_m7_1',
       paidAt: now.toISOString(), note: 'checked', idempotencyKey: 'm7:adjust:topup', actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now });
     await expect(wallet.createAdjustment({ userId, entryType: 'ADJUSTMENT_DEBIT', amountMinor: 100, reversalOfEntryId: topUp.walletEntry.id,
       reason: 'correction', expectedWalletVersion: 2, idempotencyKey: 'm7:adjust:1', actorStaffId: staffId, actorLevel: 'L2_SUPERVISOR', now }))

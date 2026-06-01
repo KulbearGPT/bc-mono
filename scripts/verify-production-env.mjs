@@ -2,48 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const required = [
-  'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'API_BASE_URL', 'BOT_SERVICE_TOKEN', 'BOT_CONFIG_VALIDATION_SECRET',
-  'DASHBOARD_CSRF_SECRET', 'DASHBOARD_MFA_ENCRYPTION_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_ID',
-  'DISCORD_OAUTH_CLIENT_SECRET', 'DISCORD_OAUTH_REDIRECT_URI', 'DISCORD_GUILD_ID'
-];
-const sensitive = new Set([
-  'BOT_SERVICE_TOKEN', 'BOT_CONFIG_VALIDATION_SECRET', 'DASHBOARD_CSRF_SECRET', 'DASHBOARD_MFA_ENCRYPTION_KEY',
-  'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_SECRET'
-]);
-
-export function validateProductionEnv(env) {
-  const errors = [];
-  if (env.NODE_ENV !== 'production') errors.push('NODE_ENV must be production.');
-  for (const key of required) {
-    const value = env[key]?.trim() ?? '';
-    if (!value) errors.push(`${key} is required.`);
-    else if (/change-me|replace-me|not-for-production|set_in_secret_store/iu.test(value)) errors.push(`${key} must not use a placeholder value.`);
-    else if (sensitive.has(key) && value.length < 32) errors.push(`${key} must be at least 32 characters.`);
-  }
-  if (env.DATABASE_URL && env.MIGRATION_DATABASE_URL && env.DATABASE_URL === env.MIGRATION_DATABASE_URL) {
-    errors.push('Application and migration database credentials must be separate.');
-  }
-  for (const key of ['API_BASE_URL', 'DISCORD_OAUTH_REDIRECT_URI']) {
-    const value = env[key];
-    if (value && !isHttps(value)) errors.push(`${key} must use HTTPS.`);
-  }
-  if (env.DISCORD_GUILD_ID && !/^[0-9]{17,20}$/u.test(env.DISCORD_GUILD_ID)) errors.push('DISCORD_GUILD_ID must be a Discord snowflake.');
-  if (env.WALLET_DISPLAY_NAME !== undefined || env.WALLET_DISPLAY_SYMBOL !== undefined) {
-    const displayName = env.WALLET_DISPLAY_NAME === undefined ? '猫币' : env.WALLET_DISPLAY_NAME.trim();
-    const symbol = env.WALLET_DISPLAY_SYMBOL === undefined ? 'MB' : env.WALLET_DISPLAY_SYMBOL.trim();
-    if ([...displayName].length < 1 || [...displayName].length > 20) {
-      errors.push('WALLET_DISPLAY_NAME must contain 1 to 20 Unicode characters.');
-    }
-    if (symbol !== (env.WALLET_DISPLAY_SYMBOL ?? symbol)
-      || [...symbol].length < 1 || [...symbol].length > 8 || !/^[\p{L}0-9_·-]+$/u.test(symbol)) {
-      errors.push('WALLET_DISPLAY_SYMBOL must contain 1 to 8 letters, ASCII digits, _, - or ·.');
-    }
-  }
-  return errors;
-}
-
-function isHttps(value) { try { return new URL(value).protocol === 'https:'; } catch { return false; } }
+export { validateProductionEnv } from '../modules/platform/src/production-env.js';
+import { validateProductionEnv } from '../modules/platform/src/production-env.js';
 function parseEnv(text) {
   return Object.fromEntries(text.split(/\r?\n/u).filter((line) => line && !line.startsWith('#')).map((line) => {
     const index = line.indexOf('='); return index < 0 ? [line, ''] : [line.slice(0, index), line.slice(index + 1)];

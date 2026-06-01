@@ -67,8 +67,8 @@ describe('M7-US-07 Provider funding retirement', () => {
     }
 
     const workerRuntime = await readFile('apps/api/src/worker-runtime.ts', 'utf8');
-    const handlerMap = workerRuntime.slice(workerRuntime.indexOf('return {'), workerRuntime.indexOf('};', workerRuntime.indexOf('return {')));
-    const workerInventory = [...handlerMap.matchAll(/^\s+([A-Z][A-Z_]+):\s*input\./gmu)].map((match) => ({
+    const handlerMap = workerRuntime.slice(workerRuntime.indexOf('const handlers:'), workerRuntime.indexOf('return handlers;'));
+    const workerInventory = [...handlerMap.matchAll(/(?:handlers\.)?([A-Z][A-Z_]+)\s*[:=]\s*input\./gu)].map((match) => ({
       id: `worker:${match[1]}`,
       actorSources: 'SYSTEM_JOB',
       primaryTarget: 'outbox_event+aggregate',
@@ -78,7 +78,7 @@ describe('M7-US-07 Provider funding retirement', () => {
       acceptanceIds: acceptanceIds.join(';')
     }));
 
-    expect(routeInventory).toHaveLength(71);
+    expect(routeInventory).toHaveLength(76);
     expect(workerInventory).toHaveLength(10);
     const inventory = [...routeInventory, ...workerInventory];
     expect(new Set(inventory.map(({ id }) => id)).size).toBe(inventory.length);

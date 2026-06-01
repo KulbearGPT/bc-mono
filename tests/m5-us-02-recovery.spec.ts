@@ -37,12 +37,13 @@ describe('M5-US-02 production-like recovery candidate', () => {
 
 function productionEnv(): Record<string, string> {
   return {
-    NODE_ENV: 'production', DATABASE_URL: 'postgresql://blackcat_app:app-secret@postgres:5432/blackcat',
+    NODE_ENV: 'production', BUSINESS_ENV:'SANDBOX', PILOT_PHASE:'CORE_ORDER_AND_GIFTS', DATABASE_URL: 'postgresql://blackcat_app:app-secret@postgres:5432/blackcat',
     MIGRATION_DATABASE_URL: 'postgresql://blackcat_migrate:migrate-secret@postgres:5432/blackcat',
     API_BASE_URL: 'https://api.example.test', BOT_SERVICE_TOKEN: 'b'.repeat(48),
     BOT_CONFIG_VALIDATION_SECRET: 'c'.repeat(48), DASHBOARD_CSRF_SECRET: 'd'.repeat(48),
     DASHBOARD_MFA_ENCRYPTION_KEY: 'e'.repeat(48), DISCORD_BOT_TOKEN: 'i'.repeat(48),
     DISCORD_OAUTH_CLIENT_ID: 'client-id', DISCORD_OAUTH_CLIENT_SECRET: 'f'.repeat(48),
-    DISCORD_OAUTH_REDIRECT_URI: 'https://api.example.test/api/v1/auth/discord/callback', DISCORD_GUILD_ID: '900000000000000000'
+    DISCORD_OAUTH_REDIRECT_URI: 'https://api.example.test/api/v1/auth/discord/callback', DISCORD_GUILD_ID: '900000000000000000',
+    DASHBOARD_URL:'https://api.example.test'
   };
 }

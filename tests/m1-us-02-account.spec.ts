@@ -16,7 +16,7 @@ describe('M1-US-02 Discord identity and internal account summary', () => {
       actor: { source: 'DISCORD_BOT', actorUserId: null, actorStaffId: null, actorLevel: null,
         guildId: '900000000000001002', discordUserId: '900000000000001003', interactionId: null,
         permissions: ['account.self.read'], permissionsVersion: null }, now });
-    expect(result).toMatchObject({ ledgerBalanceMinor: 12_300, reservedMinor: 0, availableMinor: 12_300, currency: 'USD' });
+    expect(result).toMatchObject({ ledgerBalanceMinor: 12_300, reservedMinor: 0, availableMinor: 12_300, currency: 'CAT' });
   });
 
   test('contains no self-service payment-platform binding operation', () => {

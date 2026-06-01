@@ -20,7 +20,7 @@ function earning(input: Partial<SettlementCandidateEarning> & Pick<SettlementCan
     guildId: input.guildId ?? guildId,
     playerUserId: input.playerUserId ?? playerA,
     amountMinor: input.amountMinor ?? 10_000,
-    currency: input.currency ?? 'USD',
+    currency: input.currency ?? 'CAT',
     status: input.status ?? 'CONFIRMED',
     confirmedAt: input.confirmedAt === undefined ? '2026-07-19T12:00:00.000Z' : input.confirmedAt,
     paidAt: input.paidAt ?? null,
@@ -38,7 +38,7 @@ function createInput(overrides: Partial<SettlementCreateInput> = {}): Settlement
     periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt,
     timeZone: 'Asia/Shanghai',
-    currency: 'USD',
+    currency: 'CAT',
     playerUserIds: null,
     createdByStaffId: '00000000-0000-0000-0000-000000006190',
     ...overrides
@@ -78,8 +78,8 @@ describe('M6-US-01 settlement domain', () => {
       id: '00000000-0000-0000-0000-000000006131',
       amountMinor: 10_000,
       adjustments: [
-        { id: '00000000-0000-0000-0000-000000006132', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'CORRECTION_CREDIT', amountMinor: 500, currency: 'USD', createdAt: '2026-07-19T13:00:00.000Z' },
-        { id: '00000000-0000-0000-0000-000000006133', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'REVERSAL_DEBIT', amountMinor: 2_000, currency: 'USD', createdAt: '2026-07-19T14:00:00.000Z' }
+        { id: '00000000-0000-0000-0000-000000006132', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'CORRECTION_CREDIT', amountMinor: 500, currency: 'CAT', createdAt: '2026-07-19T13:00:00.000Z' },
+        { id: '00000000-0000-0000-0000-000000006133', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'REVERSAL_DEBIT', amountMinor: 2_000, currency: 'CAT', createdAt: '2026-07-19T14:00:00.000Z' }
       ]
     });
     const store = new InMemorySettlementStore({ earnings: [source] });
@@ -128,7 +128,7 @@ describe('M6-US-01 settlement domain', () => {
         playerEarningId: '00000000-0000-0000-0000-000000006161',
         type: 'CORRECTION_DEBIT',
         amountMinor: 1_200,
-        currency: 'USD',
+        currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -158,7 +158,7 @@ describe('M6-US-01 settlement domain', () => {
         playerEarningId: '00000000-0000-0000-0000-000000006171',
         type: 'CORRECTION_DEBIT',
         amountMinor: 1_200,
-        currency: 'USD',
+        currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -188,7 +188,7 @@ describe('M6-US-01 settlement domain', () => {
       adjustments: [{
         id: '00000000-0000-0000-0000-000000006182',
         playerEarningId: '00000000-0000-0000-0000-000000006181',
-        type: 'CORRECTION_DEBIT', amountMinor: 1_200, currency: 'USD',
+        type: 'CORRECTION_DEBIT', amountMinor: 1_200, currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -216,7 +216,7 @@ describe('M6-US-01 settlement domain', () => {
       adjustments: [{
         id: '00000000-0000-0000-0000-000000006186',
         playerEarningId: '00000000-0000-0000-0000-000000006185',
-        type: 'CORRECTION_CREDIT', amountMinor: 1, currency: 'USD',
+        type: 'CORRECTION_CREDIT', amountMinor: 1, currency: 'CAT',
         createdAt: '2026-07-19T13:00:00.000Z'
       }]
     });

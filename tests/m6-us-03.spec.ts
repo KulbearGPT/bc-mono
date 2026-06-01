@@ -19,7 +19,7 @@ function generation(): WeeklyReportGenerationInput {
     periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z',
     timeZone: 'Asia/Shanghai',
-    currency: 'USD'
+    currency: 'CAT'
   };
 }
 
