@@ -1,4 +1,4 @@
-import type { PilotFeature } from './sandbox-funding.js';
+import type { PilotFeature } from './pilot-features.js';
 
 export interface DashboardCapabilities {
   permissions: string[];
@@ -13,7 +13,7 @@ export interface DashboardCapabilities {
 }
 
 export interface DashboardNavigationItem {
-  id: 'overview' | 'support' | 'security' | 'operations' | 'access' | 'sandboxFunding';
+  id: 'overview' | 'support' | 'security' | 'operations' | 'access';
   label: string;
   href: string;
 }
@@ -28,15 +28,9 @@ const navigationRules: Array<DashboardNavigationItem & { permission: string }> =
 
 export function buildDashboardNavigation(capabilities: DashboardCapabilities): DashboardNavigationItem[] {
   const permissions = new Set(capabilities.permissions);
-  const base = navigationRules
+  return navigationRules
     .filter((item) => permissions.has(item.permission))
     .map(({ permission: _permission, ...item }) => item);
-  if (capabilities.businessEnvironment === 'SANDBOX'
-    && capabilities.displayRole === 'OWNER'
-    && permissions.has('sandbox_funding.manage')) {
-    base.push({ id: 'sandboxFunding', label: '测试余额', href: '/sandbox-funding' });
-  }
-  return base;
 }
 
 export function buildDashboardState(input: { status: number; capabilities?: DashboardCapabilities }) {

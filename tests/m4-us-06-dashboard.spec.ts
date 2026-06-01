@@ -117,16 +117,16 @@ describe('M4-US-06 Dashboard operations presenter', () => {
   });
 
   test('maps a policy edit to an append-version request without changing the source row', () => {
-    const setting = { key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'USD', version: 2 };
+    const setting = { key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'CAT', version: 2 };
 
     expect(buildUpdatePolicySettingRequest(setting, {
-      integerValue: 250_000, currency: 'USD', reasonCode: 'LIMIT_REVIEW'
+      integerValue: 250_000, currency: 'CAT', reasonCode: 'LIMIT_REVIEW'
     })).toEqual({
       method: 'PUT',
       path: '/api/v1/admin/policy-settings/L2_GIFT_APPROVAL_LIMIT_MINOR',
-      body: { expectedVersion: 2, integerValue: 250_000, currency: 'USD', reasonCode: 'LIMIT_REVIEW' }
+      body: { expectedVersion: 2, integerValue: 250_000, currency: 'CAT', reasonCode: 'LIMIT_REVIEW' }
     });
-    expect(setting).toEqual({ key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'USD', version: 2 });
+    expect(setting).toEqual({ key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'CAT', version: 2 });
   });
 
   test('presents API error details with a visible requestId for staff escalation', () => {

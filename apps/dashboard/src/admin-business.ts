@@ -97,7 +97,10 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   {
     id: 'players', label: '陪玩', href: '/admin/players', endpoint: '/api/v1/admin/players', readPermission: 'player.read',
     filters: [{ id: 'reviewStatus', label: '准入状态' }],
-    actions: []
+    actions: [
+      { id: 'APPROVE_COMPANION', label: '批准陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
+      { id: 'REJECT_COMPANION', label: '拒绝陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' }
+    ]
   },
   {
     id: 'serviceCatalog', label: '服务目录', href: '/admin/service-catalog', endpoint: '/api/v1/admin/service-catalog', readPermission: 'catalog.read',
@@ -211,6 +214,7 @@ export function formatMinorCurrency(amountMinor: number, currency: string, local
   if (!Number.isSafeInteger(amountMinor)) {
     throw new TypeError('Amounts must use safe integer minor units.');
   }
+  if(currency==='CAT')return `${(amountMinor/10).toLocaleString(locale,{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;
   const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'code' });
   const fractionDigits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amountMinor / (10 ** fractionDigits));
@@ -254,6 +258,10 @@ export function buildAdminActionRequest(input: {
   item?: Record<string, unknown>;
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
+  if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
+    gameTags:splitTags(input.fields.gameTags),serviceTags:splitTags(input.fields.serviceTags),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+  if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
+    reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}
   if (input.actionId === 'SET_OPERATIONAL_STATUS') {
     const item = requireItem(input.item);
     const status = requireEnum(input.fields.status, ['ACTIVE', 'PAUSED', 'SUSPENDED'], 'status');
@@ -332,6 +340,10 @@ function requireItem(item: Record<string, unknown> | undefined): { id: string; v
   if (!Number.isSafeInteger(item.version) || Number(item.version) < 1) throw new TypeError('A valid item version is required.');
   return { id, version: Number(item.version) };
 }
+function requirePlayerItem(item:Record<string,unknown>|undefined):{id:string;version:number}{if(!item)throw new TypeError('A player item is required.');const id=requireText(item.playerId??item.id,'playerId');
+  if(!Number.isSafeInteger(item.version)||Number(item.version)<1)throw new TypeError('A valid player version is required.');return{id,version:Number(item.version)};}
+function splitTags(value:string|boolean|undefined):string[]{if(typeof value!=='string')throw new TypeError('Tags are required.');const tags=Array.from(new Set(value.split(',').map(item=>item.trim()).filter(Boolean)));
+  if(!tags.length)throw new TypeError('At least one tag is required.');return tags;}
 
 function requireReasonCode(value: string | boolean | undefined): string {
   const reasonCode = requireText(value, 'reasonCode');

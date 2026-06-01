@@ -28,7 +28,7 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
 
   test('maps preview, create, review, export and payment result commands to unified API', () => {
     const period = { periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
-      cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'USD' };
+      cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT' };
     expect(buildSettlementRequest({ action: 'PREVIEW', fields: period })).toEqual({ method: 'POST', path: '/api/v1/admin/settlement-batches/preview', body: { ...period, source: 'MANUAL', playerUserIds: null } });
     expect(buildSettlementRequest({ action: 'CREATE', fields: period })).toEqual({ method: 'POST', path: '/api/v1/admin/settlement-batches', body: { ...period, source: 'MANUAL', playerUserIds: null } });
     expect(buildSettlementRequest({ action: 'SUBMIT', batchId: 'batch-1', version: 2, fields: { reasonCode: 'WEEKLY_REVIEW' } })).toEqual({
@@ -38,7 +38,7 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
       method: 'GET', path: '/api/v1/admin/settlement-batches/batch-1/exports/TRANSFER_LIST', body: null
     });
     expect(buildSettlementRequest({ action: 'PAYMENT_RESULTS', batchId: 'batch-1', version: 3, fields: { results: [{ settlementItemId: 'item-1', expectedVersion: 1,
-      result: 'FAILED', amountMinor: 0, currency: 'USD', externalBatchReference: '', note: 'Provider rejected row' }] } })).toMatchObject({
+      result: 'FAILED', amountMinor: 0, currency: 'CAT', externalBatchReference: '', note: 'Provider rejected row' }] } })).toMatchObject({
       method: 'POST', path: '/api/v1/admin/settlement-batches/batch-1/payment-results', body: { expectedBatchVersion: 3,
         results: [{ externalBatchReference: null, note: 'Provider rejected row' }] }
     });
@@ -51,7 +51,7 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
       periodEnd: '2026-07-19T16:00:00.000Z',
       cutoffAt: '2026-07-19T16:00:00.000Z',
       timeZone: 'Asia/Shanghai',
-      currency: 'USD',
+      currency: 'CAT',
       playerUserIds: null
     };
     expect(buildSettlementRequest({
@@ -87,7 +87,7 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
 
   test('keeps destructive settlement actions restricted and models partial failures', () => {
     const l3 = buildSettlementPage({ section: 'settlements', permissions: ['settlement.read', 'settlement.manage', 'settlement.approve'],
-      status: 'READY', items: [{ id: 'batch-1', status: 'PARTIALLY_PAID', version: 4, netAmountMinor: 30_000, currency: 'USD',
+      status: 'READY', items: [{ id: 'batch-1', status: 'PARTIALLY_PAID', version: 4, netAmountMinor: 30_000, currency: 'CAT',
         items: [{ id: 'item-1', paymentStatus: 'SUCCEEDED' }, { id: 'item-2', paymentStatus: 'FAILED' }] }] });
     expect(l3.actions).toContain('PAYMENT_RESULTS');
     expect(l3.actions).not.toContain('VOID');
@@ -124,10 +124,10 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     });
     const modules: CustomerProfileModules = {
       identity: { kind: 'READY', data: { userId: customerId, displayName: '客户甲', discordUserId: '900000000000006410', status: 'ACTIVE', externalAccountDisplay: 'mock:***1234' } },
-      balance: { kind: 'ERROR', requestId: 'req_provider_timeout', data: { ledgerBalanceMinor: 8_000, reservedMinor: 12_000, availableMinor: -4_000, currency: 'USD', calculatedAt: '2026-07-18T10:00:00.000Z', stale: true } },
+      balance: { kind: 'ERROR', requestId: 'req_provider_timeout', data: { ledgerBalanceMinor: 8_000, reservedMinor: 12_000, availableMinor: -4_000, currency: 'CAT', calculatedAt: '2026-07-18T10:00:00.000Z', stale: true } },
       statistics: { kind: 'READY', data: { orderCount: 3, completedOrderCount: 2, cancelledOrderCount: 1, refundCount: 1, orderSpendMinor: 30_001,
-        giftSpendMinor: 2_500, refundMinor: 1_500, totalConsumptionMinor: 31_001, averageOrderAmountMinor: 15_000, currency: 'USD' } },
-      orders: { kind: 'READY', items: [{ id: 'order-1', publicId: 'P-1', status: 'COMPLETED', serviceKey: 'RANKED', playerDisplayName: '陪玩甲', amountMinor: 10_001, currency: 'USD', createdAt: '2026-07-18T12:00:00.000Z' }], nextCursor: null },
+        giftSpendMinor: 2_500, refundMinor: 1_500, totalConsumptionMinor: 31_001, averageOrderAmountMinor: 15_000, currency: 'CAT' } },
+      orders: { kind: 'READY', items: [{ id: 'order-1', publicId: 'P-1', status: 'COMPLETED', serviceKey: 'RANKED', playerDisplayName: '陪玩甲', amountMinor: 10_001, currency: 'CAT', createdAt: '2026-07-18T12:00:00.000Z' }], nextCursor: null },
       consumptions: { kind: 'EMPTY', items: [], nextCursor: null },
       preferences: { kind: 'READY', data: { preferredGameKeys: ['VALORANT'], preferredServiceKeys: ['RANKED'], preferredPlayerUserIds: [playerId] } },
       internal: { kind: 'READY', notes: [{ id: 'note-1', text: '仅供客服跟进', createdAt: '2026-07-18T13:00:00.000Z' }], riskFlags: ['PAYMENT_ANOMALY'] }
@@ -138,7 +138,7 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     expect(html).toContain('req_provider_timeout');
     expect(html).toContain('3');
     expect(html).toContain('P-1');
-    expect(html).toContain('-USD\u00a040.00');
+    expect(html).toContain('-400.0 猫条');
     expect(html.toLowerCase()).not.toMatch(/beneficiary|commission|profitminor|marginminor|referral/u);
   });
 
@@ -147,8 +147,8 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
       identity: { kind: 'READY', data: { userId: customerId, displayName: '客户甲', status: 'ACTIVE' } },
       balance: { kind: 'ERROR', requestId: 'req_no_snapshot' },
       statistics: { kind: 'READY', data: { orderCount: 2, completedOrderCount: 1, cancelledOrderCount: 0, refundCount: 0,
-        orderSpendMinor: 10_000, giftSpendMinor: 0, totalConsumptionMinor: 10_000, averageOrderAmountMinor: 10_000, currency: 'USD' } },
-      orders: { kind: 'READY', items: [{ id: 'order-2', publicId: 'P-NO-SNAPSHOT', status: 'COMPLETED', amountMinor: 10_000, currency: 'USD' }], nextCursor: null },
+        orderSpendMinor: 10_000, giftSpendMinor: 0, totalConsumptionMinor: 10_000, averageOrderAmountMinor: 10_000, currency: 'CAT' } },
+      orders: { kind: 'READY', items: [{ id: 'order-2', publicId: 'P-NO-SNAPSHOT', status: 'COMPLETED', amountMinor: 10_000, currency: 'CAT' }], nextCursor: null },
       consumptions: { kind: 'EMPTY', items: [], nextCursor: null }, preferences: { kind: 'READY', data: {} },
       internal: { kind: 'READY', notes: [{ id: 'note-2', text: '仍可查看的备注', createdAt: '2026-07-19T10:00:00.000Z' }], riskFlags: [] }
     };

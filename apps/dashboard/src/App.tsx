@@ -13,13 +13,12 @@ import { OperationsRoute } from './OperationsRoute.js';
 import { SettlementRoute } from './SettlementRoute.js';
 import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { buildSettlementNavigation } from './settlements.js';
-import { SandboxFundingPage } from './SandboxFundingPage.js';
 import {
   getSandboxBanner,
   hasFeature,
   resolveDashboardBusinessEnvironment,
-  type DashboardCapabilities as PilotDashboardCapabilities
-} from './sandbox-funding.js';
+  type PilotDashboardCapabilities
+} from './pilot-features.js';
 
 export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}) {
   const manifest = buildDashboardManifest();
@@ -68,8 +67,6 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
           </nav>
           {profileMatch
             ? hasFeature(pilotCapabilities!, 'M6') ? <CustomerProfileRoute userId={decodeURIComponent(profileMatch[1]!)} capabilities={result!.capabilities!} /> : <FeatureUnavailable />
-            : window.location.pathname === '/sandbox-funding'
-            ? <SandboxFundingPage capabilities={pilotCapabilities!} />
             : window.location.pathname === '/settlements'
             ? hasFeature(pilotCapabilities!, 'M6') ? <SettlementRoute section="settlements" capabilities={result!.capabilities!} /> : <FeatureUnavailable />
             : window.location.pathname === '/reports'
