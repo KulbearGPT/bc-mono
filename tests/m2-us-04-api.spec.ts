@@ -4,7 +4,6 @@ import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/secur
 import { createPilotFeaturePolicy } from '@blackcat/api/pilot-features';
 import {
   InMemoryServiceLifecycleStore,
-  ServiceLifecycleError,
   confirmOrder,
   expireOrderCompletionConfirmation,
   registerServiceLifecycleRoutes,
@@ -221,7 +220,7 @@ describe('M2-US-04 service lifecycle API', () => {
             awardMode: 'NET_SPEND_BPS',
             fixedAmountMinor: null,
             rateBps: 200,
-            currency: 'CNY',
+            currency: 'CAT',
             eligibleOrderSpend: true
           }
         ]
@@ -323,56 +322,6 @@ describe('M2-US-04 service lifecycle API', () => {
     expect(store.commissions).toHaveLength(0);
   });
 
-  test('same-key confirmation retries a pending local convergence instead of replaying the cached error', async () => {
-    const store = buildStore({
-      status: 'PENDING_CONFIRMATION',
-      version: 7,
-      customerReadyAt: now.toISOString(),
-      playerReadyAt: now.toISOString(),
-      serviceStartedAt: now.toISOString(),
-      completionRequestedAt: now.toISOString(),
-      confirmationDueAt: new Date(now.getTime() + 30 * 60_000).toISOString()
-    });
-    const commit = store.commitOrderConfirmation.bind(store);
-    let attempts = 0;
-    store.commitOrderConfirmation = (input) => {
-      attempts += 1;
-      if (attempts === 1) {
-        throw new ServiceLifecycleError(
-          'PROVIDER_UNAVAILABLE',
-          'Provider capture succeeded but local convergence is pending.',
-          {
-            retryable: true,
-            idempotencyFailureCode: 'PROVIDER_CONVERGENCE_PENDING'
-          }
-        );
-      }
-      return commit(input);
-    };
-    const server = buildApiServer({
-      env,
-      security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
-      serviceLifecycle: { store, now: () => now }
-    });
-    const request = {
-      method: 'POST' as const,
-      url: `/api/v1/orders/${orderId}/confirm`,
-      headers: botHeaders('111111111111111111', 'discord:order:confirm:provider-recovery'),
-      payload: { expectedVersion: 7, confirmation: 'CONFIRM_COMPLETED' }
-    };
-
-    const unresolved = await server.inject(request);
-    const recovered = await server.inject(request);
-
-    expect(unresolved.statusCode).toBe(503);
-    expect(unresolved.json()).toMatchObject({
-      error: { code: 'PROVIDER_UNAVAILABLE', retryable: true }
-    });
-    expect(recovered.statusCode).toBe(200);
-    expect(recovered.json()).toMatchObject({ data: { orderId, status: 'COMPLETED' } });
-    expect(attempts).toBe(2);
-  });
-
   test('completion confirmation timeout creates exactly one staff review task without settling money', async () => {
     const dueAt = new Date(now.getTime() - 1_000).toISOString();
     const store = buildStore({
@@ -468,7 +417,7 @@ function buildStore(
         playerId,
         status: 'ACCEPTED',
         version: 4,
-        currency: 'CNY',
+        currency: 'CAT',
         amountMinor: 12000,
         playerEarningMinor: 8400,
         channelId: '444444444444444444',

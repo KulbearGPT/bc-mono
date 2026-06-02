@@ -113,12 +113,12 @@ describe('M4-US-10 Discord /bot-config adapter', () => {
     expect(opened.components[0]?.components[0]).toMatchObject({
       type: 'STRING_SELECT',
       customId: 'bc:cfg:field:abc123XYZ0',
-      options: [{ label: '礼物播报频道', value: 'gift_broadcast_channel_id' }]
+      options: expect.arrayContaining([{ label: '礼物播报频道', value: 'gift_broadcast_channel_id' }])
     });
     expect(opened.components[1]?.components[0]).toMatchObject({
       type: 'STRING_SELECT',
       placeholder: '选择权限角色映射',
-      options: [{ label: '陪玩角色', value: 'player_role_id' }]
+      options: expect.arrayContaining([{ label: '基础玩家角色', value: 'player_role_id' }])
     });
 
     const channel = flow.chooseField(actor, 'abc123XYZ0', 'gift_broadcast_channel_id');
@@ -127,7 +127,7 @@ describe('M4-US-10 Discord /bot-config adapter', () => {
     expect(channel.components[0]?.components[0]).toMatchObject({ type: 'CHANNEL_SELECT', customId: 'bc:cfg:value:abc123XYZ0' });
 
     const role = flow.chooseField(actor, 'abc123XYZ0', 'player_role_id');
-    expect(role.content).toContain('Bot 配置 · 陪玩角色');
+    expect(role.content).toContain('Bot 配置 · 基础玩家角色');
     expect(role.components[0]?.components[0]).toMatchObject({ type: 'ROLE_SELECT', customId: 'bc:cfg:value:abc123XYZ0' });
   });
 

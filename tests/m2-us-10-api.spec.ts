@@ -4,7 +4,6 @@ import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/secur
 import { InMemoryAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
 import { InMemoryServiceCatalogStore } from '@blackcat/api/catalog';
 import { InMemoryOrderStore, registerOrderRoutes, type FundReservationRecord, type OrderRecord } from '@blackcat/api/orders';
-import { AdapterError, MockFundingAdapter, type Hold } from '@blackcat/api/payment-adapter';
 import { InMemoryStaffTaskStore } from '@blackcat/api/staff-tasks';
 
 const now = new Date('2026-07-18T08:00:00.000Z');
@@ -26,7 +25,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     id: orderId, publicId: 'P-A10', customerId: userId, playerId: null, status: 'PENDING_DISPATCH', version: 3,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
-    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CNY', notes: null,
+    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CAT', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: '666666666666666666' },
     createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides
   };
@@ -35,8 +34,8 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
 function reservation(overrides: Partial<FundReservationRecord> = {}): FundReservationRecord {
   return {
     id: '00000000-0000-0000-0000-00000000fa10', userId, sourceType: 'ORDER', orderId,
-    mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: 12000, currency: 'CNY', status: 'ACTIVE', version: 1, idempotencyKey: 'submit:P-A10',
+    mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
+    amountMinor: 12000, currency: 'CAT', status: 'ACTIVE', version: 1, idempotencyKey: 'submit:P-A10',
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), activatedAt: now.toISOString(), settledAt: null,
     createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides
   };
@@ -52,7 +51,7 @@ function headers(key: string) {
 
 function fixture(
   orderRecord = order(),
-  options: { reservation?: FundReservationRecord; fundingAdapter?: MockFundingAdapter } = {}
+  options: { reservation?: FundReservationRecord } = {}
 ) {
   const accountStore = new InMemoryAccountStore({ bindings: [account()] });
   const orderStore = new InMemoryOrderStore({ orders: [orderRecord], reservations: [options.reservation ?? reservation()] });
@@ -63,7 +62,7 @@ function fixture(
   });
   registerOrderRoutes(server, {
     accountStore, orderStore, catalogStore: new InMemoryServiceCatalogStore({ records: [] }),
-    fundingAdapter: options.fundingAdapter ?? new MockFundingAdapter({ now }), providerKey: 'mock-provider', staffTaskStore, now: () => now
+    staffTaskStore, now: () => now
   });
   return { server, orderStore, staffTaskStore };
 }
@@ -79,7 +78,7 @@ describe('M2-US-10 cancellation preview and execution', () => {
     expect(response.json()).toMatchObject({ data: {
       orderId, orderVersion: 3, automaticallyProcessable: true, fundAction: 'RELEASE_RESERVATION',
       estimatedAmountMinor: 12000, releaseAmountMinor: 12000, refundAmountMinor: 0,
-      currency: 'CNY', handlingTimeCode: 'IMMEDIATE', staffTaskRequired: false
+      currency: 'CAT', handlingTimeCode: 'IMMEDIATE', staffTaskRequired: false
     } });
     expect(orderStore.orders[0]).toMatchObject({ status: 'PENDING_DISPATCH', version: 3 });
     expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });
@@ -137,30 +136,8 @@ describe('M2-US-10 cancellation preview and execution', () => {
     } });
   });
 
-  test('keeps a native hold order uncancelled and opens support when release recovery remains unknown', async () => {
-    let lookupKey = '';
-    const provider = new MockFundingAdapter({ now }) as MockFundingAdapter & {
-      releaseHold: MockFundingAdapter['releaseHold'];
-      getHold: MockFundingAdapter['getHold'];
-    };
-    provider.releaseHold = () => {
-      throw new AdapterError('PROVIDER_TIMEOUT', 'Provider release result is unknown.', { retryable: true });
-    };
-    provider.getHold = (input) => {
-      lookupKey = input.lookupValue;
-      return {
-        status: 'UNKNOWN', idempotencyKey: input.lookupValue, fundReservationId: reservation().id,
-        fundReservationVersion: 1, externalUserId: account().externalUserId, businessSource: 'ORDER',
-        businessReference: orderId, holdRef: 'hold-native-a10', amount: { amountMinor: 12000, currency: 'CNY' },
-        capturedAmount: { amountMinor: 0, currency: 'CNY' }, releasedAmount: { amountMinor: 0, currency: 'CNY' },
-        remainingAmount: { amountMinor: 12000, currency: 'CNY' }, expiresAt: reservation().expiresAt,
-        providerStatus: 'UNKNOWN', observedAt: now.toISOString(), failure: null
-      } satisfies Hold;
-    };
-    const { server, orderStore, staffTaskStore } = fixture(order(), {
-      reservation: reservation({ mode: 'PROVIDER_NATIVE_HOLD', providerHoldRef: 'hold-native-a10' }),
-      fundingAdapter: provider
-    });
+  test('releases the internal wallet reservation without external funding lookup', async () => {
+    const { server, orderStore, staffTaskStore } = fixture(order());
     const previewResponse = await server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/cancellation-preview`, headers: headers('preview:P-A10:provider-unknown'),
       payload: { expectedVersion: 3, reasonCode: 'CUSTOMER_REQUEST' }
@@ -171,11 +148,10 @@ describe('M2-US-10 cancellation preview and execution', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ data: { status: 'EXCEPTION', fundAction: 'NONE', staffTaskId: expect.any(String) } });
-    expect(lookupKey).toBe('cancel:P-A10:provider-unknown');
-    expect(orderStore.orders[0]).toMatchObject({ status: 'EXCEPTION', version: 4 });
-    expect(orderStore.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 1 });
-    expect(staffTaskStore.tasks).toEqual([expect.objectContaining({ type: 'AUTOMATION_FAILURE', reasonCode: 'PROVIDER_RELEASE_UNKNOWN' })]);
+    expect(response.json()).toMatchObject({ data: { status: 'CANCELLED', fundAction: 'RELEASE_RESERVATION', staffTaskId: null } });
+    expect(orderStore.orders[0]).toMatchObject({ status: 'CANCELLED', version: 4 });
+    expect(orderStore.reservations[0]).toMatchObject({ status: 'RELEASED', version: 2 });
+    expect(staffTaskStore.tasks).toEqual([]);
   });
 
   test('routes a paused pending-dispatch cancellation to staff without releasing funds', async () => {

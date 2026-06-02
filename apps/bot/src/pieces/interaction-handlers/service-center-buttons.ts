@@ -198,7 +198,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         giftCatalogVersionId: affordability.giftCatalogVersionId, catalogVersion: affordability.catalogVersion,
         priceMinor: affordability.priceMinor }, actor, secret);
       const changed = affordability.catalogVersion !== context.catalogVersion || affordability.priceMinor !== context.priceMinor;
-      if (route.action !== 'confirm' || changed || !affordability.canAfford || affordability.stale) {
+      if (route.action !== 'confirm' || changed || !affordability.canAfford) {
         const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken));
         await interaction.update({ content: reply.content, components: reply.components });
         return;

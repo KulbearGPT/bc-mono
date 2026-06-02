@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
+import { randomUUID } from 'node:crypto';
 import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext } from './security.js';
 
-export type PlayerReviewStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'PAUSED' | 'SUSPENDED';
+export type PlayerReviewStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'PAUSED' | 'SUSPENDED';
 export type PlayerAvailability = 'AVAILABLE' | 'BUSY' | 'OFFLINE';
 export type DiscordPresenceStatus = 'ONLINE' | 'IDLE' | 'DND' | 'OFFLINE' | 'UNKNOWN';
 export type PlayerUserStatus = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
@@ -91,6 +92,7 @@ export interface PlayerStore {
     approvedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  rejectPlayer(input: { playerId:string;expectedVersion:number;reasonCode:string;note:string;rejectedByStaffId:string;now:Date }):Promise<PlayerProfileRecord>|PlayerProfileRecord;
   updateOperationalStatus(input: {
     playerId: string;
     expectedVersion: number;
@@ -194,6 +196,11 @@ export class InMemoryPlayerStore implements PlayerStore {
       version: profile.version + 1,
       updatedAt: input.now.toISOString()
     });
+  }
+
+  rejectPlayer(input:{playerId:string;expectedVersion:number;reasonCode:string;note:string;rejectedByStaffId:string;now:Date}):PlayerProfileRecord{
+    const profile=this.requireProfile(input.playerId);this.assertVersion(profile,input.expectedVersion);if(profile.reviewStatus!=='PENDING_REVIEW')throw new PlayerError('CONFLICT','Only pending companion applications can be rejected.');
+    return this.replace(profile.playerId,{...profile,reviewStatus:'REJECTED',availability:'OFFLINE',version:profile.version+1,updatedAt:input.now.toISOString()});
   }
 
   updateOperationalStatus(input: {
@@ -347,6 +354,8 @@ WHERE id = $1
   }): Promise<PlayerProfileRecord> {
     const current = await this.requireProfile(input.playerId);
     this.assertVersion(current, input.expectedVersion);
+    if(current.reviewStatus!=='PENDING_REVIEW')throw new PlayerError('CONFLICT','Only pending companion applications can be approved.');
+    const roles=await this.productRoles(current.guildId);if(!roles.companionRoleId)throw new PlayerError('CONFIGURATION_ERROR','已批准陪玩角色尚未配置。');
     await this.client.query(
       `
 UPDATE player_profiles
@@ -362,6 +371,22 @@ WHERE id = $1
       [input.playerId, input.approvedByStaffId, input.now.toISOString()]
     );
     await this.replaceSkills(input.playerId, input.gameTags, input.serviceTags, input.now);
+    await this.client.query(`INSERT INTO companion_review_events(id,player_profile_id,from_status,to_status,actor_staff_id,reason_code,note,idempotency_key,created_at)
+      VALUES ($1,$2,'PENDING_REVIEW','ACTIVE',$3,'APPROVED',NULL,$4,$5) ON CONFLICT(idempotency_key) DO NOTHING`,
+      [randomUUID(),input.playerId,input.approvedByStaffId,`companion-approve:${input.playerId}:v${input.expectedVersion}`,input.now]);
+    if(roles.applicantRoleId)await this.queueProductRole(current,roles.applicantRoleId,'REMOVE','approve-remove-applicant',input.now);
+    await this.queueProductRole(current,roles.companionRoleId,'ADD','approve-add-companion',input.now);
+    return this.requireProfile(input.playerId);
+  }
+
+  async rejectPlayer(input:{playerId:string;expectedVersion:number;reasonCode:string;note:string;rejectedByStaffId:string;now:Date}):Promise<PlayerProfileRecord>{
+    const current=await this.requireProfile(input.playerId);this.assertVersion(current,input.expectedVersion);if(current.reviewStatus!=='PENDING_REVIEW')throw new PlayerError('CONFLICT','Only pending companion applications can be rejected.');
+    await this.client.query(`UPDATE player_profiles SET review_status='REJECTED',availability='OFFLINE',rejected_at=$2,rejection_reason_code=$3,rejection_note=$4,row_version=row_version+1,updated_at=$2 WHERE id=$1`,
+      [input.playerId,input.now,input.reasonCode,input.note]);
+    await this.client.query(`INSERT INTO companion_review_events(id,player_profile_id,from_status,to_status,actor_staff_id,reason_code,note,idempotency_key,created_at)
+      VALUES ($1,$2,'PENDING_REVIEW','REJECTED',$3,$4,$5,$6,$7) ON CONFLICT(idempotency_key) DO NOTHING`,
+      [randomUUID(),input.playerId,input.rejectedByStaffId,input.reasonCode,input.note,`companion-reject:${input.playerId}:v${input.expectedVersion}`,input.now]);
+    const roles=await this.productRoles(current.guildId);if(roles.applicantRoleId)await this.queueProductRole(current,roles.applicantRoleId,'REMOVE','reject-remove-applicant',input.now);
     return this.requireProfile(input.playerId);
   }
 
@@ -435,7 +460,7 @@ SELECT
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'PENDING'), 0)::text AS pending_minor,
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'CONFIRMED'), 0)::text AS confirmed_minor,
   COALESCE(SUM(net_amount) FILTER (WHERE status = 'PAID'), 0)::text AS paid_minor,
-  COALESCE(MAX(currency), 'CNY') AS currency
+  COALESCE(MAX(currency), 'CAT') AS currency
 FROM (
   SELECT earning.status,
          earning.currency,
@@ -464,7 +489,7 @@ FROM (
         pendingMinor: Number(summary?.pending_minor ?? 0),
         confirmedMinor: Number(summary?.confirmed_minor ?? 0),
         paidMinor: Number(summary?.paid_minor ?? 0),
-        currency: summary?.currency ?? 'CNY',
+        currency: summary?.currency ?? 'CAT',
         calculatedAt: input.now.toISOString()
       }
     };
@@ -486,6 +511,13 @@ ON CONFLICT DO NOTHING
       }
     }
   }
+
+  private async productRoles(guildId:string){const result=await this.client.query<{applicant_role_id:string|null;companion_role_id:string|null}>(
+    `SELECT config_json->>'companion_applicant_role_id' applicant_role_id,config_json->>'companion_role_id' companion_role_id FROM guild_bot_configs WHERE guild_id=$1`,[guildId]);
+    return{applicantRoleId:result.rows[0]?.applicant_role_id??null,companionRoleId:result.rows[0]?.companion_role_id??null};}
+  private async queueProductRole(profile:PlayerProfileRecord,roleId:string,action:'ADD'|'REMOVE',purpose:string,now:Date){const dedupe=`product-role:${profile.guildId}:${profile.discordUserId}:${roleId}:${action}:${purpose}:v${profile.version}`;
+    await this.client.query(`INSERT INTO discord_product_role_tasks(id,guild_id,user_id,discord_user_id,role_id,action,status,dedupe_key,attempt_count,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,0,$8,$8) ON CONFLICT(dedupe_key) DO NOTHING`,[randomUUID(),profile.guildId,profile.userId,profile.discordUserId,roleId,action,dedupe,now]);}
 
   private async ensureSkillTag(type: 'GAME' | 'SERVICE', code: string, now: Date): Promise<string> {
     const existing = await this.client.query<{ id: string }>(
@@ -593,6 +625,13 @@ export function registerPlayerRoutes(
     },
     mapError: mapPlayerError,
     fingerprintBody: (request) => parseAvailabilityBody(request.body)
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method:'POST',url:'/api/v1/admin/players/:playerId/reject',permission:'player.approve',action:'REJECT_PLAYER',targetType:'player_profile',targetId:(request)=>playerIdParam(request),
+    acceptedSources:['DASHBOARD'],mapError:mapPlayerError,handler:async(request,actor)=>{if(!actor.actorStaffId)throw new PlayerError('PERMISSION_DENIED','Staff actor is required.');
+      const body=parseRejectBody(request.body);return toApiProfile(await options.store.rejectPlayer({playerId:playerIdParam(request),expectedVersion:body.expectedVersion,reasonCode:body.reasonCode,
+        note:body.note,rejectedByStaffId:actor.actorStaffId,now:now()}));},fingerprintBody:(request)=>parseRejectBody(request.body)
   });
 
   registerSecureWriteRoute(server, security, {
@@ -796,7 +835,7 @@ function emptyWorkbenchData(now: Date): PlayerWorkbenchData {
       pendingMinor: 0,
       confirmedMinor: 0,
       paidMinor: 0,
-      currency: 'CNY',
+      currency: 'CAT',
       calculatedAt: now.toISOString()
     }
   };
@@ -840,6 +879,7 @@ function parseApproveBody(body: unknown): {
     reasonCode: stringValue(input.reasonCode, 'reasonCode')
   };
 }
+function parseRejectBody(body:unknown){const input=objectBody(body);return{expectedVersion:positiveInteger(input.expectedVersion,'expectedVersion'),reasonCode:stringValue(input.reasonCode,'reasonCode'),note:stringValue(input.note,'note')};}
 
 function parseStatusBody(body: unknown): {
   expectedVersion: number;
@@ -1105,7 +1145,7 @@ function mapWorkbenchOrder(row: PlayerWorkbenchOrderRow): PlayerWorkbenchOrder {
     region: row.region_code,
     durationMinutes: row.billing_unit_minutes && row.unit_count ? row.billing_unit_minutes * row.unit_count : null,
     playerEarningMinor: Number(row.player_earning_minor ?? 0),
-    currency: row.currency ?? 'CNY',
+    currency: row.currency ?? 'CAT',
     requirements: requirementLabels(row.requirement_snapshot),
     voiceChannelId: row.voice_channel_id
   };

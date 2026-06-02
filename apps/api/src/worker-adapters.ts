@@ -209,7 +209,7 @@ function renderOrderPanel(projection: OrderPanelProjection): {
     ? `客户：<@${projection.customerDiscordUserId}>\n陪玩：<@${projection.playerDiscordUserId}>`
     : `客户：<@${projection.customerDiscordUserId}>\n陪玩：待接单`;
   return {
-    content: `**订单 ${projection.publicId}**\n状态：${projection.status}\n金额：${projection.currency} ${(projection.amountMinor / 100).toFixed(2)}\n${participants}`,
+    content: `**订单 ${projection.publicId}**\n状态：${projection.status}\n金额：${projection.currency} ${(projection.amountMinor / (projection.currency==='CAT'?10:100)).toFixed(projection.currency==='CAT'?1:2)}\n${participants}`,
     allowed_mentions: { parse: [] },
     components: [{ type: 1, components: panelActions(projection) }]
   };

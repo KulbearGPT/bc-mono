@@ -1,13 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { OutboxJob } from './outbox.js';
-import {
-  AdapterError,
-  type FundingAdapter,
-  type Hold,
-  type Transaction,
-  type TransactionStatus
-} from './payment-adapter.js';
 import { registerSecureWriteRoute } from './security.js';
 import { calculateReferralCommissionMinor, createEligibleReferralCommission } from './referrals.js';
 
@@ -149,7 +142,7 @@ export interface ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
-    referralsEnabled: boolean;
+    referralsEnabled?: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> | OrderCompletionResult;
   commitCompletionTimeout(input: {
@@ -171,25 +164,13 @@ export interface ServiceLifecyclePool extends ServiceLifecycleQueryClient {
   connect(): Promise<ServiceLifecycleTransactionClient>;
 }
 
-export type ServiceLifecycleFundingAdapter =
-  Pick<FundingAdapter, 'getProviderBalance' | 'createReservationDebit' | 'getTransaction'> &
-  Partial<Pick<FundingAdapter, 'captureHold' | 'getHold'>>;
-
 export class ServiceLifecycleError extends Error {
-  readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'PROVIDER_UNAVAILABLE' | 'VALIDATION_ERROR';
-  readonly retryable: boolean;
-  readonly idempotencyFailureCode: string;
+  readonly code: 'CONFLICT' | 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR';
 
-  constructor(
-    code: ServiceLifecycleError['code'],
-    message: string,
-    options: { retryable?: boolean; idempotencyFailureCode?: string } = {}
-  ) {
+  constructor(code: ServiceLifecycleError['code'], message: string) {
     super(message);
     this.name = 'ServiceLifecycleError';
     this.code = code;
-    this.retryable = options.retryable ?? code === 'PROVIDER_UNAVAILABLE';
-    this.idempotencyFailureCode = options.idempotencyFailureCode ?? code;
   }
 }
 
@@ -313,7 +294,7 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
-    referralsEnabled: boolean;
+    referralsEnabled?: boolean;
     now: Date;
   }): OrderCompletionResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
@@ -345,29 +326,27 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       amountMinor: order.playerEarningMinor,
       currency: order.currency
     });
-    if (input.referralsEnabled) {
-      for (const attribution of this.referralAttributions.filter((candidate) => {
-        return candidate.referredUserId === order.customerId
-          && candidate.currency === order.currency
-          && candidate.eligibleOrderSpend;
-      })) {
-        const amountMinor = calculateReferralCommissionMinor({
+    for (const attribution of (input.referralsEnabled !== false ? this.referralAttributions : []).filter((candidate) => {
+      return candidate.referredUserId === order.customerId
+        && candidate.currency === order.currency
+        && candidate.eligibleOrderSpend;
+    })) {
+      const amountMinor = calculateReferralCommissionMinor({
+        baseAmountMinor: order.amountMinor,
+        fixedAmountMinor: attribution.fixedAmountMinor,
+        rateBps: attribution.rateBps,
+        awardMode: attribution.awardMode
+      });
+      if (amountMinor > 0) {
+        this.commissions.push({
+          orderId: order.id,
+          referralAttributionId: attribution.id,
+          beneficiaryUserId: attribution.beneficiaryUserId,
           baseAmountMinor: order.amountMinor,
-          fixedAmountMinor: attribution.fixedAmountMinor,
-          rateBps: attribution.rateBps,
-          awardMode: attribution.awardMode
+          amountMinor,
+          currency: order.currency,
+          status: 'PENDING'
         });
-        if (amountMinor > 0) {
-          this.commissions.push({
-            orderId: order.id,
-            referralAttributionId: attribution.id,
-            beneficiaryUserId: attribution.beneficiaryUserId,
-            baseAmountMinor: order.amountMinor,
-            amountMinor,
-            currency: order.currency,
-            status: 'PENDING'
-          });
-        }
       }
     }
     return {
@@ -465,23 +444,14 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
 export class PostgresServiceLifecycleStore implements ServiceLifecycleStore {
   private readonly client: ServiceLifecycleQueryClient;
   private readonly pool: ServiceLifecyclePool | null;
-  private readonly fundingAdapter: ServiceLifecycleFundingAdapter | null;
-  private readonly providerKey: string | null;
 
-  constructor(input: {
-    pool?: Pool;
-    client?: ServiceLifecycleQueryClient;
-    fundingAdapter?: ServiceLifecycleFundingAdapter;
-    providerKey?: string;
-  }) {
+  constructor(input: { pool?: Pool; client?: ServiceLifecycleQueryClient }) {
     const client = input.pool ?? input.client;
     if (!client) {
       throw new ServiceLifecycleError('VALIDATION_ERROR', 'PostgresServiceLifecycleStore requires a pool or client.');
     }
     this.client = client;
     this.pool = input.pool ?? null;
-    this.fundingAdapter = input.fundingAdapter ?? null;
-    this.providerKey = input.providerKey ?? null;
   }
 
   async getOrder(orderId: string): Promise<ServiceLifecycleOrderRecord | null> {
@@ -685,67 +655,109 @@ RETURNING *
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
     idempotencyKey: string;
-    referralsEnabled: boolean;
+    referralsEnabled?: boolean;
     now: Date;
   }): Promise<OrderCompletionResult> {
-    if (!this.pool || !this.fundingAdapter) {
-      throw new ServiceLifecycleError(
-        'PROVIDER_UNAVAILABLE',
-        'Order completion requires a pooled FundingAdapter-backed capture runtime.'
-      );
-    }
-    const sessionClient = await this.pool.connect();
-    let fundingLockKey: string | null = null;
+    const transactionClient = this.pool ? await this.pool.connect() : this.client;
     try {
-      const lockContext = await loadOrderFundingLockContext(sessionClient, input.orderId);
-      fundingLockKey = `${lockContext.userId}:${lockContext.currency.toUpperCase()}`;
-      await sessionClient.query(`SET lock_timeout = '5s'`);
-      await sessionClient.query('SELECT pg_advisory_lock(hashtextextended($1,0))', [fundingLockKey]);
-      await sessionClient.query(`SET lock_timeout = '0'`);
-
-      const intent = await prepareOrderCompletionIntent(sessionClient, input, this.providerKey);
-      let observation: ProviderCaptureObservation;
-      try {
-        observation = await resolveOrderProviderCapture(
-          sessionClient,
-          this.fundingAdapter,
-          intent,
-          input.now
-        );
-      } catch (error) {
-        if (error instanceof ServiceLifecycleError) throw error;
-        observation = providerFailureObservation(error, input.now);
+      await transactionClient.query('BEGIN');
+      const current = await lockOrder(transactionClient, input.orderId);
+      if (!current) {
+        throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
-      const recorded = await recordOrderProviderObservation(sessionClient, intent, observation, input.now);
-      if (recorded.status !== 'SUCCEEDED' || !recorded.providerRef) {
-        throw new ServiceLifecycleError(
-          'PROVIDER_UNAVAILABLE',
-          'Order capture has not reached a confirmed successful provider state.',
-          recorded.status === 'FAILED'
-            ? { retryable: false, idempotencyFailureCode: 'PROVIDER_CAPTURE_FAILED' }
-            : { retryable: true, idempotencyFailureCode: 'PROVIDER_UNAVAILABLE' }
-        );
+      if (current.status !== 'PENDING_CONFIRMATION') {
+        throw new ServiceLifecycleError('CONFLICT', 'Order is not waiting for completion confirmation.');
       }
-      try {
-        return await finalizeOrderCompletion(sessionClient, input, intent, recorded);
-      } catch {
-        throw new ServiceLifecycleError(
-          'PROVIDER_UNAVAILABLE',
-          'Provider capture succeeded but local convergence is pending.',
-          {
-            retryable: true,
-            idempotencyFailureCode: 'PROVIDER_CONVERGENCE_PENDING'
-          }
-        );
+      if (current.version !== input.expectedVersion) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      const actorRole = requireParticipantRole(current, input.actorUserId);
+      if (actorRole !== 'CUSTOMER') {
+        throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
+      }
+      const reservation = await requireActiveOrderReservation(transactionClient, input.orderId);
+      await insertOrderWalletCapture(transactionClient, { reservation, idempotencyKey: `${input.idempotencyKey}:wallet`, now: input.now });
+      await insertFundReservationCaptureEvent(transactionClient, {
+        reservation,
+        sequence: await nextReservationEventSequence(transactionClient, reservation.id),
+        actorUserId: input.actorUserId,
+        idempotencyKey: `${input.idempotencyKey}:capture`,
+        now: input.now
+      });
+      const externalTransactionId = await insertExternalTransaction(transactionClient, {
+        order: current,
+        reservation,
+        idempotencyKey: `${input.idempotencyKey}:external`,
+        now: input.now
+      });
+      const consumptionEntryId = await insertConsumptionEntry(transactionClient, {
+        order: current,
+        externalTransactionId,
+        idempotencyKey: `${input.idempotencyKey}:consumption`,
+        now: input.now
+      });
+      await insertPlayerEarning(transactionClient, {
+        order: current,
+        now: input.now
+      });
+      if (input.referralsEnabled !== false) {
+        await insertEligibleReferralCommission(transactionClient, {
+          order: current,
+          consumptionEntryId,
+          now: input.now
+        });
+      }
+      await insertOrderEvent(transactionClient, {
+        orderId: input.orderId,
+        sequence: await nextOrderEventSequence(transactionClient, input.orderId),
+        eventType: 'COMPLETED',
+        fromStatus: 'PENDING_CONFIRMATION',
+        toStatus: 'COMPLETED',
+        actorUserId: input.actorUserId,
+        now: input.now,
+        payload: {
+          consumptionEntryId,
+          fundReservationId: reservation.id,
+          capturedMinor: reservation.amount_minor
+        }
+      });
+      const updated = await transactionClient.query<ServiceLifecycleOrderRow>(
+        `
+UPDATE orders
+SET status = 'COMPLETED',
+    row_version = row_version + 1,
+    active_customer_slot_id = NULL,
+    active_player_slot_id = NULL,
+    completed_at = $3,
+    updated_at = $3
+WHERE id = $1
+  AND status = 'PENDING_CONFIRMATION'
+  AND row_version = $2
+RETURNING *
+        `,
+        [input.orderId, input.expectedVersion, input.now.toISOString()]
+      );
+      const row = updated.rows[0];
+      if (!row) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
+      }
+      await transactionClient.query('COMMIT');
+      return {
+        orderId: row.id,
+        publicId: row.public_id,
+        status: 'COMPLETED',
+        version: row.row_version,
+        capturedMinor: Number(reservation.amount_minor),
+        playerEarningMinor: current.playerEarningMinor,
+        currency: current.currency
+      };
     } catch (error) {
+      await transactionClient.query('ROLLBACK').catch(() => undefined);
       throw mapPostgresLifecycleError(error);
     } finally {
-      await sessionClient.query(`SET lock_timeout = '0'`).catch(() => undefined);
-      if (fundingLockKey) {
-        await sessionClient.query('SELECT pg_advisory_unlock(hashtextextended($1,0))', [fundingLockKey]).catch(() => undefined);
+      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+        transactionClient.release();
       }
-      sessionClient.release();
     }
   }
 
@@ -857,6 +869,18 @@ RETURNING *
       }
     }
   }
+}
+
+async function insertOrderWalletCapture(client: ServiceLifecycleQueryClient, input: {
+  reservation: ServiceLifecycleReservationRow; idempotencyKey: string; now: Date;
+}): Promise<void> {
+  const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[input.reservation.user_id]);
+  if(!wallet.rows[0])throw new ServiceLifecycleError('CONFLICT','Customer wallet was not found.');
+  await client.query(`INSERT INTO wallet_entries
+    (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+    VALUES (gen_random_uuid(),$1,'ORDER_CAPTURE_DEBIT','DEBIT',$2,'CAT','FUND_RESERVATION',$3,$4,$5,$5)`,
+    [wallet.rows[0].id,input.reservation.amount_minor,input.reservation.id,input.idempotencyKey,input.now]);
+  await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
 }
 
 export async function setOrderReadiness(input: {
@@ -1047,12 +1071,7 @@ export function registerServiceLifecycleRoutes(
       });
     },
     mapError: mapLifecycleError,
-    fingerprintBody: (request) => parseConfirmOrderBody(request.body),
-    retryableFailureCodes: [
-      'PROVIDER_UNAVAILABLE',
-      'FUNDING_LOCK_TIMEOUT',
-      'PROVIDER_CONVERGENCE_PENDING'
-    ]
+    fingerprintBody: (request) => parseConfirmOrderBody(request.body)
   });
 
   registerSecureWriteRoute(server, security, {
@@ -1175,13 +1194,7 @@ function idempotencyKey(request: FastifyRequest): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
-function mapLifecycleError(error: unknown): {
-  statusCode: number;
-  code: string;
-  message: string;
-  retryable?: boolean;
-  idempotencyFailureCode?: string;
-} | null {
+function mapLifecycleError(error: unknown): { statusCode: number; code: string; message: string } | null {
   if (!(error instanceof ServiceLifecycleError)) {
     return null;
   }
@@ -1189,25 +1202,10 @@ function mapLifecycleError(error: unknown): {
     return { statusCode: 404, code: error.code, message: error.message };
   }
   if (error.code === 'CONFLICT') {
-    return {
-      statusCode: 409,
-      code: error.code,
-      message: error.message,
-      retryable: error.retryable,
-      idempotencyFailureCode: error.idempotencyFailureCode
-    };
+    return { statusCode: 409, code: error.code, message: error.message };
   }
   if (error.code === 'PERMISSION_DENIED') {
     return { statusCode: 403, code: error.code, message: error.message };
-  }
-  if (error.code === 'PROVIDER_UNAVAILABLE') {
-    return {
-      statusCode: 503,
-      code: error.code,
-      message: error.message,
-      retryable: error.retryable,
-      idempotencyFailureCode: error.idempotencyFailureCode
-    };
   }
   return { statusCode: 422, code: error.code, message: error.message };
 }
@@ -1237,18 +1235,6 @@ function isLifecycleAutomationPaused(order: ServiceLifecycleOrderRecord): boolea
 function mapPostgresLifecycleError(error: unknown): unknown {
   if (error instanceof ServiceLifecycleError) {
     return error;
-  }
-  if (
-    typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === '55P03'
-  ) {
-    return new ServiceLifecycleError(
-      'CONFLICT',
-      'The funding lock is busy; retry the same request.',
-      { retryable: true, idempotencyFailureCode: 'FUNDING_LOCK_TIMEOUT' }
-    );
   }
   return error;
 }
@@ -1310,19 +1296,12 @@ async function requireActiveOrderReservation(
 ): Promise<ServiceLifecycleReservationRow> {
   const result = await client.query<ServiceLifecycleReservationRow>(
     `
-SELECT reservation.id, reservation.user_id, reservation.order_id, reservation.mode,
-       reservation.provider, reservation.provider_hold_ref, reservation.amount_minor,
-       reservation.currency, reservation.status, reservation.row_version,
-       external.external_user_id
-FROM fund_reservations reservation
-LEFT JOIN external_accounts external
-  ON external.user_id=reservation.user_id
- AND external.provider=reservation.provider
- AND external.status='ACTIVE'
-WHERE reservation.order_id = $1
-  AND reservation.source_type = 'ORDER'
-  AND reservation.status = 'ACTIVE'
-FOR UPDATE OF reservation
+SELECT *
+FROM fund_reservations
+WHERE order_id = $1
+  AND source_type = 'ORDER'
+  AND status = 'ACTIVE'
+FOR UPDATE
     `,
     [orderId]
   );
@@ -1380,632 +1359,42 @@ VALUES (
   );
 }
 
-interface OrderFundingLockContext {
-  userId: string;
-  currency: string;
-}
-
-interface CompletionCaptureIntent {
-  order: ServiceLifecycleOrderRecord;
-  reservation: ServiceLifecycleReservationRow;
-  externalTransactionId: string;
-  provider: string;
-  providerIdempotencyKey: string;
-  status: TransactionStatus;
-  providerRef: string | null;
-  providerObserved: boolean;
-  intentCreated: boolean;
-}
-
-interface ProviderCaptureObservation {
-  status: TransactionStatus;
-  providerRef: string | null;
-  providerStatus: string | null;
-  observedAt: string;
-  providerOccurredAt: string | null;
-  failureCode: string | null;
-}
-
-interface ExternalTransactionIntentRow {
-  id: string;
-  provider: string;
-  user_id: string;
-  order_id: string | null;
-  fund_reservation_id: string | null;
-  external_ref: string | null;
-  idempotency_key: string;
-  amount_minor: string | number | bigint;
-  currency: string;
-  status: TransactionStatus;
-  response_metadata: unknown;
-}
-
-async function loadOrderFundingLockContext(
-  client: ServiceLifecycleQueryClient,
-  orderId: string
-): Promise<OrderFundingLockContext> {
-  const result = await client.query<{ user_id: string; currency: string }>(
-    `
-SELECT user_id,currency
-FROM fund_reservations
-WHERE order_id=$1 AND source_type='ORDER' AND status='ACTIVE'
-LIMIT 1
-    `,
-    [orderId]
-  );
-  const row = result.rows[0];
-  if (!row) throw new ServiceLifecycleError('CONFLICT', 'Order does not have an active reservation to capture.');
-  return { userId: row.user_id, currency: row.currency };
-}
-
-async function lockUserCurrency(
-  client: ServiceLifecycleQueryClient,
-  userId: string,
-  currency: string,
-  now: Date
-): Promise<void> {
-  await client.query(
-    `INSERT INTO user_currency_locks (user_id,currency,lock_version,created_at,updated_at)
-     VALUES ($1,$2,1,$3,$3)
-     ON CONFLICT (user_id,currency) DO NOTHING`,
-    [userId, currency, now.toISOString()]
-  );
-  await client.query(
-    `SELECT user_id FROM user_currency_locks WHERE user_id=$1 AND currency=$2 FOR UPDATE`,
-    [userId, currency]
-  );
-}
-
-async function prepareOrderCompletionIntent(
+async function insertExternalTransaction(
   client: ServiceLifecycleQueryClient,
   input: {
-    orderId: string;
-    expectedVersion: number;
-    actorUserId: string;
+    order: ServiceLifecycleOrderRecord;
+    reservation: ServiceLifecycleReservationRow;
+    idempotencyKey: string;
     now: Date;
-  },
-  defaultProviderKey: string | null
-): Promise<CompletionCaptureIntent> {
-  await client.query('BEGIN');
-  try {
-    const order = await lockOrder(client, input.orderId);
-    if (!order) throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
-    if (order.status !== 'PENDING_CONFIRMATION') {
-      throw new ServiceLifecycleError('CONFLICT', 'Order is not waiting for completion confirmation.');
-    }
-    if (order.version !== input.expectedVersion) {
-      throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
-    }
-    if (requireParticipantRole(order, input.actorUserId) !== 'CUSTOMER') {
-      throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
-    }
-    const lockContext = await loadOrderFundingLockContext(client, input.orderId);
-    await lockUserCurrency(client, lockContext.userId, lockContext.currency, input.now);
-    const reservation = await requireActiveOrderReservation(client, input.orderId);
-    if (
-      reservation.user_id !== order.customerId ||
-      Number(reservation.amount_minor) !== order.amountMinor ||
-      reservation.currency !== order.currency
-    ) {
-      throw new ServiceLifecycleError('CONFLICT', 'Order reservation no longer matches the submitted price snapshot.');
-    }
-    const provider = reservation.provider ?? defaultProviderKey;
-    if (!provider) throw new ServiceLifecycleError('PROVIDER_UNAVAILABLE', 'Order reservation provider is missing.');
-    if (reservation.mode === 'LOCAL_RESERVATION_FALLBACK' && !reservation.external_user_id) {
-      throw new ServiceLifecycleError('PROVIDER_UNAVAILABLE', 'Order customer does not have an active provider binding.');
-    }
-    if (reservation.mode === 'PROVIDER_NATIVE_HOLD' && !reservation.provider_hold_ref) {
-      throw new ServiceLifecycleError('PROVIDER_UNAVAILABLE', 'Order reservation provider hold reference is missing.');
-    }
-    const providerIdempotencyKey = reservation.mode === 'PROVIDER_NATIVE_HOLD'
-      ? `capture:hold:${reservation.id}:v${reservation.row_version}`
-      : `debit:order:${order.id}:v1`;
-    const inserted = await client.query<{ id: string }>(
-      `
+  }
+): Promise<string> {
+  const result = await client.query<{ id: string }>(
+    `
 INSERT INTO external_transactions (
   id, provider, type, user_id, order_id, gift_request_id, fund_reservation_id,
   external_ref, idempotency_key, amount_minor, currency, status,
-  request_metadata, initiated_at, settled_at, created_at, updated_at
+  initiated_at, settled_at, created_at, updated_at
 )
 VALUES (
   gen_random_uuid(), $1, 'ORDER_CHARGE', $2, $3, NULL, $4,
-  NULL, $5, $6, $7, 'PENDING',
-  $8::jsonb, $9, NULL, $9, $9
+  $5, $6, $7, $8, 'SUCCEEDED',
+  $9, $9, $9, $9
 )
-ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING id
-      `,
-      [
-        provider,
-        order.customerId,
-        order.id,
-        reservation.id,
-        providerIdempotencyKey,
-        order.amountMinor,
-        order.currency,
-        JSON.stringify({ fundingMode: reservation.mode, providerIdempotencyKey }),
-        input.now.toISOString()
-      ]
-    );
-    const mirror = (await client.query<ExternalTransactionIntentRow>(
-      `SELECT id,provider,user_id,order_id,fund_reservation_id,external_ref,idempotency_key,
-              amount_minor,currency,status,response_metadata
-       FROM external_transactions
-       WHERE idempotency_key=$1
-       FOR UPDATE`,
-      [providerIdempotencyKey]
-    )).rows[0];
-    if (!mirror) throw new ServiceLifecycleError('CONFLICT', 'Order capture intent could not be created.');
-    if (
-      mirror.provider !== provider ||
-      mirror.user_id !== order.customerId ||
-      mirror.order_id !== order.id ||
-      mirror.fund_reservation_id !== reservation.id ||
-      Number(mirror.amount_minor) !== order.amountMinor ||
-      mirror.currency !== order.currency
-    ) {
-      throw new ServiceLifecycleError('CONFLICT', 'Order capture intent conflicts with the submitted order snapshot.');
-    }
-    await client.query('COMMIT');
-    return {
-      order,
-      reservation,
-      externalTransactionId: mirror.id,
-      provider,
-      providerIdempotencyKey,
-      status: mirror.status,
-      providerRef: mirror.external_ref,
-      providerObserved: mirror.response_metadata != null,
-      intentCreated: inserted.rows.length === 1
-    };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  }
-}
-
-async function assertFreshProviderCoverage(
-  client: ServiceLifecycleQueryClient,
-  adapter: ServiceLifecycleFundingAdapter,
-  intent: CompletionCaptureIntent,
-  now: Date
-): Promise<void> {
-  let balance: Awaited<ReturnType<ServiceLifecycleFundingAdapter['getProviderBalance']>>;
-  try {
-    balance = await adapter.getProviderBalance({
-      externalUserId: intent.reservation.external_user_id!
-    });
-  } catch {
-    throw new ServiceLifecycleError(
-      'PROVIDER_UNAVAILABLE',
-      'A fresh provider balance could not be read before order capture.'
-    );
-  }
-  if (
-    balance.externalUserId !== intent.reservation.external_user_id
-    || balance.currency !== intent.reservation.currency
-    || balance.stale
-    || !Number.isSafeInteger(balance.providerBalanceMinor)
-    || balance.providerBalanceMinor < 0
-  ) {
-    throw new ServiceLifecycleError(
-      'CONFLICT',
-      'The provider balance snapshot does not match the order reservation.'
-    );
-  }
-
-  await client.query('BEGIN');
-  try {
-    await lockUserCurrency(client, intent.reservation.user_id, intent.reservation.currency, now);
-    const reservation = await requireActiveOrderReservation(client, intent.order.id);
-    if (
-      reservation.id !== intent.reservation.id
-      || reservation.row_version !== intent.reservation.row_version
-      || reservation.external_user_id !== intent.reservation.external_user_id
-    ) {
-      throw new ServiceLifecycleError(
-        'CONFLICT',
-        'Order reservation changed while the provider balance was being refreshed.'
-      );
-    }
-    const reserved = await client.query<{ reserved_minor: string }>(
-      `
-SELECT COALESCE(SUM(
-  reservation.amount_minor - COALESCE((
-    SELECT SUM(event.amount_minor)
-    FROM fund_reservation_events event
-    WHERE event.fund_reservation_id=reservation.id
-      AND event.event_type IN ('CAPTURED','RELEASED','EXPIRED')
-  ),0)
-),0)::text AS reserved_minor
-FROM fund_reservations reservation
-WHERE reservation.user_id=$1
-  AND reservation.currency=$2
-  AND reservation.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')
-      `,
-      [intent.reservation.user_id, intent.reservation.currency]
-    );
-    const reservedMinor = Number(reserved.rows[0]?.reserved_minor ?? 0);
-    if (!Number.isSafeInteger(reservedMinor) || balance.providerBalanceMinor - reservedMinor < 0) {
-      throw new ServiceLifecycleError(
-        'CONFLICT',
-        'Fresh provider balance no longer covers the active reservations.'
-      );
-    }
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  }
-}
-
-async function resolveOrderProviderCapture(
-  client: ServiceLifecycleQueryClient,
-  adapter: ServiceLifecycleFundingAdapter,
-  intent: CompletionCaptureIntent,
-  now: Date
-): Promise<ProviderCaptureObservation> {
-  if (intent.status === 'SUCCEEDED' && intent.providerObserved) {
-    return {
-      status: 'SUCCEEDED',
-      providerRef: intent.providerRef,
-      providerStatus: 'SUCCEEDED',
-      observedAt: now.toISOString(),
-      providerOccurredAt: null,
-      failureCode: null
-    };
-  }
-  if (intent.status === 'FAILED' && intent.providerObserved) {
-    return {
-      status: 'FAILED',
-      providerRef: intent.providerRef,
-      providerStatus: 'FAILED',
-      observedAt: now.toISOString(),
-      providerOccurredAt: null,
-      failureCode: 'PROVIDER_CAPTURE_FAILED'
-    };
-  }
-  if (intent.reservation.mode === 'PROVIDER_NATIVE_HOLD') {
-    return resolveNativeHoldCapture(adapter, intent, now);
-  }
-  let transaction: Transaction;
-  if (!intent.intentCreated || intent.status !== 'PENDING' || intent.providerObserved) {
-    try {
-      transaction = await adapter.getTransaction({
-        lookupType: 'IDEMPOTENCY_KEY',
-        lookupValue: intent.providerIdempotencyKey
-      });
-    } catch (error) {
-      if (!(error instanceof AdapterError) || error.code !== 'RESOURCE_NOT_FOUND') {
-        throw error;
-      }
-      await assertFreshProviderCoverage(client, adapter, intent, now);
-      transaction = await createOrderFallbackDebit(adapter, intent);
-    }
-  } else {
-    await assertFreshProviderCoverage(client, adapter, intent, now);
-    transaction = await createOrderFallbackDebit(adapter, intent);
-  }
-  assertOrderCaptureTransaction(transaction, intent);
-  if (transaction.status === 'UNKNOWN' || transaction.status === 'PENDING') {
-    let recovered: Transaction | null = null;
-    try {
-      recovered = await adapter.getTransaction({
-        lookupType: 'IDEMPOTENCY_KEY',
-        lookupValue: intent.providerIdempotencyKey
-      });
-    } catch {
-      // Preserve the unresolved result; a later retry queries the same stable key.
-    }
-    if (recovered) {
-      assertOrderCaptureTransaction(recovered, intent);
-      transaction = recovered;
-    }
-  }
-  return transactionObservation(transaction);
-}
-
-async function createOrderFallbackDebit(
-  adapter: ServiceLifecycleFundingAdapter,
-  intent: CompletionCaptureIntent
-): Promise<Transaction> {
-  return adapter.createReservationDebit({
-    idempotencyKey: intent.providerIdempotencyKey,
-    fundReservationId: intent.reservation.id,
-    fundReservationVersion: intent.reservation.row_version,
-    externalUserId: intent.reservation.external_user_id!,
-    amount: {
-      amountMinor: Number(intent.reservation.amount_minor),
-      currency: intent.reservation.currency
-    },
-    businessSource: 'ORDER',
-    businessReference: intent.order.id,
-    metadata: { orderId: intent.order.id }
-  });
-}
-
-async function resolveNativeHoldCapture(
-  adapter: ServiceLifecycleFundingAdapter,
-  intent: CompletionCaptureIntent,
-  now: Date
-): Promise<ProviderCaptureObservation> {
-  if (!adapter.captureHold || !adapter.getHold) {
-    throw new ServiceLifecycleError('PROVIDER_UNAVAILABLE', 'Provider-native order capture capability is unavailable.');
-  }
-  let hold: Hold;
-  if (intent.status === 'UNKNOWN' || intent.providerObserved) {
-    hold = await adapter.getHold({
-      lookupType: 'PROVIDER_HOLD_REF',
-      lookupValue: intent.reservation.provider_hold_ref!
-    });
-  } else {
-    hold = await adapter.captureHold({
-      holdRef: intent.reservation.provider_hold_ref!,
-      idempotencyKey: intent.providerIdempotencyKey,
-      fundReservationId: intent.reservation.id,
-      fundReservationVersion: intent.reservation.row_version,
-      amount: {
-        amountMinor: Number(intent.reservation.amount_minor),
-        currency: intent.reservation.currency
-      },
-      businessReference: intent.order.id,
-      reasonCode: 'ORDER_COMPLETED'
-    });
-  }
-  assertOrderCaptureHold(hold, intent);
-  if (hold.status !== 'CAPTURED' || !hold.captureTransactionRef) {
-    return {
-      status: hold.status === 'FAILED' ? 'FAILED' : hold.status === 'UNKNOWN' ? 'UNKNOWN' : 'PENDING',
-      providerRef: hold.captureTransactionRef ?? null,
-      providerStatus: hold.providerStatus,
-      observedAt: hold.observedAt,
-      providerOccurredAt: null,
-      failureCode: hold.failure?.code ?? null
-    };
-  }
-  const transaction = await adapter.getTransaction({
-    lookupType: 'PROVIDER_REF',
-    lookupValue: hold.captureTransactionRef
-  });
-  assertOrderCaptureTransaction(transaction, intent);
-  return transactionObservation(transaction);
-}
-
-function assertOrderCaptureTransaction(
-  transaction: Transaction,
-  intent: CompletionCaptureIntent
-): void {
-  if (
-    transaction.kind !== 'FALLBACK_DEBIT'
-    || transaction.idempotencyKey !== intent.providerIdempotencyKey
-    || transaction.fundReservationId !== intent.reservation.id
-    || transaction.fundReservationVersion !== intent.reservation.row_version
-    || transaction.businessSource !== 'ORDER'
-    || transaction.businessReference !== intent.order.id
-    || transaction.amount.amountMinor !== Number(intent.reservation.amount_minor)
-    || transaction.amount.currency !== intent.reservation.currency
-    || transaction.originalProviderRef !== null
-  ) {
-    throw new ServiceLifecycleError(
-      'CONFLICT',
-      'Provider capture result does not match the order capture intent.'
-    );
-  }
-}
-
-function assertOrderCaptureHold(hold: Hold, intent: CompletionCaptureIntent): void {
-  if (
-    hold.holdRef !== intent.reservation.provider_hold_ref
-    || hold.fundReservationId !== intent.reservation.id
-    || hold.fundReservationVersion !== intent.reservation.row_version
-    || hold.businessSource !== 'ORDER'
-    || hold.businessReference !== intent.order.id
-    || hold.amount.amountMinor !== Number(intent.reservation.amount_minor)
-    || hold.amount.currency !== intent.reservation.currency
-    || (
-      hold.status === 'CAPTURED'
-      && (
-        hold.capturedAmount.amountMinor !== Number(intent.reservation.amount_minor)
-        || hold.capturedAmount.currency !== intent.reservation.currency
-        || hold.remainingAmount.amountMinor !== 0
-        || hold.remainingAmount.currency !== intent.reservation.currency
-      )
-    )
-  ) {
-    throw new ServiceLifecycleError(
-      'CONFLICT',
-      'Provider hold result does not match the order capture intent.'
-    );
-  }
-}
-
-function transactionObservation(transaction: Transaction): ProviderCaptureObservation {
-  return {
-    status: transaction.status,
-    providerRef: transaction.providerRef,
-    providerStatus: transaction.providerStatus,
-    observedAt: transaction.observedAt,
-    providerOccurredAt: transaction.providerOccurredAt,
-    failureCode: transaction.failure?.code ?? null
-  };
-}
-
-function providerFailureObservation(error: unknown, now: Date): ProviderCaptureObservation {
-  const adapterError = error instanceof AdapterError ? error : null;
-  return {
-    status: adapterError && !adapterError.retryable && adapterError.code !== 'RESOURCE_NOT_FOUND' ? 'FAILED' : 'UNKNOWN',
-    providerRef: null,
-    providerStatus: null,
-    observedAt: now.toISOString(),
-    providerOccurredAt: null,
-    failureCode: adapterError?.code ?? 'PROVIDER_UNAVAILABLE'
-  };
-}
-
-async function recordOrderProviderObservation(
-  client: ServiceLifecycleQueryClient,
-  intent: CompletionCaptureIntent,
-  observation: ProviderCaptureObservation,
-  now: Date
-): Promise<ProviderCaptureObservation> {
-  await client.query('BEGIN');
-  try {
-    const current = (await client.query<ExternalTransactionIntentRow>(
-      `SELECT id,provider,user_id,order_id,fund_reservation_id,external_ref,idempotency_key,
-              amount_minor,currency,status,response_metadata
-       FROM external_transactions WHERE id=$1 FOR UPDATE`,
-      [intent.externalTransactionId]
-    )).rows[0];
-    if (!current) throw new ServiceLifecycleError('CONFLICT', 'Order capture intent was not found.');
-    if (current.external_ref && observation.providerRef && current.external_ref !== observation.providerRef) {
-      throw new ServiceLifecycleError('CONFLICT', 'Provider capture reference conflicts with the existing mirror.');
-    }
-    let status = observation.status;
-    if (current.status === 'SUCCEEDED' || current.status === 'FAILED') status = current.status;
-    if (current.status === 'UNKNOWN' && observation.status === 'PENDING') status = 'UNKNOWN';
-    if (status === 'SUCCEEDED' && !observation.providerRef && !current.external_ref) status = 'UNKNOWN';
-    const providerRef = observation.providerRef ?? current.external_ref;
-    await client.query(
-      `UPDATE external_transactions
-       SET external_ref=$2,
-           status=$3::"ExternalTransactionStatus",
-           response_metadata=$4::jsonb,
-           failure_code=$5,
-           settled_at=CASE WHEN $3='SUCCEEDED' THEN $6::timestamptz ELSE NULL::timestamptz END,
-           updated_at=$6::timestamptz
-       WHERE id=$1`,
-      [
-        intent.externalTransactionId,
-        providerRef,
-        status,
-        JSON.stringify({
-          providerStatus: observation.providerStatus,
-          observedAt: observation.observedAt,
-          providerOccurredAt: observation.providerOccurredAt
-        }),
-        observation.failureCode,
-        now.toISOString()
-      ]
-    );
-    await client.query('COMMIT');
-    return { ...observation, status, providerRef };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  }
-}
-
-async function finalizeOrderCompletion(
-  client: ServiceLifecycleQueryClient,
-  input: {
-    orderId: string;
-    expectedVersion: number;
-    actorUserId: string;
-    referralsEnabled: boolean;
-    now: Date;
-  },
-  intent: CompletionCaptureIntent,
-  observation: ProviderCaptureObservation
-): Promise<OrderCompletionResult> {
-  await client.query('BEGIN');
-  try {
-    const current = await lockOrder(client, input.orderId);
-    if (!current) throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
-    if (current.status !== 'PENDING_CONFIRMATION') {
-      throw new ServiceLifecycleError('CONFLICT', 'Order is not waiting for completion confirmation.');
-    }
-    if (current.version !== input.expectedVersion) {
-      throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
-    }
-    if (requireParticipantRole(current, input.actorUserId) !== 'CUSTOMER') {
-      throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
-    }
-    await lockUserCurrency(client, intent.reservation.user_id, intent.reservation.currency, input.now);
-    const reservation = await requireActiveOrderReservation(client, input.orderId);
-    if (
-      reservation.id !== intent.reservation.id ||
-      reservation.row_version !== intent.reservation.row_version ||
-      Number(reservation.amount_minor) !== current.amountMinor
-    ) {
-      throw new ServiceLifecycleError('CONFLICT', 'Order reservation changed while provider capture was in progress.');
-    }
-    const mirror = (await client.query<ExternalTransactionIntentRow>(
-      `SELECT id,provider,user_id,order_id,fund_reservation_id,external_ref,idempotency_key,
-              amount_minor,currency,status,response_metadata
-       FROM external_transactions WHERE id=$1 FOR UPDATE`,
-      [intent.externalTransactionId]
-    )).rows[0];
-    if (!mirror || mirror.status !== 'SUCCEEDED' || mirror.external_ref !== observation.providerRef) {
-      throw new ServiceLifecycleError('PROVIDER_UNAVAILABLE', 'Order capture mirror is not confirmed successful.');
-    }
-    await insertFundReservationCaptureEvent(client, {
-      reservation,
-      sequence: await nextReservationEventSequence(client, reservation.id),
-      actorUserId: input.actorUserId,
-      idempotencyKey: `${intent.providerIdempotencyKey}:reservation-capture`,
-      now: input.now
-    });
-    const consumptionEntryId = await insertConsumptionEntry(client, {
-      order: current,
-      externalTransactionId: mirror.id,
-      idempotencyKey: `${intent.providerIdempotencyKey}:consumption`,
-      now: input.now
-    });
-    await insertPlayerEarning(client, { order: current, now: input.now });
-    if (input.referralsEnabled) {
-      await insertEligibleReferralCommission(client, {
-        order: current,
-        consumptionEntryId,
-        now: input.now
-      });
-    }
-    await insertOrderEvent(client, {
-      orderId: input.orderId,
-      sequence: await nextOrderEventSequence(client, input.orderId),
-      eventType: 'COMPLETED',
-      fromStatus: 'PENDING_CONFIRMATION',
-      toStatus: 'COMPLETED',
-      actorUserId: input.actorUserId,
-      now: input.now,
-      payload: {
-        consumptionEntryId,
-        fundReservationId: reservation.id,
-        providerTransactionRef: observation.providerRef,
-        capturedMinor: reservation.amount_minor
-      }
-    });
-    const updated = await client.query<ServiceLifecycleOrderRow>(
-      `
-UPDATE orders
-SET status = 'COMPLETED',
-    row_version = row_version + 1,
-    active_customer_slot_id = NULL,
-    active_player_slot_id = NULL,
-    completed_at = $3,
-    updated_at = $3
-WHERE id = $1
-  AND status = 'PENDING_CONFIRMATION'
-  AND row_version = $2
-RETURNING *
-      `,
-      [input.orderId, input.expectedVersion, input.now.toISOString()]
-    );
-    const row = updated.rows[0];
-    if (!row) throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
-    await client.query('COMMIT');
-    return {
-      orderId: row.id,
-      publicId: row.public_id,
-      status: 'COMPLETED',
-      version: row.row_version,
-      capturedMinor: Number(reservation.amount_minor),
-      playerEarningMinor: current.playerEarningMinor,
-      currency: current.currency
-    };
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  }
+    `,
+    [
+      input.reservation.provider ?? 'mock-provider',
+      input.order.customerId,
+      input.order.id,
+      input.reservation.id,
+      `order:${input.order.id}`,
+      input.idempotencyKey,
+      input.order.amountMinor,
+      input.order.currency,
+      input.now.toISOString()
+    ]
+  );
+  return result.rows[0]!.id;
 }
 
 async function insertConsumptionEntry(
@@ -2203,7 +1592,7 @@ function mapOrderRow(row: ServiceLifecycleOrderRow): ServiceLifecycleOrderRecord
     playerId: row.player_id ?? '',
     status: row.status,
     version: row.row_version,
-    currency: row.currency ?? 'CNY',
+    currency: row.currency ?? 'CAT',
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
     unitCount: row.unit_count,
@@ -2269,10 +1658,7 @@ interface ServiceLifecycleReservationRow {
   id: string;
   user_id: string;
   order_id: string;
-  mode: 'PROVIDER_NATIVE_HOLD' | 'LOCAL_RESERVATION_FALLBACK';
   provider: string | null;
-  provider_hold_ref: string | null;
-  external_user_id: string | null;
   amount_minor: number;
   currency: string;
   status: 'ACTIVE';

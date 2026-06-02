@@ -71,7 +71,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     minimumUnits: 1,
     customerUnitPriceMinor: 6000,
     playerUnitPayoutMinor: 4200,
-    currency: 'CNY',
+    currency: 'CAT',
     status: 'ACTIVE',
     version: 1,
     createdByStaffId: '00000000-0000-0000-0000-000000000333',
@@ -194,7 +194,7 @@ describe('M1-US-01 service catalog API contract', () => {
             service: 'ENTERTAINMENT',
             region: 'NA',
             customerUnitPriceMinor: 6000,
-            currency: 'CNY',
+            currency: 'CAT',
             version: 1
           }
         ]
@@ -227,7 +227,7 @@ describe('M1-US-01 service catalog API contract', () => {
         unitCount: 2,
         billingUnitMinutes: 60,
         amountMinor: 12000,
-        currency: 'CNY'
+        currency: 'CAT'
       }
     });
     expect(response.body).not.toContain('playerEarningMinor');
@@ -306,8 +306,8 @@ describe('M1-US-01 service catalog API contract', () => {
       region: 'NA',
       billingUnitMinutes: 60,
       minimumUnits: 1,
-      customerUnitPrice: { amountMinor: 6000, currency: 'CNY' },
-      playerUnitPayout: { amountMinor: 4200, currency: 'CNY' },
+      customerUnitPrice: { amountMinor: 6000, currency: 'CAT' },
+      playerUnitPayout: { amountMinor: 4200, currency: 'CAT' },
       enabled: true,
       reasonCode: 'INITIAL_CATALOG_VERSION'
     };
@@ -374,8 +374,8 @@ describe('M1-US-01 service catalog API contract', () => {
         region: 'NA',
         billingUnitMinutes: 60,
         minimumUnits: 1,
-        customerUnitPrice: { amountMinor: 6000, currency: 'CNY' },
-        playerUnitPayout: { amountMinor: 4200, currency: 'CNY' },
+        customerUnitPrice: { amountMinor: 6000, currency: 'CAT' },
+        playerUnitPayout: { amountMinor: 4200, currency: 'CAT' },
         enabled: true,
         reasonCode: 'INITIAL_CATALOG_VERSION'
       }
@@ -435,7 +435,7 @@ describe('M1-US-01 Postgres service catalog store', () => {
               minimum_units: 1,
               customer_unit_price_minor: '6000',
               player_unit_payout_minor: '4200',
-              currency: 'CNY',
+              currency: 'CAT',
               status: 'ACTIVE',
               version: 3,
               created_by_staff_id: '00000000-0000-0000-0000-000000000333',
@@ -480,7 +480,7 @@ describe('M1-US-01 Postgres service catalog store', () => {
               minimum_units: 1,
               customer_unit_price_minor: '7200',
               player_unit_payout_minor: '5000',
-              currency: 'CNY',
+              currency: 'CAT',
               status: 'ACTIVE',
               version: 2,
               created_by_staff_id: '00000000-0000-0000-0000-000000000333',
@@ -535,7 +535,7 @@ describe('M1-US-01 Postgres service catalog store', () => {
                 minimum_units: 1,
                 customer_unit_price_minor: '6000',
                 player_unit_payout_minor: '4200',
-                currency: 'CNY',
+                currency: 'CAT',
                 status: 'ACTIVE',
                 version: 3,
                 created_by_staff_id: '00000000-0000-0000-0000-000000000333',

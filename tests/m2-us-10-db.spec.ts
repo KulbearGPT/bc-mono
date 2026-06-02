@@ -9,8 +9,8 @@ import { buildApiServer } from '@blackcat/api/server';
 import { PostgresAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
 import { PostgresOrderStore, registerOrderRoutes } from '@blackcat/api/orders';
 import { PostgresServiceCatalogStore } from '@blackcat/api/catalog';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
-import { InMemoryAuditSink, InMemoryIdempotencyStore, type AuditRecord } from '@blackcat/api/security';
+import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T08:00:00.000Z');
@@ -30,9 +30,9 @@ describe('M2-US-10 PostgreSQL cancellation preview transaction', () => {
     await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_cancel_preview']);
-    await execFile('psql', ['-h', socketDir, '-p', String(port), '-d', 'blackcat_m2_cancel_preview', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m2_cancel_preview' });
     pool = new Pool({ host: socketDir, port, database: 'blackcat_m2_cancel_preview', application_name: 'blackcat_m2_cancel_preview_test', max: 4 });
-    await new PostgresAccountStore({ pool }).commitBinding({ binding: binding(), auditRecord: auditRecord(), auditSink: new InMemoryAuditSink() });
+    await seedAccount();
     await seedOrder();
   }, 30_000);
 
@@ -51,7 +51,7 @@ describe('M2-US-10 PostgreSQL cancellation preview transaction', () => {
     });
     registerOrderRoutes(server, {
       accountStore, orderStore, catalogStore: new PostgresServiceCatalogStore({ pool }),
-      fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider', now: () => now
+      now: () => now
     });
     const preview = await server.inject({
       method: 'POST', url: `/api/v1/orders/${orderId}/cancellation-preview`, headers: headers('db:cancel-preview:P-A10'),
@@ -91,13 +91,12 @@ function binding(): AccountBindingRecord {
   };
 }
 
-function auditRecord(): AuditRecord {
-  return {
-    id: '00000000-0000-0000-0000-00000000ab10', actorId: null, actorStaffId: null, actorLevel: null,
-    actorSource: 'SYSTEM_JOB', clientId: 'seed', interactionId: null, permissionCode: 'account.bind', action: 'SEED_BINDING',
-    targetType: 'user', targetId: binding().userId, outcome: 'SUCCEEDED', beforeSnapshot: null, afterSnapshot: null,
-    reason: null, requestId: 'req_seed_cancel', approvalRequestId: null, occurredAt: now.toISOString()
-  };
+async function seedAccount() {
+  await pool.query(`
+INSERT INTO users (id, display_name, status, row_version, created_at, updated_at)
+VALUES ('${binding().userId}', 'Customer', 'ACTIVE', 1, now(), now());
+INSERT INTO discord_accounts (id, user_id, guild_id, discord_user_id, bound_at, created_at, updated_at)
+VALUES ('${binding().discordAccountId}', '${binding().userId}', '${binding().guildId}', '${binding().discordUserId}', now(), now(), now());`);
 }
 
 async function seedOrder() {
@@ -110,14 +109,14 @@ INSERT INTO orders (
 ) VALUES (
   '${orderId}', 'P-A10', '${binding().userId}', '${binding().userId}', 'PENDING_DISPATCH', 3,
   'VALORANT', 'ENTERTAINMENT', 'NA', 60, 2, 6000, 4200, 12000, 8400,
-  'CNY', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
+  'CAT', '999999999999999999', '444444444444444444', '555555555555555555', now(), now(), now()
 );
 INSERT INTO fund_reservations (
   id, user_id, source_type, order_id, mode, provider, amount_minor, currency, status, row_version,
   idempotency_key, expires_at, activated_at, created_at, updated_at
 ) VALUES (
   '00000000-0000-0000-0000-00000000fa10', '${binding().userId}', 'ORDER', '${orderId}',
-  'LOCAL_RESERVATION_FALLBACK', 'mock-provider', 12000, 'CNY', 'ACTIVE', 1,
+  'LOCAL_RESERVATION', 'mock-provider', 12000, 'CAT', 'ACTIVE', 1,
   'submit:P-A10', now() + interval '30 minutes', now(), now(), now()
 );
 INSERT INTO fund_reservation_events (

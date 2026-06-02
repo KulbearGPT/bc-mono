@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresGiftStore, captureApprovedGift, terminateGiftRequest } from '@blackcat/api/gifts';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T13:00:00.000Z');
@@ -32,7 +32,7 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m3_gift_review']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m3_gift_review', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m3_gift_review' });
     pool = new Pool({ host: root, port, database: 'blackcat_m3_gift_review' });
     await seed();
   }, 30_000);
@@ -64,13 +64,10 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
     const authorized = await store.authorizeGift({ giftRequestId: giftId, expectedVersion: 3, actorStaffId: staffId,
       actorLevel: 'L3_OPERATIONS', reason: 'Escalation reviewed and approved.', now });
     expect(authorized).toMatchObject({ status: 'APPROVED', action: 'READY_FOR_CAPTURE' });
-    const adapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: reservationId, version: 2 }] });
-    const captured = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
-      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId,
-      referralsEnabled: false, now });
-    const replay = await captureApprovedGift({ store, fundingAdapter: adapter, providerKey: 'mock-provider',
-      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId,
-      referralsEnabled: false, now });
+    const captured = await captureApprovedGift({ store,
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
+    const replay = await captureApprovedGift({ store,
+      broadcastChannelId: '900000000000000020', giftRequestId: giftId, actorStaffId: staffId, now });
     expect(replay).toEqual(captured);
     const facts = await pool.query(`SELECT gr.status AS gift_status, fr.status AS reservation_status,
       count(DISTINCT tx.id)::int AS transaction_count, count(DISTINCT ce.id)::int AS consumption_count,
@@ -82,9 +79,6 @@ describe('M3-US-02 PostgreSQL gift review authorization', () => {
       WHERE gr.id = $1 GROUP BY gr.status, fr.status`, [giftId]);
     expect(facts.rows[0]).toEqual({ gift_status: 'CAPTURED', reservation_status: 'CAPTURED',
       transaction_count: 1, consumption_count: 1, outbox_count: 1 });
-    const commissions = await pool.query(`SELECT count(*)::int AS count FROM commissions c
-      JOIN consumption_entries ce ON ce.id = c.source_consumption_entry_id WHERE ce.gift_request_id = $1`, [giftId]);
-    expect(commissions.rows[0]).toEqual({ count: 0 });
   });
 
   test('atomically releases a pending gift without creating financial side effects', async () => {
@@ -109,31 +103,27 @@ async function seed() {
 INSERT INTO users (id, display_name, status, row_version, created_at, updated_at) VALUES
 ('${customerId}', 'Customer', 'ACTIVE', 1, now(), now()), ('${playerId}', 'Player', 'ACTIVE', 1, now(), now()),
 ('${staffId}', 'Supervisor', 'ACTIVE', 1, now(), now());
+INSERT INTO wallet_accounts (id,user_id,currency,status,row_version,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-000000003520','${customerId}','CAT','ACTIVE',1,now(),now());
+INSERT INTO wallet_entries (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+VALUES ('00000000-0000-0000-0000-000000003521','00000000-0000-0000-0000-000000003520','TOP_UP_CREDIT','CREDIT',500000,'CAT','TOP_UP','00000000-0000-0000-0000-000000003522','seed:wallet:3501',now(),now());
 INSERT INTO external_accounts (id,user_id,provider,external_user_id,status,active_user_provider_key,verified_at,created_at,updated_at)
 VALUES ('00000000-0000-0000-0000-000000003512','${customerId}','mock-provider','mock-user-ok','ACTIVE','${customerId}:mock-provider',now(),now(),now());
 INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
 VALUES ('${staffId}','${staffId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
-INSERT INTO referral_program_versions (id,program_type,version,status,active_program_key,award_mode,rate_bps,currency,
-eligible_order_spend,eligible_gift_spend,created_by_staff_id,activated_at,created_at)
-VALUES ('00000000-0000-0000-0000-000000003520','PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME',
-'NET_SPEND_BPS',200,'CNY',true,true,'${staffId}',now(),now());
-INSERT INTO referral_attributions (id,program_version_id,beneficiary_user_id,referred_user_id,status,row_version,
-active_attribution_key,source_type,bound_by_staff_id,eligibility_checked_at,bound_at,created_at)
-VALUES ('00000000-0000-0000-0000-000000003521','00000000-0000-0000-0000-000000003520','${playerId}',
-'${customerId}','ACTIVE',1,'${customerId}','ADMIN_MANUAL','${staffId}',now(),now(),now());
 INSERT INTO orders (id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,
 currency,amount_minor,guild_id,channel_id,panel_message_id,voice_channel_id,created_at,updated_at)
 VALUES ('${orderId}','P-3504','${customerId}','${playerId}','${customerId}','${playerId}','IN_SERVICE',7,
-'CNY',12000,'900000000000000001','900000000000000003','900000000000000004','900000000000000005',now(),now());
+'CAT',12000,'900000000000000001','900000000000000003','900000000000000004','900000000000000005',now(),now());
 INSERT INTO gift_catalog_items (id,code,created_at,updated_at) VALUES ('${itemId}','STAR',now(),now());
 INSERT INTO gift_catalog_versions (id,gift_catalog_item_id,version,status,active_gift_key,name,price_minor,currency,broadcast_template,created_by_staff_id,activated_at,created_at)
-VALUES ('${versionId}','${itemId}',1,'ACTIVE','${itemId}','星光礼盒',200100,'CNY','{sender_name}','${staffId}',now(),now());
+VALUES ('${versionId}','${itemId}',1,'ACTIVE','${itemId}','星光礼盒',200100,'CAT','{sender_name}','${staffId}',now(),now());
 INSERT INTO gift_requests (id,public_id,order_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,expires_at,created_at,updated_at)
-VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CNY','{sender_name}',now()+interval '30 minutes',now(),now()),
-('${releaseGiftId}','G-3515','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CNY','{sender_name}',now()+interval '30 minutes',now(),now());
+VALUES ('${giftId}','G-3505','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CAT','{sender_name}',now()+interval '30 minutes',now(),now()),
+('${releaseGiftId}','G-3515','${orderId}','${versionId}','${customerId}','${playerId}','PENDING_REVIEW',1,'STAR','星光礼盒',200100,'CAT','{sender_name}',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservations (id,user_id,source_type,gift_request_id,mode,provider,amount_minor,currency,status,row_version,idempotency_key,expires_at,created_at,updated_at)
-VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION_FALLBACK','mock-provider',200100,'CNY','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now()),
-('${releaseReservationId}','${customerId}','GIFT','${releaseGiftId}','LOCAL_RESERVATION_FALLBACK','mock-provider',200100,'CNY','PENDING',1,'gift:3515',now()+interval '30 minutes',now(),now());
+VALUES ('${reservationId}','${customerId}','GIFT','${giftId}','LOCAL_RESERVATION','mock-provider',200100,'CAT','PENDING',1,'gift:3505',now()+interval '30 minutes',now(),now()),
+('${releaseReservationId}','${customerId}','GIFT','${releaseGiftId}','LOCAL_RESERVATION','mock-provider',200100,'CAT','PENDING',1,'gift:3515',now()+interval '30 minutes',now(),now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)
 VALUES ('00000000-0000-0000-0000-000000003510','${reservationId}',1,'CREATED',NULL,'PENDING',200100,1,'gift:3505:created','${customerId}','DISCORD_BOT',now());
 INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_source,created_at)

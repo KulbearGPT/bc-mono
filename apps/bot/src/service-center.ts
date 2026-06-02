@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
+import {
+  customerWalletLabel,
+  formatCustomerWalletAmount,
+  parseWalletDisplayConfig
+} from './wallet-display.js';
 
 export type ClientSource = 'DISCORD_BOT';
 
@@ -57,15 +62,15 @@ export interface CurrentUserSummary {
   activeOrderId: string | null;
   consumptionSummary: { totalMinor: number; currency: string };
   commissionSummary: { pendingMinor: number; confirmedMinor: number; paidMinor: number; currency: string };
-  enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
 }
 
 export interface BalanceSummary {
-  providerBalanceMinor: number;
+  ledgerBalanceMinor: number;
   reservedMinor: number;
   availableMinor: number;
-  currency: string;
-  fetchedAt: string;
+  currency: 'CAT';
+  calculatedAt: string;
+  version: number;
 }
 
 export interface ConsumptionPage {
@@ -76,11 +81,9 @@ export interface ConsumptionPage {
 
 export interface CurrentUserProfileSummary {
   user: { userId: string; discordUserId: string; displayName: string; status: string };
-  balance: { providerBalanceMinor: number | null; reservedMinor: number | null; availableMinor: number | null; currency: string | null;
-    fetchedAt: string | null; stale: boolean; providerError: { code: string; retryable: boolean; requestId: string } | null };
+  balance: BalanceSummary;
   statistics: { orderCount: number; activeOrderCount: number; orderSpendMinor: number; giftSpendMinor: number; totalConsumptionMinor: number; currency: string };
   activeReservationCount: number;
-  rechargeUrl: string;
 }
 
 export interface CurrentUserOrderPage {
@@ -159,7 +162,7 @@ export interface CancellationPreviewSummary {
   releaseAmountMinor: number;
   refundAmountMinor: number;
   currency: string;
-  handlingTimeCode: 'IMMEDIATE' | 'PROVIDER_PENDING' | 'STAFF_REVIEW_REQUIRED';
+  handlingTimeCode: 'IMMEDIATE' | 'STAFF_REVIEW_REQUIRED';
   staffTaskRequired: boolean;
   validUntil: string;
 }
@@ -283,11 +286,6 @@ export interface OrderCompletionSummary {
 }
 
 export interface BotApiClient {
-  createBinding(
-    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<unknown>;
   createOrder(
     input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
     actor: BotActorContext,
@@ -409,19 +407,6 @@ export class HttpBotApiClient implements BotApiClient {
   public constructor(input: { apiBaseUrl: string; botServiceToken: string }) {
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
     this.botServiceToken = input.botServiceToken;
-  }
-
-  public async createBinding(
-    input: { credentialType: 'ONE_TIME_CODE'; credentialValue: string; expectedCurrency: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<unknown> {
-    return this.request('/api/v1/bindings', {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input
-    });
   }
 
   public async createOrder(
@@ -863,7 +848,6 @@ export type ServiceCenterRoute =
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
-  | { area: 'binding-modal'; sessionId: string }
   | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
   | { area: 'reports'; action: 'list'; cursor?: string }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
@@ -883,23 +867,6 @@ export function buildPublicServiceEntryMessage(): MessageSpec {
           { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '创建订单' },
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '我的服务中心' }
         ]
-      }
-    ]
-  };
-}
-
-export function buildBindingModal(input: { sessionId: string }): ModalSpec {
-  return {
-    title: '绑定业务账户',
-    customId: `bc:modal:binding:${input.sessionId}`,
-    components: [
-      {
-        type: 'TEXT_INPUT',
-        customId: 'bindingCode',
-        label: '一次性绑定码',
-        style: 'SHORT',
-        required: true,
-        maxLength: 64
       }
     ]
   };
@@ -992,7 +959,7 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
   const body = [
     `${formatGame(order.game)} · ${formatService(order.service)}`,
     `${formatRegion(order.region)} · ${formatDuration(order)}`,
-    `预计价格：${formatMoney(order.amountMinor, order.currency)}`,
+    `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
     order.notes ? `备注：${order.notes}` : '备注：未填写'
   ].join('\n');
 
@@ -1100,32 +1067,31 @@ export function buildServiceCenterMessage(input: {
   balance: BalanceSummary;
   activeOrder: OrderSummary | null;
   consumptions: ConsumptionPage;
-  commissions: CurrentCommissionPage | null;
+  commissions: CurrentCommissionPage;
 }): MessageSpec {
-  const referralsEnabled = hasEnabledFeature(input.currentUser.enabledFeatures, 'REFERRALS');
-  const m6Enabled = hasEnabledFeature(input.currentUser.enabledFeatures, 'M6');
   const activeOrderLine = input.activeOrder
     ? `当前订单：#${input.activeOrder.publicId} · ${input.activeOrder.automation?.state === 'PAUSED' ? '客服处理中' : input.activeOrder.status}`
     : '当前订单：暂无进行中订单';
   const consumptionLine = input.consumptions.items.length === 0 ? '消费记录：暂无记录' : '消费记录：已有记录';
-  const commissionLine = !referralsEnabled || !input.commissions
-    ? null
-    : input.commissions.items.length === 0
-    ? '我的收益：暂无可领取记录'
-    : `我的收益：待确认 ${formatMoney(input.commissions.summary.pendingMinor, input.commissions.summary.currency)}`;
+  const hasCommissionActivity = input.commissions.summary.pendingMinor !== 0
+    || input.commissions.summary.confirmedMinor !== 0
+    || input.commissions.summary.paidMinor !== 0;
+  const commissionLine = hasCommissionActivity
+    ? '我的收益：有待处理记录，请打开“我的收益”查看。'
+    : '我的收益：暂无可领取记录';
 
   return {
     title: '我的服务中心',
     body: [
       `账户：${input.currentUser.user.displayName}`,
-      `总余额：${formatMoney(input.balance.providerBalanceMinor, input.balance.currency)}`,
-      `预留中：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
-      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `账本余额：${formatCustomerMoney(input.balance.ledgerBalanceMinor, input.balance.currency)}`,
+      `预留中：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       activeOrderLine,
       consumptionLine,
       commissionLine,
-      `更新时间：${input.balance.fetchedAt}`
-    ].filter(Boolean).join('\n'),
+      `计算时间：${input.balance.calculatedAt}`
+    ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       {
@@ -1139,42 +1105,49 @@ export function buildServiceCenterMessage(input: {
             label: '当前订单',
             disabled: !input.activeOrder
           },
-          ...(m6Enabled
-            ? [{ type: 'BUTTON' as const, style: 'PRIMARY' as const, customId: 'bc:profile:open', label: '个人中心' }]
-            : []),
+          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:profile:open', label: '个人中心' },
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:consumptions:first', label: '消费记录' },
-          ...(referralsEnabled
-            ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
-              customId: 'bc:service-center:commissions', label: '我的收益' }]
-            : [])
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:commissions', label: '我的收益' }
         ]
       }
     ]
   };
 }
 
+export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec {
+  return {
+    title: `我的${customerWalletLabel(parseWalletDisplayConfig(process.env))}`,
+    body: [
+      `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `已预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
+      `可用余额：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
+      `计算时间：${balance.calculatedAt}`
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [{ type: 'ACTION_ROW', components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '刷新' }
+    ] }]
+  };
+}
+
 export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary): MessageSpec {
   const balance = input.balance;
-  const currency = balance.currency ?? input.statistics.currency;
-  const unavailable = balance.providerBalanceMinor === null;
   return {
     title: '个人中心',
     body: [
       `账户：${input.user.displayName}`,
-      unavailable ? '总余额：暂不可用' : `总余额：${formatMoney(balance.providerBalanceMinor!, currency)}`,
-      unavailable ? '预留：暂不可用' : `预留：${formatMoney(balance.reservedMinor!, currency)}`,
-      unavailable ? '可用：暂不可用' : `可用：${formatMoney(balance.availableMinor!, currency)}`,
+      `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
+      `预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
+      `可用：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
       `进行中订单：${input.statistics.activeOrderCount}`,
-      `累计订单消费：${formatMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
-      `累计礼物消费：${formatMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
-      balance.fetchedAt ? `余额时间：${balance.fetchedAt}${balance.stale ? '（陈旧）' : ''}` : '余额时间：暂无成功快照',
-      balance.providerError ? `余额刷新失败 · request_id: ${balance.providerError.requestId}` : null
+      `累计订单消费：${formatCustomerMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
+      `累计礼物消费：${formatCustomerMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
+      `余额计算时间：${balance.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       { type: 'ACTION_ROW', components: [
-        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:refresh', label: '刷新余额' },
-        { type: 'LINK_BUTTON', style: 'LINK', url: input.rechargeUrl, label: '前往充值' }
+        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:refresh', label: '刷新余额' }
       ] },
       { type: 'ACTION_ROW', components: [
         { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:orders:first', label: '我的订单' },
@@ -1186,7 +1159,7 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
 
 export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): MessageSpec {
   return { title: '我的订单', body: page.items.length ? page.items.map((item) =>
-    `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatMoney(item.amountMinor, item.currency)}\n${item.createdAt}`).join('\n\n') : '暂无订单。',
+    `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.createdAt}`).join('\n\n') : '暂无订单。',
     visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
       { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
       { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:orders', page.nextCursor) : 'bc:profile:orders:end', label: '下一页', disabled: !page.nextCursor }
@@ -1195,7 +1168,7 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
 
 export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): MessageSpec {
   return { title: '消费记录', body: page.items.length ? page.items.map((item) =>
-    `${item.type} · ${item.targetDisplay} · ${formatMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`).join('\n\n') : '暂无消费记录。',
+    `${item.type} · ${item.targetDisplay} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`).join('\n\n') : '暂无消费记录。',
     visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
       { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:profile:open', label: '返回个人中心' },
       { type: 'BUTTON', style: 'PRIMARY', customId: page.nextCursor ? paginationCustomId('bc:profile:consumptions', page.nextCursor) : 'bc:profile:consumptions:end', label: '下一页', disabled: !page.nextCursor }
@@ -1221,10 +1194,10 @@ export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlaye
   return { title: '我的周报详情', body: [
     `${report.periodStart} 至 ${report.periodEnd} · ${report.status}`,
     `完成订单：${metrics.completedOrderCount} · 取消：${metrics.cancelledOrderCount} · 服务：${metrics.serviceMinutes} 分钟`,
-    `订单收益：${formatMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatMoney(metrics.giftEarningMinor, report.currency)}`,
-    `调整：${formatMoney(metrics.adjustmentMinor, report.currency)}`,
-    `待确认：${formatMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatMoney(metrics.settlementReadyMinor, report.currency)}`,
-    `已入批次：${formatMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
+    `订单收益：${formatPlatformMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatPlatformMoney(metrics.giftEarningMinor, report.currency)}`,
+    `调整：${formatPlatformMoney(metrics.adjustmentMinor, report.currency)}`,
+    `待确认：${formatPlatformMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatPlatformMoney(metrics.settlementReadyMinor, report.currency)}`,
+    `已入批次：${formatPlatformMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
   ].join('\n'), visibility: 'EPHEMERAL', components: [{ type: 'ACTION_ROW', components: [
     { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:reports:list:first', label: '返回周报' }
   ] }] };
@@ -1237,8 +1210,8 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
   return {
     title: '取消影响确认',
     body: [
-      `释放预留：${formatMoney(preview.releaseAmountMinor, preview.currency)}`,
-      `退款：${formatMoney(preview.refundAmountMinor, preview.currency)}`,
+      `释放预留：${formatCustomerMoney(preview.releaseAmountMinor, preview.currency)}`,
+      `退款：${formatCustomerMoney(preview.refundAmountMinor, preview.currency)}`,
       handling,
       `预览有效期：${preview.validUntil}`
     ].join('\n'),
@@ -1265,7 +1238,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     ? workbench.matchingOrders.map((match) => [
       `待接订单：#${match.order.publicId} · ${formatGame(match.order.game)} / ${formatService(match.order.service)}`,
       `需求：${match.order.requirements.join('、') || '无额外要求'} · 剩余 ${match.secondsRemaining} 秒`,
-      `预计收益：${formatMoney(match.order.playerEarningMinor, match.order.currency)}`
+      `预计收益：${formatPlatformMoney(match.order.playerEarningMinor, match.order.currency)}`
     ].join('\n')).join('\n')
     : '待接订单：暂无';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
@@ -1304,9 +1277,9 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
       failedChecks.length > 0 ? `未满足条件：${failedChecks.map((check) => check.reason ?? check.code).join('；')}` : null,
       currentOrder,
       matchingLines,
-      `待确认收益：${formatMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
-      `已确认收益：${formatMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
-      `已支付收益：${formatMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
+      `待确认收益：${formatPlatformMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
+      `已确认收益：${formatPlatformMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
+      `已支付收益：${formatPlatformMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
       `更新时间：${workbench.earningsSummary.calculatedAt}`
     ].filter(Boolean).join('\n'),
     visibility: 'EPHEMERAL',
@@ -1321,7 +1294,7 @@ export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageS
       `${input.game} · ${input.service}`,
       `区服：${input.region}`,
       `时长：${input.durationLabel}`,
-      `预计收益：${formatMoney(input.playerEarningMinor, input.currency)}`,
+      `预计收益：${formatPlatformMoney(input.playerEarningMinor, input.currency)}`,
       input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
       input.notes ? `备注：${input.notes}` : '备注：未填写',
       `接单截止：${input.expiresAt}`
@@ -1388,7 +1361,7 @@ export function buildAcceptedDispatchMessage(input: {
 }
 
 export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSummary): MessageSpec {
-  const giftsEnabled = hasEnabledFeature(order.enabledFeatures, 'GIFTS');
+  const giftsEnabled = Array.isArray(order.enabledFeatures) && order.enabledFeatures.includes('GIFTS');
   if (order.status === 'ACCEPTED') {
     return {
       title: `订单 #${order.publicId} · 等待双方就绪`,
@@ -1463,10 +1436,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
         label: '确认完成'
       });
-      if (giftsEnabled) {
-        components.push({ type: 'BUTTON', style: 'SECONDARY',
-          customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
-      }
+      if (giftsEnabled) components.push({ type: 'BUTTON', style: 'SECONDARY',
+        customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' });
     }
     return {
       title: `订单 #${order.publicId} · 等待用户确认`,
@@ -1530,8 +1501,8 @@ export function buildOrderConfirmationMessage(input: {
       `时长：${formatEstimateDuration(input.estimate)}`,
       '标签：P0 默认匹配',
       input.order.notes ? `备注：${input.order.notes}` : '备注：未填写',
-      `预计价格：${formatMoney(input.estimate.amountMinor, input.estimate.currency)}`,
-      `可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `预计价格：${formatCustomerMoney(input.estimate.amountMinor, input.estimate.currency)}`,
+      `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       '取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。',
       statusLine,
       `价格有效期：${input.estimate.validUntil}`
@@ -1550,7 +1521,7 @@ export function buildOrderConfirmationMessage(input: {
           },
           { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.order.id}:refresh:v${input.order.version}`, label: '刷新确认' },
           { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.order.id}:cancel:v${input.order.version}`, label: '取消订单' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '前往充值', disabled: deficitMinor === 0 }
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '联系客服充值', disabled: deficitMinor === 0 }
         ]
       }
     ]
@@ -1566,10 +1537,10 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
     title: '订单已提交 · 正在匹配陪玩',
     body: [
       `订单状态：${input.status}`,
-      `本单预留：${formatMoney(input.reservation.amountMinor, input.reservation.currency)}`,
+      `本单预留：${formatCustomerMoney(input.reservation.amountMinor, input.reservation.currency)}`,
       `预留状态：${input.reservation.status}`,
-      `提交后可用余额：${formatMoney(input.balance.availableMinor, input.balance.currency)}`,
-      `当前预留总额：${formatMoney(input.balance.reservedMinor, input.balance.currency)}`,
+      `提交后可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
+      `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
       '当前只预留金额，不产生正式消费。',
       '系统正在通知符合条件且在线可接单的陪玩；服务开始前取消会释放预留。'
     ].join('\n'),
@@ -1616,7 +1587,7 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
     body: [
       `订单状态：${input.status}`,
       `资金处理：${input.fundAction}`,
-      input.releasedReservation ? `释放金额：${formatMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}` : null
+      input.releasedReservation ? `释放金额：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}` : null
     ].filter(Boolean).join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: []
@@ -1734,7 +1705,7 @@ export async function handleServiceLifecycleAction(input: {
       );
       return {
         kind: 'EPHEMERAL_MESSAGE',
-        message: `订单已确认完成。扣款 ${formatMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
+        message: `订单已确认完成。扣款 ${formatCustomerMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
       };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: '客服协助请求将在后续步骤处理。request_id: local-support-pending' };
@@ -1752,9 +1723,7 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     const [balance, consumptions, commissions, activeOrder] = await Promise.all([
       input.api.getCurrentBalance(input.actor),
       input.api.listCurrentUserConsumptions(input.actor),
-      hasEnabledFeature(currentUser.enabledFeatures, 'REFERRALS')
-        ? input.api.listCurrentUserCommissions(input.actor)
-        : Promise.resolve(null),
+      input.api.listCurrentUserCommissions(input.actor),
       currentUser.activeOrderId ? input.api.getOrder(currentUser.activeOrderId, input.actor) : Promise.resolve(null)
     ]);
 
@@ -1770,17 +1739,10 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开服务中心失败') };
   }
-}
-
-function hasEnabledFeature(
-  enabledFeatures: unknown,
-  feature: 'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'
-): boolean {
-  return Array.isArray(enabledFeatures) && enabledFeatures.includes(feature);
 }
 
 export async function handleOpenPlayerWorkbench(input: {
@@ -1891,31 +1853,9 @@ export async function handleCreateOrderFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'SHOW_MODAL', modal: buildBindingModal({ sessionId: input.actor.interactionId }) };
+      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '创建订单失败') };
-  }
-}
-
-export async function handleBindingSubmit(input: {
-  api: BotApiClient;
-  actor: BotActorContext;
-  bindingCode: string;
-  idempotencyKey: string;
-}): Promise<BotFlowResult> {
-  try {
-    await input.api.createBinding(
-      {
-        credentialType: 'ONE_TIME_CODE',
-        credentialValue: input.bindingCode,
-        expectedCurrency: 'CNY'
-      },
-      input.actor,
-      input.idempotencyKey
-    );
-    return { kind: 'EPHEMERAL_MESSAGE', message: '绑定完成，可以继续创建订单。' };
-  } catch (error) {
-    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '绑定失败') };
   }
 }
 
@@ -2024,11 +1964,6 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       orderId: notesModal[1],
       expectedVersion: Number.parseInt(notesModal[2], 10)
     };
-  }
-
-  const bindingModal = /^bc:modal:binding:([A-Za-z0-9_-]{4,80})$/u.exec(customId);
-  if (bindingModal) {
-    return { area: 'binding-modal', sessionId: bindingModal[1] };
   }
 
   const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
@@ -2141,9 +2076,15 @@ function formatEstimateDuration(estimate: OrderEstimateSummary): string {
   return `${totalMinutes} 分钟`;
 }
 
-function formatMoney(amountMinor: number, currency: string): string {
-  const prefix = currency === 'CNY' ? '¥' : `${currency} `;
-  return `${prefix}${(amountMinor / 100).toFixed(2)}`;
+function formatPlatformMoney(amountMinor: number, currency: string): string {
+  if (currency === 'CAT') return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
+  const prefix = `${currency}\u00a0`;
+  return `${prefix}${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountMinor / 100)}`;
+}
+
+function formatCustomerMoney(amountMinor: number, currency: string): string {
+  if (currency !== 'CAT') throw new Error('Customer wallet display requires canonical CAT subunits.');
+  return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
 }
 
 function missingConfirmationFields(order: OrderSummary): string[] {
@@ -2175,7 +2116,7 @@ function confirmationBlockedReason(input: {
   if (input.currencyMismatch) {
     return '币种不一致：请联系客服处理后再确认。';
   }
-  return `余额不足：还差 ${formatMoney(input.deficitMinor, input.estimateCurrency)}，请充值后刷新确认。`;
+  return `余额不足：还差 ${formatCustomerMoney(input.deficitMinor, input.estimateCurrency)}，请联系客服并提交付款 receipt，到账后刷新确认。`;
 }
 
 function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAccountStore, registerAccountRoutes, type AccountBindingRecord, type BeneficiaryCommissionRecord, type ConsumptionRecord } from '@blackcat/api/accounts';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
+import { TestWalletFunding } from './support/wallet-fixture';
 
 const now = new Date('2026-07-18T17:00:00.000Z');
 const userId = '00000000-0000-0000-0000-000000004010';
@@ -16,15 +16,15 @@ function binding(): AccountBindingRecord {
 }
 
 function consumption(id: string, occurredAt: string, type: ConsumptionRecord['type']): ConsumptionRecord & { userId: string } {
-  return { id, userId, type, sourceId: id, amountMinor: type === 'REVERSAL' ? -2000 : 12000, currency: 'CNY',
+  return { id, userId, type, sourceId: id, amountMinor: type === 'REVERSAL' ? -2000 : 12000, currency: 'CAT',
     status: type === 'REVERSAL' ? 'REVERSED' : 'SUCCEEDED', targetDisplay: type === 'GIFT' ? 'Gift 星光礼盒' : 'Order P-4010',
     occurredAt, reversalOf: type === 'REVERSAL' ? '00000000-0000-0000-0000-000000004021' : null };
 }
 
 function commission(id: string, beneficiaryUserId: string): BeneficiaryCommissionRecord & { beneficiaryUserId: string } {
   return { id, beneficiaryUserId, programType: 'PLAYER_LIFETIME', sourceCustomerMasked: { display: 'Customer ***' },
-    amountMinor: 240, currency: 'CNY', status: 'PENDING', adjustments: [{ type: 'REVERSAL_DEBIT', amountMinor: 40,
-      currency: 'CNY', createdAt: now.toISOString() }], netAmountMinor: 200, version: 2, createdAt: now.toISOString() };
+    amountMinor: 240, currency: 'CAT', status: 'PENDING', adjustments: [{ type: 'REVERSAL_DEBIT', amountMinor: 40,
+      currency: 'CAT', createdAt: now.toISOString() }], netAmountMinor: 200, version: 2, createdAt: now.toISOString() };
 }
 
 function fixture() {
@@ -36,7 +36,7 @@ function fixture() {
     commission('00000000-0000-0000-0000-000000004032', '00000000-0000-0000-0000-000000004099')] });
   const server = buildApiServer({ env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
     security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() } });
-  registerAccountRoutes(server, { store, fundingAdapter: new MockFundingAdapter({ now }), providerKey: 'mock-provider' });
+  registerAccountRoutes(server, { store, walletFunding: new TestWalletFunding(), now: () => now });
   return server;
 }
 

@@ -304,7 +304,7 @@ export class PostgresWeeklyReportStore implements WeeklyReportStore {
   async enqueueScheduledGeneration(input: { guildId: string; scheduleKey: string; timeZone: string; now: Date; weekStartsOn?: number }): Promise<void> {
     const period = resolveWeeklyReportPeriod({ now: input.now, timeZone: input.timeZone, weekStartsOn: input.weekStartsOn });
     const payload: WeeklyReportGenerationInput = { guildId: input.guildId, scheduleKey: input.scheduleKey,
-      ...period, timeZone: input.timeZone, currency: 'CNY' };
+      ...period, timeZone: input.timeZone, currency: 'CAT' };
     const id = deterministicUuid(`weekly-report-generate-job:${generationKey(payload)}`);
     await this.pool.query(`INSERT INTO outbox_events
       (id,event_type,aggregate_type,aggregate_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
@@ -858,7 +858,7 @@ function validateMetrics(type: WeeklyReportType, metrics: WeeklyReportMetrics): 
 function validateGenerationInput(input: WeeklyReportGenerationInput): void {
   const start = Date.parse(input.periodStart); const end = Date.parse(input.periodEnd); const cutoff = Date.parse(input.cutoffAt);
   if (!input.guildId.trim() || !input.scheduleKey.trim() || !Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(cutoff) ||
-    start >= end || cutoff < end || input.currency !== 'CNY') throw new WeeklyReportError('VALIDATION_ERROR', 'Weekly report generation input is invalid.');
+    start >= end || cutoff < end || input.currency !== 'CAT') throw new WeeklyReportError('VALIDATION_ERROR', 'Weekly report generation input is invalid.');
   assertTimeZone(input.timeZone);
 }
 

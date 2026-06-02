@@ -73,6 +73,7 @@ export interface OutboxWorkerOptions {
   heartbeatMs?: number;
   logger?: (entry: Record<string, unknown>) => void;
   metric?: (name: string, tags: Record<string, string>) => void;
+  auditSink?: AuditSink;
 }
 
 type HandlerMap = Partial<Record<JobType, (job: OutboxJob) => Promise<void> | void>>;
@@ -448,6 +449,7 @@ export class OutboxWorker {
   private readonly heartbeatMs: number;
   private readonly logger: (entry: Record<string, unknown>) => void;
   private readonly metric: (name: string, tags: Record<string, string>) => void;
+  private readonly auditSink: AuditSink;
 
   constructor(options: OutboxWorkerOptions) {
     this.store = options.store;
@@ -457,6 +459,7 @@ export class OutboxWorker {
     this.heartbeatMs = options.heartbeatMs ?? 60_000;
     this.logger = options.logger ?? (() => undefined);
     this.metric = options.metric ?? (() => undefined);
+    this.auditSink = options.auditSink ?? { append: () => undefined };
   }
 
   async runOnce(handlers: HandlerMap): Promise<OutboxJob[]> {
@@ -486,6 +489,7 @@ export class OutboxWorker {
         }
         await this.runWithHeartbeat(job, handler);
         const completed = await this.store.markSucceeded({ jobId: job.id, workerId: this.workerId, now: this.now() });
+        await this.appendJobAudit(job, completed, 'SUCCEEDED', requestId, null);
         this.metric('outbox_job_succeeded_total', { type: job.type, status: completed.status });
         this.logger({
           event: 'outbox.job_succeeded',
@@ -507,6 +511,7 @@ export class OutboxWorker {
           retryAt,
           now: failedAt
         });
+        await this.appendJobAudit(job, failed, 'FAILED', requestId, 'DELIVERY_HANDLER_FAILED');
         this.metric('outbox_job_failed_total', { type: job.type, status: failed.status });
         this.logger({
           event: 'outbox.job_failed',
@@ -545,6 +550,57 @@ export class OutboxWorker {
       clearInterval(timer);
       if (pending) await pending;
     }
+  }
+
+  private async appendJobAudit(
+    before: OutboxJob,
+    after: OutboxJob,
+    outcome: 'SUCCEEDED' | 'FAILED',
+    requestId: string,
+    reason: string | null
+  ): Promise<void> {
+    await this.auditSink.append({
+      id: crypto.randomUUID(),
+      actorId: null,
+      actorStaffId: null,
+      actorLevel: null,
+      actorSource: 'SYSTEM_JOB',
+      clientId: 'OUTBOX_WORKER',
+      interactionId: null,
+      permissionCode: 'operations.failure.report',
+      action: `PROCESS_${before.type}`,
+      targetType: 'outbox_event',
+      targetId: before.id,
+      outcome,
+      reason,
+      requestId,
+      idempotencyKey: `job:${before.id}:${before.attempts}`,
+      approvalRequestId: null,
+      jobId: before.id,
+      triggerSource: 'OUTBOX',
+      retryAttempt: before.attempts,
+      occurredAt: after.updatedAt,
+      beforeSnapshot: snapshotJob(before),
+      afterSnapshot: snapshotJob(after),
+      changes: [
+        {
+          targetType: 'outbox_event',
+          targetId: before.id,
+          changeType: 'STATE_TRANSITION',
+          beforeSnapshot: snapshotJob(before),
+          afterSnapshot: snapshotJob(after),
+          changedFields: ['status', 'version', 'lockedAt', 'lockedBy', 'lastError', 'runAfter']
+        },
+        {
+          targetType: before.aggregateType,
+          targetId: before.aggregateId,
+          changeType: 'UPDATE',
+          beforeSnapshot: null,
+          afterSnapshot: { trigger: before.type, outcome },
+          changedFields: ['trigger', 'outcome']
+        }
+      ]
+    });
   }
 
   private backoffForAttempt(attempt: number): number {
@@ -612,10 +668,22 @@ async function retryJobWithAudit(input: {
     outcome: 'SUCCEEDED',
     reason: input.reasonCode,
     requestId: input.requestId,
+    idempotencyKey: `job-retry:${input.jobId}:${input.expectedVersion}`,
     approvalRequestId: null,
+    jobId: input.jobId,
+    triggerSource: 'DASHBOARD',
+    retryAttempt: before?.attempts ?? null,
     occurredAt: input.now.toISOString(),
     beforeSnapshot: snapshotJob(before),
-    afterSnapshot: snapshotJob(retried)
+    afterSnapshot: snapshotJob(retried),
+    changes: [{
+      targetType: 'outbox_event',
+      targetId: input.jobId,
+      changeType: 'STATE_TRANSITION',
+      beforeSnapshot: snapshotJob(before),
+      afterSnapshot: snapshotJob(retried),
+      changedFields: ['status', 'version', 'runAfter']
+    }]
   });
   return retried;
 }

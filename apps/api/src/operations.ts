@@ -425,7 +425,7 @@ function isUuid(value:string){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 function assertPolicyValue(key:string,value:number,currency:string|null){
   const rate=key.endsWith('_RATE_BPS');const amount=key.endsWith('_MINOR');const time=key.endsWith('_MINUTES');
   if(rate&&(value>10_000||currency!==null))throw new OperationsError('VALIDATION_ERROR','Rate policies require 0-10000 basis points and no currency.');
-  if(amount&&(!currency||!['CNY','USD'].includes(currency)))throw new OperationsError('VALIDATION_ERROR','Amount policies require a supported currency.');
+  if(amount&&currency!=='CAT')throw new OperationsError('VALIDATION_ERROR','Amount policies require USD.');
   if(time&&(value<1||value>10_080||currency!==null))throw new OperationsError('VALIDATION_ERROR','Time policies require 1-10080 minutes and no currency.');
 }
 function channelFailureJob(input:{requestId:string;guildId:string;discordUserId:string;interactionId:string;now:Date}):OutboxJob{const id=deterministicUuid(`channel-create-failure:${input.requestId}`);return{id,type:'CHANNEL_CREATE_FAILURE',status:'FAILED',payload:{guildId:input.guildId,discordUserId:input.discordUserId,interactionId:input.interactionId},aggregateType:'DISCORD_INTERACTION',aggregateId:deterministicUuid(`discord-interaction:${input.guildId}:${input.interactionId}`),dedupeKey:`channel-create-failure:${input.guildId}:${input.interactionId}`,attempts:1,maxAttempts:1,runAfter:input.now.toISOString(),lockedAt:null,lockedBy:null,completedAt:null,lastError:`CHANNEL_CREATE_FAILED; requestId=${input.requestId}`,version:1,createdAt:input.now.toISOString(),updatedAt:input.now.toISOString()};}

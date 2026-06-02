@@ -11,7 +11,7 @@ import {
   registerAccountRoutes,
   type AccountStore
 } from './accounts.js';
-import { registerOrderRoutes, type OrderFundingAdapter, type OrderStore } from './orders.js';
+import { registerOrderRoutes, type OrderStore } from './orders.js';
 import { registerPlayerRoutes, type PlayerStore } from './players.js';
 import {
   registerDispatchRoutes,
@@ -23,12 +23,9 @@ import { registerStaffTaskRoutes, type StaffTaskStore } from './staff-tasks.js';
 import { registerRiskEventRoutes, type RiskEventStore } from './risk-events.js';
 import {
   registerAdminOrderActionRoutes,
-  type AdminRefundOrderStore,
-  type RefundFundingAdapter
+  type AdminRefundOrderStore
 } from './admin-order-actions.js';
-import type { FundingAdapter } from './payment-adapter.js';
-import { registerPaymentWebhookRoutes, type PaymentWebhookFundingAdapter } from './webhooks.js';
-import { registerGiftRoutes, type GiftCaptureFundingAdapter, type GiftStore } from './gifts.js';
+import { registerGiftRoutes, type GiftStore } from './gifts.js';
 import { registerPlayerEarningRoutes, type PlayerEarningStore } from './player-earnings.js';
 import { registerCommissionRoutes, type CommissionStore } from './commissions.js';
 import { registerReferralAttributionRoutes, type ReferralAttributionStore } from './referrals.js';
@@ -44,7 +41,9 @@ import { registerSettlementRoutes, type SettlementRouteOptions } from './settlem
 import { registerWeeklyReportRoutes, type WeeklyReportStore } from './weekly-reports.js';
 import { registerCustomerProfileRoutes, type CustomerProfileScope, type CustomerProfileStore } from './customer-profiles.js';
 import { configureCursorSigningSecret } from './signed-cursor.js';
-import { registerSandboxFundingRoutes, type SandboxFundingStore } from './sandbox-funding.js';
+import { registerWalletRoutes, type WalletApplicationService, type WalletFundingService } from './wallet.js';
+import type { ReceiptStorage } from './receipt-storage.js';
+import { registerOnboardingRoutes, type OnboardingStore } from './onboarding.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -56,18 +55,15 @@ export interface ApiServerOptions {
   };
   account?: {
     store: AccountStore;
-    fundingAdapter: Pick<FundingAdapter, 'resolveUser' | 'getProviderBalance'>;
-    providerKey: string;
+    walletFunding: WalletFundingService;
     now?: () => Date;
     profileStore?: CustomerProfileStore;
-    rechargeUrl?: string;
   };
   order?: {
     orderStore: OrderStore;
     accountStore: AccountStore;
     catalogStore: ServiceCatalogStore;
-    fundingAdapter?: OrderFundingAdapter;
-    providerKey?: string;
+    walletFunding?: WalletFundingService;
     staffTaskStore?: StaffTaskStore;
     now?: () => Date;
   };
@@ -98,21 +94,13 @@ export interface ApiServerOptions {
   };
   adminOrders?: {
     orderStore: AdminRefundOrderStore;
-    fundingAdapter: RefundFundingAdapter;
-    providerKey: string;
-    now?: () => Date;
-  };
-  paymentWebhook?: {
-    fundingAdapter: PaymentWebhookFundingAdapter;
-    providerKey: string;
     now?: () => Date;
   };
   gift?: {
     store: GiftStore;
     orderStore: OrderStore;
     accountStore: AccountStore;
-    fundingAdapter: OrderFundingAdapter & GiftCaptureFundingAdapter;
-    providerKey: string;
+    walletFunding: WalletFundingService;
     broadcastChannelId: string;
     now?: () => Date;
   };
@@ -123,16 +111,17 @@ export interface ApiServerOptions {
   commissions?: { store: CommissionStore; now?: () => Date };
   referrals?: { store: ReferralAttributionStore; now?: () => Date };
   dashboardAuth?: DashboardAuthOptions;
-  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CNY' };
+  dashboardMetrics?: { store: DashboardMetricsStore; timeZone?: 'Asia/Shanghai'; currency?: 'CAT' };
   botConfig?: BotConfigRouteOptions;
   settlements?: SettlementRouteOptions;
   weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
-  customerProfiles?: { store: CustomerProfileStore; fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; now?: () => Date };
+  customerProfiles?: { store: CustomerProfileStore; walletFunding: WalletFundingService; now?: () => Date };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
-  sandboxFunding?: { store: SandboxFundingStore; now?: () => Date };
+  wallet?: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date };
+  onboarding?: { store: OnboardingStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -297,10 +286,6 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     registerAdminOrderActionRoutes(server, { ...options.adminOrders, policyReader: options.operations?.store });
   }
 
-  if (options.paymentWebhook) {
-    registerPaymentWebhookRoutes(server, options.paymentWebhook);
-  }
-
   if (options.gift) {
     if (!server.securityOptions) {
       throw new Error('Gift routes require buildApiServer({ security, gift })');
@@ -339,9 +324,13 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) throw new Error('Customer profile routes require buildApiServer({ security, customerProfiles })');
     registerCustomerProfileRoutes(server, options.customerProfiles);
   }
-  if (options.sandboxFunding) {
-    if (!server.securityOptions) throw new Error('Sandbox funding routes require buildApiServer({ security, sandboxFunding })');
-    registerSandboxFundingRoutes(server, { ...options.sandboxFunding, security: server.securityOptions });
+  if (options.wallet) {
+    if (!server.securityOptions) throw new Error('Wallet routes require buildApiServer({ security, wallet })');
+    registerWalletRoutes(server, options.wallet);
+  }
+  if (options.onboarding) {
+    if (!server.securityOptions) throw new Error('Onboarding routes require buildApiServer({ security, onboarding })');
+    registerOnboardingRoutes(server, options.onboarding);
   }
 
   return server;

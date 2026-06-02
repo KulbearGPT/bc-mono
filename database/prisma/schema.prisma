@@ -20,9 +20,39 @@ enum ExternalAccountStatus {
   REVOKED
 }
 
+enum WalletAccountStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum WalletEntryDirection {
+  CREDIT
+  DEBIT
+}
+
+enum WalletEntryType {
+  TOP_UP_CREDIT
+  ORDER_CAPTURE_DEBIT
+  GIFT_CAPTURE_DEBIT
+  ORDER_REFUND_CREDIT
+  CASH_REFUND_DEBIT
+  ADJUSTMENT_CREDIT
+  ADJUSTMENT_DEBIT
+}
+
+enum AuditChangeType {
+  CREATE
+  UPDATE
+  APPEND
+  STATE_TRANSITION
+  INVALIDATE
+}
+
 enum PlayerReviewStatus {
   PENDING_REVIEW
   ACTIVE
+  REJECTED
   PAUSED
   SUSPENDED
 }
@@ -172,28 +202,6 @@ enum ExternalTransactionStatus {
   REFUNDED
 }
 
-enum SandboxProviderAccountStatus {
-  ACTIVE
-  SUSPENDED
-}
-
-enum SandboxProviderAdjustmentDirection {
-  CREDIT
-  DEBIT
-}
-
-enum SandboxProviderTransactionOperation {
-  DEBIT
-  REFUND
-}
-
-enum SandboxProviderTransactionStatus {
-  UNKNOWN
-  PENDING
-  SUCCEEDED
-  FAILED
-}
-
 /// Refund execution lifecycle only. Refund aggregation lives on the original ExternalTransaction.
 enum RefundStatus {
   UNKNOWN
@@ -221,8 +229,7 @@ enum FundReservationSourceType {
 }
 
 enum FundReservationMode {
-  PROVIDER_NATIVE_HOLD
-  LOCAL_RESERVATION_FALLBACK
+  LOCAL_RESERVATION
 }
 
 enum FundReservationStatus {
@@ -488,6 +495,7 @@ model User {
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   discordAccounts      DiscordAccount[]
+  walletAccount        WalletAccount?
   externalAccounts     ExternalAccount[]
   playerProfile        PlayerProfile?
   staffAccount         StaffAccount?
@@ -517,7 +525,6 @@ model User {
   idempotencyRecords   IdempotencyRecord[]   @relation("IdempotencyActorUser")
   auditLogs            AuditLog[]            @relation("AuditActorUser")
   orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
-  providerBalanceSnapshots ProviderBalanceSnapshot[]
   customerProfileNotes CustomerProfileNote[]
 
   @@index([status])
@@ -543,6 +550,125 @@ model DiscordAccount {
   @@map("discord_accounts")
 }
 
+model WalletAccount {
+  id         String              @id @default(uuid()) @db.Uuid
+  userId     String              @unique @map("user_id") @db.Uuid
+  currency   String              @default("CAT") @db.Char(3)
+  status     WalletAccountStatus @default(ACTIVE)
+  rowVersion Int                 @default(1) @map("row_version")
+  createdAt  DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user                  User                    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  entries               WalletEntry[]
+  topUps                TopUp[]
+  externalRefundDebits  ExternalRefundDebit[]
+  receiptAttachments    ReceiptAttachment[]
+
+  @@index([status])
+  @@map("wallet_accounts")
+}
+
+model WalletEntry {
+  id                    String               @id @default(uuid()) @db.Uuid
+  walletAccountId       String               @map("wallet_account_id") @db.Uuid
+  entryType             WalletEntryType      @map("entry_type")
+  direction             WalletEntryDirection
+  amountMinor           BigInt               @map("amount_minor")
+  currency              String               @default("CAT") @db.Char(3)
+  sourceType            String               @map("source_type") @db.VarChar(50)
+  sourceId              String               @map("source_id") @db.Uuid
+  reversalOfEntryId     String?              @map("reversal_of_entry_id") @db.Uuid
+  idempotencyKey        String               @unique @map("idempotency_key") @db.VarChar(200)
+  occurredAt            DateTime             @map("occurred_at") @db.Timestamptz(3)
+  createdAt             DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversalOf    WalletEntry?  @relation("WalletEntryReversal", fields: [reversalOfEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reversals     WalletEntry[] @relation("WalletEntryReversal")
+  topUp         TopUp?
+  externalRefundDebit ExternalRefundDebit?
+
+  @@unique([sourceType, sourceId, entryType])
+  @@index([walletAccountId, occurredAt])
+  @@index([reversalOfEntryId])
+  @@map("wallet_entries")
+}
+
+model TopUp {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
+  paidAmountUsdCents     BigInt   @map("paid_amount_usd_cents")
+  paidCurrency          String   @default("USD") @map("paid_currency") @db.Char(3)
+  rateCatPerUsd         Int      @default(10) @map("rate_cat_per_usd")
+  creditedCatSubunits   BigInt   @map("credited_cat_subunits")
+  paymentMethod         String   @map("payment_method") @db.VarChar(50)
+  receiptNumber         String   @map("receipt_number") @db.VarChar(200)
+  paidAt                DateTime @map("paid_at") @db.Timestamptz(3)
+  note                  String   @db.VarChar(1000)
+  reasonCode            String   @map("reason_code") @db.VarChar(80)
+  createdByStaffId      String   @map("created_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount       @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  walletEntry   WalletEntry         @relation(fields: [walletEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     StaffAccount        @relation(fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments   ReceiptAttachment[]
+
+  @@unique([paymentMethod, receiptNumber])
+  @@index([walletAccountId, createdAt])
+  @@map("top_ups")
+}
+
+model ExternalRefundDebit {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  walletEntryId         String   @unique @map("wallet_entry_id") @db.Uuid
+  amountMinor           BigInt   @map("amount_minor")
+  currency              String   @default("CAT") @db.Char(3)
+  paymentChannel        String   @map("payment_channel") @db.VarChar(50)
+  externalTransactionId String   @map("external_transaction_id") @db.VarChar(200)
+  refundedAt            DateTime @map("refunded_at") @db.Timestamptz(3)
+  note                  String   @db.VarChar(1000)
+  createdByStaffId      String   @map("created_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount WalletAccount       @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  walletEntry   WalletEntry         @relation(fields: [walletEntryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy     StaffAccount        @relation(fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments   ReceiptAttachment[]
+
+  @@unique([paymentChannel, externalTransactionId])
+  @@index([walletAccountId, createdAt])
+  @@map("external_refund_debits")
+}
+
+model ReceiptAttachment {
+  id                    String   @id @default(uuid()) @db.Uuid
+  walletAccountId       String   @map("wallet_account_id") @db.Uuid
+  topUpId               String?  @map("top_up_id") @db.Uuid
+  externalRefundDebitId String?  @map("external_refund_debit_id") @db.Uuid
+  mediaType             String   @map("media_type") @db.VarChar(100)
+  originalFileName      String   @map("original_file_name") @db.VarChar(255)
+  byteSize              BigInt   @map("byte_size")
+  sha256                String   @db.Char(64)
+  storageKey            String   @unique @map("storage_key") @db.VarChar(255)
+  uploadedByStaffId     String   @map("uploaded_by_staff_id") @db.Uuid
+  invalidatedAt         DateTime? @map("invalidated_at") @db.Timestamptz(3)
+  invalidatedByStaffId  String?  @map("invalidated_by_staff_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  walletAccount      WalletAccount        @relation(fields: [walletAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topUp              TopUp?               @relation(fields: [topUpId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  externalRefundDebit ExternalRefundDebit? @relation(fields: [externalRefundDebitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([walletAccountId, createdAt])
+  @@index([topUpId])
+  @@index([externalRefundDebitId])
+  @@map("receipt_attachments")
+}
+
 model ExternalAccount {
   id                    String                @id @default(uuid()) @db.Uuid
   userId                String                @map("user_id") @db.Uuid
@@ -560,92 +686,6 @@ model ExternalAccount {
   @@unique([provider, externalUserId])
   @@index([userId, status])
   @@map("external_accounts")
-}
-
-/// Last-successful Provider observations only. Reserved and available values are never persisted here.
-model ProviderBalanceSnapshot {
-  id                   String   @id @default(uuid()) @db.Uuid
-  userId               String   @map("user_id") @db.Uuid
-  provider             String   @db.VarChar(50)
-  providerBalanceMinor BigInt   @map("provider_balance_minor")
-  currency             String   @db.Char(3)
-  fetchedAt            DateTime @map("fetched_at") @db.Timestamptz(3)
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([userId, currency, fetchedAt])
-  @@map("provider_balance_snapshots")
-}
-
-/// Railway sandbox-only Provider account. This is not a production wallet or a FundReservation ledger.
-model SandboxProviderAccount {
-  id                    String                       @id @default(uuid()) @db.Uuid
-  externalUserId        String                       @unique @map("external_user_id") @db.VarChar(255)
-  displayName           String                       @map("display_name") @db.VarChar(200)
-  currency              String                       @default("CNY") @db.Char(3)
-  status                SandboxProviderAccountStatus @default(ACTIVE)
-  version               Int                          @default(1)
-  bindingCodeHash       String?                      @unique @map("binding_code_hash") @db.VarChar(128)
-  bindingCodeConsumedAt DateTime?                    @map("binding_code_consumed_at") @db.Timestamptz(3)
-  createdAt             DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  adjustments SandboxProviderBalanceAdjustment[]
-  transactions SandboxProviderTransaction[]
-
-  @@index([status])
-  @@map("sandbox_provider_accounts")
-}
-
-/// Append-only balance movement. Current Provider balance is SUM(CREDIT) - SUM(DEBIT).
-model SandboxProviderBalanceAdjustment {
-  id               String                             @id @default(uuid()) @db.Uuid
-  accountId        String                             @map("account_id") @db.Uuid
-  direction        SandboxProviderAdjustmentDirection
-  amountMinor      BigInt                             @map("amount_minor")
-  balanceBeforeMinor BigInt                           @map("balance_before_minor")
-  balanceAfterMinor  BigInt                           @map("balance_after_minor")
-  reasonCode       String                             @map("reason_code") @db.VarChar(100)
-  idempotencyKey   String                             @map("idempotency_key") @db.VarChar(200)
-  createdByStaffId String                             @map("created_by_staff_id") @db.Uuid
-  createdAt        DateTime                           @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  account        SandboxProviderAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdByStaff StaffAccount           @relation("SandboxAdjustmentCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@unique([accountId, idempotencyKey])
-  @@index([accountId, createdAt])
-  @@index([createdByStaffId, createdAt])
-  @@map("sandbox_provider_balance_adjustments")
-}
-
-/// Append-only normalized debit/refund result emitted by the sandbox FundingProvider adapter.
-model SandboxProviderTransaction {
-  id                String                              @id @default(uuid()) @db.Uuid
-  accountId         String                              @map("account_id") @db.Uuid
-  operation         SandboxProviderTransactionOperation
-  businessSource    FundReservationSourceType           @map("business_source")
-  businessSourceId  String                              @map("business_source_id") @db.Uuid
-  businessReference String                              @map("business_reference") @db.VarChar(255)
-  fundReservationId String?                             @map("fund_reservation_id") @db.Uuid
-  fundReservationVersion Int?                           @map("fund_reservation_version")
-  direction         LedgerDirection
-  amountMinor       BigInt                              @map("amount_minor")
-  currency          String                              @default("CNY") @db.Char(3)
-  status            SandboxProviderTransactionStatus
-  providerReference String                              @unique @map("provider_reference") @db.VarChar(255)
-  originalProviderReference String?                     @map("original_provider_reference") @db.VarChar(255)
-  reasonCode        String?                             @map("reason_code") @db.VarChar(100)
-  idempotencyKey    String                              @unique @map("idempotency_key") @db.VarChar(200)
-  createdAt         DateTime                            @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  account SandboxProviderAccount @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@index([accountId, createdAt])
-  @@index([businessSource, businessSourceId])
-  @@index([originalProviderReference])
-  @@map("sandbox_provider_transactions")
 }
 
 /// Staff-only, append-only customer context. API projections never expose author identity below L3.
@@ -715,6 +755,8 @@ model StaffAccount {
   auditLogs              AuditLog[]                @relation("AuditActorStaff")
   riskEventsCreated      RiskEvent[]               @relation("RiskCreatedBy")
   customerProfileNotes   CustomerProfileNote[]     @relation("CustomerProfileNoteAuthor")
+  topUpsCreated          TopUp[]
+  externalRefundDebitsCreated ExternalRefundDebit[]
   orderEvents            OrderEvent[]              @relation("OrderEventActorStaff")
   botConfigsUpdated      GuildBotConfig[]           @relation("BotConfigUpdatedBy")
   botConfigEvents        GuildBotConfigEvent[]      @relation("BotConfigEventActor")
@@ -725,7 +767,6 @@ model StaffAccount {
   settlementPaymentsRecorded SettlementItem[]       @relation("SettlementPaymentRecordedBy")
   settlementPaymentResults   SettlementPaymentResult[] @relation("SettlementPaymentResultRecordedBy")
   weeklyReportRevisions      WeeklyReportRevision[] @relation("WeeklyReportRevisionCreatedBy")
-  sandboxBalanceAdjustments  SandboxProviderBalanceAdjustment[] @relation("SandboxAdjustmentCreatedBy")
 
   @@index([level, status])
   @@map("staff_accounts")
@@ -764,6 +805,56 @@ model GuildBotConfigEvent {
   @@unique([guildId, version])
   @@index([actorStaffId, createdAt])
   @@map("guild_bot_config_events")
+}
+
+/// One durable projection for the Bot-managed newcomer entry message per Guild.
+model GuildOnboardingMessage {
+  guildId          String   @id @map("guild_id") @db.VarChar(32)
+  channelId        String   @map("channel_id") @db.VarChar(32)
+  messageId        String?  @map("message_id") @db.VarChar(32)
+  renderedVersion  Int      @default(1) @map("rendered_version")
+  lastEnsuredAt    DateTime @map("last_ensured_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([guildId, channelId])
+  @@map("guild_onboarding_messages")
+}
+
+/// Append-only companion review history; PlayerProfile stores only the current projection.
+model CompanionReviewEvent {
+  id               String             @id @default(uuid()) @db.Uuid
+  playerProfileId  String             @map("player_profile_id") @db.Uuid
+  fromStatus       PlayerReviewStatus? @map("from_status")
+  toStatus         PlayerReviewStatus  @map("to_status")
+  actorStaffId     String?             @map("actor_staff_id") @db.Uuid
+  reasonCode       String?             @map("reason_code") @db.VarChar(80)
+  note             String?             @db.VarChar(1000)
+  idempotencyKey   String              @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([playerProfileId, createdAt])
+  @@map("companion_review_events")
+}
+
+/// Retryable Discord product-role synchronization; never used as an authorization fact.
+model DiscordProductRoleTask {
+  id               String   @id @default(uuid()) @db.Uuid
+  guildId          String   @map("guild_id") @db.VarChar(32)
+  userId           String   @map("user_id") @db.Uuid
+  discordUserId    String   @map("discord_user_id") @db.VarChar(32)
+  roleId           String   @map("role_id") @db.VarChar(32)
+  action           String   @db.VarChar(10)
+  status           String   @default("PENDING") @db.VarChar(20)
+  dedupeKey        String   @unique @map("dedupe_key") @db.VarChar(200)
+  attemptCount     Int      @default(0) @map("attempt_count")
+  lastErrorCode    String?  @map("last_error_code") @db.VarChar(100)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@index([guildId, discordUserId])
+  @@map("discord_product_role_tasks")
 }
 
 model StaffSession {
@@ -935,6 +1026,9 @@ model PlayerProfile {
   presenceObservedAt DateTime?             @map("presence_observed_at") @db.Timestamptz(3)
   approvedByStaffId  String?               @map("approved_by_staff_id") @db.Uuid
   approvedAt         DateTime?             @map("approved_at") @db.Timestamptz(3)
+  rejectedAt         DateTime?             @map("rejected_at") @db.Timestamptz(3)
+  rejectionReasonCode String?              @map("rejection_reason_code") @db.VarChar(80)
+  rejectionNote      String?               @map("rejection_note") @db.VarChar(1000)
   pausedAt           DateTime?             @map("paused_at") @db.Timestamptz(3)
   suspendedAt        DateTime?             @map("suspended_at") @db.Timestamptz(3)
   createdAt          DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -2109,7 +2203,11 @@ model AuditLog {
   afterSnapshot     Json?        @map("after_snapshot") @db.JsonB
   reason            String?      @db.VarChar(1000)
   requestId         String       @map("request_id") @db.VarChar(128)
+  idempotencyKey    String?      @map("idempotency_key") @db.VarChar(200)
   approvalRequestId String?      @map("approval_request_id") @db.Uuid
+  jobId             String?      @map("job_id") @db.Uuid
+  triggerSource     String?      @map("trigger_source") @db.VarChar(100)
+  retryAttempt      Int?         @map("retry_attempt")
   ipHash            String?      @map("ip_hash") @db.VarChar(128)
   userAgentHash     String?      @map("user_agent_hash") @db.VarChar(128)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -2117,6 +2215,7 @@ model AuditLog {
   actorUser       User?            @relation("AuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   actorStaff      StaffAccount?    @relation("AuditActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   approvalRequest ApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  changes         AuditLogChange[]
 
   @@index([targetType, targetId, createdAt])
   @@index([actorStaffId, createdAt])
@@ -2124,4 +2223,23 @@ model AuditLog {
   @@index([interactionId])
   @@index([outcome, createdAt])
   @@map("audit_logs")
+}
+
+model AuditLogChange {
+  id             String          @id @default(uuid()) @db.Uuid
+  auditLogId     String          @map("audit_log_id") @db.Uuid
+  sequence       Int
+  targetType     String          @map("target_type") @db.VarChar(80)
+  targetId       String          @map("target_id") @db.VarChar(100)
+  changeType     AuditChangeType @map("change_type")
+  beforeSnapshot Json?           @map("before_snapshot") @db.JsonB
+  afterSnapshot  Json?           @map("after_snapshot") @db.JsonB
+  changedFields  Json            @map("changed_fields") @db.JsonB
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  auditLog AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([auditLogId, sequence])
+  @@index([targetType, targetId, createdAt])
+  @@map("audit_log_changes")
 }

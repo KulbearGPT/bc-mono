@@ -291,13 +291,13 @@ export function registerBotConfigRoutes(server: FastifyInstance, options: BotCon
 }
 
 const channelFields = ['public_entry_channel_id','private_order_category_id','order_archive_category_id','dispatch_channel_id','player_workbench_channel_id','gift_review_channel_id','gift_broadcast_channel_id','staff_task_channel_id','operations_alert_channel_id'] as const;
-const securityRoleFields = ['player_role_id','staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'] as const;
+const securityRoleFields = ['player_role_id','companion_applicant_role_id','companion_role_id','staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'] as const;
 const notificationRoleFields = ['staff_notification_role_id','operations_notification_role_id'] as const;
 const integerRules = {
   dispatch_timeout_minutes: [1,30], dispatch_max_rounds: [1,5], readiness_timeout_minutes: [1,30], completion_confirmation_minutes: [5,120], gift_review_reminder_minutes: [1,60], channel_archive_after_completion_minutes: [0,43200]
 } as const;
 const booleanFields = ['new_orders_enabled','auto_dispatch_enabled','gift_requests_enabled','maintenance_notice'] as const;
-const operationalFields = [...channelFields,...notificationRoleFields,...Object.keys(integerRules), 'gift_broadcast_template', 'recharge_url', ...booleanFields] as const;
+const operationalFields = [...channelFields,...notificationRoleFields,...Object.keys(integerRules), 'gift_broadcast_template', ...booleanFields] as const;
 const allFields = [...operationalFields,...securityRoleFields] as const;
 export type BotConfigFieldName = typeof allFields[number];
 type ChangeRequest = { guildId: string; expectedVersion: number; changes: BotConfigValues; reason: string };
@@ -325,10 +325,9 @@ function parseUpdateRequest(value: unknown): UpdateRequest { const input=exact(v
 function parseDeliveryRequest(value: unknown) { const input=exact(value,['guildId','expectedVersion','channelField','channelId','reason']); const channelField=text(input.channelField,'channelField',1,100); if(!(channelFields as readonly string[]).includes(channelField))throw validation('channelField'); return {guildId:snowflake(input.guildId,'guildId'),expectedVersion:version(input.expectedVersion),channelField:channelField as typeof channelFields[number],channelId:snowflake(input.channelId,'channelId'),reason:text(input.reason,'reason',3,1000)}; }
 function parseChanges(value: unknown): BotConfigValues { const input=object(value);const keys=Object.keys(input);if(!keys.length||keys.some((key)=>!(allFields as readonly string[]).includes(key)))throw validation('changes');const result:BotConfigValues={};for(const key of keys as BotConfigFieldName[])result[key]=parseField(key,input[key]);return result; }
 function parseField(field:BotConfigFieldName,value:unknown):BotConfigValue {
-  if((channelFields as readonly string[]).includes(field)||(securityRoleFields as readonly string[]).includes(field)||(notificationRoleFields as readonly string[]).includes(field)){if(value===null&&(field==='order_archive_category_id'||(notificationRoleFields as readonly string[]).includes(field)))return null;return snowflake(value,field);}
+  if((channelFields as readonly string[]).includes(field)||(securityRoleFields as readonly string[]).includes(field)||(notificationRoleFields as readonly string[]).includes(field)){if(value===null&&(field==='order_archive_category_id'||field==='companion_applicant_role_id'||(notificationRoleFields as readonly string[]).includes(field)))return null;return snowflake(value,field);}
   if(field in integerRules){if(!Number.isSafeInteger(value))throw validation(field);const [min,max]=integerRules[field as keyof typeof integerRules];if(Number(value)<min||Number(value)>max)throw validation(field);return Number(value);}
   if((booleanFields as readonly string[]).includes(field)){if(typeof value!=='boolean')throw validation(field);return value;}
-  if(field==='recharge_url'){const url=text(value,field,1,500);try{const parsed=new URL(url);if(parsed.protocol!=='https:')throw new Error();return parsed.toString();}catch{throw validation(field);}}
   const template=text(value,field,1,500);for(const token of ['{sender_name}','{receiver_name}','{gift_name}'])if(!template.includes(token))throw validation(field);if(/\{(?!sender_name\}|receiver_name\}|gift_name\})/.test(template))throw validation(field);return template;
 }
 function normalizeChanges(value:BotConfigValues):BotConfigValues{return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))) as BotConfigValues;}

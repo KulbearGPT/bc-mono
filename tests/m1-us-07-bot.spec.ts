@@ -38,7 +38,7 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     billingUnitMinutes: 60,
     unitCount: 2,
     amountMinor: 9_999,
-    currency: 'CNY',
+    currency: 'CAT',
     notes: '轻松交流，不急着上分',
     channelSpec: {
       channelId: '120000000000000001',
@@ -56,7 +56,7 @@ function estimate(overrides: Record<string, unknown> = {}) {
     unitCount: 2,
     billingUnitMinutes: 60,
     amountMinor: 12_000,
-    currency: 'CNY',
+    currency: 'CAT',
     validUntil: '2026-07-17T22:05:00.000Z',
     ...overrides
   };
@@ -64,11 +64,11 @@ function estimate(overrides: Record<string, unknown> = {}) {
 
 function balance(overrides: Partial<BalanceSummary> = {}): BalanceSummary {
   return {
-    providerBalanceMinor: 20_000,
+    ledgerBalanceMinor: 20_000,
     reservedMinor: 2_000,
     availableMinor: 18_000,
-    currency: 'CNY',
-    fetchedAt: '2026-07-17T22:00:00.000Z',
+    currency: 'CAT',
+    calculatedAt: '2026-07-17T22:00:00.000Z',
     ...overrides
   };
 }
@@ -104,10 +104,10 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(message.body).toContain('时长：2 小时');
     expect(message.body).toContain('标签：P0 默认匹配');
     expect(message.body).toContain('备注：轻松交流，不急着上分');
-    expect(message.body).toContain('预计价格：¥120.00');
-    expect(message.body).toContain('可用余额：¥180.00');
+    expect(message.body).toContain('预计价格：1,200.0 CAT');
+    expect(message.body).toContain('可用余额：1,800.0 CAT');
     expect(message.body).toContain('取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。');
-    expect(message.body).not.toContain('¥0.01');
+    expect(message.body).not.toContain('0.1 CAT');
     expect(message.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -128,7 +128,7 @@ describe('M1-US-07 order confirmation panel', () => {
       balance: balance({ availableMinor: 8_000 })
     });
 
-    expect(message.body).toContain('余额不足：还差 ¥40.00，请充值后刷新确认。');
+    expect(message.body).toContain('余额不足：还差 400.0 CAT，请联系客服并提交付款 receipt，到账后刷新确认。');
     expect(message.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -137,7 +137,7 @@ describe('M1-US-07 order confirmation panel', () => {
         }),
         expect.objectContaining({
           customId: 'bc:service-center:recharge',
-          label: '前往充值',
+          label: '联系客服充值',
           disabled: false
         })
       ])
@@ -164,7 +164,7 @@ describe('M1-US-07 order confirmation panel', () => {
     );
     expect(client.getCurrentBalance).toHaveBeenCalledWith(actor());
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.body).toContain('预计价格：¥120.00');
+    expect(result.message.body).toContain('预计价格：1,200.0 CAT');
   });
 
   test('refreshes the draft panel when expectedVersion is stale instead of submitting stale data', async () => {

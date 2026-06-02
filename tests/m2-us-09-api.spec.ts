@@ -27,7 +27,7 @@ function dispatchOrderRecord(): OrderRecord {
     serviceCatalogId: '00000000-0000-0000-0000-00000000c901', catalogVersion: 1,
     game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', billingUnitMinutes: 60, unitCount: 2,
     customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200, amountMinor: 12000, playerEarningMinor: 8400,
-    currency: 'CNY', notes: null,
+    currency: 'CAT', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: '666666666666666666' },
     createdAt: now.toISOString(), updatedAt: now.toISOString()
   };
@@ -46,7 +46,7 @@ function player(): PlayerProfileRecord {
 function lifecycleOrder(): ServiceLifecycleOrderRecord {
   return {
     id: orderId, publicId: 'P-9001', customerId, playerId, status: 'ACCEPTED', version: 4,
-    currency: 'CNY', amountMinor: 12000, playerEarningMinor: 8400,
+    currency: 'CAT', amountMinor: 12000, playerEarningMinor: 8400,
     channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: '666666666666666666',
     readinessDueAt: new Date(now.getTime() + 10 * 60_000).toISOString(), customerReadyAt: now.toISOString(),
     playerReadyAt: null, serviceStartedAt: null, completionRequestedAt: null, confirmationDueAt: null, updatedAt: now.toISOString()

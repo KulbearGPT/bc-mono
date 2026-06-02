@@ -20,7 +20,7 @@ function earning(input: Partial<SettlementCandidateEarning> & Pick<SettlementCan
     guildId: input.guildId ?? guildId,
     playerUserId: input.playerUserId ?? playerA,
     amountMinor: input.amountMinor ?? 10_000,
-    currency: input.currency ?? 'CNY',
+    currency: input.currency ?? 'CAT',
     status: input.status ?? 'CONFIRMED',
     confirmedAt: input.confirmedAt === undefined ? '2026-07-19T12:00:00.000Z' : input.confirmedAt,
     paidAt: input.paidAt ?? null,
@@ -38,7 +38,7 @@ function createInput(overrides: Partial<SettlementCreateInput> = {}): Settlement
     periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt,
     timeZone: 'Asia/Shanghai',
-    currency: 'CNY',
+    currency: 'CAT',
     playerUserIds: null,
     createdByStaffId: '00000000-0000-0000-0000-000000006190',
     ...overrides
@@ -46,12 +46,12 @@ function createInput(overrides: Partial<SettlementCreateInput> = {}): Settlement
 }
 
 describe('M6-US-01 settlement domain', () => {
-  test('selects only confirmed CNY earnings at the inclusive cutoff and keeps playerUserId identity', async () => {
+  test('selects only confirmed USD earnings at the inclusive cutoff and keeps playerUserId identity', async () => {
     const atCutoff = earning({ id: '00000000-0000-0000-0000-000000006111', confirmedAt: cutoffAt });
     const afterCutoff = earning({ id: '00000000-0000-0000-0000-000000006112', confirmedAt: '2026-07-19T16:00:00.001Z' });
     const pending = earning({ id: '00000000-0000-0000-0000-000000006113', status: 'PENDING', confirmedAt: null });
-    const usd = earning({ id: '00000000-0000-0000-0000-000000006114', currency: 'USD' });
-    const store = new InMemorySettlementStore({ earnings: [atCutoff, afterCutoff, pending, usd] });
+    const nonUsd = earning({ id: '00000000-0000-0000-0000-000000006114', currency: 'EUR' as never });
+    const store = new InMemorySettlementStore({ earnings: [atCutoff, afterCutoff, pending, nonUsd] });
 
     const preview = await previewSettlement({ store, input: createInput() });
 
@@ -61,7 +61,7 @@ describe('M6-US-01 settlement domain', () => {
     expect(preview.items[0]?.entries.map((entry) => entry.playerEarningId)).toEqual([atCutoff.id]);
   });
 
-  test('filters by player user id and rejects currencies outside the P0 CNY boundary', async () => {
+  test('filters by player user id and rejects currencies outside the P0 USD boundary', async () => {
     const store = new InMemorySettlementStore({ earnings: [
       earning({ id: '00000000-0000-0000-0000-000000006121', playerUserId: playerA }),
       earning({ id: '00000000-0000-0000-0000-000000006122', playerUserId: playerB })
@@ -69,7 +69,7 @@ describe('M6-US-01 settlement domain', () => {
 
     const preview = await previewSettlement({ store, input: createInput({ playerUserIds: [playerB] }) });
     expect(preview.items.map((item) => item.playerUserId)).toEqual([playerB]);
-    await expect(previewSettlement({ store, input: createInput({ currency: 'USD' }) }))
+    await expect(previewSettlement({ store, input: createInput({ currency: 'EUR' as never }) }))
       .rejects.toEqual(expect.objectContaining({ code: 'UNSUPPORTED_CURRENCY' }));
   });
 
@@ -78,8 +78,8 @@ describe('M6-US-01 settlement domain', () => {
       id: '00000000-0000-0000-0000-000000006131',
       amountMinor: 10_000,
       adjustments: [
-        { id: '00000000-0000-0000-0000-000000006132', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'CORRECTION_CREDIT', amountMinor: 500, currency: 'CNY', createdAt: '2026-07-19T13:00:00.000Z' },
-        { id: '00000000-0000-0000-0000-000000006133', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'REVERSAL_DEBIT', amountMinor: 2_000, currency: 'CNY', createdAt: '2026-07-19T14:00:00.000Z' }
+        { id: '00000000-0000-0000-0000-000000006132', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'CORRECTION_CREDIT', amountMinor: 500, currency: 'CAT', createdAt: '2026-07-19T13:00:00.000Z' },
+        { id: '00000000-0000-0000-0000-000000006133', playerEarningId: '00000000-0000-0000-0000-000000006131', type: 'REVERSAL_DEBIT', amountMinor: 2_000, currency: 'CAT', createdAt: '2026-07-19T14:00:00.000Z' }
       ]
     });
     const store = new InMemorySettlementStore({ earnings: [source] });
@@ -128,7 +128,7 @@ describe('M6-US-01 settlement domain', () => {
         playerEarningId: '00000000-0000-0000-0000-000000006161',
         type: 'CORRECTION_DEBIT',
         amountMinor: 1_200,
-        currency: 'CNY',
+        currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -158,7 +158,7 @@ describe('M6-US-01 settlement domain', () => {
         playerEarningId: '00000000-0000-0000-0000-000000006171',
         type: 'CORRECTION_DEBIT',
         amountMinor: 1_200,
-        currency: 'CNY',
+        currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -188,7 +188,7 @@ describe('M6-US-01 settlement domain', () => {
       adjustments: [{
         id: '00000000-0000-0000-0000-000000006182',
         playerEarningId: '00000000-0000-0000-0000-000000006181',
-        type: 'CORRECTION_DEBIT', amountMinor: 1_200, currency: 'CNY',
+        type: 'CORRECTION_DEBIT', amountMinor: 1_200, currency: 'CAT',
         createdAt: '2026-07-19T15:00:00.000Z'
       }]
     });
@@ -216,7 +216,7 @@ describe('M6-US-01 settlement domain', () => {
       adjustments: [{
         id: '00000000-0000-0000-0000-000000006186',
         playerEarningId: '00000000-0000-0000-0000-000000006185',
-        type: 'CORRECTION_CREDIT', amountMinor: 1, currency: 'CNY',
+        type: 'CORRECTION_CREDIT', amountMinor: 1, currency: 'CAT',
         createdAt: '2026-07-19T13:00:00.000Z'
       }]
     });

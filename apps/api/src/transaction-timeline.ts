@@ -4,7 +4,7 @@ import { PostgresOrderStore, type OrderRecord } from './orders.js';
 import type { StaffLevel } from './security.js';
 
 export type TransactionTimelineType =
-  | 'PROVIDER_BALANCE_SNAPSHOT' | 'ORDER_EVENT' | 'FUND_RESERVATION_EVENT' | 'EXTERNAL_TRANSACTION'
+  | 'WALLET_ENTRY' | 'ORDER_EVENT' | 'FUND_RESERVATION_EVENT' | 'EXTERNAL_TRANSACTION'
   | 'CONSUMPTION' | 'REFUND' | 'PLAYER_EARNING' | 'PLAYER_EARNING_ADJUSTMENT'
   | 'COMMISSION' | 'COMMISSION_ADJUSTMENT';
 
@@ -129,9 +129,11 @@ SELECT ca.id,'COMMISSION_ADJUSTMENT',ca.type::text,CASE WHEN ca.type::text='CORR
 FROM commission_adjustments ca JOIN commissions c ON c.id=ca.commission_id JOIN consumption_entries ce ON ce.id=c.source_consumption_entry_id
 WHERE ce.order_id=$1 OR ce.gift_request_id IN (SELECT id FROM gift_requests WHERE order_id=$1)
 UNION ALL
-SELECT al.id,'PROVIDER_BALANCE_SNAPSHOT','OBSERVED','INFO',(al.after_snapshot->>'providerBalanceMinor')::bigint,
-  COALESCE(al.after_snapshot->'reservation'->>'currency','CNY'),'AUDIT_LOG',al.id,al.request_id,al.actor_source::text,al.actor_user_id,al.actor_staff_id,al.created_at
-FROM audit_logs al WHERE al.target_id=$1::text AND al.action='SUBMIT_ORDER' AND al.outcome='SUCCEEDED' AND al.after_snapshot ? 'providerBalanceMinor'
+SELECT we.id,'WALLET_ENTRY',we.entry_type::text,we.direction::text,we.amount_minor,we.currency,we.source_type,we.source_id,NULL,'SYSTEM_JOB',wa.user_id,NULL,we.occurred_at
+FROM wallet_entries we JOIN wallet_accounts wa ON wa.id=we.wallet_account_id
+WHERE (we.source_type='FUND_RESERVATION' AND we.source_id IN (
+  SELECT id FROM fund_reservations WHERE order_id=$1 OR gift_request_id IN (SELECT id FROM gift_requests WHERE order_id=$1)))
+OR (we.source_type='ORDER_REFUND' AND we.source_id IN (SELECT id FROM refunds WHERE order_id=$1))
 ORDER BY occurred_at DESC,id DESC`;
 
 function redactTimeline(items: TransactionTimelineItem[], level: StaffLevel): TransactionTimelineItem[] {
@@ -152,7 +154,7 @@ function encodeCursor(keys: string[], orderId: string, level: StaffLevel) { cons
 function decodeCursor(cursor:string|null,orderId:string,level:StaffLevel):string[]|null{if(!cursor)return null;try{const [body,sig,...rest]=cursor.split('.');if(!body||!sig||rest.length)throw new Error();const expected=createHmac('sha256',signingKey).update(body).digest();const actual=Buffer.from(sig,'base64url');if(actual.length!==expected.length||!timingSafeEqual(actual,expected))throw new Error();const value=JSON.parse(Buffer.from(body,'base64url').toString()) as {version?:unknown;resource?:unknown;orderId?:unknown;level?:unknown;keys?:unknown};if(value.version!==1||value.resource!=='order_timeline'||value.orderId!==orderId||value.level!==level||!Array.isArray(value.keys)||value.keys.length!==2||value.keys.some((key)=>typeof key!=='string'))throw new Error();return value.keys as string[];}catch{throw new TransactionTimelineError('INVALID_CURSOR','Timeline cursor is invalid.');}}
 function levelRank(level:StaffLevel){return {L1_SUPPORT:1,L2_SUPERVISOR:2,L3_OPERATIONS:3,L4_ADMIN_OWNER:4}[level];}
 function mapTimelineRow(row:TimelineRow):TransactionTimelineItem{return{id:row.id,type:row.type,status:row.status,direction:row.direction,amountMinor:row.amount_minor===null?null:safeMinor(row.amount_minor),currency:row.currency,sourceType:row.source_type,sourceId:row.source_id,requestId:row.request_id,actor:{source:row.actor_source,userId:row.actor_user_id,staffId:row.actor_staff_id},occurredAt:new Date(row.occurred_at).toISOString()};}
-function mapReservation(row:Record<string,unknown>){return{id:row.id,sourceType:row.source_type,sourceId:row.order_id,ownerUserId:row.user_id,amountMinor:safeMinor(row.amount_minor),capturedMinor:safeMinor(row.captured_minor),releasedMinor:safeMinor(row.released_minor),currency:row.currency,status:row.status,backend:row.mode,providerHoldReferenceDisplay:row.provider_hold_ref??null,version:row.row_version,expiresAt:dateOrNull(row.expires_at),createdAt:date(row.created_at),updatedAt:date(row.updated_at)};}
+function mapReservation(row:Record<string,unknown>){return{id:row.id,sourceType:row.source_type,sourceId:row.order_id,ownerUserId:row.user_id,amountMinor:safeMinor(row.amount_minor),capturedMinor:safeMinor(row.captured_minor),releasedMinor:safeMinor(row.released_minor),currency:row.currency,status:row.status,backend:row.mode,walletHoldReferenceDisplay:null,version:row.row_version,expiresAt:dateOrNull(row.expires_at),createdAt:date(row.created_at),updatedAt:date(row.updated_at)};}
 function mapRecord(row:Record<string,unknown>){return Object.fromEntries(Object.entries(row).map(([key,value])=>[camel(key),value instanceof Date?value.toISOString():key.endsWith('_minor')&&value!==null?safeMinor(value):typeof value==='bigint'?Number(value):value]));}
 function camel(value:string){return value.replace(/_([a-z])/g,(_,letter:string)=>letter.toUpperCase());}
 function safeMinor(value:unknown){const result=Number(value);if(!Number.isSafeInteger(result))throw new Error('Timeline amount is outside the safe integer range.');return result;}

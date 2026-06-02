@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
-import { AdapterError, type FundingAdapter } from './payment-adapter.js';
+import type { WalletFundingService } from './wallet.js';
 import { registerSecureReadRoute, type ActorContext, type StaffLevel } from './security.js';
 import { decodeKeysetCursor, encodeKeysetCursor } from './signed-cursor.js';
 
@@ -8,7 +8,7 @@ export type CustomerProfileWindow = 'DAYS_30' | 'DAYS_90' | 'ALL';
 export type CustomerProfileConsumptionType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 
 export interface CustomerProfileUser {
-  id: string; guildId: string; discordUserId: string; displayName: string; status: string; provider: string; externalUserId: string;
+  id: string; guildId: string; discordUserId: string; displayName: string; status: string;
 }
 export interface CustomerProfileOrder {
   id: string; publicId: string; customerId: string; guildId: string; status: string; gameKey: string | null; serviceKey: string | null;
@@ -18,9 +18,6 @@ export interface CustomerProfileOrder {
 export interface CustomerProfileConsumption {
   id: string; userId: string; type: CustomerProfileConsumptionType; sourceId: string; orderId: string | null;
   amountMinor: number; currency: string; occurredAt: string; guildId?: string;
-}
-export interface CustomerProfileBalanceSnapshot {
-  id: string; userId: string; provider: string; providerBalanceMinor: number; currency: string; fetchedAt: string;
 }
 export interface CustomerProfileScopeInput { userId: string; actorStaffId: string; actorLevel: StaffLevel; guildId: string }
 export interface CustomerProfileScope {
@@ -44,30 +41,27 @@ export interface CustomerProfileStore extends CustomerProfileScope {
   getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null>;
   listOrders(input: CustomerProfileScopeInput & { cursor: string | null; limit: number }): Promise<Page<CustomerProfileOrder>>;
   sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number>;
-  appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): Promise<void> | void;
-  getLatestBalanceSnapshot(input: { userId: string; provider: string }): Promise<CustomerProfileBalanceSnapshot | null> | CustomerProfileBalanceSnapshot | null;
   countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> | number;
 }
 
 export class CustomerProfileError extends Error {
-  constructor(readonly code: 'NOT_FOUND' | 'VALIDATION_ERROR' | 'PROVIDER_UNAVAILABLE', message: string) { super(message); this.name = 'CustomerProfileError'; }
+  constructor(readonly code: 'NOT_FOUND' | 'VALIDATION_ERROR', message: string) { super(message); this.name = 'CustomerProfileError'; }
 }
 
 export class InMemoryCustomerProfileStore implements CustomerProfileStore {
   readonly users: CustomerProfileUser[];
   readonly orders: CustomerProfileOrder[];
   readonly consumptions: CustomerProfileConsumption[];
-  readonly balanceSnapshots: CustomerProfileBalanceSnapshot[];
   private readonly reservations: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
   private readonly notes: Array<{ id: string; userId: string; guildId?: string; text: string; authorStaffId: string; createdAt: string }>;
   private readonly riskFlags: Array<{ userId: string; value: string }>;
 
   constructor(input: { users?: CustomerProfileUser[]; orders?: CustomerProfileOrder[]; consumptions?: CustomerProfileConsumption[];
-    balanceSnapshots?: CustomerProfileBalanceSnapshot[]; reservations?: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
+    reservations?: Array<{ userId: string; currency: string; remainingMinor: number; guildId?: string }>;
     notes?: Array<{ id: string; userId: string; guildId?: string; text: string; authorStaffId: string; createdAt: string }>;
     riskFlags?: Array<{ userId: string; value: string }> } = {}) {
     this.users = clone(input.users ?? []); this.orders = clone(input.orders ?? []); this.consumptions = clone(input.consumptions ?? []);
-    this.balanceSnapshots = clone(input.balanceSnapshots ?? []); this.reservations = clone(input.reservations ?? []);
+    this.reservations = clone(input.reservations ?? []);
     this.notes = clone(input.notes ?? []); this.riskFlags = clone(input.riskFlags ?? []);
   }
 
@@ -109,10 +103,6 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
     return this.reservations.filter((item) => item.userId === input.userId && (!input.currency || item.currency === input.currency)
       && (!input.guildId || !item.guildId || item.guildId === input.guildId) && item.remainingMinor > 0).length;
   }
-  appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): void { this.balanceSnapshots.push(clone(snapshot)); }
-  getLatestBalanceSnapshot(input: { userId: string; provider: string }): CustomerProfileBalanceSnapshot | null {
-    return clone(this.balanceSnapshots.filter((item) => item.userId === input.userId && item.provider === input.provider).sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt))[0] ?? null);
-  }
 }
 
 export class PostgresCustomerProfileStore implements CustomerProfileStore {
@@ -136,10 +126,9 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
   async getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null> {
     if (!await this.canReadCustomer(input)) return null;
     const lowerBound = windowStart(input.window, input.now);
-    const identity = await this.pool.query(`SELECT u.id,u.display_name,u.status::text,da.discord_user_id,ea.provider,ea.external_user_id
+    const identity = await this.pool.query(`SELECT u.id,u.display_name,u.status::text,da.discord_user_id
       FROM users u JOIN discord_accounts da ON da.user_id=u.id AND da.guild_id=$2
-      JOIN external_accounts ea ON ea.user_id=u.id AND ea.status='ACTIVE'
-      WHERE u.id=$1 ORDER BY ea.verified_at DESC LIMIT 1`, [input.userId, input.guildId]);
+      WHERE u.id=$1 ORDER BY da.last_seen_at DESC NULLS LAST,da.id LIMIT 1`, [input.userId, input.guildId]);
     const row = identity.rows[0];
     if (!row) return null;
     const [orderRows, entryRows, preferenceRows, noteRows, riskRows] = await Promise.all([
@@ -159,8 +148,7 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     const consumptions = entryRows.rows.map(mapConsumption);
     const preferenceOrders = preferenceRows.rows.map((item) => ({ ...mapOrder(item, input.userId, input.guildId), id: String(item.id ?? crypto.randomUUID()), publicId: String(item.public_id ?? '') }));
     return {
-      user: { id: row.id, guildId: input.guildId, discordUserId: row.discord_user_id, displayName: row.display_name, status: row.status,
-        provider: row.provider, externalUserId: row.external_user_id },
+      user: { id: row.id, guildId: input.guildId, discordUserId: row.discord_user_id, displayName: row.display_name, status: row.status },
       statistics: buildStatistics(input.window, orders, consumptions), preferences: buildPreferences(preferenceOrders),
       internalNotes: noteRows.rows.map((item) => ({ id: item.id, text: item.body, createdAt: iso(item.created_at) })),
       riskFlags: riskRows.rows.map((item) => item.type)
@@ -199,61 +187,30 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
       [input.userId, input.currency ?? null, input.guildId ?? null]);
     return Number(result.rows[0]?.total ?? 0);
   }
-  async appendBalanceSnapshot(snapshot: CustomerProfileBalanceSnapshot): Promise<void> {
-    await this.pool.query(`INSERT INTO provider_balance_snapshots
-      (id,user_id,provider,provider_balance_minor,currency,fetched_at) VALUES ($1,$2,$3,$4,$5,$6)`,
-    [snapshot.id, snapshot.userId, snapshot.provider, snapshot.providerBalanceMinor, snapshot.currency, snapshot.fetchedAt]);
-  }
-  async getLatestBalanceSnapshot(input: { userId: string; provider: string }): Promise<CustomerProfileBalanceSnapshot | null> {
-    const result = await this.pool.query(`SELECT id,user_id,provider,provider_balance_minor,currency,fetched_at
-      FROM provider_balance_snapshots WHERE user_id=$1 AND provider=$2 ORDER BY fetched_at DESC,id DESC LIMIT 1`, [input.userId, input.provider]);
-    const row = result.rows[0];
-    return row ? { id: row.id, userId: row.user_id, provider: row.provider, providerBalanceMinor: safeInteger(row.provider_balance_minor),
-      currency: row.currency, fetchedAt: iso(row.fetched_at) } : null;
-  }
 }
 
-export async function getAdminCustomerProfileSummary(input: { store: CustomerProfileStore; fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>;
+export async function getAdminCustomerProfileSummary(input: { store: CustomerProfileStore; walletFunding: WalletFundingService;
   actor: ActorContext; userId: string; window: CustomerProfileWindow; now: Date }) {
   const scope = actorScope(input.actor, input.userId);
   const summary = await input.store.getSummaryData({ ...scope, window: input.window, now: input.now });
   if (!summary) throw new CustomerProfileError('NOT_FOUND', 'Customer was not found.');
   const { user } = summary;
-  let snapshot: CustomerProfileBalanceSnapshot | null;
-  let providerStale = false;
-  let providerError: { code: 'PROVIDER_UNAVAILABLE' | 'PROVIDER_TIMEOUT'; retryable: boolean; requestId: string } | null = null;
-  try {
-    const balance = await input.fundingAdapter.getProviderBalance({ externalUserId: user.externalUserId });
-    snapshot = { id: crypto.randomUUID(), userId: user.id, provider: user.provider, providerBalanceMinor: balance.providerBalanceMinor,
-      currency: balance.currency, fetchedAt: balance.fetchedAt };
-    providerStale = balance.stale;
-    if (!balance.stale) await input.store.appendBalanceSnapshot(snapshot);
-  } catch (error) {
-    snapshot = await input.store.getLatestBalanceSnapshot({ userId: user.id, provider: user.provider });
-    providerError = { code: error instanceof AdapterError && error.code === 'PROVIDER_TIMEOUT' ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNAVAILABLE',
-      retryable: error instanceof AdapterError ? error.retryable : true,
-      requestId: error instanceof AdapterError ? error.requestId : 'req_provider_unavailable' };
-  }
-  const reservedMinor = snapshot ? await input.store.sumActiveReservations({ userId: user.id, currency: snapshot.currency }) : null;
+  const walletBalance=await input.walletFunding.getBalance({userId:user.id,now:input.now});
   return {
     user: { userId: user.id, discordUserId: user.discordUserId, displayName: user.displayName, status: user.status },
-    externalAccountDisplay: maskExternal(user.provider, user.externalUserId),
-    balance: snapshot ? { providerBalanceMinor: snapshot.providerBalanceMinor, reservedMinor,
-      availableMinor: snapshot.providerBalanceMinor - reservedMinor!, currency: snapshot.currency, fetchedAt: snapshot.fetchedAt,
-      stale: providerStale || providerError !== null, providerError } : { providerBalanceMinor: null, reservedMinor: null, availableMinor: null,
-      currency: null, fetchedAt: null, stale: true, providerError },
+    balance: walletBalance,
     statistics: summary.statistics, preferences: summary.preferences, internalNotes: summary.internalNotes, riskFlags: summary.riskFlags
   };
 }
 
 export function registerCustomerProfileRoutes(server: FastifyInstance, options: { store: CustomerProfileStore;
-  fundingAdapter: Pick<FundingAdapter, 'getProviderBalance'>; now?: () => Date }): void {
+  walletFunding: WalletFundingService; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Customer profile routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary',
     permission: 'customer_profile.read', requiredFeature: 'M6', action: 'GET_ADMIN_CUSTOMER_PROFILE_SUMMARY', targetType: 'user',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
-    handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, fundingAdapter: options.fundingAdapter,
+    handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, walletFunding: options.walletFunding,
       actor, userId: param(request, 'userId'), window: profileWindow(request), now: now() }) });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/orders',
     permission: 'customer_profile.read', requiredFeature: 'M6', action: 'LIST_ADMIN_CUSTOMER_ORDERS', targetType: 'order',
@@ -272,7 +229,7 @@ function pageQuery(request: FastifyRequest) { const query = request.query as { c
   if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.');
   return { cursor: query.cursor as string | undefined ?? null, limit }; }
 function param(request: FastifyRequest, key: string) { return String((request.params as Record<string, unknown>)[key] ?? ''); }
-function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : error.code === 'PROVIDER_UNAVAILABLE' ? 503 : 400, code: error.code, message: error.message }; }
+function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : 400, code: error.code, message: error.message }; }
 export function consumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (
   SELECT 1 FROM orders scoped_order WHERE scoped_order.guild_id=${guildParameter} AND (
     scoped_order.id=${alias}.order_id
@@ -298,7 +255,7 @@ function buildStatistics(window: CustomerProfileWindow, orders: CustomerProfileO
     orderSpendMinor, giftSpendMinor, refundMinor, totalConsumptionMinor: orderSpendMinor + giftSpendMinor - refundMinor + corrections,
     averageOrderAmountMinor: completedOrderCount ? Math.floor(orderSpendMinor / completedOrderCount) : 0,
     lastConsumptionAt: entries.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))[0]?.occurredAt ?? null,
-    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'CNY' };
+    currency: entries[0]?.currency ?? orders[0]?.currency ?? 'CAT' };
 }
 function buildPreferences(orders: CustomerProfileOrder[]) { const sorted = [...orders].sort(descCreated); return {
   preferredGameKeys: frequency(sorted.map((item) => item.gameKey)), preferredServiceKeys: frequency(sorted.map((item) => item.serviceKey)),
@@ -325,7 +282,7 @@ function decodeCursor(value: string | null, resource: string): { id: string; cre
 }
 function mapOrder(row: Record<string, unknown>, customerId: string, guildId: string): CustomerProfileOrder { return { id: String(row.id), publicId: String(row.public_id ?? ''), customerId, guildId,
   status: String(row.status), gameKey: nullable(row.game_code_snapshot), serviceKey: nullable(row.service_code_snapshot), playerUserId: nullable(row.player_id),
-  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'CNY'),
+  playerDisplayName: nullable(row.player_display_name), amountMinor: safeInteger(row.amount_minor ?? 0), currency: String(row.currency ?? 'CAT'),
   createdAt: iso(row.created_at), completedAt: row.completed_at ? iso(row.completed_at) : null }; }
 function mapConsumption(row: Record<string, unknown>): CustomerProfileConsumption { const type = row.entry_type === 'ORDER_CHARGE' ? 'ORDER' : row.entry_type === 'GIFT_CHARGE' ? 'GIFT' : row.entry_type;
   const amount = safeInteger(row.amount_minor); return { id: String(row.id), userId: '', type: type as CustomerProfileConsumptionType, sourceId: String(row.source_id),

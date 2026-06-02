@@ -114,6 +114,8 @@ function AdminActionPanel(props: {
 }
 
 function ActionFields({ action }: { action: AdminBusinessAction }) {
+  if(action.id==='APPROVE_COMPANION')return <><label>游戏标签（逗号分隔）<input name="gameTags" required placeholder="VALORANT" /></label><label>服务标签（逗号分隔）<input name="serviceTags" required placeholder="RANKED" /></label></>;
+  if(action.id==='REJECT_COMPANION')return <label>拒绝说明<textarea name="note" required rows={4} maxLength={1000}/></label>;
   if (action.id === 'SET_OPERATIONAL_STATUS') return <>
     <label>目标状态<select name="status" required defaultValue="PAUSED"><option value="ACTIVE">恢复</option><option value="PAUSED">暂停</option><option value="SUSPENDED">停用</option></select></label>
     <label>处理说明<textarea name="note" rows={3} maxLength={1000} /></label>
@@ -136,7 +138,7 @@ function GiftCatalogFields() {
   return <>
     <label>礼物名称<input name="name" required maxLength={100} /></label>
     <label>价格（minor units）<input name="amountMinor" type="number" required min={1} step={1} /></label>
-    <label>币种<select name="currency" required defaultValue="CNY"><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
+    <label>币种<select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
     <label><input name="enabled" type="checkbox" defaultChecked />立即启用</label>
     <label>播报模板<textarea name="broadcastTemplate" required rows={3} maxLength={500} /></label>
   </>;
@@ -151,7 +153,7 @@ function ServiceCatalogFields() {
     <label>最少单位数<input name="minimumUnits" type="number" required min={1} max={1440} step={1} /></label>
     <label>用户单价（minor units）<input name="customerAmountMinor" type="number" required min={1} step={1} /></label>
     <label>陪玩单价（minor units）<input name="playerAmountMinor" type="number" required min={1} step={1} /></label>
-    <label>币种<select name="currency" required defaultValue="CNY"><option value="CNY">CNY</option><option value="USD">USD</option></select></label>
+    <label>币种<select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
     <label><input name="enabled" type="checkbox" defaultChecked />立即启用</label>
   </>;
 }

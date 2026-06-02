@@ -2,12 +2,12 @@ const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'API_BASE_URL', 'BOT_SERVICE_TOKEN', 'BOT_CONFIG_VALIDATION_SECRET',
   'DASHBOARD_CSRF_SECRET', 'DASHBOARD_MFA_ENCRYPTION_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_ID',
   'DISCORD_OAUTH_CLIENT_SECRET', 'DISCORD_OAUTH_REDIRECT_URI', 'DISCORD_GUILD_ID', 'DASHBOARD_URL',
-  'BUSINESS_ENV', 'FUNDING_ADAPTER', 'PILOT_PHASE'
+  'BUSINESS_ENV', 'PILOT_PHASE'
 ];
 
 const SENSITIVE_PRODUCTION_ENV = new Set([
   'BOT_SERVICE_TOKEN', 'BOT_CONFIG_VALIDATION_SECRET', 'DASHBOARD_CSRF_SECRET', 'DASHBOARD_MFA_ENCRYPTION_KEY',
-  'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_SECRET', 'PAYMENT_PROVIDER_SERVICE_TOKEN', 'PAYMENT_PROVIDER_WEBHOOK_SECRET'
+  'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_SECRET'
 ]);
 
 /**
@@ -23,20 +23,8 @@ export function validateProductionEnv(env) {
   if (!['SANDBOX', 'PRODUCTION'].includes(env.BUSINESS_ENV ?? '')) {
     errors.push('BUSINESS_ENV must be SANDBOX or PRODUCTION.');
   }
-  if (!['SANDBOX', 'HTTP_PROVIDER'].includes(env.FUNDING_ADAPTER ?? '')) {
-    errors.push('FUNDING_ADAPTER must be SANDBOX or HTTP_PROVIDER.');
-  }
   if (!['CORE_ORDER', 'CORE_ORDER_AND_GIFTS', 'OFF'].includes(env.PILOT_PHASE ?? '')) {
     errors.push('PILOT_PHASE must be CORE_ORDER, CORE_ORDER_AND_GIFTS, or OFF.');
-  }
-  if (env.BUSINESS_ENV === 'PRODUCTION' && env.FUNDING_ADAPTER === 'SANDBOX') {
-    errors.push('FUNDING_ADAPTER=SANDBOX is forbidden when BUSINESS_ENV=PRODUCTION.');
-  }
-  const adapterRequired = env.FUNDING_ADAPTER === 'SANDBOX'
-    ? ['SANDBOX_BINDING_CODE_SECRET']
-    : ['PAYMENT_PROVIDER_BASE_URL', 'PAYMENT_PROVIDER_SERVICE_TOKEN', 'PAYMENT_PROVIDER_WEBHOOK_SECRET', 'PAYMENT_PROVIDER_KEY'];
-  for (const key of adapterRequired) {
-    validateRequiredValue(env, key, errors);
   }
   if (env.DATABASE_URL && env.MIGRATION_DATABASE_URL && env.DATABASE_URL === env.MIGRATION_DATABASE_URL) {
     errors.push('Application and migration database credentials must be separate.');
@@ -46,8 +34,7 @@ export function validateProductionEnv(env) {
   }
   for (const key of [
     'DISCORD_OAUTH_REDIRECT_URI',
-    'DASHBOARD_URL',
-    ...(env.FUNDING_ADAPTER === 'HTTP_PROVIDER' ? ['PAYMENT_PROVIDER_BASE_URL'] : [])
+    'DASHBOARD_URL'
   ]) {
     const value = env[key];
     if (value && !isHttps(value)) errors.push(`${key} must use HTTPS.`);
@@ -70,7 +57,7 @@ function validateRequiredValue(env, key, errors) {
   } else if (/change-me|replace-me|not-for-production|set_in_secret_store/iu.test(value)) {
     errors.push(`${key} must not use a placeholder value.`);
   } else if (
-    (SENSITIVE_PRODUCTION_ENV.has(key) || key === 'SANDBOX_BINDING_CODE_SECRET')
+    SENSITIVE_PRODUCTION_ENV.has(key)
     && value.length < 32
   ) {
     errors.push(`${key} must be at least 32 characters.`);

@@ -11,7 +11,6 @@ import { PostgresServiceLifecycleStore } from './service-lifecycle.js';
 import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
 import { PostgresAdminOrderActionStore } from './admin-order-actions.js';
-import { createRuntimeFundingAdapter } from './funding-adapter-runtime.js';
 import { PostgresAuditSink, PostgresIdempotencyStore, PostgresStaffDirectory } from './security.js';
 import { PostgresSettlementStore } from './settlements.js';
 import { PostgresGiftStore } from './gifts.js';
@@ -28,7 +27,9 @@ import { PostgresDashboardMetricsStore } from './dashboard-metrics.js';
 import { DiscordHttpBotConfigAdapter, PostgresBotConfigStore } from './bot-config.js';
 import { PostgresWeeklyReportStore } from './weekly-reports.js';
 import { PostgresCustomerProfileStore } from './customer-profiles.js';
-import { PostgresSandboxFundingStore } from './sandbox-funding.js';
+import { PostgresWalletStore } from './wallet.js';
+import { PrivateFileReceiptStorage } from './receipt-storage.js';
+import { PostgresOnboardingStore } from './onboarding.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -41,10 +42,12 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
-const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE);
+const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE ?? (process.env.NODE_ENV === 'production' ? undefined : 'OFF'));
 const businessEnvironment = process.env.BUSINESS_ENV === 'SANDBOX' || process.env.BUSINESS_ENV === 'PRODUCTION'
   ? process.env.BUSINESS_ENV
-  : (() => { throw new Error('BUSINESS_ENV must be explicitly set to SANDBOX or PRODUCTION.'); })();
+  : process.env.NODE_ENV === 'production'
+    ? (() => { throw new Error('BUSINESS_ENV must be explicitly set to SANDBOX or PRODUCTION.'); })()
+    : 'SANDBOX';
 
 if (!validation.ok) {
   console.error(
@@ -71,6 +74,7 @@ const orderStore = new PostgresOrderStore({ pool: databasePool });
 const playerStore = new PostgresPlayerStore({ pool: databasePool });
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
+const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
 const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
 const adminOrderActionStore = new PostgresAdminOrderActionStore({ pool: databasePool });
@@ -81,12 +85,7 @@ const referralStore = new PostgresReferralAttributionStore(databasePool);
 const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
-const { adapter: fundingAdapter, providerKey } = createRuntimeFundingAdapter(process.env, { pool: databasePool });
-const serviceLifecycleStore = new PostgresServiceLifecycleStore({
-  pool: databasePool,
-  fundingAdapter,
-  providerKey
-});
+const walletStore = new PostgresWalletStore({ pool: databasePool });
 const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
@@ -138,17 +137,14 @@ const server = buildApiServer({
   },
   account: {
     store: accountStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     profileStore: customerProfileStore,
-    rechargeUrl: process.env.RECHARGE_URL?.trim() || 'https://payments.example.invalid/recharge'
   },
   order: {
     orderStore,
     accountStore,
     catalogStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     staffTaskStore
   },
   player: {
@@ -172,20 +168,13 @@ const server = buildApiServer({
     store: riskEventStore
   },
   adminOrders: {
-    orderStore: adminOrderActionStore,
-    fundingAdapter,
-    providerKey
-  },
-  paymentWebhook: {
-    fundingAdapter,
-    providerKey
+    orderStore: adminOrderActionStore
   },
   gift: {
     store: giftStore,
     orderStore,
     accountStore,
-    fundingAdapter,
-    providerKey,
+    walletFunding: walletStore,
     broadcastChannelId: giftBroadcastChannelId
   },
   playerEarnings: {
@@ -207,9 +196,10 @@ const server = buildApiServer({
   },
   customerProfiles: {
     store: customerProfileStore,
-    fundingAdapter
+    walletFunding: walletStore
   },
-  ...(process.env.FUNDING_ADAPTER === 'SANDBOX' ? { sandboxFunding: { store: new PostgresSandboxFundingStore(databasePool) } } : {}),
+  wallet: { service: walletStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
+  onboarding: { store: new PostgresOnboardingStore(databasePool) },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,
     oauth: new DiscordHttpOAuthProvider({
@@ -225,7 +215,7 @@ const server = buildApiServer({
   dashboardMetrics: dashboardAuthStore ? {
     store: new PostgresDashboardMetricsStore(databasePool),
     timeZone: 'Asia/Shanghai',
-    currency: 'CNY'
+    currency: 'CAT'
   } : undefined,
   supportWorkbench: {
     store: new PostgresSupportWorkbenchStore(databasePool)

@@ -84,7 +84,7 @@ describe('M5-US-02 production Worker runtime', () => {
         getOrderPanelProjection: async () => ({
           orderId: 'order-1', publicId: 'P-1001', status: 'IN_SERVICE', version: 8,
           channelId: 'channel-1', panelMessageId: 'deleted-message', customerDiscordUserId: 'customer-1',
-          playerDiscordUserId: 'player-1', amountMinor: 12_000, currency: 'CNY'
+          playerDiscordUserId: 'player-1', amountMinor: 12_000, currency: 'CAT'
         }),
         replacePanelMessageId: async (input) => writes.push(input)
       },

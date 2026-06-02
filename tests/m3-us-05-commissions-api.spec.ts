@@ -11,7 +11,7 @@ function commission(): CommissionRecord {
     sourceCustomerId: '00000000-0000-0000-0000-000000004112', beneficiaryId: '00000000-0000-0000-0000-000000004113',
     programType: 'PLAYER_LIFETIME', rewardMode: 'PERCENT_LIFETIME', sourceType: 'ORDER',
     sourceId: '00000000-0000-0000-0000-000000004114', baseAmountMinor: 10000, rateBps: 200,
-    amountMinor: 200, currency: 'CNY', status: 'PENDING', adjustments: [], netAmountMinor: 200,
+    amountMinor: 200, currency: 'CAT', status: 'PENDING', adjustments: [], netAmountMinor: 200,
     version: 1, confirmedAt: null, paidAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
@@ -61,7 +61,7 @@ describe('M3-US-05 confidential commission administration', () => {
     const { server, store } = fixture('L3_OPERATIONS', true);
     const request = { method: 'PATCH' as const, url: `/api/v1/admin/commissions/${commissionId}`,
       headers: headers('commission:reverse:001'), payload: { expectedVersion: 1, action: 'CREATE_REVERSAL',
-        reversalAmount: { amountMinor: 80, currency: 'CNY' }, reasonCode: 'PARTIAL_REFUND' } };
+        reversalAmount: { amountMinor: 80, currency: 'CAT' }, reasonCode: 'PARTIAL_REFUND' } };
     const response = await server.inject(request);
     expect(response.json()).toMatchObject({ data: { resultType: 'ADJUSTMENT_CREATED',
       commission: { amountMinor: 200, netAmountMinor: 120, version: 2 },

@@ -9,7 +9,7 @@ const playerId = '00000000-0000-0000-0000-000000003811';
 
 function earning(): PlayerEarningRecord {
   return { id: earningId, playerId, orderId: '00000000-0000-0000-0000-000000003812', baseUnits: 2,
-    unitPayoutMinor: 4200, amountMinor: 8400, currency: 'CNY', status: 'PENDING', version: 1,
+    unitPayoutMinor: 4200, amountMinor: 8400, currency: 'CAT', status: 'PENDING', version: 1,
     confirmedByStaffId: null, confirmedAt: null, paidAt: null, adjustments: [], netAmountMinor: 8400,
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
@@ -68,7 +68,7 @@ describe('M3-US-04 player earnings API', () => {
     const { server, store } = fixture('L3_OPERATIONS', true);
     const response = await server.inject({ method: 'PATCH', url: `/api/v1/admin/player-earnings/${earningId}`,
       headers: staffHeaders('earning:reverse:001'), payload: { expectedVersion: 1, action: 'CREATE_REVERSAL',
-        reversalAmount: { amountMinor: 2400, currency: 'CNY' }, reasonCode: 'REFUND_ADJUSTMENT' } });
+        reversalAmount: { amountMinor: 2400, currency: 'CAT' }, reasonCode: 'REFUND_ADJUSTMENT' } });
     expect(response.json()).toMatchObject({ data: { resultType: 'ADJUSTMENT_CREATED',
       playerEarning: { amountMinor: 8400, netAmountMinor: 6000, status: 'PENDING', version: 2 },
       adjustment: { type: 'REVERSAL_DEBIT', amountMinor: 2400 } } });

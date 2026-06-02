@@ -184,7 +184,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
             version: 8,
             capturedMinor: 12000,
             playerEarningMinor: 8400,
-            currency: 'CNY'
+            currency: 'CAT'
           }
         })
       });
@@ -269,7 +269,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
         version: 8,
         capturedMinor: 12000,
         playerEarningMinor: 8400,
-        currency: 'CNY'
+        currency: 'CAT'
       })
     } as Partial<BotApiClient> as BotApiClient;
 
@@ -318,6 +318,6 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     );
     expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
     expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '已申请完成，等待用户确认。' });
-    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '订单已确认完成。扣款 ¥120.00，陪玩收益已记录。' });
+    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '订单已确认完成。扣款 1,200.0 CAT，陪玩收益已记录。' });
   });
 });

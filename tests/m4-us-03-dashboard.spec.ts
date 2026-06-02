@@ -103,9 +103,9 @@ describe('M4-US-03 Dashboard business object pages', () => {
   });
 
   test('formats integer minor units with their currency without client-side arithmetic', () => {
-    expect(formatMinorCurrency(123456, 'CNY', 'zh-CN')).toBe('¥1,234.56');
-    expect(formatMinorCurrency(-500, 'USD', 'en-US')).toBe('-$5.00');
-    expect(() => formatMinorCurrency(1.5, 'CNY')).toThrow(/integer minor units/i);
+    expect(formatMinorCurrency(123456, 'CAT', 'zh-CN')).toBe('12,345.6 猫条');
+    expect(formatMinorCurrency(-500, 'CAT', 'en-US')).toBe('-50.0 猫条');
+    expect(() => formatMinorCurrency(1.5, 'CAT')).toThrow(/integer minor units/i);
   });
 
   test('models loading, empty, error and forbidden states without exposing rows', () => {
@@ -151,11 +151,11 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
     expect(buildAdminActionRequest({
       actionId: 'CREATE_GIFT',
-      fields: { name: 'Super Rocket', amountMinor: '52000', currency: 'CNY', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
+      fields: { name: 'Super Rocket', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
     })).toEqual({
       method: 'POST',
       path: '/api/v1/admin/gift-catalog',
-      body: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CNY' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
+      body: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
     });
     expect(buildAdminActionRequest({
       actionId: 'UPDATE_GIFT_VERSION',
@@ -171,7 +171,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
   test('maps service versions, gift replacements and append-only user risk events to unified API writes', () => {
     const serviceFields = {
       game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: '60', minimumUnits: '2',
-      customerAmountMinor: '6000', playerAmountMinor: '4000', currency: 'CNY', enabled: true, reasonCode: 'INITIAL_VERSION'
+      customerAmountMinor: '6000', playerAmountMinor: '4000', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
     };
 
     expect(buildAdminActionRequest({ actionId: 'CREATE_SERVICE_VERSION', fields: serviceFields })).toEqual({
@@ -179,7 +179,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       path: '/api/v1/admin/service-catalog',
       body: {
         game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 2,
-        customerUnitPrice: { amountMinor: 6000, currency: 'CNY' }, playerUnitPayout: { amountMinor: 4000, currency: 'CNY' },
+        customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
         enabled: true, reasonCode: 'INITIAL_VERSION'
       }
     });
@@ -191,19 +191,19 @@ describe('M4-US-03 Dashboard business object pages', () => {
         expectedVersion: 2, action: 'SUPERSEDE', reasonCode: 'PRICE_REFRESH',
         replacement: {
           game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 2,
-          customerUnitPrice: { amountMinor: 6000, currency: 'CNY' }, playerUnitPayout: { amountMinor: 4000, currency: 'CNY' },
+          customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
           enabled: true, reasonCode: 'PRICE_REFRESH'
         }
       }
     });
     expect(buildAdminActionRequest({
       actionId: 'UPDATE_GIFT_VERSION', item: { id: 'gift-1', version: 2 },
-      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', amountMinor: '52000', currency: 'CNY', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
+      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
     })).toEqual({
       method: 'PATCH', path: '/api/v1/admin/gift-catalog/gift-1',
       body: {
         expectedVersion: 2, action: 'CREATE_REPLACEMENT_VERSION', reasonCode: 'PRICE_REFRESH',
-        replacement: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CNY' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
+        replacement: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
       }
     });
     expect(buildAdminActionRequest({
@@ -256,17 +256,17 @@ describe('M4-US-03 Dashboard business object pages', () => {
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, {
       model,
       detail: {
-        kind: 'READY', page: 'users', requestId: 'req-user', data: { id: 'user-1', displayName: 'Customer A', currency: 'CNY' },
+        kind: 'READY', page: 'users', requestId: 'req-user', data: { id: 'user-1', displayName: 'Customer A', currency: 'CAT' },
         consumptions: {
           kind: 'READY', requestId: 'req-consumptions', items: [
-            { id: 'consumption-1', type: 'ORDER', amountMinor: 12000, currency: 'CNY', status: 'SUCCEEDED' }
+            { id: 'consumption-1', type: 'ORDER', amountMinor: 12000, currency: 'CAT', status: 'SUCCEEDED' }
           ], nextCursor: 'next-consumption-page'
         }
       }
     }));
 
     expect(html).toContain('消费记录');
-    expect(html).toContain('¥120.00');
+    expect(html).toContain('1,200.0 猫条');
     expect(html).toContain('加载更多消费记录');
     expect(html).not.toContain('beneficiaryId');
   });

@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import type { Currency } from './catalog.js';
-import type { MaybePromise } from './payment-adapter.js';
+type MaybePromise<T> = T | Promise<T>;
 
 export type FundReservationSourceType = 'ORDER' | 'GIFT';
-export type FundReservationMode = 'PROVIDER_NATIVE_HOLD' | 'LOCAL_RESERVATION_FALLBACK';
+export type FundReservationMode = 'LOCAL_RESERVATION';
 export type FundReservationStatus = 'PENDING' | 'ACTIVE' | 'DISPUTED' | 'PARTIALLY_SETTLED' | 'CAPTURED' | 'RELEASED' | 'EXPIRED' | 'FAILED';
 
 export interface FundingAdapterCapabilitiesSource {
@@ -19,7 +19,7 @@ export interface FundReservationDraft {
   orderId: string | null;
   giftRequestId: string | null;
   mode: FundReservationMode;
-  provider: string;
+  provider: string | null;
   providerHoldRef: string | null;
   amountMinor: number;
   currency: Currency;
@@ -34,14 +34,14 @@ export interface FundReservationDraft {
 }
 
 export async function resolveFundReservationMode(adapter: FundingAdapterCapabilitiesSource): Promise<FundReservationMode> {
-  const capabilities = await adapter.discoverCapabilities?.();
-  return capabilities && !capabilities.nativeHold.supported ? 'LOCAL_RESERVATION_FALLBACK' : 'PROVIDER_NATIVE_HOLD';
+  void adapter;
+  return 'LOCAL_RESERVATION';
 }
 
 export function buildFundReservationDraft(input: {
   businessSource: { type: FundReservationSourceType; referenceId: string };
   userId: string;
-  provider: string;
+  provider: string | null;
   mode: FundReservationMode;
   amountMinor: number;
   currency: Currency;

@@ -4,11 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { discoverSapphirePieces } from './piece-manifest.js';
+import { parseWalletDisplayConfig } from './wallet-display.js';
 import { configureDiscordRendererEnvironment } from './discord-renderer.js';
 import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
 
 const isProductionRuntime = process.env.NODE_ENV === 'production';
 if (isProductionRuntime) requireProductionServiceEnv('bot', process.env);
+
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 configureDiscordRendererEnvironment(process.env.BUSINESS_ENV);
 let ready = false;
@@ -20,6 +22,17 @@ if (!validation.ok) {
 const health = isProductionRuntime
   ? await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready })
   : undefined;
+
+try {
+  parseWalletDisplayConfig(process.env);
+} catch (error) {
+  console.error(JSON.stringify({
+    level: 'error',
+    event: 'bot.wallet_display.invalid',
+    error: error instanceof Error ? error.message : 'Invalid wallet display configuration.'
+  }));
+  process.exit(1);
+}
 
 const manifest = await discoverSapphirePieces();
 console.log(JSON.stringify({ level: 'info', event: 'bot.pieces.discovered', pieces: manifest.pieces }));
@@ -35,11 +48,7 @@ if (!validation.values.discordBotToken) {
 } else {
   const configuredGuildId = process.env.DISCORD_GUILD_ID?.trim();
   if (configuredGuildId) ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId]);
-
   const client = new SapphireClient({
-    // The entrypoint lives beside the pieces directory in both src/ and dist/.
-    // Without this, Sapphire scans the process working directory and never loads
-    // the repository's command, listener, or interaction-handler pieces.
     baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), 'pieces'),
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences]
   });

@@ -43,7 +43,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     minimumUnits: 1,
     customerUnitPriceMinor: 6000,
     playerUnitPayoutMinor: 4200,
-    currency: 'CNY',
+    currency: 'CAT',
     status: 'ACTIVE',
     version: 1,
     createdByStaffId: '00000000-0000-0000-0000-00000000e003',
@@ -89,7 +89,7 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
       billingUnitMinutes: 60,
       minimumUnits: 1,
       customerUnitPriceMinor: 6000,
-      currency: 'CNY',
+      currency: 'CAT',
       version: 1
     });
     expect(JSON.stringify(result.items)).not.toContain('playerUnitPayout');
@@ -131,7 +131,7 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
       billingUnitMinutes: 60,
       amountMinor: 12000,
       playerEarningMinor: 8400,
-      currency: 'CNY'
+      currency: 'CAT'
     });
     await expect(
       estimateService({
@@ -156,8 +156,8 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
           region: 'NA',
           billingUnitMinutes: 60,
           minimumUnits: 1,
-          customerUnitPrice: { amountMinor: 6000, currency: 'CNY' },
-          playerUnitPayout: { amountMinor: 4200, currency: 'CNY' },
+          customerUnitPrice: { amountMinor: 6000, currency: 'CAT' },
+          playerUnitPayout: { amountMinor: 4200, currency: 'CAT' },
           enabled: true,
           reasonCode: 'INITIAL_CATALOG_VERSION'
         },
@@ -175,7 +175,7 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
           region: 'NA',
           billingUnitMinutes: 60,
           minimumUnits: 1,
-          customerUnitPrice: { amountMinor: 6000, currency: 'CNY' },
+          customerUnitPrice: { amountMinor: 6000, currency: 'CAT' },
           playerUnitPayout: null,
           enabled: true,
           reasonCode: 'INITIAL_CATALOG_VERSION'
@@ -193,8 +193,8 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
         region: 'NA',
         billingUnitMinutes: 60,
         minimumUnits: 1,
-        customerUnitPrice: { amountMinor: 6000, currency: 'CNY' },
-        playerUnitPayout: { amountMinor: 4200, currency: 'CNY' },
+        customerUnitPrice: { amountMinor: 6000, currency: 'CAT' },
+        playerUnitPayout: { amountMinor: 4200, currency: 'CAT' },
         enabled: true,
         reasonCode: 'INITIAL_CATALOG_VERSION'
       },
@@ -229,8 +229,8 @@ describe('M1-US-01 service catalog and dual price snapshots', () => {
           region: 'NA',
           billingUnitMinutes: 60,
           minimumUnits: 1,
-          customerUnitPrice: { amountMinor: 7200, currency: 'CNY' },
-          playerUnitPayout: { amountMinor: 5000, currency: 'CNY' },
+          customerUnitPrice: { amountMinor: 7200, currency: 'CAT' },
+          playerUnitPayout: { amountMinor: 5000, currency: 'CAT' },
           enabled: true,
           reasonCode: 'PRICE_CHANGE'
         }

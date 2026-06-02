@@ -50,7 +50,7 @@ const workbench: PlayerWorkbenchData = {
       region: 'NA',
       durationMinutes: 120,
       playerEarningMinor: 8_000,
-      currency: 'CNY',
+      currency: 'CAT',
       requirements: ['中文交流', '轻松娱乐'],
       voiceChannelId: '120000000000000003'
     }
@@ -59,7 +59,7 @@ const workbench: PlayerWorkbenchData = {
     pendingMinor: 8_000,
     confirmedMinor: 3_000,
     paidMinor: 20_000,
-    currency: 'CNY',
+    currency: 'CAT',
     calculatedAt: now.toISOString()
   }
 };

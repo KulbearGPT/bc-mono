@@ -3,8 +3,8 @@ import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore, type StaffAccount, type StaffDirectory } from '@blackcat/api/security';
 import { InMemoryAccountStore } from '@blackcat/api/accounts';
 import { InMemoryOrderStore, type OrderRecord } from '@blackcat/api/orders';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
 import { InMemoryGiftStore, registerGiftRoutes, type GiftRequestRecord, type GiftReservationRecord, type GiftStaffTaskRecord } from '@blackcat/api/gifts';
+import { TestWalletFunding } from './support/wallet-fixture';
 
 const now = new Date('2026-07-18T13:00:00.000Z');
 const giftRequestId = '00000000-0000-0000-0000-000000003410';
@@ -26,7 +26,7 @@ function request(priceMinor = 200000, overrides: Partial<GiftRequestRecord> = {}
   return { id: giftRequestId, publicId: 'G-3410', orderId: order().id,
     giftCatalogVersionId: '00000000-0000-0000-0000-000000003413', senderId: order().customerId,
     receiverId: order().playerId!, status: 'PENDING_REVIEW', version: 1, giftCodeSnapshot: 'STAR',
-    giftNameSnapshot: '星光礼盒', priceMinor, currency: 'CNY', broadcastTemplateSnapshot: '{sender_name}',
+    giftNameSnapshot: '星光礼盒', priceMinor, currency: 'CAT', broadcastTemplateSnapshot: '{sender_name}',
     verifiedByStaffId: null, verifiedAt: null, verificationNote: null, verificationPayloadHash: null,
     executionCredentialExpiresAt: null, approvedByStaffId: null, approvedAt: null, rejectedReason: null,
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), createdAt: now.toISOString(), updatedAt: now.toISOString(), ...overrides };
@@ -34,8 +34,8 @@ function request(priceMinor = 200000, overrides: Partial<GiftRequestRecord> = {}
 
 function reservation(priceMinor = 200000): GiftReservationRecord {
   return { id: '00000000-0000-0000-0000-000000003414', userId: order().customerId, sourceType: 'GIFT', orderId: null,
-    giftRequestId, mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null,
-    amountMinor: priceMinor, currency: 'CNY', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:3410',
+    giftRequestId, mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null,
+    amountMinor: priceMinor, currency: 'CAT', status: 'ACTIVE', version: 2, idempotencyKey: 'gift:3410',
     expiresAt: new Date(now.getTime() + 30 * 60_000).toISOString(), activatedAt: now.toISOString(), settledAt: null,
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
@@ -45,7 +45,7 @@ function task(status: GiftStaffTaskRecord['status'] = 'CLAIMED'): GiftStaffTaskR
     orderId: order().id, giftRequestId, claimedBy: staffId, voiceChannelId: order().channelSpec.voiceChannelId,
     contextSnapshot: { orderId: order().id, orderPublicId: order().publicId, channelId: order().channelSpec.channelId,
       voiceChannelId: order().channelSpec.voiceChannelId, senderId: order().customerId, receiverId: order().playerId!,
-      giftCode: 'STAR', giftName: '星光礼盒', priceMinor: 200000, currency: 'CNY', reservationId: reservation().id },
+      giftCode: 'STAR', giftName: '星光礼盒', priceMinor: 200000, currency: 'CAT', reservationId: reservation().id },
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
@@ -54,7 +54,7 @@ function order(): OrderRecord {
     playerId: '00000000-0000-0000-0000-000000003403', status: 'IN_SERVICE', version: 7, serviceCatalogId: null,
     catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', billingUnitMinutes: 60, unitCount: 2,
     customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200, amountMinor: 12000, playerEarningMinor: 8400,
-    currency: 'CNY', notes: null, channelSpec: { channelId: '900000000000000003', panelMessageId: '900000000000000004', voiceChannelId: '900000000000000005' },
+    currency: 'CAT', notes: null, channelSpec: { channelId: '900000000000000003', panelMessageId: '900000000000000004', voiceChannelId: '900000000000000005' },
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
@@ -71,14 +71,14 @@ function fixture(level: StaffAccount['level'], priceMinor = 200000, input: { ste
     externalUserIds: { [order().customerId]: 'mock-user-ok' } });
   if (verified) store.refreshVerificationHash(giftRequestId, now);
   const directory: StaffDirectory = { resolveByDiscord: () => staff(effectiveLevel) };
-  const adapter = new MockFundingAdapter({ now, reservations: [{ fundReservationId: reservation().id, version: 2 }] });
+  const walletFunding = new TestWalletFunding();
   const server = buildApiServer({ env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
     security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore(), staffDirectory: directory,
       stepUpVerifier: { verify: () => stepUp } } });
   registerGiftRoutes(server, { store, orderStore: new InMemoryOrderStore({ orders: [order()] }),
-    accountStore: new InMemoryAccountStore({}), fundingAdapter: adapter, providerKey: 'mock-provider',
+    accountStore: new InMemoryAccountStore({}), walletFunding,
     broadcastChannelId: '900000000000000020', now: () => now });
-  return { server, store, adapter, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
+  return { server, store, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
 }
 
 describe('M3-US-02 gift review and authorization', () => {
@@ -168,8 +168,8 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(store.reservations[0]).toMatchObject({ status: 'RELEASED', version: 3 });
   });
 
-  test('resumes the same provider debit after an approved database commit temporarily fails', async () => {
-    const { server, store, adapter } = fixture('L2_SUPERVISOR', 200000, { verified: true });
+  test('resumes the same internal wallet debit after an approved database commit temporarily fails', async () => {
+    const { server, store } = fixture('L2_SUPERVISOR', 200000, { verified: true });
     const commit = store.commitCapture.bind(store);
     let failOnce = true;
     store.commitCapture = (input) => {
@@ -188,6 +188,6 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(retry.statusCode).toBe(200);
     expect(retry.json()).toMatchObject({ data: { status: 'CAPTURED', giftRequestId } });
     expect(store.captures).toHaveLength(1);
-    expect(adapter.getProviderBalance({ externalUserId: 'mock-user-ok' }).providerBalanceMinor).toBe(800000);
+    expect(store.captures[0]).toMatchObject({ chargeOutcome: { status: 'SUCCEEDED' } });
   });
 });

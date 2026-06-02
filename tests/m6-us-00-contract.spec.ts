@@ -69,9 +69,8 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(constraints).toContain('settlement_batches_schedule_source_chk');
     expect(constraints).toContain('trg_active_settlement_source_membership');
     expect(constraints).toContain('weekly_report_revisions_target_chk');
-    expect(openapi).toContain('x-recharge-url-source: guild-business-configuration');
-    expect(openapi).toContain('- recharge_url');
-    expect(openapi).not.toContain('getRechargeUrl');
+    expect(openapi).toContain('topUpInstructions:');
+    expect(openapi).not.toMatch(/recharge_url|getRechargeUrl/u);
     expect(read(`${outputRoot}/03-数据模型/状态枚举与约束.md`)).toContain('PARTIALLY_PAID -> PARTIALLY_PAID | PAID');
   });
 
@@ -120,8 +119,10 @@ describe('M6-US-00 settlement, report, profile, and gift contracts', () => {
     expect(openapi).toMatch(/SettlementPaymentResult:[\s\S]*anyOf:[\s\S]*required: \[externalBatchReference\][\s\S]*required: \[note\]/);
     expect(openapi).toContain('x-invariant: request.reportType == storedReport.reportType');
     expect(openapi).toContain('x-conflict-code: REPORT_TYPE_MISMATCH');
-    expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- stale/);
-    expect(businessSchema).toContain('"fetchedAt", "stale"');
+    expect(businessConfig).toMatch(/balance_summary_fields:[\s\S]*- calculatedAt[\s\S]*- version/);
+    expect(businessConfig).toContain('balance_fact_source: INTERNAL_APPEND_ONLY_LEDGER');
+    expect(businessSchema).toContain('"ledgerBalanceMinor"');
+    expect(businessSchema).not.toContain('"providerBalanceMinor"');
   });
 
   test('keeps OpenAPI operation IDs unique and local references resolvable', () => {

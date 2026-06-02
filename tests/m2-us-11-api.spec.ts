@@ -118,7 +118,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     id: orderId, publicId: 'P-611', customerId: '00000000-0000-0000-0000-00000000a611', playerId: null,
     status: 'PENDING_DISPATCH', version: 3, serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT',
     region: 'NA', billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
-    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CNY', notes: null,
+    amountMinor: 12000, playerEarningMinor: 8400, currency: 'CAT', notes: null,
     channelSpec: { channelId: '444444444444444444', panelMessageId: '555555555555555555', voiceChannelId: '666666666666666666' },
     automationState: 'RUNNING', automationVersion: 1, automationPausedByStaffId: null, automationStaffTaskId: null,
     automationReasonCode: null, automationScope: null, automationPausedAt: null, automationResumedAt: null, automationExpiresAt: null,
@@ -129,7 +129,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
 function reservation(): FundReservationRecord {
   return {
     id: '00000000-0000-0000-0000-00000000f611', userId: order().customerId, sourceType: 'ORDER', orderId,
-    mode: 'LOCAL_RESERVATION_FALLBACK', provider: 'mock-provider', providerHoldRef: null, amountMinor: 12000, currency: 'CNY',
+    mode: 'LOCAL_RESERVATION', provider: 'mock-provider', providerHoldRef: null, amountMinor: 12000, currency: 'CAT',
     status: 'ACTIVE', version: 1, idempotencyKey: 'submit:P-611', expiresAt: '2026-07-18T10:00:00.000Z',
     activatedAt: now.toISOString(), settledAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString()
   };

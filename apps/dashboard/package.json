@@ -11,12 +11,12 @@
     "./operations": "./src/operations.ts",
     "./settlements": "./src/settlements.ts",
     "./customer-profile": "./src/customer-profile.ts",
-    "./sandbox-funding": "./src/sandbox-funding.ts"
+    "./customer-wallet": "./src/customer-wallet.ts"
   },
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 0.0.0.0 --port 5173",
-    "start": "node -e \"throw new Error('Dashboard is served by the web service')\"",
+    "start": "vite --host 0.0.0.0 --port 5173",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

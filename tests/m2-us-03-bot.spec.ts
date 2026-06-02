@@ -15,7 +15,7 @@ const offer: DispatchOfferSummary = {
   region: 'NA',
   durationLabel: '2 小时',
   playerEarningMinor: 8400,
-  currency: 'CNY',
+  currency: 'CAT',
   notes: '中文交流',
   expiresAt: '2026-07-18T02:05:00.000Z',
   voiceChannelId: '666666666666666666'

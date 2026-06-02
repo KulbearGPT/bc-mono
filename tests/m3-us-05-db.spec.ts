@@ -60,7 +60,7 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
   test('persists an idempotent append-only reversal and keeps the original amount', async () => {
     const store = new PostgresCommissionStore(pool);
     const input = { commissionId, expectedVersion: 1, action: 'CREATE_REVERSAL' as const,
-      reversalAmount: { amountMinor: 20, currency: 'CNY' }, reason: 'partial refund',
+      reversalAmount: { amountMinor: 20, currency: 'CAT' }, reason: 'partial refund',
       idempotencyKey: 'commission:db:reverse:4214', actorStaffId: staffId, now: new Date('2026-07-18T19:00:00Z') };
     expect(await store.mutate(input)).toMatchObject({ commission: { amountMinor: 200, netAmountMinor: 100, version: 2 } });
     expect(await store.mutate(input)).toMatchObject({ commission: { amountMinor: 200, netAmountMinor: 100, version: 2 } });
@@ -86,20 +86,20 @@ async function seed() {
     INSERT INTO staff_accounts (id,user_id,level,status,role_source,permissions_version,created_at,updated_at)
     VALUES ('${staffId}','${staffId}','L3_OPERATIONS','ACTIVE','MANUAL',1,now(),now());
     INSERT INTO orders (id,public_id,customer_id,player_id,status,row_version,amount_minor,currency,guild_id,completed_at,created_at,updated_at)
-    VALUES ('00000000-0000-0000-0000-000000004230','P-4230','${customerId}','${beneficiaryId}','COMPLETED',1,10000,'CNY','${guildId}','2026-07-18T10:00:00Z','2026-07-18T09:00:00Z','2026-07-18T10:00:00Z');
+    VALUES ('00000000-0000-0000-0000-000000004230','P-4230','${customerId}','${beneficiaryId}','COMPLETED',1,10000,'CAT','${guildId}','2026-07-18T10:00:00Z','2026-07-18T09:00:00Z','2026-07-18T10:00:00Z');
     INSERT INTO consumption_entries (id,user_id,entry_type,direction,order_id,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at) VALUES
-    ('00000000-0000-0000-0000-000000004220','${customerId}','ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',10000,'CNY','ORDER','00000000-0000-0000-0000-000000004230','history:order','2026-07-18T10:00:00Z'),
-    ('00000000-0000-0000-0000-000000004221','${customerId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004231','history:gift','2026-07-18T11:00:00Z'),
-    ('00000000-0000-0000-0000-000000004222','${customerId}','REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000004230',1000,'CNY','REFUND','00000000-0000-0000-0000-000000004232','history:refund','2026-07-18T12:00:00Z'),
-    ('00000000-0000-0000-0000-000000004223','${beneficiaryId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CNY','GIFT','00000000-0000-0000-0000-000000004233','history:other-gift','2026-07-18T12:30:00Z');
+    ('00000000-0000-0000-0000-000000004220','${customerId}','ORDER_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',10000,'CAT','ORDER','00000000-0000-0000-0000-000000004230','history:order','2026-07-18T10:00:00Z'),
+    ('00000000-0000-0000-0000-000000004221','${customerId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CAT','GIFT','00000000-0000-0000-0000-000000004231','history:gift','2026-07-18T11:00:00Z'),
+    ('00000000-0000-0000-0000-000000004222','${customerId}','REFUND_REVERSAL','CREDIT','00000000-0000-0000-0000-000000004230',1000,'CAT','REFUND','00000000-0000-0000-0000-000000004232','history:refund','2026-07-18T12:00:00Z'),
+    ('00000000-0000-0000-0000-000000004223','${beneficiaryId}','GIFT_CHARGE','DEBIT','00000000-0000-0000-0000-000000004230',3000,'CAT','GIFT','00000000-0000-0000-0000-000000004233','history:other-gift','2026-07-18T12:30:00Z');
     INSERT INTO referral_program_versions (id,program_type,version,status,active_program_key,award_mode,rate_bps,currency,eligible_order_spend,eligible_gift_spend,created_by_staff_id,activated_at,created_at)
-    VALUES ('00000000-0000-0000-0000-000000004240','PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME','NET_SPEND_BPS',200,'CNY',true,true,'${staffId}',now(),now());
+    VALUES ('00000000-0000-0000-0000-000000004240','PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME','NET_SPEND_BPS',200,'CAT',true,true,'${staffId}',now(),now());
     INSERT INTO referral_attributions (id,program_version_id,beneficiary_user_id,referred_user_id,status,row_version,active_attribution_key,source_type,bound_by_staff_id,eligibility_checked_at,bound_at,created_at) VALUES
     ('00000000-0000-0000-0000-000000004241','00000000-0000-0000-0000-000000004240','${beneficiaryId}','${customerId}','ACTIVE',1,'${customerId}','ADMIN_MANUAL','${staffId}',now(),now(),now()),
     ('00000000-0000-0000-0000-000000004242','00000000-0000-0000-0000-000000004240','${otherBeneficiaryId}','${beneficiaryId}','ACTIVE',1,'${beneficiaryId}','ADMIN_MANUAL','${staffId}',now(),now(),now());
     INSERT INTO commissions (id,referral_attribution_id,beneficiary_user_id,source_consumption_entry_id,program_type_snapshot,program_version_snapshot,award_mode_snapshot,base_amount_minor,rate_bps,amount_minor,currency,status,row_version,created_at,updated_at) VALUES
-    ('${commissionId}','00000000-0000-0000-0000-000000004241','${beneficiaryId}','00000000-0000-0000-0000-000000004220','PLAYER_LIFETIME',1,'NET_SPEND_BPS',10000,200,200,'CNY','PENDING',1,'2026-07-18T13:00:00Z','2026-07-18T13:00:00Z'),
-    ('00000000-0000-0000-0000-000000004215','00000000-0000-0000-0000-000000004242','${otherBeneficiaryId}','00000000-0000-0000-0000-000000004223','PLAYER_LIFETIME',1,'NET_SPEND_BPS',3000,200,60,'CNY','PENDING',1,'2026-07-18T14:00:00Z','2026-07-18T14:00:00Z');
+    ('${commissionId}','00000000-0000-0000-0000-000000004241','${beneficiaryId}','00000000-0000-0000-0000-000000004220','PLAYER_LIFETIME',1,'NET_SPEND_BPS',10000,200,200,'CAT','PENDING',1,'2026-07-18T13:00:00Z','2026-07-18T13:00:00Z'),
+    ('00000000-0000-0000-0000-000000004215','00000000-0000-0000-0000-000000004242','${otherBeneficiaryId}','00000000-0000-0000-0000-000000004223','PLAYER_LIFETIME',1,'NET_SPEND_BPS',3000,200,60,'CAT','PENDING',1,'2026-07-18T14:00:00Z','2026-07-18T14:00:00Z');
     INSERT INTO commission_adjustments (id,commission_id,type,amount_minor,currency,reason,idempotency_key,created_by_staff_id,created_at)
-    VALUES ('00000000-0000-0000-0000-000000004250','${commissionId}','REVERSAL_DEBIT',80,'CNY','refund','commission:seed:adjustment','${staffId}',now());`);
+    VALUES ('00000000-0000-0000-0000-000000004250','${commissionId}','REVERSAL_DEBIT',80,'CAT','refund','commission:seed:adjustment','${staffId}',now());`);
 }

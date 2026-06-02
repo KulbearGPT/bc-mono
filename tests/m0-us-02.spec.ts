@@ -90,7 +90,9 @@ describe('M0-US-02 P0 database baseline', () => {
     expect(seed).toContain('access_threshold","l2_gift_limit');
     expect(seed).toContain('200000');
     expect(seed).toContain('funding_policy","reservation_mode');
-    expect(seed).toContain('PROVIDER_NATIVE_HOLD');
+    expect(seed).toContain('LOCAL_RESERVATION');
+    expect(seed).toContain('permission_code","wallet.top_up');
+    expect(seed).not.toContain('permission_code","account.bind');
     expect(seed).toContain('referral_program","PROMOTER_FIRST_PURCHASE');
     expect(seed).toContain('referral_program","PLAYER_LIFETIME');
   });

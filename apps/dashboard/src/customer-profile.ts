@@ -18,5 +18,6 @@ export function buildCustomerProfileRequests(userId: string, window: 'DAYS_30' |
 export function buildCustomerProfileView(modules: CustomerProfileModules): CustomerProfileView { return { modules,
   hasVisibleContent: Object.values(modules).some((module) => module.kind === 'READY' || module.kind === 'EMPTY' || (module.kind === 'ERROR' && 'data' in module && module.data)) }; }
 export function appendCursor(path: string, cursor: string) { return `${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`; }
-export function formatProfileMoney(value: unknown, currency: unknown) { if (!Number.isSafeInteger(value)) return '—'; return new Intl.NumberFormat('zh-CN', {
-  style: 'currency', currency: typeof currency === 'string' ? currency : 'CNY', minimumFractionDigits: 2 }).format(Number(value) / 100); }
+export function formatProfileMoney(value: unknown, currency: unknown) { if (!Number.isSafeInteger(value)) return '—';
+  if(currency==='CAT')return `${(Number(value)/10).toLocaleString('zh-CN',{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;
+  return new Intl.NumberFormat('zh-CN', {style:'currency',currency:typeof currency==='string'?currency:'CAT',currencyDisplay:'code',minimumFractionDigits:2}).format(Number(value)/100); }

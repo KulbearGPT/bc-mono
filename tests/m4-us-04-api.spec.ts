@@ -18,7 +18,7 @@ import {
   type ExternalTransactionMirrorRecord,
   type OrderRecord
 } from '@blackcat/api/orders';
-import { MockFundingAdapter } from '@blackcat/api/payment-adapter';
+import { TestWalletFunding } from './support/wallet-fixture';
 import {
   InMemoryGiftStore,
   type GiftRequestRecord,
@@ -437,7 +437,7 @@ function policyOrder(id: string, amountMinor: number, status: OrderRecord['statu
     playerUnitPayoutMinor: 4200,
     amountMinor,
     playerEarningMinor: 8400,
-    currency: 'CNY',
+    currency: 'CAT',
     notes: null,
     channelSpec: {
       channelId: '900000000000000003',
@@ -462,7 +462,7 @@ function verifiedGiftRequest(priceMinor = 200100): GiftRequestRecord {
     giftCodeSnapshot: 'STAR',
     giftNameSnapshot: '星光礼盒',
     priceMinor,
-    currency: 'CNY',
+    currency: 'CAT',
     broadcastTemplateSnapshot: '{sender_name} 送出 {gift_name}',
     verifiedByStaffId: staffId,
     verifiedAt: initialNow.toISOString(),
@@ -485,11 +485,11 @@ function giftReservation(priceMinor = 200100): GiftReservationRecord {
     sourceType: 'GIFT',
     orderId: null,
     giftRequestId,
-    mode: 'LOCAL_RESERVATION_FALLBACK',
+    mode: 'LOCAL_RESERVATION',
     provider: 'mock-provider',
     providerHoldRef: null,
     amountMinor: priceMinor,
-    currency: 'CNY',
+    currency: 'CAT',
     status: 'ACTIVE',
     version: 2,
     idempotencyKey: 'gift:m4-us-04',
@@ -523,7 +523,7 @@ function giftTask(priceMinor = 200100): GiftStaffTaskRecord {
       giftCode: 'STAR',
       giftName: '星光礼盒',
       priceMinor,
-      currency: 'CNY',
+      currency: 'CAT',
       reservationId: giftReservation(priceMinor).id
     },
     createdAt: initialNow.toISOString(),
@@ -542,7 +542,7 @@ function refundChargeMirror(providerRef: string | null): ExternalTransactionMirr
     externalRef: providerRef,
     idempotencyKey: 'provider:m4-us-04:order-charge',
     amountMinor: 200000,
-    currency: 'CNY',
+    currency: 'CAT',
     status: 'SUCCEEDED',
     createdAt: initialNow.toISOString()
   };
@@ -552,22 +552,10 @@ function policyFixture() {
   const clock = mutableClock();
   const authStore = new InMemoryDashboardAuthStore();
   const directory = directoryFor('L3_OPERATIONS');
-  const provider = new MockFundingAdapter({
-    now: initialNow,
-    reservations: [{ fundReservationId: giftReservation().id, version: 2 }]
-  });
-  const charged = provider.createReservationDebit({
-    idempotencyKey: 'provider:m4-us-04:order-charge',
-    fundReservationId: '00000000-0000-0000-0000-000000004424',
-    fundReservationVersion: 1,
-    externalUserId: 'mock-user-ok',
-    amount: { amountMinor: 200000, currency: 'CNY' },
-    businessSource: 'ORDER',
-    businessReference: refundOrderId
-  });
+  const walletFunding = new TestWalletFunding();
   const orderStore = new PolicyOrderStore({
     orders: [policyOrder(giftOrderId, 12000, 'IN_SERVICE'), policyOrder(refundOrderId, 200000, 'COMPLETED')],
-    externalTransactions: [refundChargeMirror(charged.providerRef)]
+    externalTransactions: [refundChargeMirror('internal-wallet-order-charge')]
   });
   const giftStore = new InMemoryGiftStore({
     catalog: [],
@@ -598,26 +586,22 @@ function policyFixture() {
       store: giftStore,
       orderStore,
       accountStore: new InMemoryAccountStore({}),
-      fundingAdapter: provider,
-      providerKey: 'mock-provider',
+      walletFunding,
       broadcastChannelId: '900000000000000020',
       now: clock.now
     },
     adminOrders: {
       orderStore,
-      fundingAdapter: provider,
-      providerKey: 'mock-provider',
       now: clock.now
     }
   });
-  return { server, authStore, clock, provider, orderStore, giftStore };
+  return { server, authStore, clock, orderStore, giftStore };
 }
 
 describe('M4-US-04 amount policy integration', () => {
   test('AT-GFT-005 leaves money and broadcast untouched until the same staff member reaches L3 and steps up', async () => {
     const fixture = policyFixture();
     const l2 = await createSession(fixture.authStore, staff('L2_SUPERVISOR'), fixture.clock.now());
-    const balanceBefore = fixture.provider.getProviderBalance({ externalUserId: 'mock-user-ok' }).providerBalanceMinor;
     const pending = await fixture.server.inject({
       method: 'POST',
       url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`,
@@ -628,7 +612,6 @@ describe('M4-US-04 amount policy integration', () => {
     expect(pending.json()).toMatchObject({ data: { code: 'APPROVAL_PENDING', requiredLevel: 'L3_OPERATIONS', actionExecuted: false } });
     expect(fixture.giftStore.captures).toHaveLength(0);
     expect(fixture.giftStore.broadcasts).toHaveLength(0);
-    expect(fixture.provider.getProviderBalance({ externalUserId: 'mock-user-ok' }).providerBalanceMinor).toBe(balanceBefore);
 
     const l3 = await createSession(fixture.authStore, staff('L3_OPERATIONS'), fixture.clock.now());
     const { secret } = await enrollTotp(fixture, l3, 'm4:gift:l3:mfa');
@@ -644,7 +627,7 @@ describe('M4-US-04 amount policy integration', () => {
     expect(fixture.giftStore.captures).toHaveLength(1);
   });
 
-  test('AT-RBAC-004 and AT-RBAC-005 enforce 50000/50100 refund boundaries without premature provider calls', async () => {
+  test('AT-RBAC-004 and AT-RBAC-005 enforce 50000/50100 refund boundaries without premature wallet writes', async () => {
     const fixture = policyFixture();
     const l2 = await createSession(fixture.authStore, staff('L2_SUPERVISOR'), fixture.clock.now());
     const direct = await fixture.server.inject({
@@ -653,7 +636,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l2, 'm4:refund:l2:50000'),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50000, currency: 'CNY' },
+        amount: { amountMinor: 50000, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'L2 boundary refund.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
@@ -669,7 +652,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l2, pendingKey),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50100, currency: 'CNY' },
+        amount: { amountMinor: 50100, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'L2 must request L3 execution.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
@@ -678,10 +661,7 @@ describe('M4-US-04 amount policy integration', () => {
     expect(pending.statusCode).toBe(202);
     expect(pending.json()).toMatchObject({ data: { code: 'APPROVAL_PENDING', requiredLevel: 'L3_OPERATIONS', actionExecuted: false } });
     expect(fixture.orderStore.orders.find(({ id }) => id === refundOrderId)).toMatchObject({ status: 'COMPLETED', version: 9 });
-    expect(() => fixture.provider.getTransaction({
-      lookupType: 'IDEMPOTENCY_KEY',
-      lookupValue: `${pendingKey}:provider`
-    })).toThrow();
+    expect(fixture.orderStore.approvalRequests).toHaveLength(1);
 
     const l3 = await createSession(fixture.authStore, staff('L3_OPERATIONS'), fixture.clock.now());
     const { secret } = await enrollTotp(fixture, l3, 'm4:refund:l3:mfa');
@@ -692,7 +672,7 @@ describe('M4-US-04 amount policy integration', () => {
       headers: sessionHeaders(l3, 'm4:refund:l3:execute'),
       payload: {
         expectedVersion: 9,
-        amount: { amountMinor: 50100, currency: 'CNY' },
+        amount: { amountMinor: 50100, currency: 'CAT' },
         reasonCode: 'USER_REQUEST',
         evidenceNote: 'Same staff member completed L3 step-up.',
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'

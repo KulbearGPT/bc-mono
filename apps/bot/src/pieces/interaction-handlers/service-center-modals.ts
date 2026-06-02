@@ -12,7 +12,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'binding-modal' || route.area === 'order-notes-modal' ? this.some(route) : this.none();
+    return route.area === 'order-notes-modal' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
@@ -20,11 +20,6 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
       return;
     }
 
-    const content =
-      parsedData?.area === 'binding-modal'
-        ? '绑定信息已收到，正在验证。'
-        : '备注已收到，正在同步订单面板。';
-
-    await interaction.reply({ content, ephemeral: true });
+    await interaction.reply({ content: '备注已收到，正在同步订单面板。', ephemeral: true });
   }
 }

@@ -24,6 +24,8 @@ export const botConfigChannelFields = [
 
 export const botConfigRoleFields = [
   'player_role_id',
+  'companion_applicant_role_id',
+  'companion_role_id',
   'staff_l1_role_id',
   'staff_l2_role_id',
   'staff_l3_role_id',
@@ -535,7 +537,7 @@ function isSelectableField(field: string): field is BotConfigSelectableField {
 
 function isManageableField(field:string):field is BotConfigManageableField{return isSelectableField(field)||isIntegerField(field)||isBooleanField(field)||isTextField(field);}
 function isRoleField(field:string):field is BotConfigRoleField{return (botConfigRoleFields as readonly string[]).includes(field);}
-function isSecurityRoleField(field:string):field is BotConfigRoleField{return ['player_role_id','staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].includes(field);}
+function isSecurityRoleField(field:string):field is BotConfigRoleField{return ['player_role_id','companion_applicant_role_id','companion_role_id','staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].includes(field);}
 function isNullableRoleField(field:string){return field==='staff_notification_role_id'||field==='operations_notification_role_id';}
 function isIntegerField(field:string):field is typeof botConfigIntegerFields[number]{return (botConfigIntegerFields as readonly string[]).includes(field);}
 function isBooleanField(field:string):field is typeof botConfigBooleanFields[number]{return (botConfigBooleanFields as readonly string[]).includes(field);}
@@ -561,7 +563,7 @@ function formatConfigValue(field: BotConfigManageableField, value: BotConfigValu
 
 function fieldLabel(field: BotConfigManageableField): string {
   const labels: Record<BotConfigManageableField, string> = {
-    public_entry_channel_id: '公共下单入口频道',
+    public_entry_channel_id: '新人入口频道',
     private_order_category_id: '私密订单频道分类',
     order_archive_category_id: '订单归档频道分类',
     dispatch_channel_id: '派单频道',
@@ -570,7 +572,9 @@ function fieldLabel(field: BotConfigManageableField): string {
     gift_broadcast_channel_id: '礼物播报频道',
     staff_task_channel_id: '客服任务频道',
     operations_alert_channel_id: '运营告警频道',
-    player_role_id: '陪玩角色',
+    player_role_id: '基础玩家角色',
+    companion_applicant_role_id: '待审核陪玩申请人角色（可选）',
+    companion_role_id: '已批准陪玩角色',
     staff_l1_role_id: 'L1 客服角色',
     staff_l2_role_id: 'L2 客服主管角色',
     staff_l3_role_id: 'L3 运营负责人角色',

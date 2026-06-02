@@ -41,11 +41,11 @@ describe('M5-US-03 fail-closed release gate', () => {
   test('rejects P1 scope and typed names without explicit approval evidence', () => {
     const result = evaluateReleaseGate({
       matrix: [{ acceptance_id: 'AT-X-001', candidate_status: 'PASSED' }],
-      signoff: { approvals: [{ role: 'owner', name: 'A', approved: false }] },
+      signoff: { approvals: [{ role: 'product', name: 'A', approved: false }] },
       config: completeConfig({ scope: 'P0+P1' })
     });
     expect(result.ready).toBe(false);
-    expect(result.blockers).toEqual(expect.arrayContaining([expect.stringContaining('scope must be exactly P0'), expect.stringContaining('owner sign-off')]));
+    expect(result.blockers).toEqual(expect.arrayContaining([expect.stringContaining('Release scope must be exactly P0'), expect.stringContaining('owner sign-off')]));
   });
 
   test('blocks failed evidence and passed evidence from another candidate', () => {
@@ -67,9 +67,9 @@ describe('M5-US-03 fail-closed release gate', () => {
     ]));
   });
 
-  test('passes only a complete synthetic P0 gate with owner and staff approvals', () => {
+  test('passes only a complete synthetic P0 gate with four explicit approvals', () => {
     const candidate = `sha256:${'c'.repeat(64)}`;
-    const matrix = Array.from({ length: 184 }, (_, index) => index < 51
+    const matrix = Array.from({ length: 175 }, (_, index) => index < 47
       ? { acceptance_id: `AT-EXT-${index}`, execution_class: 'EXTERNAL_E2E',
           candidate_status: 'PASSED', external_candidate_ref: candidate }
       : { acceptance_id: `AT-AUTO-${index}`, execution_class: 'AUTOMATED',
@@ -80,42 +80,8 @@ describe('M5-US-03 fail-closed release gate', () => {
       config: completeConfig({ releaseCandidate: candidate })
     });
     expect(result).toMatchObject({ ready: true, blockers: [], summary: {
-      acceptanceCases: 184, pendingExternal: 0, passedExternal: 51, signedRoles: 2
+      acceptanceCases: 175, pendingExternal: 0, passedExternal: 47, signedRoles: 2
     } });
-  });
-
-  test('current Railway Sandbox gate does not require Provider sandbox evidence', () => {
-    const candidate = `sha256:${'d'.repeat(64)}`;
-    const matrix = [
-      { acceptance_id: 'AT-EXT-001', execution_class: 'EXTERNAL_E2E', candidate_status: 'PASSED', external_candidate_ref: candidate },
-      { acceptance_id: 'AT-AUTO-001', execution_class: 'AUTOMATED', candidate_status: 'COVERED_BY_REGRESSION', external_candidate_ref: '' }
-    ];
-    const result = evaluateReleaseGate({
-      matrix,
-      signoff: { approvals: ['owner', 'staff'].map((role) => ({
-        role, name: `${role}-reviewer`, approved: true,
-        approvedAt: '2026-07-20T12:00:00.000Z', evidence: `review:${role}`
-      })) },
-      config: {
-        scope: 'P0',
-        releaseCandidate: candidate,
-        rollbackImageDigest: 'sha256:immutable-rollback',
-        railwaySandboxEvidence: 'evidence:railway',
-        fundingModeEvidence: 'evidence:sandbox',
-        discordGuildEvidence: 'evidence:discord',
-        backupRestoreEvidence: 'evidence:restore',
-        workerRecoveryEvidence: 'evidence:worker',
-        p1Excluded: true,
-        realMoneyFundingExcluded: true,
-        providerIntegrationDeferred: true,
-        blockingDefects: 0,
-        acceptedRisks: []
-      }
-    });
-    expect(result.ready).toBe(true);
-    expect(result.blockers).not.toEqual(expect.arrayContaining([
-      expect.stringContaining('providerSandboxEvidence')
-    ]));
   });
 
   test('refuses fully populated sign-off and config inputs with case-insensitive example paths', async () => {
@@ -173,8 +139,7 @@ describe('M5-US-03 fail-closed release gate', () => {
 function completeConfig(overrides: Record<string, unknown> = {}) {
   return {
     scope: 'P0', releaseCandidate: 'sha256:immutable-candidate', rollbackImageDigest: 'sha256:immutable-rollback',
-    railwaySandboxEvidence: 'evidence:railway-sandbox', fundingModeEvidence: 'evidence:sandbox-funding-mode',
-    discordGuildEvidence: 'evidence:discord',
+    railwaySandboxEvidence: 'evidence:railway', fundingModeEvidence: 'evidence:internal-cat', discordGuildEvidence: 'evidence:discord',
     backupRestoreEvidence: 'evidence:restore', workerRecoveryEvidence: 'evidence:worker',
     p1Excluded: true, realMoneyFundingExcluded: true, providerIntegrationDeferred: true,
     blockingDefects: 0, acceptedRisks: [], ...overrides

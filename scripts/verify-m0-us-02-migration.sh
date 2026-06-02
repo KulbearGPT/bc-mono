@@ -17,15 +17,10 @@ initdb -D "$DATA_DIR" --no-locale --encoding=UTF8 >/tmp/blackcat-initdb.out
 pg_ctl -D "$DATA_DIR" -o "-p $PORT -k $TMP_ROOT" -l "$LOG_FILE" start >/tmp/blackcat-pgctl-start.out
 
 createdb -h "$TMP_ROOT" -p "$PORT" "$DB_NAME"
-first_migration=true
-for migration_dir in database/prisma/migrations/*; do
-  migration_file="$migration_dir/migration.sql"
-  if [ "$first_migration" = true ]; then
-    psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$migration_file" >/tmp/blackcat-migration-apply.out
-    first_migration=false
-  else
-    psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f "$migration_file" >>/tmp/blackcat-migration-apply.out
-  fi
+: >/tmp/blackcat-migration-apply.out
+for migration_file in database/prisma/migrations/*/migration.sql; do
+  psql -h "$TMP_ROOT" -p "$PORT" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+    -f "$migration_file" >>/tmp/blackcat-migration-apply.out
 done
 
 psql_db() {
@@ -78,12 +73,6 @@ weekly_report_scope_constraint_count="$(psql_db -Atc "select count(*) from pg_co
 customer_profile_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
   'trg_provider_balance_snapshots_append_only','trg_customer_profile_notes_append_only'
 )")"
-sandbox_funding_table_count="$(psql_db -Atc "select count(*) from information_schema.tables where table_schema='public' and table_name in (
-  'sandbox_provider_accounts','sandbox_provider_balance_adjustments','sandbox_provider_transactions'
-)")"
-sandbox_funding_guard_count="$(psql_db -Atc "select count(*) from pg_trigger where tgname in (
-  'sandbox_adjustments_append_only','sandbox_transactions_append_only'
-)")"
 
 if [[ "$table_count" -lt 40 ]]; then
   echo "expected at least 40 public tables, got $table_count" >&2
@@ -127,16 +116,6 @@ fi
 
 if [[ "$customer_profile_guard_count" != "2" ]]; then
   echo "expected 2 customer profile append-only guards, got $customer_profile_guard_count" >&2
-  exit 1
-fi
-
-if [[ "$sandbox_funding_table_count" != "3" ]]; then
-  echo "expected 3 sandbox funding tables, got $sandbox_funding_table_count" >&2
-  exit 1
-fi
-
-if [[ "$sandbox_funding_guard_count" != "2" ]]; then
-  echo "expected 2 sandbox funding append-only guards, got $sandbox_funding_guard_count" >&2
   exit 1
 fi
 
@@ -190,9 +169,9 @@ expect_sql_failure "source-less-reservation-rejected" "
     '00000000-0000-0000-0000-000000000200',
     '00000000-0000-0000-0000-000000000001',
     'ORDER',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
-    'CNY',
+    'CAT',
     'PENDING',
     'bad-source',
     now()
@@ -233,9 +212,9 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000001',
     'ORDER',
     '00000000-0000-0000-0000-000000000101',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
-    'CNY',
+    'CAT',
     'PENDING',
     'valid-reservation',
     now()
@@ -332,9 +311,9 @@ psql_db -qAtc "
     '00000000-0000-0000-0000-000000000004',
     'ORDER',
     '00000000-0000-0000-0000-000000000103',
-    'LOCAL_RESERVATION_FALLBACK',
+    'LOCAL_RESERVATION',
     100,
-    'CNY',
+    'CAT',
     'PENDING',
     'terminal-reservation',
     now()
@@ -570,7 +549,7 @@ psql_db -qAtc "
     'ACTIVE',
     'Rose',
     20,
-    'CNY',
+    'CAT',
     '{sender} sent {gift}',
     '00000000-0000-0000-0000-000000000501'
   );
@@ -590,7 +569,7 @@ psql_db -qAtc "
     'rose',
     'Rose',
     20,
-    'CNY',
+    'CAT',
     '{sender} sent {gift}',
     now() + interval '1 hour',
     now()
@@ -640,18 +619,18 @@ expect_sql_failure "append-only-update-rejected" "SET ROLE blackcat_app; UPDATE 
 
 psql_db -qAtc "
   INSERT INTO orders (
-    id, public_id, customer_id, player_id, status, currency, amount_minor, guild_id, updated_at
+    id, public_id, guild_id, customer_id, player_id, status, currency, amount_minor, updated_at
   ) VALUES (
-    '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY',
+    '00000000-0000-0000-0000-000000000701', 'P-SET-VERIFY', '900000000000000001',
     '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001',
-    'COMPLETED', 'CNY', 1000, '900000000000000001', now()
+    'COMPLETED', 'CAT', 1000, now()
   );
   INSERT INTO player_earnings (
     id, order_id, player_user_id, base_units, unit_payout_minor, amount_minor, currency,
     status, confirmed_by_staff_id, confirmed_at, updated_at
   ) VALUES (
     '00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-000000000701',
-    '00000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'CNY', 'CONFIRMED',
+    '00000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'CAT', 'CONFIRMED',
     '00000000-0000-0000-0000-000000000501', now(), now()
   );
   INSERT INTO settlement_batches (
@@ -659,30 +638,30 @@ psql_db -qAtc "
     gross_amount_minor, adjustment_amount_minor, net_amount_minor, created_by_staff_id, updated_at
   ) VALUES
     ('00000000-0000-0000-0000-000000000703', 'SET-VERIFY-A', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
-      'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
+      'Asia/Shanghai', 'CAT', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now()),
     ('00000000-0000-0000-0000-000000000704', 'SET-VERIFY-B', '900000000000000001', 'MANUAL', now()-interval '7 days', now(), now(),
-      'Asia/Shanghai', 'CNY', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
+      'Asia/Shanghai', 'CAT', 1000, 0, 1000, '00000000-0000-0000-0000-000000000501', now());
   INSERT INTO settlement_items (
     id, settlement_batch_id, player_user_id, player_display_name, gross_amount_minor, adjustment_amount_minor,
     net_amount_minor, currency, updated_at
   ) VALUES
     ('00000000-0000-0000-0000-000000000705', '00000000-0000-0000-0000-000000000703',
-      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CNY', now()),
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CAT', now()),
     ('00000000-0000-0000-0000-000000000706', '00000000-0000-0000-0000-000000000704',
-      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CNY', now());
+      '00000000-0000-0000-0000-000000000001', 'Verify Player', 1000, 0, 1000, 'CAT', now());
   INSERT INTO settlement_item_entries (
     id, settlement_item_id, entry_type, player_earning_id, amount_minor, currency, occurred_at
   ) VALUES (
     '00000000-0000-0000-0000-000000000707', '00000000-0000-0000-0000-000000000705',
-    'PLAYER_EARNING', '00000000-0000-0000-0000-000000000702', 1000, 'CNY',
+    'PLAYER_EARNING', '00000000-0000-0000-0000-000000000702', 1000, 'CAT',
     (SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702')
   );
 "
 
 expect_sql_failure "settlement-negative-net-rejected" "SET ROLE blackcat_app; UPDATE settlement_items SET net_amount_minor=-1 WHERE id='00000000-0000-0000-0000-000000000705';"
-expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','CNY',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
-expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'CNY',(SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702'));"
-expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'CNY','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-empty-schedule-key-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_batches (id,public_id,guild_id,source,schedule_key,period_start,period_end,cutoff_at,time_zone,currency,gross_amount_minor,adjustment_amount_minor,net_amount_minor,created_by_staff_id,updated_at) VALUES ('00000000-0000-0000-0000-000000000709','SET-EMPTY-KEY','900000000000000001','SCHEDULED','',now()-interval '7 days',now(),now(),'Asia/Shanghai','CAT',0,0,0,'00000000-0000-0000-0000-000000000501',now());"
+expect_sql_failure "settlement-active-membership-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_item_entries (id,settlement_item_id,entry_type,player_earning_id,amount_minor,currency,occurred_at) VALUES ('00000000-0000-0000-0000-000000000708','00000000-0000-0000-0000-000000000706','PLAYER_EARNING','00000000-0000-0000-0000-000000000702',1000,'CAT',(SELECT confirmed_at FROM player_earnings WHERE id='00000000-0000-0000-0000-000000000702'));"
+expect_sql_failure "settlement-pending-payment-result-rejected" "SET ROLE blackcat_app; INSERT INTO settlement_payment_results (id,settlement_item_id,result,amount_minor,currency,idempotency_key,recorded_by_staff_id,recorded_at) VALUES ('00000000-0000-0000-0000-000000000710','00000000-0000-0000-0000-000000000705','PENDING',1000,'CAT','verify:pending-result','00000000-0000-0000-0000-000000000501',now());"
 expect_sql_failure "settlement-entry-update-rejected" "SET ROLE blackcat_app; UPDATE settlement_item_entries SET amount_minor=999 WHERE id='00000000-0000-0000-0000-000000000707';"
 expect_sql_failure "settlement-entry-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_item_entries WHERE id='00000000-0000-0000-0000-000000000707';"
 expect_sql_failure "settlement-item-delete-rejected" "SET ROLE blackcat_app; DELETE FROM settlement_items WHERE id='00000000-0000-0000-0000-000000000705';"
@@ -698,5 +677,3 @@ echo "weekly_report_table_count=$weekly_report_table_count"
 echo "weekly_report_guard_count=$weekly_report_guard_count"
 echo "weekly_report_scope_constraint_count=$weekly_report_scope_constraint_count"
 echo "customer_profile_guard_count=$customer_profile_guard_count"
-echo "sandbox_funding_table_count=$sandbox_funding_table_count"
-echo "sandbox_funding_guard_count=$sandbox_funding_guard_count"

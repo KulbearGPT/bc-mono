@@ -590,7 +590,7 @@ export interface DashboardAuthOptions {
   policyReader?: PolicyReader;
   metricsStore?: DashboardMetricsStore;
   metricsTimeZone?: 'Asia/Shanghai';
-  metricsCurrency?: 'CNY';
+  metricsCurrency?: 'CAT';
 }
 
 export function registerDashboardAuthRoutes(server: FastifyInstance, options: DashboardAuthOptions): void {
@@ -635,22 +635,30 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
     return reply.redirect(new URL('/', options.dashboardUrl).toString());
   });
 
-  server.post('/api/v1/auth/logout', async (request, reply) => {
-    const cookies = parseCookies(request);
-    const sessionToken = cookies.p0_session;
-    const csrfHeader = request.headers['x-csrf-token'];
-    if (!sessionToken || !cookies.p0_csrf || csrfHeader !== cookies.p0_csrf || !(await options.store.verifyCsrf(sessionToken, cookies.p0_csrf))) {
-      return authError(reply, 403, 'CSRF_REQUIRED', 'A valid CSRF token is required.');
+  if (!server.securityOptions) throw new Error('Dashboard auth routes require security options.');
+  registerSecureWriteRoute(server, server.securityOptions, {
+    method: 'POST',
+    url: '/api/v1/auth/logout',
+    permission: 'staff.session.active',
+    action: 'LOGOUT_DASHBOARD_SESSION',
+    targetType: 'staff_session',
+    acceptedSources: ['DASHBOARD'],
+    successStatusCode: 204,
+    rawResponse: (_payload, reply) => {
+      reply.header('set-cookie', [
+        serializeCookie('p0_session', '', { httpOnly: true, maxAge: 0, secure: secureCookies }),
+        serializeCookie('p0_csrf', '', { httpOnly: false, maxAge: 0, secure: secureCookies })
+      ]);
+      return reply.send();
+    },
+    handler: async (request) => {
+      const sessionToken = parseCookies(request).p0_session;
+      if (!sessionToken) throw new DashboardAuthConflictError('AUTH_REQUIRED', 'An active session is required.');
+      await options.store.revoke(sessionToken);
+      return { revoked: true };
     }
-    if (sessionToken) await options.store.revoke(sessionToken);
-    reply.header('set-cookie', [
-      serializeCookie('p0_session', '', { httpOnly: true, maxAge: 0, secure: secureCookies }),
-      serializeCookie('p0_csrf', '', { httpOnly: false, maxAge: 0, secure: secureCookies })
-    ]);
-    reply.code(204).send();
   });
 
-  if (!server.securityOptions) throw new Error('Dashboard auth routes require security options.');
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET',
     url: '/api/v1/admin/me/capabilities',
@@ -752,7 +760,7 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: (_request, actor) => (options.metricsStore ?? new InMemoryDashboardMetricsStore({})).getSummary({
       actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId,
-      now: now(), timeZone: options.metricsTimeZone ?? 'Asia/Shanghai', currency: options.metricsCurrency ?? 'CNY'
+      now: now(), timeZone: options.metricsTimeZone ?? 'Asia/Shanghai', currency: options.metricsCurrency ?? 'CAT'
     })
   });
 }
@@ -786,7 +794,7 @@ export async function buildCapabilities(
       giftApprovalLimitMinor: level === 'L1_SUPPORT' ? null : giftApprovalLimitMinor,
       refundLimitMinor: level === 'L1_SUPPORT' ? null : refundLimitMinor,
       l4DirectExecutionFromMinor,
-      currency: 'CNY'
+      currency: 'CAT'
     },
     mfa: { enrolled: mfaEnrolled, method: mfaEnrolled ? 'TOTP' : null },
     stepUp: {
