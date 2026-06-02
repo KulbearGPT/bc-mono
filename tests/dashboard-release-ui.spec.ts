@@ -63,4 +63,17 @@ describe('Dashboard release visual gate', () => {
     expect(styles).toMatch(/\.table-scroll\s*\{[\s\S]*overflow-x:\s*auto/u);
     for (const width of [375, 768, 1024, 1440]) expect(styles).toContain(`--qa-viewport-${width}`);
   });
+
+  test('adds a restrained gaming-tech layer without replacing the readable operations theme', () => {
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    expect(styles).toContain('--accent-electric');
+    expect(styles).toContain('--accent-neon-cyan');
+    expect(styles).toMatch(/\.dashboard-workspace::before\s*\{/u);
+    expect(styles).toMatch(/\.page-heading::after\s*\{/u);
+    expect(styles).toMatch(/\.content-panel::before[\s\S]*linear-gradient/u);
+    expect(styles).toMatch(/\.action-panel::after[\s\S]*border-top/u);
+    expect(styles).toMatch(/\.brand-mark[\s\S]*animation:\s*brand-pulse/u);
+    expect(styles).toContain('@keyframes brand-pulse');
+    expect(styles).toContain('prefers-reduced-motion: reduce');
+  });
 });
