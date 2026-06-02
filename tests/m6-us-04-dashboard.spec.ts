@@ -163,13 +163,16 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
   test('uses bounded cards, responsive tracks and horizontal table containment', () => {
     for (const path of ['apps/dashboard/src/SettlementPage.tsx', 'apps/dashboard/src/CustomerProfilePage.tsx']) {
       const source = readFileSync(path, 'utf8');
-      expect(source).toMatch(/borderRadius:\s*[0-8]/u);
-      expect(source).toContain("overflowX: 'auto'");
-      expect(source).toMatch(/minmax\(0,\s*1fr\)/u);
+      expect(source).toContain('content-panel');
+      expect(source).toContain('table-scroll');
+      expect(source).toContain('dashboard-page');
+      expect(source).not.toContain('style={{');
       expect(source).not.toMatch(/fontSize:\s*['"`]?[0-9.]+vw/u);
     }
     const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
     expect(styles).toContain('220px minmax(0, 1fr)');
+    expect(styles).toMatch(/\.content-panel[\s\S]*border-radius:\s*var\(--radius-lg\)/u);
+    expect(styles).toMatch(/\.table-scroll[\s\S]*overflow-x:\s*auto/u);
     expect(styles).toMatch(/@media \(max-width: 720px\)[\s\S]*grid-template-columns: minmax\(0, 1fr\)/u);
   });
 });

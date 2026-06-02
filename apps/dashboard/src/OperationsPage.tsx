@@ -15,11 +15,10 @@ export function OperationsPage(props: {
   onRepairPanel: () => void;
   onUpdatePolicy: (setting: PolicySettingRow) => void;
 }) {
-  return <section aria-labelledby="operations-title" style={{ padding: 24, minWidth: 0 }}>
-    <h1 id="operations-title" style={{ fontSize: 24 }}>系统运营</h1>
-    {props.panelRepair.visible && <section aria-labelledby="operations-panel-repair" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #d9e1e3' }}>
-      <h2 id="operations-panel-repair" style={{ fontSize: 18 }}>订单面板修复</h2>
-      <button type="button" disabled={!props.panelRepair.enabled} onClick={props.onRepairPanel}>修复已删除面板</button>
+  return <section className="dashboard-page" aria-labelledby="operations-title">
+    <header className="page-heading"><div><span className="page-eyebrow">SYSTEM OPS</span><h1 id="operations-title">系统运营</h1><p>集中查看审计、失败任务与服务端策略事实。</p></div></header>
+    {props.panelRepair.visible && <section className="content-panel operations-repair" aria-labelledby="operations-panel-repair">
+      <div className="section-title-row"><div><h2 id="operations-panel-repair">订单面板修复</h2><p>仅为已删除的 Discord 订单面板创建恢复任务。</p></div><button className="button-primary" type="button" disabled={!props.panelRepair.enabled} onClick={props.onRepairPanel}>修复已删除面板</button></div>
     </section>}
     <OperationsSection title="审计记录" kind={props.audit.kind} error={props.audit.error} onReload={() => props.onReload('audit')}>
       {props.audit.kind === 'READY' && <DataTable rows={props.audit.rows} />}
@@ -42,23 +41,23 @@ export function OperationsPage(props: {
 }
 
 function OperationsSection(props: { title: string; kind: ViewKind; error: ErrorView | null; onReload: () => void; children: React.ReactNode }) {
-  return <section aria-labelledby={`operations-${props.title}`} style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #d9e1e3' }}>
-    <h2 id={`operations-${props.title}`} style={{ fontSize: 18 }}>{props.title}</h2>
-    {props.kind === 'FORBIDDEN' && <p>当前账号无权查看此区域。</p>}
-    {props.kind === 'LOADING' && <p aria-busy="true">正在载入...</p>}
-    {props.kind === 'EMPTY' && <p>当前没有记录。</p>}
-    {props.kind === 'ERROR' && <div role="alert"><p>{props.error?.message ?? '载入失败。'} {props.error?.requestIdLabel ?? ''}</p><button type="button" onClick={props.onReload}>重试</button></div>}
+  return <section className="content-panel page-section" aria-labelledby={`operations-${props.title}`}>
+    <div className="section-title-row"><h2 id={`operations-${props.title}`}>{props.title}</h2>{props.kind === 'ERROR' && <button type="button" onClick={props.onReload}>重试</button>}</div>
+    {props.kind === 'FORBIDDEN' && <div className="state-card state-card--compact"><p>当前账号无权查看此区域。</p></div>}
+    {props.kind === 'LOADING' && <div className="state-card state-card--compact" aria-busy="true">正在载入...</div>}
+    {props.kind === 'EMPTY' && <div className="state-card state-card--compact">当前没有记录。</div>}
+    {props.kind === 'ERROR' && <div className="state-card state-card--compact state-card--error" role="alert"><p>{props.error?.message ?? '载入失败。'} {props.error?.requestIdLabel ?? ''}</p></div>}
     {props.children}
   </section>;
 }
 
 function DataTable<T extends object>(props: { rows: ReadonlyArray<T>; actions?: (row: T) => React.ReactNode }) {
   const columns = Array.from(new Set(props.rows.flatMap((row) => Object.keys(row)))).filter((key) => key !== 'readOnly' && key !== 'retry' && key !== 'edit');
-  return <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse' }}>
-    <thead><tr>{columns.map((column) => <th key={column} scope="col" style={{ textAlign: 'left', padding: 8 }}>{column}</th>)}{props.actions && <th scope="col">操作</th>}</tr></thead>
+  return <div className="table-scroll"><table className="data-table">
+    <thead><tr>{columns.map((column) => <th key={column} scope="col">{column}</th>)}{props.actions && <th scope="col">操作</th>}</tr></thead>
     <tbody>{props.rows.map((row, index) => <tr key={typeof (row as Record<string, unknown>).id === 'string' ? String((row as Record<string, unknown>).id) : index}>
-      {columns.map((column) => <td key={column} style={{ padding: 8, borderTop: '1px solid #d9e1e3' }}>{display((row as Record<string, unknown>)[column])}</td>)}
-      {props.actions && <td style={{ borderTop: '1px solid #d9e1e3' }}>{props.actions(row)}</td>}
+      {columns.map((column) => <td key={column}>{display((row as Record<string, unknown>)[column])}</td>)}
+      {props.actions && <td className="table-actions">{props.actions(row)}</td>}
     </tr>)}</tbody>
   </table></div>;
 }
