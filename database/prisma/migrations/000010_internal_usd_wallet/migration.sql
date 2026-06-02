@@ -19,7 +19,9 @@ BEGIN
   FOR money_table IN
     SELECT table_name
     FROM information_schema.columns
-    WHERE table_schema = 'public' AND column_name = 'currency'
+    WHERE table_schema = 'public'
+      AND column_name = 'currency'
+      AND table_name NOT LIKE 'sandbox_provider_%'
   LOOP
     EXECUTE format('UPDATE %I SET currency = ''USD'' WHERE currency IS NOT NULL AND currency <> ''USD''', money_table.table_name);
   END LOOP;

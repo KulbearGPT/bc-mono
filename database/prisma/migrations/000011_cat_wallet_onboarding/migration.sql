@@ -12,7 +12,9 @@ BEGIN
   FOR item IN
     SELECT conrelid::regclass AS relation_name, conname
     FROM pg_constraint
-    WHERE contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%currency%'
+    WHERE contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%currency%'
+      AND conrelid::regclass::text NOT LIKE 'sandbox_provider_%'
   LOOP
     EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', item.relation_name, item.conname);
   END LOOP;
@@ -24,7 +26,9 @@ BEGIN
   FOR item IN
     SELECT table_name
     FROM information_schema.columns
-    WHERE table_schema = current_schema() AND column_name = 'currency'
+    WHERE table_schema = current_schema()
+      AND column_name = 'currency'
+      AND table_name NOT LIKE 'sandbox_provider_%'
   LOOP
     EXECUTE format('UPDATE %I SET currency = ''CAT'' WHERE currency IS NOT NULL', item.table_name);
     EXECUTE format('ALTER TABLE %I ALTER COLUMN currency SET DEFAULT ''CAT''', item.table_name);

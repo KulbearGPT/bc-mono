@@ -16,7 +16,7 @@ describe('M9-US-02 CAT persistence contract', () => {
   });
 
   test('ships a complete forward migration with fixed conversion constraints', async () => {
-    const migration = await readFile(resolve(root, 'database/prisma/migrations/000010_cat_wallet_onboarding/migration.sql'), 'utf8');
+    const migration = await readFile(resolve(root, 'database/prisma/migrations/000011_cat_wallet_onboarding/migration.sql'), 'utf8');
     expect(migration).toContain("paid_currency = 'USD'");
     expect(migration).toContain('rate_cat_per_usd = 10');
     expect(migration).toContain('credited_cat_subunits = paid_amount_usd_cents');

@@ -25,7 +25,7 @@ let pool: Pool;
 describe('M7-US-02 immutable internal CAT wallet persistence', () => {
   beforeAll(async () => {
     const migration = await readFile(
-      'database/prisma/migrations/000009_internal_usd_wallet/migration.sql',
+      'database/prisma/migrations/000010_internal_usd_wallet/migration.sql',
       'utf8'
     );
     expect(migration).toContain('CREATE TABLE "wallet_accounts"');

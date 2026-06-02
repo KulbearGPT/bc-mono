@@ -11,8 +11,9 @@ const migrations = [
   '000006_m6_customer_profiles',
   '000007_settlement_security_remediation',
   '000008_m6_profile_note_guild',
-  '000009_internal_usd_wallet',
-  '000010_cat_wallet_onboarding'
+  '000009_sandbox_funding',
+  '000010_internal_usd_wallet',
+  '000011_cat_wallet_onboarding'
 ] as const;
 
 export async function applyCurrentMigrations(input: { host: string; port: number; database: string }): Promise<void> {
