@@ -129,13 +129,14 @@ export class PostgresOnboardingStore implements OnboardingStore {
   async stageRegister(input: OnboardingInput): Promise<Staged<PlayerRegistrationResult>> {
     validateInput(input);
     const roles = await this.roles(input.guildId);
-    const existing = await this.pool.query<{ user_id: string; wallet_id: string }>(`
+    const existing = await this.pool.query<{ user_id: string; wallet_id: string | null }>(`
       SELECT d.user_id,w.id wallet_id FROM discord_accounts d
-      JOIN wallet_accounts w ON w.user_id=d.user_id
+      LEFT JOIN wallet_accounts w ON w.user_id=d.user_id
       WHERE d.guild_id=$1 AND d.discord_user_id=$2`, [input.guildId, input.discordUserId]);
     const data = existing.rows[0]
-      ? { userId: existing.rows[0].user_id, walletAccountId: existing.rows[0].wallet_id, guildId: input.guildId, discordUserId: input.discordUserId,
-          playerRoleId: roles.playerRoleId, created: false, roleSyncStatus: 'PENDING' as const }
+      ? { userId: existing.rows[0].user_id, walletAccountId: existing.rows[0].wallet_id ?? stableUuid(`wallet:${identityKey(input)}`),
+          guildId: input.guildId, discordUserId: input.discordUserId, playerRoleId: roles.playerRoleId,
+          created: existing.rows[0].wallet_id === null, roleSyncStatus: 'PENDING' as const }
       : registrationProjection(input, roles.playerRoleId, true);
     return { data, commit: (audit) => this.commitRegistration(input, data, roles.playerRoleId, audit) };
   }

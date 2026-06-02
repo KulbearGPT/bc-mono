@@ -1,7 +1,8 @@
-import { describe,expect,test } from 'vitest';
+import { describe,expect,test,vi } from 'vitest';
+import type { Pool } from 'pg';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink,InMemoryIdempotencyStore } from '@blackcat/api/security';
-import { InMemoryOnboardingStore } from '@blackcat/api/onboarding';
+import { InMemoryOnboardingStore,PostgresOnboardingStore } from '@blackcat/api/onboarding';
 
 const guildId='999999999999999999',discordUserId='111111111111111111',playerRoleId='222222222222222222',applicantRoleId='333333333333333333';
 const env={NODE_ENV:'development',DATABASE_URL:'',API_PORT:'0',API_BASE_URL:'http://localhost:3000',BOT_SERVICE_TOKEN:'valid-bot-token'};
@@ -27,4 +28,16 @@ describe('M9-US-03 Discord self registration and companion application',()=>{
   test('rejects clients that self-report no trusted Discord actor context',async()=>{const store=new InMemoryOnboardingStore({playerRoleId});const server=buildApiServer({env,security:{},onboarding:{store}});
     const response=await server.inject({method:'POST',url:'/api/v1/me/player-registration',headers:{authorization:'Bearer valid-bot-token','x-client-source':'DISCORD_BOT','idempotency-key':'discord:onboarding:missing'},payload:{displayName:'Forged'}});
     expect(response.statusCode).toBe(401);expect(store.registrations).toHaveLength(0);await server.close();});
+
+  test('reuses an existing Discord user that does not have a wallet yet',async()=>{
+    const existingUserId='00000000-0000-0000-0000-000000009301';
+    const query=vi.fn()
+      .mockResolvedValueOnce({rows:[{player_role_id:playerRoleId,applicant_role_id:null}]})
+      .mockResolvedValueOnce({rows:[{user_id:existingUserId,wallet_id:null}]});
+    const store=new PostgresOnboardingStore({query} as unknown as Pool);
+    const staged=await store.stageRegister({guildId,discordUserId,displayName:'Existing Staff Player',
+      idempotencyKey:'discord:onboarding:existing',interactionId:'777777777777777779',now:new Date('2026-08-02T00:00:00.000Z')});
+    expect(staged.data).toMatchObject({userId:existingUserId,created:true});
+    expect(staged.data.walletAccountId).toMatch(/^[0-9a-f-]{36}$/u);
+  });
 });
