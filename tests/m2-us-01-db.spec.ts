@@ -100,12 +100,92 @@ describe('M2-US-01 Postgres player profile integration', () => {
       })
     ).resolves.toMatchObject({ availability: 'BUSY', discordPresence: 'OFFLINE', version: 7 });
   });
+
+  test('atomically approves a pending companion while creating previously unseen skill tags', async () => {
+    const store = new PostgresPlayerStore({ pool });
+
+    await expect(store.approvePlayer({
+      playerId: '00000000-0000-0000-0000-00000000a002',
+      expectedVersion: 1,
+      gameTags: ['VALORANT_NEW'],
+      serviceTags: ['RANKED_NEW'],
+      approvedByStaffId: '00000000-0000-0000-0000-00000000a201',
+      now
+    })).resolves.toMatchObject({
+      reviewStatus: 'ACTIVE',
+      gameTags: ['VALORANT_NEW'],
+      serviceTags: ['RANKED_NEW'],
+      version: 2
+    });
+
+    const facts = await pool.query(`
+      SELECT
+        (SELECT count(*)::int FROM skill_tags WHERE code IN ('VALORANT_NEW', 'RANKED_NEW')) AS tags,
+        (SELECT count(*)::int FROM player_skills WHERE player_profile_id = '00000000-0000-0000-0000-00000000a002') AS skills,
+        (SELECT count(*)::int FROM companion_review_events WHERE player_profile_id = '00000000-0000-0000-0000-00000000a002') AS events,
+        (SELECT count(*)::int FROM discord_product_role_tasks WHERE user_id = '00000000-0000-0000-0000-00000000a102') AS role_tasks
+    `);
+    expect(facts.rows[0]).toEqual({ tags: 2, skills: 2, events: 1, role_tasks: 2 });
+  });
+
+  test('rolls back the approval projection when a later role-task write fails', async () => {
+    const store = new PostgresPlayerStore({ pool });
+    await pool.query(`UPDATE guild_bot_configs SET config_json = jsonb_set(config_json, '{companion_role_id}', to_jsonb(repeat('9', 40))) WHERE guild_id = '999999999999999999'`);
+
+    await expect(store.approvePlayer({
+      playerId: '00000000-0000-0000-0000-00000000a003',
+      expectedVersion: 1,
+      gameTags: ['ROLLBACK_GAME'],
+      serviceTags: ['ROLLBACK_SERVICE'],
+      approvedByStaffId: '00000000-0000-0000-0000-00000000a201',
+      now
+    })).rejects.toBeDefined();
+
+    const facts = await pool.query(`
+      SELECT p.review_status, p.row_version,
+        (SELECT count(*)::int FROM player_skills WHERE player_profile_id = p.id) AS skills,
+        (SELECT count(*)::int FROM companion_review_events WHERE player_profile_id = p.id) AS events
+      FROM player_profiles p WHERE p.id = '00000000-0000-0000-0000-00000000a003'
+    `);
+    expect(facts.rows[0]).toEqual({ review_status: 'PENDING_REVIEW', row_version: 1, skills: 0, events: 0 });
+  });
 });
 
 async function seedPlayerProfile(): Promise<void> {
   await pool.query(`
+CREATE TABLE IF NOT EXISTS companion_review_events (
+  id UUID PRIMARY KEY,
+  player_profile_id UUID NOT NULL REFERENCES player_profiles(id),
+  from_status "PlayerReviewStatus",
+  to_status "PlayerReviewStatus" NOT NULL,
+  actor_staff_id UUID,
+  reason_code VARCHAR(80),
+  note VARCHAR(1000),
+  idempotency_key VARCHAR(200) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS discord_product_role_tasks (
+  id UUID PRIMARY KEY,
+  guild_id VARCHAR(32) NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id),
+  discord_user_id VARCHAR(32) NOT NULL,
+  role_id VARCHAR(32) NOT NULL,
+  action VARCHAR(10) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  dedupe_key VARCHAR(200) NOT NULL UNIQUE,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error_code VARCHAR(100),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL
+);
+
 INSERT INTO users (id, display_name, status, updated_at)
-VALUES ('00000000-0000-0000-0000-00000000a101', 'Player One', 'ACTIVE', now());
+VALUES
+  ('00000000-0000-0000-0000-00000000a101', 'Player One', 'ACTIVE', now()),
+  ('00000000-0000-0000-0000-00000000a102', 'Pending Player', 'ACTIVE', now()),
+  ('00000000-0000-0000-0000-00000000a103', 'Rollback Player', 'ACTIVE', now()),
+  ('00000000-0000-0000-0000-00000000a202', 'Approver', 'ACTIVE', now());
 
 INSERT INTO discord_accounts (id, user_id, guild_id, discord_user_id, username, updated_at)
 VALUES (
@@ -115,7 +195,27 @@ VALUES (
   '111111111111111111',
   'player-one',
   now()
+), (
+  '00000000-0000-0000-0000-00000000d102',
+  '00000000-0000-0000-0000-00000000a102',
+  '999999999999999999',
+  '222222222222222222',
+  'pending-player',
+  now()
+), (
+  '00000000-0000-0000-0000-00000000d103',
+  '00000000-0000-0000-0000-00000000a103',
+  '999999999999999999',
+  '555555555555555555',
+  'rollback-player',
+  now()
 );
+
+INSERT INTO staff_accounts (id, user_id, level, status, role_source, permissions_version, created_at, updated_at)
+VALUES ('00000000-0000-0000-0000-00000000a201', '00000000-0000-0000-0000-00000000a202', 'L4_ADMIN_OWNER', 'ACTIVE', 'BOOTSTRAP', 1, now(), now());
+
+INSERT INTO guild_bot_configs (guild_id, version, config_json, updated_by_staff_id, updated_at)
+VALUES ('999999999999999999', 1, '{"companion_applicant_role_id":"333333333333333333","companion_role_id":"444444444444444444"}'::jsonb, '00000000-0000-0000-0000-00000000a201', now());
 
 INSERT INTO player_profiles (
   id, user_id, review_status, row_version, availability, discord_presence,
@@ -130,6 +230,28 @@ VALUES (
   'ONLINE',
   now(),
   now(),
+  now(),
+  now()
+), (
+  '00000000-0000-0000-0000-00000000a002',
+  '00000000-0000-0000-0000-00000000a102',
+  'PENDING_REVIEW',
+  1,
+  'OFFLINE',
+  'ONLINE',
+  now(),
+  NULL,
+  now(),
+  now()
+), (
+  '00000000-0000-0000-0000-00000000a003',
+  '00000000-0000-0000-0000-00000000a103',
+  'PENDING_REVIEW',
+  1,
+  'OFFLINE',
+  'ONLINE',
+  now(),
+  NULL,
   now(),
   now()
 );

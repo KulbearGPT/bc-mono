@@ -270,6 +270,7 @@ export interface PlayerQueryClient {
 
 export class PostgresPlayerStore implements PlayerStore {
   private readonly client: PlayerQueryClient;
+  private readonly pool: Pool | null;
 
   constructor(input: { pool?: Pool; client?: PlayerQueryClient }) {
     const client = input.client ?? input.pool;
@@ -277,6 +278,7 @@ export class PostgresPlayerStore implements PlayerStore {
       throw new Error('PostgresPlayerStore requires a pool or client.');
     }
     this.client = client;
+    this.pool = input.pool ?? null;
   }
 
   async findByDiscord(input: { guildId: string; discordUserId: string }): Promise<PlayerProfileRecord | null> {
@@ -352,6 +354,20 @@ WHERE id = $1
     approvedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> {
+    if (this.pool) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await new PostgresPlayerStore({ client }).approvePlayer(input);
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
     const current = await this.requireProfile(input.playerId);
     this.assertVersion(current, input.expectedVersion);
     if(current.reviewStatus!=='PENDING_REVIEW')throw new PlayerError('CONFLICT','Only pending companion applications can be approved.');
@@ -529,11 +545,11 @@ ON CONFLICT DO NOTHING
     }
     const inserted = await this.client.query<{ id: string }>(
       `
-INSERT INTO skill_tags (type, code, display_name, enabled, created_at, updated_at)
-VALUES ($1::"SkillTagType", $2, $2, true, $3, $3)
+INSERT INTO skill_tags (id, type, code, display_name, enabled, created_at, updated_at)
+VALUES ($1, $2::"SkillTagType", $3, $3, true, $4, $4)
 RETURNING id
       `,
-      [type, code, now.toISOString()]
+      [randomUUID(), type, code, now.toISOString()]
     );
     return inserted.rows[0]?.id ?? '';
   }
