@@ -18,6 +18,8 @@ export interface DashboardNavigationItem {
   href: string;
 }
 
+export const dashboardSessionExpiredEvent = 'blackcat:dashboard-session-expired';
+
 const navigationRules: Array<DashboardNavigationItem & { permission: string }> = [
   { id: 'overview', label: '运营概览', href: '/', permission: 'dashboard.view' },
   { id: 'support', label: '客服工作台', href: '/support', permission: 'staff_task.read' },
@@ -47,12 +49,21 @@ export function buildDashboardState(input: { status: number; capabilities?: Dash
 export function createDashboardApiClient(options: {
   fetch?: typeof fetch;
   cookie?: () => string;
+  onUnauthorized?: () => void;
 } = {}) {
   const request = options.fetch ?? fetch;
   const cookie = options.cookie ?? (() => document.cookie);
+  const onUnauthorized = options.onUnauthorized ?? (() => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(dashboardSessionExpiredEvent));
+  });
+  const send = async (path: string, init: RequestInit) => {
+    const response = await request(path, init);
+    if (response.status === 401) onUnauthorized();
+    return response;
+  };
   const write = (method: 'POST' | 'PUT' | 'PATCH', path: string, body: unknown, idempotencyKey?: string) => {
     const csrfToken = readCookie(cookie(), 'p0_csrf');
-    return request(path, {
+    return send(path, {
       method,
       credentials: 'include',
       headers: {
@@ -67,12 +78,12 @@ export function createDashboardApiClient(options: {
   };
   return {
     get(path: string) {
-      return request(path, { credentials: 'include', headers: { accept: 'application/json', 'x-client-source': 'DASHBOARD' } });
+      return send(path, { credentials: 'include', headers: { accept: 'application/json', 'x-client-source': 'DASHBOARD' } });
     },
     post(path: string, body: unknown, idempotencyKey?: string) {
       return write('POST', path, body, idempotencyKey);
     },
-    upload(path:string,body:FormData,idempotencyKey?:string){const csrfToken=readCookie(cookie(),'p0_csrf');return request(path,{method:'POST',credentials:'include',
+    upload(path:string,body:FormData,idempotencyKey?:string){const csrfToken=readCookie(cookie(),'p0_csrf');return send(path,{method:'POST',credentials:'include',
       headers:{accept:'application/json','x-client-source':'DASHBOARD','x-csrf-token':csrfToken??'','idempotency-key':idempotencyKey??`dashboard:${crypto.randomUUID()}`},body});},
     put(path: string, body: unknown, idempotencyKey?: string) { return write('PUT', path, body, idempotencyKey); },
     patch(path: string, body: unknown, idempotencyKey?: string) { return write('PATCH', path, body, idempotencyKey); }

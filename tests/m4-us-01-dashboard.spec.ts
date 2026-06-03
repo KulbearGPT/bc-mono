@@ -51,4 +51,16 @@ describe('M4-US-01 dashboard shell', () => {
       'dashboard:logical-operation-1'
     ]);
   });
+
+  test('notifies the shell when an established dashboard session expires', async () => {
+    let expired = false;
+    const client = createDashboardApiClient({
+      cookie: () => '',
+      onUnauthorized: () => { expired = true; },
+      fetch: async () => new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED' } }), { status: 401 })
+    });
+    const response = await client.get('/api/v1/admin/service-catalog');
+    expect(response.status).toBe(401);
+    expect(expired).toBe(true);
+  });
 });

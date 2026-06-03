@@ -28,6 +28,7 @@ import { buildDashboardManifest } from './manifest.js';
 import {
   buildDashboardState,
   createDashboardApiClient,
+  dashboardSessionExpiredEvent,
   type DashboardCapabilities
 } from './dashboard-shell.js';
 import { SupportWorkbenchPage } from './SupportWorkbenchPage.js';
@@ -97,8 +98,13 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
+    const handleSessionExpired = () => setResult({ status: 401 });
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener(dashboardSessionExpiredEvent, handleSessionExpired);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener(dashboardSessionExpiredEvent, handleSessionExpired);
+    };
   }, []);
 
   const navigate = useCallback((href: string) => {
