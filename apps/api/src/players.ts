@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext } from './security.js';
+import type { BusinessTagStore } from './business-tags.js';
 
 export type PlayerReviewStatus = 'PENDING_REVIEW' | 'ACTIVE' | 'REJECTED' | 'PAUSED' | 'SUSPENDED';
 export type PlayerAvailability = 'AVAILABLE' | 'BUSY' | 'OFFLINE';
@@ -89,6 +90,7 @@ export interface PlayerStore {
     expectedVersion: number;
     gameTags: string[];
     serviceTags: string[];
+    languageTags?: string[];
     approvedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
@@ -351,6 +353,7 @@ WHERE id = $1
     expectedVersion: number;
     gameTags: string[];
     serviceTags: string[];
+    languageTags?: string[];
     approvedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> {
@@ -386,7 +389,7 @@ WHERE id = $1
       `,
       [input.playerId, input.approvedByStaffId, input.now.toISOString()]
     );
-    await this.replaceSkills(input.playerId, input.gameTags, input.serviceTags, input.now);
+    await this.replaceSkills(input.playerId, input.gameTags, input.serviceTags, input.now, input.languageTags);
     await this.client.query(`INSERT INTO companion_review_events(id,player_profile_id,from_status,to_status,actor_staff_id,reason_code,note,idempotency_key,created_at)
       VALUES ($1,$2,'PENDING_REVIEW','ACTIVE',$3,'APPROVED',NULL,$4,$5) ON CONFLICT(idempotency_key) DO NOTHING`,
       [randomUUID(),input.playerId,input.approvedByStaffId,`companion-approve:${input.playerId}:v${input.expectedVersion}`,input.now]);
@@ -511,9 +514,9 @@ FROM (
     };
   }
 
-  private async replaceSkills(playerId: string, gameTags: string[], serviceTags: string[], now: Date): Promise<void> {
+  private async replaceSkills(playerId: string, gameTags: string[], serviceTags: string[], now: Date, languageTags: string[] = []): Promise<void> {
     await this.client.query('DELETE FROM player_skills WHERE player_profile_id = $1', [playerId]);
-    for (const [type, values] of [['GAME', gameTags], ['SERVICE', serviceTags]] as const) {
+    for (const [type, values] of [['GAME', gameTags], ['SERVICE', serviceTags], ['LANGUAGE', languageTags]] as const) {
       for (const tag of normalizeTags(values)) {
         const skillTagId = await this.ensureSkillTag(type, tag, now);
         await this.client.query(
@@ -535,7 +538,7 @@ ON CONFLICT DO NOTHING
     await this.client.query(`INSERT INTO discord_product_role_tasks(id,guild_id,user_id,discord_user_id,role_id,action,status,dedupe_key,attempt_count,created_at,updated_at)
       VALUES($1,$2,$3,$4,$5,$6,'PENDING',$7,0,$8,$8) ON CONFLICT(dedupe_key) DO NOTHING`,[randomUUID(),profile.guildId,profile.userId,profile.discordUserId,roleId,action,dedupe,now]);}
 
-  private async ensureSkillTag(type: 'GAME' | 'SERVICE', code: string, now: Date): Promise<string> {
+  private async ensureSkillTag(type: 'GAME' | 'SERVICE' | 'LANGUAGE', code: string, now: Date): Promise<string> {
     const existing = await this.client.query<{ id: string }>(
       'SELECT id FROM skill_tags WHERE type = $1::"SkillTagType" AND code = $2 LIMIT 1',
       [type, code]
@@ -588,6 +591,7 @@ export function registerPlayerRoutes(
   server: FastifyInstance,
   options: {
     store: PlayerStore;
+    businessTags?: BusinessTagStore;
     now?: () => Date;
   }
 ): void {
@@ -693,18 +697,19 @@ export function registerPlayerRoutes(
       if (!actor.actorStaffId) {
         throw new PlayerError('PERMISSION_DENIED', 'Staff actor is required.');
       }
-      const body = parseApproveBody(request.body);
+      const body = await parseApprovalSelection(request.body, options.businessTags);
       return toApiProfile(await options.store.approvePlayer({
         playerId: playerIdParam(request),
         expectedVersion: body.expectedVersion,
         gameTags: body.gameTags,
         serviceTags: body.serviceTags,
+        languageTags: body.languageTags,
         approvedByStaffId: actor.actorStaffId,
         now: now()
       }));
     },
     mapError: mapPlayerError,
-    fingerprintBody: (request) => parseApproveBody(request.body)
+    fingerprintBody: (request) => request.body
   });
 
   registerSecureWriteRoute(server, security, {
@@ -892,6 +897,29 @@ function parseApproveBody(body: unknown): {
     expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'),
     gameTags: tags(input.gameTags, 'gameTags'),
     serviceTags: tags(input.serviceTags, 'serviceTags'),
+    reasonCode: stringValue(input.reasonCode, 'reasonCode')
+  };
+}
+
+async function parseApprovalSelection(body: unknown, businessTags?: BusinessTagStore): Promise<{
+  expectedVersion: number;
+  gameTags: string[];
+  serviceTags: string[];
+  languageTags: string[];
+  reasonCode: string;
+}> {
+  if (!businessTags) return { ...parseApproveBody(body), languageTags: [] };
+  const input = objectBody(body);
+  const resolve = async (field: string, type: 'GAME' | 'SERVICE' | 'LANGUAGE') => {
+    const ids = tags(input[field], field);
+    try { return (await businessTags.resolveEnabled(ids, [type])).map((tag) => tag.code); }
+    catch { throw new PlayerError('VALIDATION_ERROR', `${field} contains a missing, disabled, or wrong-type business tag.`); }
+  };
+  return {
+    expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'),
+    gameTags: await resolve('gameTagIds', 'GAME'),
+    serviceTags: await resolve('serviceTagIds', 'SERVICE'),
+    languageTags: await resolve('languageTagIds', 'LANGUAGE'),
     reasonCode: stringValue(input.reasonCode, 'reasonCode')
   };
 }

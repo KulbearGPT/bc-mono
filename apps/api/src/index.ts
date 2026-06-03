@@ -30,6 +30,7 @@ import { PostgresCustomerProfileStore } from './customer-profiles.js';
 import { PostgresWalletStore } from './wallet.js';
 import { PrivateFileReceiptStorage } from './receipt-storage.js';
 import { PostgresOnboardingStore } from './onboarding.js';
+import { PostgresBusinessTagStore } from './business-tags.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -72,6 +73,7 @@ const catalogStore = new PostgresServiceCatalogStore({ pool: databasePool });
 const accountStore = new PostgresAccountStore({ pool: databasePool });
 const orderStore = new PostgresOrderStore({ pool: databasePool });
 const playerStore = new PostgresPlayerStore({ pool: databasePool });
+const businessTagStore = new PostgresBusinessTagStore(databasePool);
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
 const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
@@ -133,8 +135,10 @@ const server = buildApiServer({
     businessEnvironment
   },
   catalog: {
-    store: catalogStore
+    store: catalogStore,
+    businessTags: businessTagStore
   },
+  businessTags:{store:businessTagStore},
   account: {
     store: accountStore,
     walletFunding: walletStore,
@@ -148,7 +152,8 @@ const server = buildApiServer({
     staffTaskStore
   },
   player: {
-    store: playerStore
+    store: playerStore,
+    businessTags: businessTagStore
   },
   dispatch: {
     orderStore,
@@ -222,6 +227,7 @@ const server = buildApiServer({
   },
   adminDirectory: {
     store: new PostgresAdminDirectoryStore(databasePool),
+    businessTags: businessTagStore,
     timelineStore: new PostgresTransactionTimelineStore(databasePool),
     customerScope: customerProfileStore
   },

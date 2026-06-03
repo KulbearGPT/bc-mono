@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { BusinessTagStore } from './business-tags.js';
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -525,7 +526,7 @@ export async function prepareUpdateServiceCatalogVersion(input: {
 
 export function registerCatalogRoutes(
   server: FastifyInstance,
-  options: { store: ServiceCatalogStore; now?: () => Date; auditSink?: AuditSink }
+  options: { store: ServiceCatalogStore; businessTags?: BusinessTagStore; now?: () => Date; auditSink?: AuditSink }
 ): void {
   const security = server.securityOptions;
   if (!security) {
@@ -584,10 +585,11 @@ export function registerCatalogRoutes(
     successStatusCode: 201,
     successReason: (request) => readReasonCode(request.body),
     handler: async (request, actor) => {
+      const input = await catalogCreateInput(request.body, options.businessTags);
       const prepared = await prepareCreateServiceCatalogVersion({
         store: options.store,
         actor,
-        input: request.body as CreateServiceCatalogInput,
+        input,
         now: now()
       });
       return {
@@ -609,11 +611,12 @@ export function registerCatalogRoutes(
     targetId: (request) => readParams(request).serviceCatalogId ?? '00000000-0000-0000-0000-000000000000',
     successReason: (request) => readReasonCode(request.body),
     handler: async (request, actor) => {
+      const input = await catalogUpdateInput(request.body, options.businessTags);
       const prepared = await prepareUpdateServiceCatalogVersion({
         store: options.store,
         actor,
         serviceCatalogId: readParams(request).serviceCatalogId ?? '',
-        input: request.body as UpdateServiceCatalogInput,
+        input,
         now: now()
       });
       return {
@@ -656,6 +659,35 @@ function normalizeCreateInput(input: CreateServiceCatalogInput): NormalizedCreat
     customerUnitPrice: input.customerUnitPrice,
     playerUnitPayout: input.playerUnitPayout
   };
+}
+
+async function catalogCreateInput(value: unknown, tags?: BusinessTagStore): Promise<CreateServiceCatalogInput> {
+  if (!tags) return value as CreateServiceCatalogInput;
+  const input = value as Record<string, unknown>;
+  const game = await singleTag(tags, input.gameTagId, 'GAME', 'gameTagId', false);
+  const service = await singleTag(tags, input.serviceTagId, 'SERVICE', 'serviceTagId', false);
+  const region = await singleTag(tags, input.regionTagId, 'REGION', 'regionTagId', true);
+  return { ...(input as unknown as CreateServiceCatalogInput), game: game!, service: service!, region };
+}
+
+async function catalogUpdateInput(value: unknown, tags?: BusinessTagStore): Promise<UpdateServiceCatalogInput> {
+  if (!tags) return value as UpdateServiceCatalogInput;
+  const input = value as Record<string, unknown>;
+  return {
+    ...(input as unknown as UpdateServiceCatalogInput),
+    replacement: input.replacement == null ? null : await catalogCreateInput(input.replacement, tags)
+  };
+}
+
+async function singleTag(tags: BusinessTagStore, value: unknown, type: 'GAME' | 'SERVICE' | 'REGION', field: string, optional: boolean): Promise<string | null> {
+  if (optional && (value === null || value === undefined || value === '')) return null;
+  if (typeof value !== 'string' || !value) throw new CatalogError('BUSINESS_RULE_VIOLATION', `${field} must reference an enabled business tag.`);
+  try {
+    const [tag] = await tags.resolveEnabled([value], [type]);
+    return tag.code;
+  } catch {
+    throw new CatalogError('BUSINESS_RULE_VIOLATION', `${field} must reference an enabled ${type} tag.`);
+  }
 }
 
 function buildCreatedCatalogRecord(input: {

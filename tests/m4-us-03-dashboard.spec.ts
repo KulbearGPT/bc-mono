@@ -151,11 +151,11 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
     expect(buildAdminActionRequest({
       actionId: 'CREATE_GIFT',
-      fields: { name: 'Super Rocket', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
+      fields: { name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
     })).toEqual({
       method: 'POST',
       path: '/api/v1/admin/gift-catalog',
-      body: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
+      body: { name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
     });
     expect(buildAdminActionRequest({
       actionId: 'UPDATE_GIFT_VERSION',
@@ -170,7 +170,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
 
   test('maps service versions, gift replacements and append-only user risk events to unified API writes', () => {
     const serviceFields = {
-      game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: '60', minimumUnits: '2',
+      gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: '60', minimumUnits: '2',
       customerAmountMinor: '6000', playerAmountMinor: '4000', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
     };
 
@@ -178,7 +178,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       method: 'POST',
       path: '/api/v1/admin/service-catalog',
       body: {
-        game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 2,
+        gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: 60, minimumUnits: 2,
         customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
         enabled: true, reasonCode: 'INITIAL_VERSION'
       }
@@ -190,7 +190,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       body: {
         expectedVersion: 2, action: 'SUPERSEDE', reasonCode: 'PRICE_REFRESH',
         replacement: {
-          game: 'VALORANT', service: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 2,
+          gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: 60, minimumUnits: 2,
           customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
           enabled: true, reasonCode: 'PRICE_REFRESH'
         }
@@ -198,12 +198,12 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
     expect(buildAdminActionRequest({
       actionId: 'UPDATE_GIFT_VERSION', item: { id: 'gift-1', version: 2 },
-      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
+      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
     })).toEqual({
       method: 'PATCH', path: '/api/v1/admin/gift-catalog/gift-1',
       body: {
         expectedVersion: 2, action: 'CREATE_REPLACEMENT_VERSION', reasonCode: 'PRICE_REFRESH',
-        replacement: { name: 'Super Rocket', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
+        replacement: { name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', price: { amountMinor: 52000, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
       }
     });
     expect(buildAdminActionRequest({

@@ -2135,10 +2135,60 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.tag-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.tag-type-grid .content-panel {
+  min-width: 0;
+}
+
+.tag-list {
+  display: grid;
+  gap: 10px;
+}
+
+.tag-row {
+  display: grid;
+  grid-template-columns: minmax(120px, .8fr) minmax(180px, 1.4fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-raised) 86%, transparent);
+}
+
+.tag-row > div,
+.tag-row small {
+  display: block;
+}
+
+.tag-row small {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+}
+
+.status-pill.is-muted {
+  color: var(--text-tertiary);
+  background: var(--surface-muted);
+}
+
 @media (max-width: 720px) {
   .wallet-balance-grid,
-  .wallet-form {
+  .wallet-form,
+  .tag-type-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tag-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .tag-row input {
+    grid-column: 1 / -1;
   }
 }
 

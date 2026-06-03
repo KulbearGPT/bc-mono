@@ -12,6 +12,7 @@ import {
   type AdminBusinessDetailState,
   type AdminBusinessPageId
 } from './admin-business.js';
+import { groupEnabledBusinessTags, type BusinessTagRecord, type BusinessTagGroups } from './business-tags.js';
 
 export function createRetriableDashboardWrite<T>(input: {
   send: (idempotencyKey: string) => Promise<T>;
@@ -32,6 +33,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [actionStatus, setActionStatus] = useState<'IDLE' | 'SUBMITTING' | 'ERROR'>('IDLE');
   const [actionError, setActionError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
+  const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
@@ -57,6 +59,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     activeWrite.current = null;
     if (!mayReadPage) return;
     void load(null, {});
+    if(['players','serviceCatalog','giftCatalog'].includes(props.page))void client.get('/api/v1/admin/business-tags?enabled=true').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;const items=Array.isArray(body?.data)?body.data:body?.data?.items??[];if(response.ok)setBusinessTagOptions(groupEnabledBusinessTags(items));});
   }, [props.page, mayReadPage]);
 
   async function submitAction(action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) {
@@ -190,5 +193,5 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} />;
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} />;
 }

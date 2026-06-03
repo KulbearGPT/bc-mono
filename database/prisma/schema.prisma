@@ -76,6 +76,7 @@ enum SkillTagType {
   SERVICE
   REGION
   LANGUAGE
+  GIFT_CATEGORY
 }
 
 enum StaffLevel {
@@ -1048,11 +1049,13 @@ model SkillTag {
   code        String       @db.VarChar(80)
   displayName String       @map("display_name") @db.VarChar(100)
   enabled     Boolean      @default(true)
+  rowVersion  Int          @default(1) @map("row_version")
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   playerSkills        PlayerSkill[]
   serviceRequirements ServiceVersionSkillRequirement[]
+  giftCatalogVersions GiftCatalogVersion[]
 
   @@unique([type, code])
   @@index([enabled, type])
@@ -1423,6 +1426,7 @@ model GiftCatalogVersion {
   priceMinor        BigInt               @map("price_minor")
   currency          String               @db.Char(3)
   broadcastTemplate String               @map("broadcast_template") @db.VarChar(500)
+  giftCategoryTagId String?              @map("gift_category_tag_id") @db.Uuid
   createdByStaffId  String               @map("created_by_staff_id") @db.Uuid
   activatedAt       DateTime?            @map("activated_at") @db.Timestamptz(3)
   retiredAt         DateTime?            @map("retired_at") @db.Timestamptz(3)
@@ -1430,6 +1434,7 @@ model GiftCatalogVersion {
 
   giftCatalogItem GiftCatalogItem @relation(fields: [giftCatalogItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdBy       StaffAccount    @relation("GiftVersionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftCategory    SkillTag?       @relation(fields: [giftCategoryTagId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   giftRequests    GiftRequest[]
 
   @@unique([giftCatalogItemId, version])

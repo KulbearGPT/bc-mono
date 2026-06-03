@@ -44,6 +44,7 @@ import { configureCursorSigningSecret } from './signed-cursor.js';
 import { registerWalletRoutes, type WalletApplicationService, type WalletFundingService } from './wallet.js';
 import type { ReceiptStorage } from './receipt-storage.js';
 import { registerOnboardingRoutes, type OnboardingStore } from './onboarding.js';
+import { registerBusinessTagRoutes,type BusinessTagStore } from './business-tags.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -51,6 +52,7 @@ export interface ApiServerOptions {
   security?: SecurityOptions;
   catalog?: {
     store: ServiceCatalogStore;
+    businessTags?: BusinessTagStore;
     now?: () => Date;
   };
   account?: {
@@ -69,8 +71,10 @@ export interface ApiServerOptions {
   };
   player?: {
     store: PlayerStore;
+    businessTags?: BusinessTagStore;
     now?: () => Date;
   };
+  businessTags?: { store: BusinessTagStore; now?: () => Date };
   dispatch?: {
     orderStore: OrderStore;
     dispatchStore: DispatchStore;
@@ -117,7 +121,7 @@ export interface ApiServerOptions {
   weeklyReports?: { store: WeeklyReportStore; now?: () => Date };
   customerProfiles?: { store: CustomerProfileStore; walletFunding: WalletFundingService; now?: () => Date };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
-  adminDirectory?: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
+  adminDirectory?: { store: AdminDirectoryStore; businessTags?: BusinessTagStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
   wallet?: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date };
@@ -229,6 +233,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     }
     registerCatalogRoutes(server, options.catalog);
   }
+  if(options.businessTags){if(!server.securityOptions)throw new Error('Business tag routes require buildApiServer({ security, businessTags })');registerBusinessTagRoutes(server,options.businessTags);}
 
   if (options.account) {
     if (!server.securityOptions) {

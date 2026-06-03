@@ -156,7 +156,7 @@ describe('M2-US-01 player API contract', () => {
 
     expect(source).toContain("import { PostgresPlayerStore } from './players.js';");
     expect(source).toContain('const playerStore = new PostgresPlayerStore({ pool: databasePool });');
-    expect(source).toMatch(/player:\s*{\s*store:\s*playerStore\s*}/s);
+    expect(source).toMatch(/player:\s*{\s*store:\s*playerStore,\s*businessTags:\s*businessTagStore\s*}/s);
   });
 
   test('setPlayerAvailability updates only an ACTIVE current player business switch and leaves Discord presence independent', async () => {

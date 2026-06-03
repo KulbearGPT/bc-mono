@@ -19,6 +19,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Tags,
   UserRoundCog,
   UsersRound,
   WalletCards
@@ -37,6 +38,7 @@ import { OperationsRoute } from './OperationsRoute.js';
 import { SettlementRoute } from './SettlementRoute.js';
 import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { AccessManagementRoute } from './AccessManagementRoute.js';
+import { BusinessTagsRoute } from './BusinessTagsRoute.js';
 import { buildSettlementNavigation } from './settlements.js';
 import {
   getSandboxBanner,
@@ -76,6 +78,7 @@ const navigationIcons: Array<[RegExp, LucideIcon]> = [
   [/reports/u, BookOpenText],
   [/security/u, ShieldCheck],
   [/operations/u, Activity],
+  [/business-tags/u, Tags],
   [/access/u, UserRoundCog]
 ];
 
@@ -151,6 +154,8 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     ? <OperationsRoute capabilities={result!.capabilities!} />
     : currentPath === '/access'
     ? <AccessManagementRoute capabilities={result!.capabilities!} />
+    : currentPath === '/business-tags'
+    ? <BusinessTagsRoute />
     : <DashboardOverview capabilities={result!.capabilities!} navigation={navigation} />;
 
   return (

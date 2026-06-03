@@ -26,6 +26,7 @@
     "./accounts": "./src/accounts.ts",
     "./funding": "./src/funding.ts",
     "./players": "./src/players.ts",
+    "./business-tags": "./src/business-tags.ts",
     "./dispatch": "./src/dispatch.ts",
     "./service-lifecycle": "./src/service-lifecycle.ts",
     "./staff-tasks": "./src/staff-tasks.ts",

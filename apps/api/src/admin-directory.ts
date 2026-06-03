@@ -14,13 +14,14 @@ import { PostgresOrderStore, type OrderRecord } from './orders.js';
 import { TransactionTimelineError, type TransactionTimelineStore } from './transaction-timeline.js';
 import type { CustomerProfileScope } from './customer-profiles.js';
 import type { PilotFeature } from './pilot-features.js';
+import type { BusinessTagStore } from './business-tags.js';
 
 export type AdminOrderListItem = OrderRecord;
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 export interface AdminUserRecord { id: string; displayName: string; status: string; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number }
 export interface AdminPlayerRecord { playerId: string; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; activeOrderId: string | null; version: number }
 export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null; guildId?: string }
-export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; version: number; broadcastTemplate: string; createdAt: string }
+export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; createdAt: string }
 export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; senderId: string; receiverId: string; status: string; rowVersion: number; giftName: string; amountMinor: number; currency: string; announcementStatus: string; createdAt: string }
 interface Page<T> { items: T[]; nextCursor: string | null }
 interface StagedAdminWrite<T> {
@@ -37,7 +38,7 @@ export interface AdminDirectoryStore {
   listPlayers(input: PageInput & { reviewStatus?: string }): Promise<Page<AdminPlayerRecord>> | Page<AdminPlayerRecord>;
   getPlayer(playerId: string): Promise<AdminPlayerRecord | null> | AdminPlayerRecord | null;
   listGiftCatalog(input: PageInput): Promise<Page<AdminGiftCatalogRecord>> | Page<AdminGiftCatalogRecord>;
-  createGiftCatalog(input: { name: string; amountMinor: number; currency: string; enabled: boolean; broadcastTemplate: string; reasonCode: string; actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminGiftCatalogRecord>> | StagedAdminWrite<AdminGiftCatalogRecord>;
+  createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminGiftCatalogRecord>> | StagedAdminWrite<AdminGiftCatalogRecord>;
   updateGiftCatalog(input: { giftCatalogId: string; expectedVersion: number; action: string; reasonCode: string; replacement: GiftCatalogCreateBody | null; actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminGiftCatalogRecord>> | StagedAdminWrite<AdminGiftCatalogRecord>;
   listGiftRequests(input: PageInput & { status?: string; actorStaffId: string; actorLevel: string }): Promise<Page<AdminGiftRequestRecord>> | Page<AdminGiftRequestRecord>;
   getGiftRequest(input: { giftRequestId: string; actorStaffId: string; actorLevel: string }): Promise<AdminGiftRequestRecord | null> | AdminGiftRequestRecord | null;
@@ -46,7 +47,7 @@ export interface AdminDirectoryStore {
 interface PageInput { cursor: string | null; limit: number }
 type CursorResource = 'orders' | 'users' | 'user_consumptions' | 'players' | 'gift_catalog' | 'gift_requests';
 interface CursorPayload { version: 1; resource: CursorResource; keys: string[] }
-interface GiftCatalogCreateBody { name: string; amountMinor: number; currency: string; enabled: boolean; broadcastTemplate: string; reasonCode: string }
+interface GiftCatalogCreateBody { name: string; amountMinor: number; currency: string; enabled: boolean; broadcastTemplate: string; giftCategoryTagId?: string | null; reasonCode: string }
 
 const cursorSigningKey = process.env.BOT_SERVICE_TOKEN
   ? Buffer.from(process.env.BOT_SERVICE_TOKEN, 'utf8')
@@ -112,9 +113,9 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
     };
   }
 
-  createGiftCatalog(input: { name: string; amountMinor: number; currency: string; enabled: boolean; broadcastTemplate: string; reasonCode: string; actorStaffId: string; now: Date }) {
+  createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }) {
     const gift: AdminGiftCatalogRecord = { id: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
-      priceMinor: input.amountMinor, currency: input.currency, enabled: input.enabled, version: 1, broadcastTemplate: input.broadcastTemplate, createdAt: input.now.toISOString() };
+      priceMinor: input.amountMinor, currency: input.currency, enabled: input.enabled, version: 1, broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, createdAt: input.now.toISOString() };
     return {
       data: clone(gift),
       commit: async (auditRecord: AuditRecord, auditSink: AuditSink) => {
@@ -242,9 +243,9 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
   async listGiftCatalog(input: PageInput) {
     const keys = cursorKeys(input.cursor, 'gift_catalog');
     const rows = await this.pool.query<GiftCatalogRow>(`SELECT item.id, item.code, version.name, version.price_minor, version.currency, version.status::text,
-      version.version, version.broadcast_template, version.created_at FROM gift_catalog_items item
+      version.version, version.broadcast_template, version.gift_category_tag_id, version.created_at FROM gift_catalog_items item
       JOIN LATERAL (
-        SELECT name, price_minor, currency, status, version, broadcast_template, created_at, id
+        SELECT name, price_minor, currency, status, version, broadcast_template, gift_category_tag_id, created_at, id
         FROM gift_catalog_versions WHERE gift_catalog_item_id = item.id ORDER BY version DESC LIMIT 1
       ) version ON TRUE
       WHERE ($1::timestamptz IS NULL OR (version.created_at, item.id) < ($1::timestamptz, $2::uuid))
@@ -252,11 +253,11 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
     return pageFromRows(rows.rows.map(mapGiftCatalog), input, 'gift_catalog', giftCatalogCursorKeys);
   }
 
-  async createGiftCatalog(input: { name: string; amountMinor: number; currency: string; enabled: boolean; broadcastTemplate: string; reasonCode: string; actorStaffId: string; now: Date }) {
+  async createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }) {
     const data: AdminGiftCatalogRecord = {
       id: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
       priceMinor: input.amountMinor, currency: input.currency, enabled: input.enabled, version: 1,
-      broadcastTemplate: input.broadcastTemplate, createdAt: input.now.toISOString()
+      broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, createdAt: input.now.toISOString()
     };
     return {
       data,
@@ -265,9 +266,9 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
         try {
           await client.query('BEGIN');
           await client.query(`INSERT INTO gift_catalog_items (id, code, created_at, updated_at) VALUES ($1::uuid, $2, $3, $3)`, [data.id, data.code, input.now]);
-          await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, created_by_staff_id, activated_at, created_at)
-            VALUES (gen_random_uuid(), $1::uuid, 1, $2::"CatalogVersionStatus", CASE WHEN $3::boolean THEN $1::uuid ELSE NULL END, $4, $5, $6, $7, $8::uuid, CASE WHEN $3::boolean THEN $9::timestamptz ELSE NULL END, $9::timestamptz)`,
-            [data.id, input.enabled ? 'ACTIVE' : 'DRAFT', input.enabled, input.name, input.amountMinor, input.currency, input.broadcastTemplate, input.actorStaffId, input.now]);
+          await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, created_at)
+            VALUES (gen_random_uuid(), $1::uuid, 1, $2::"CatalogVersionStatus", CASE WHEN $3::boolean THEN $1::uuid ELSE NULL END, $4, $5, $6, $7, $8::uuid, $9::uuid, CASE WHEN $3::boolean THEN $10::timestamptz ELSE NULL END, $10::timestamptz)`,
+            [data.id, input.enabled ? 'ACTIVE' : 'DRAFT', input.enabled, input.name, input.amountMinor, input.currency, input.broadcastTemplate, input.giftCategoryTagId, input.actorStaffId, input.now]);
           await insertPostgresAuditRecord(client, auditRecord);
           await client.query('COMMIT');
         } catch (error) {
@@ -303,9 +304,9 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
           if (mapGiftCatalog(locked.rows[0]).version !== input.expectedVersion) throw new AdminDirectoryError('CONFLICT', 'Gift catalog version is stale.');
           await client.query(`UPDATE gift_catalog_versions SET status = 'RETIRED', active_gift_key = NULL, retired_at = $2
             WHERE gift_catalog_item_id = $1 AND status = 'ACTIVE'`, [input.giftCatalogId, input.now]);
-          await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, created_by_staff_id, activated_at, created_at)
-            VALUES (gen_random_uuid(), $1::uuid, $2, $3::"CatalogVersionStatus", CASE WHEN $4::boolean THEN $1::uuid ELSE NULL END, $5, $6, $7, $8, $9::uuid, CASE WHEN $4::boolean THEN $10::timestamptz ELSE NULL END, $10::timestamptz)`,
-            [input.giftCatalogId, data.version, data.enabled ? 'ACTIVE' : 'DRAFT', data.enabled, data.name, data.priceMinor, data.currency, data.broadcastTemplate, input.actorStaffId, input.now]);
+          await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, created_at)
+            VALUES (gen_random_uuid(), $1::uuid, $2, $3::"CatalogVersionStatus", CASE WHEN $4::boolean THEN $1::uuid ELSE NULL END, $5, $6, $7, $8, $9::uuid, $10::uuid, CASE WHEN $4::boolean THEN $11::timestamptz ELSE NULL END, $11::timestamptz)`,
+            [input.giftCatalogId, data.version, data.enabled ? 'ACTIVE' : 'DRAFT', data.enabled, data.name, data.priceMinor, data.currency, data.broadcastTemplate, data.giftCategoryTagId, input.actorStaffId, input.now]);
           await insertPostgresAuditRecord(client, auditRecord);
           await client.query('COMMIT');
         } catch (error) {
@@ -333,7 +334,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
       AND task.status IN ('CLAIMED', 'VERIFIED', 'PENDING_APPROVAL')))`, [input.giftRequestId, input.actorLevel, input.actorStaffId]); return rows.rows[0] ? mapGiftRequest(rows.rows[0]) : null; }
 }
 
-export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date }) {
+export function registerAdminDirectoryRoutes(server: FastifyInstance, options: { store: AdminDirectoryStore; businessTags?: BusinessTagStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date }) {
   if (!server.securityOptions) throw new Error('Admin directory routes require security options.');
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   const auditSink = security.auditSink ?? new InMemoryAuditSink();
@@ -370,11 +371,11 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
     successReason: (request) => parseUserStatus(request.body).reasonCode, mapError });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'CREATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
     successStatusCode: 201, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
-    handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.createGiftCatalog({ ...parseGiftCreate(request.body), actorStaffId: actor.actorStaffId, now: now() }), auditSink); },
+    handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); const body=await giftCreateInput(request.body,options.businessTags); return bindAudit(await options.store.createGiftCatalog({ ...body, actorStaffId: actor.actorStaffId, now: now() }), auditSink); },
     successReason: (request) => parseGiftCreate(request.body).reasonCode, mapError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/gift-catalog/:giftCatalogId', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'UPDATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
     targetId: (request) => param(request, 'giftCatalogId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
-    handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.updateGiftCatalog({ giftCatalogId: param(request, 'giftCatalogId'), actorStaffId: actor.actorStaffId, now: now(), ...parseGiftUpdate(request.body) }), auditSink); },
+    handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.updateGiftCatalog({ giftCatalogId: param(request, 'giftCatalogId'), actorStaffId: actor.actorStaffId, now: now(), ...await giftUpdateInput(request.body,options.businessTags) }), auditSink); },
     successReason: (request) => parseGiftUpdate(request.body).reasonCode, mapError });
 }
 
@@ -412,6 +413,7 @@ function buildUpdatedGift(
       currency: input.replacement.currency,
       enabled: input.replacement.enabled,
       broadcastTemplate: input.replacement.broadcastTemplate,
+      giftCategoryTagId: input.replacement.giftCategoryTagId ?? null,
       version: current.version + 1,
       createdAt: input.now.toISOString()
     };
@@ -481,8 +483,10 @@ function timelineCursor(request: FastifyRequest) { const value=(request.query as
 function param(request: FastifyRequest, key: string): string { return String((request.params as Record<string, unknown>)[key] ?? ''); }
 function required<T>(value: T | null, label: string): T { if (!value) throw new AdminDirectoryError('NOT_FOUND', `${label} was not found.`); return value; }
 function parseUserStatus(body: unknown) { const input = object(body); const expectedVersion = integer(input.expectedVersion, 'expectedVersion'); const status = text(input.status, 'status'); if (!['ACTIVE', 'PAUSED', 'SUSPENDED'].includes(status)) throw new AdminDirectoryError('VALIDATION_ERROR', 'status is invalid.'); return { expectedVersion, status, reasonCode: reason(input.reasonCode), note: nullableText(input.note, 1000) }; }
-function parseGiftCreate(body: unknown): GiftCatalogCreateBody { const input = object(body); const price = object(input.price); return { name: text(input.name, 'name', 100), amountMinor: integer(price.amountMinor, 'amountMinor'), currency: currency(price.currency), enabled: boolean(input.enabled, 'enabled'), broadcastTemplate: text(input.broadcastTemplate, 'broadcastTemplate', 500), reasonCode: reason(input.reasonCode) }; }
+function parseGiftCreate(body: unknown): GiftCatalogCreateBody { const input = object(body); const price = object(input.price); return { name: text(input.name, 'name', 100), amountMinor: integer(price.amountMinor, 'amountMinor'), currency: currency(price.currency), enabled: boolean(input.enabled, 'enabled'), broadcastTemplate: text(input.broadcastTemplate, 'broadcastTemplate', 500), giftCategoryTagId: typeof input.giftCategoryTagId==='string'?input.giftCategoryTagId:null, reasonCode: reason(input.reasonCode) }; }
+async function giftCreateInput(body:unknown,tags?:BusinessTagStore){const input=parseGiftCreate(body);if(!tags)return input;if(!input.giftCategoryTagId)throw new AdminDirectoryError('VALIDATION_ERROR','giftCategoryTagId is required.');try{await tags.resolveEnabled([input.giftCategoryTagId],['GIFT_CATEGORY']);}catch{throw new AdminDirectoryError('VALIDATION_ERROR','giftCategoryTagId must reference an enabled gift category.');}return input;}
 function parseGiftUpdate(body: unknown) { const input = object(body); const action = text(input.action, 'action'); return { expectedVersion: integer(input.expectedVersion, 'expectedVersion'), action, reasonCode: reason(input.reasonCode), replacement: input.replacement == null ? null : parseGiftCreate(input.replacement) }; }
+async function giftUpdateInput(body:unknown,tags?:BusinessTagStore){const input=parseGiftUpdate(body);if(tags&&input.replacement){if(!input.replacement.giftCategoryTagId)throw new AdminDirectoryError('VALIDATION_ERROR','giftCategoryTagId is required.');try{await tags.resolveEnabled([input.replacement.giftCategoryTagId],['GIFT_CATEGORY']);}catch{throw new AdminDirectoryError('VALIDATION_ERROR','giftCategoryTagId must reference an enabled gift category.');}}return input;}
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AdminDirectoryError('VALIDATION_ERROR', 'Object payload is required.'); return value as Record<string, unknown>; }
 function text(value: unknown, field: string, max = 100) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new AdminDirectoryError('VALIDATION_ERROR', `${field} is invalid.`); return value.trim(); }
 function nullableText(value: unknown, max: number) { if (value == null) return null; if (typeof value !== 'string' || value.length > max) throw new AdminDirectoryError('VALIDATION_ERROR', 'note is invalid.'); return value; }
@@ -517,7 +521,7 @@ const playerSelect = `SELECT pp.id AS player_id, pp.review_status::text, pp.avai
   FROM player_profiles pp JOIN users u ON u.id = pp.user_id LEFT JOIN player_skills skill ON skill.player_profile_id = pp.id
   LEFT JOIN skill_tags tag ON tag.id = skill.skill_tag_id LEFT JOIN orders active_order ON active_order.active_player_slot_id = pp.user_id`;
 const giftCatalogCurrentSelect = `SELECT item.id, item.code, version.name, version.price_minor, version.currency, version.status::text,
-  version.version, version.broadcast_template, version.created_at FROM gift_catalog_items item
+  version.version, version.broadcast_template, version.gift_category_tag_id, version.created_at FROM gift_catalog_items item
   JOIN gift_catalog_versions version ON version.gift_catalog_item_id = item.id
   WHERE item.id = $1 ORDER BY version.version DESC LIMIT 1`;
 const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, gr.sender_id, gr.receiver_id, gr.status::text,
@@ -540,11 +544,11 @@ const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, gr.sender_id
 interface AdminUserRow { id: string; display_name: string; status: string; row_version: number; active_order_id: string | null; risk_flags: string[] }
 interface PlayerRow { player_id: string; review_status: string; availability: string; discord_presence: string; row_version: number; active_order_id: string | null; game_tags: string[]; service_tags: string[] }
 interface ConsumptionRow { id: string; user_id: string; entry_type: string; source_id: string; amount_minor: string | number; currency: string; direction: string; occurred_at: Date | string; reversal_of_entry_id: string | null }
-interface GiftCatalogRow { id: string; code: string; name: string; price_minor: string | number; currency: string; status: string; version: number; broadcast_template: string; created_at: Date | string }
+interface GiftCatalogRow { id: string; code: string; name: string; price_minor: string | number; currency: string; status: string; version: number; broadcast_template: string; gift_category_tag_id: string | null; created_at: Date | string }
 interface GiftRequestRow { id: string; public_id: string; order_id: string; sender_id: string; receiver_id: string; status: string; row_version: number; gift_name_snapshot: string; price_minor: string | number; currency: string; announcement_status: string; created_at: Date | string }
 function mapUser(row: AdminUserRow): AdminUserRecord { return { id: row.id, displayName: row.display_name, status: row.status, externalAccountDisplay: null, activeOrderId: row.active_order_id, riskFlags: row.risk_flags, version: row.row_version }; }
 function mapPlayer(row: PlayerRow): AdminPlayerRecord { return { playerId: row.player_id, reviewStatus: row.review_status, availability: row.availability, discordPresence: row.discord_presence, gameTags: row.game_tags, serviceTags: row.service_tags, activeOrderId: row.active_order_id, version: row.row_version }; }
-function mapGiftCatalog(row: GiftCatalogRow): AdminGiftCatalogRecord { return { id: row.id, code: row.code, name: row.name, priceMinor: safeMinorInteger(row.price_minor), currency: row.currency, enabled: row.status === 'ACTIVE', version: row.version, broadcastTemplate: row.broadcast_template, createdAt: new Date(row.created_at).toISOString() }; }
+function mapGiftCatalog(row: GiftCatalogRow): AdminGiftCatalogRecord { return { id: row.id, code: row.code, name: row.name, priceMinor: safeMinorInteger(row.price_minor), currency: row.currency, enabled: row.status === 'ACTIVE', version: row.version, broadcastTemplate: row.broadcast_template, giftCategoryTagId: row.gift_category_tag_id, createdAt: new Date(row.created_at).toISOString() }; }
 function mapGiftRequest(row: GiftRequestRow): AdminGiftRequestRecord { return { id: row.id, publicId: row.public_id, orderId: row.order_id, senderId: row.sender_id, receiverId: row.receiver_id, status: row.status, rowVersion: row.row_version, giftName: row.gift_name_snapshot, amountMinor: safeMinorInteger(row.price_minor), currency: row.currency, announcementStatus: row.announcement_status, createdAt: new Date(row.created_at).toISOString() }; }
 function safeMinorInteger(value: string | number): number {
   const parsed = typeof value === 'number' ? value : Number(value);

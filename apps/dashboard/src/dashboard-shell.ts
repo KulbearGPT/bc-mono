@@ -13,7 +13,7 @@ export interface DashboardCapabilities {
 }
 
 export interface DashboardNavigationItem {
-  id: 'overview' | 'support' | 'security' | 'operations' | 'access';
+  id: 'overview' | 'support' | 'security' | 'operations' | 'access' | 'businessTags';
   label: string;
   href: string;
 }
@@ -23,6 +23,7 @@ const navigationRules: Array<DashboardNavigationItem & { permission: string }> =
   { id: 'support', label: '客服工作台', href: '/support', permission: 'staff_task.read' },
   { id: 'security', label: '账户安全', href: '/security', permission: 'mfa.manage_self' },
   { id: 'operations', label: '系统运营', href: '/operations', permission: 'audit.read' },
+  { id: 'businessTags', label: '业务标签库', href: '/business-tags', permission: 'catalog.manage' },
   { id: 'access', label: '权限管理', href: '/access', permission: 'access.manage' }
 ];
 

@@ -259,7 +259,7 @@ export function buildAdminActionRequest(input: {
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
-    gameTags:splitTags(input.fields.gameTags),serviceTags:splitTags(input.fields.serviceTags),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
     reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}
   if (input.actionId === 'SET_OPERATIONAL_STATUS') {
@@ -386,9 +386,9 @@ function requireCurrency(value: string | boolean | undefined): string {
 function buildServiceCatalogCreateBody(fields: Record<string, string | boolean>, reasonCode: string) {
   const currency = requireCurrency(fields.currency);
   return {
-    game: requireText(fields.game, 'game', 100),
-    service: requireText(fields.service, 'service', 100),
-    region: optionalText(fields.region),
+    gameTagId: requireText(fields.gameTagId, 'gameTagId', 100),
+    serviceTagId: requireText(fields.serviceTagId, 'serviceTagId', 100),
+    regionTagId: optionalText(fields.regionTagId),
     billingUnitMinutes: requireIntegerInRange(fields.billingUnitMinutes, 'billingUnitMinutes', 1, 1_440),
     minimumUnits: requireIntegerInRange(fields.minimumUnits, 'minimumUnits', 1, 1_440),
     customerUnitPrice: { amountMinor: requirePositiveInteger(fields.customerAmountMinor, 'customerAmountMinor'), currency },
@@ -400,7 +400,7 @@ function buildServiceCatalogCreateBody(fields: Record<string, string | boolean>,
 
 function buildGiftCatalogCreateBody(fields: Record<string, string | boolean>, reasonCode: string) {
   return {
-    name: requireText(fields.name, 'name', 100),
+    name: requireText(fields.name, 'name', 100), giftCategoryTagId: requireText(fields.giftCategoryTagId,'giftCategoryTagId',100),
     price: { amountMinor: requirePositiveInteger(fields.amountMinor, 'amountMinor'), currency: requireCurrency(fields.currency) },
     enabled: fields.enabled === true,
     broadcastTemplate: requireText(fields.broadcastTemplate, 'broadcastTemplate', 500),

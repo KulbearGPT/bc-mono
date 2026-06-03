@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel } from './admin-business.js';
 import { formatMinorCurrency, readAdminOrderTimeline } from './admin-business.js';
+import type { BusinessTagGroups, BusinessTagRecord } from './business-tags.js';
 
 export function AdminBusinessPage(props: {
   model: AdminBusinessPageModel;
@@ -19,6 +20,7 @@ export function AdminBusinessPage(props: {
   onCloseDetail?: () => void;
   onNextConsumptions?: (cursor: string) => void;
   onNextTimeline?: (cursor: string) => void;
+  businessTagOptions?: BusinessTagGroups;
 }) {
   const { model } = props;
   if (model.kind === 'FORBIDDEN') {
@@ -52,7 +54,7 @@ export function AdminBusinessPage(props: {
       {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}
 
       {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
-      {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError}
+       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} />}
 
       {model.pagination.hasNext && model.pagination.nextCursor && (
@@ -95,13 +97,14 @@ function AdminActionPanel(props: {
   error?: string | null;
   onCancel?: () => void;
   onSubmit?: (action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) => void;
+  businessTagOptions?: BusinessTagGroups;
 }) {
   const action = props.active.action;
   return (
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={(event) => submitAction(event, props)}>
-        <ActionFields action={action} />
+        <ActionFields action={action} businessTagOptions={props.businessTagOptions} />
         {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
@@ -113,17 +116,17 @@ function AdminActionPanel(props: {
   );
 }
 
-function ActionFields({ action }: { action: AdminBusinessAction }) {
-  if(action.id==='APPROVE_COMPANION')return <><label className="field"><span>游戏标签（逗号分隔）</span><input name="gameTags" required placeholder="VALORANT" /></label><label className="field"><span>服务标签（逗号分隔）</span><input name="serviceTags" required placeholder="RANKED" /></label></>;
+function ActionFields({ action, businessTagOptions }: { action: AdminBusinessAction; businessTagOptions?: BusinessTagGroups }) {
+  if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
   if(action.id==='REJECT_COMPANION')return <label className="field field--full"><span>拒绝说明</span><textarea name="note" required rows={4} maxLength={1000}/></label>;
   if (action.id === 'SET_OPERATIONAL_STATUS') return <>
     <label className="field"><span>目标状态</span><select name="status" required defaultValue="PAUSED"><option value="ACTIVE">恢复</option><option value="PAUSED">暂停</option><option value="SUSPENDED">停用</option></select></label>
     <label className="field field--full"><span>处理说明</span><textarea name="note" rows={3} maxLength={1000} /></label>
   </>;
-  if (action.id === 'CREATE_GIFT') return <GiftCatalogFields />;
-  if (action.id === 'CREATE_SERVICE_VERSION') return <ServiceCatalogFields />;
-  if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields />} />;
-  if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields />} />;
+  if (action.id === 'CREATE_GIFT') return <GiftCatalogFields options={businessTagOptions}/>;
+  if (action.id === 'CREATE_SERVICE_VERSION') return <ServiceCatalogFields options={businessTagOptions}/>;
+  if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields options={businessTagOptions}/>} />;
+  if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields options={businessTagOptions}/>} />;
   if (action.id === 'CREATE_RISK_EVENT') return <>
     <label className="field"><span>事件类型</span><select name="type" required defaultValue="PAYMENT_ANOMALY"><option value="PAYMENT_ANOMALY">支付异常</option><option value="DUPLICATE_ACCOUNT_SIGNAL">重复账号信号</option><option value="REFERRAL_ABUSE_SIGNAL">返佣滥用信号</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">用户未到场</option></select></label>
     <label className="field"><span>严重程度</span><select name="severity" required defaultValue="MEDIUM"><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label>
@@ -134,9 +137,10 @@ function ActionFields({ action }: { action: AdminBusinessAction }) {
   return null;
 }
 
-function GiftCatalogFields() {
+function GiftCatalogFields({options}:{options?:BusinessTagGroups}) {
   return <>
     <label className="field"><span>礼物名称</span><input name="name" required maxLength={100} /></label>
+    <TagSelect name="giftCategoryTagId" label="礼物分类" items={options?.GIFT_CATEGORY??[]}/>
     <label className="field"><span>价格（minor units）</span><input name="amountMinor" type="number" required min={1} step={1} /></label>
     <label className="field"><span>币种</span><select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
     <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked /><span>立即启用</span></label>
@@ -144,11 +148,11 @@ function GiftCatalogFields() {
   </>;
 }
 
-function ServiceCatalogFields() {
+function ServiceCatalogFields({options}:{options?:BusinessTagGroups}) {
   return <>
-    <label className="field"><span>游戏</span><input name="game" required maxLength={100} /></label>
-    <label className="field"><span>服务</span><input name="service" required maxLength={100} /></label>
-    <label className="field"><span>地区（可选）</span><input name="region" maxLength={100} /></label>
+    <TagSelect name="gameTagId" label="游戏" items={options?.GAME??[]}/>
+    <TagSelect name="serviceTagId" label="服务/种类" items={options?.SERVICE??[]}/>
+    <TagSelect name="regionTagId" label="地区（可选）" items={options?.REGION??[]} required={false}/>
     <label className="field"><span>计费单位（分钟）</span><input name="billingUnitMinutes" type="number" required min={1} max={1440} step={1} /></label>
     <label className="field"><span>最少单位数</span><input name="minimumUnits" type="number" required min={1} max={1440} step={1} /></label>
     <label className="field"><span>用户单价（minor units）</span><input name="customerAmountMinor" type="number" required min={1} step={1} /></label>
@@ -157,6 +161,8 @@ function ServiceCatalogFields() {
     <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked /><span>立即启用</span></label>
   </>;
 }
+
+function TagSelect(props:{name:string;label:string;items:BusinessTagRecord[];multiple?:boolean;required?:boolean}){return <label className="field"><span>{props.label}</span><select name={props.name} multiple={props.multiple} required={props.required??true} size={props.multiple?Math.min(5,Math.max(2,props.items.length)):undefined} defaultValue={props.multiple?[]:''}><option value="" disabled={props.required??true}>请选择</option>{props.items.map((item)=><option key={item.id} value={item.id}>{item.displayName} · {item.code}</option>)}</select></label>}
 
 function VersionActionFields(props: { action: AdminBusinessAction; replacementAction: string; replacementFields: ReactNode }) {
   const [action, setAction] = useState('DISABLE');
@@ -170,7 +176,7 @@ function submitAction(event: FormEvent<HTMLFormElement>, props: Parameters<typeo
   event.preventDefault();
   const fields: Record<string, string | boolean> = {};
   for (const [key, value] of new FormData(event.currentTarget).entries()) {
-    if (typeof value === 'string') fields[key] = value;
+    if (typeof value === 'string') fields[key] = typeof fields[key] === 'string' ? `${fields[key]},${value}` : value;
   }
   const enabled = event.currentTarget.elements.namedItem('enabled');
   if (enabled instanceof HTMLInputElement) fields.enabled = enabled.checked;
