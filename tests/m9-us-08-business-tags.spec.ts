@@ -59,4 +59,14 @@ describe('M9-US-08 unified business tags', () => {
     expect(source).not.toContain('游戏标签（逗号分隔）');
     expect(source).not.toContain('服务标签（逗号分隔）');
   });
+
+  test('keeps tag maintenance permissioned and audited without requiring MFA step-up', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const routeSource = await readFile('apps/api/src/business-tags.ts', 'utf8');
+    const openApi = await readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8');
+    const tagPaths = openApi.slice(openApi.indexOf('  /api/v1/admin/business-tags:'), openApi.indexOf('\ncomponents:'));
+    expect(routeSource).toContain("permission:'catalog.manage'");
+    expect(routeSource).not.toContain('requiresRecentStepUp:true');
+    expect(tagPaths).not.toContain('x-requires-recent-step-up');
+  });
 });
