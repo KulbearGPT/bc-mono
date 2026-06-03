@@ -99,7 +99,8 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [{ id: 'reviewStatus', label: '准入状态' }],
     actions: [
       { id: 'APPROVE_COMPANION', label: '批准陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
-      { id: 'REJECT_COMPANION', label: '拒绝陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' }
+      { id: 'REJECT_COMPANION', label: '拒绝陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
+      { id: 'EDIT_COMPANION_TAGS', label: '编辑支持范围', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -259,6 +260,8 @@ export function buildAdminActionRequest(input: {
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
+    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+  if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
     reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}

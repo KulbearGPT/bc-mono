@@ -106,6 +106,7 @@ export interface PlayerStore {
     expectedVersion: number;
     gameTags: string[];
     serviceTags: string[];
+    languageTags?: string[];
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
   getWorkbenchData(input: { profile: PlayerProfileRecord; now: Date }): Promise<PlayerWorkbenchData> | PlayerWorkbenchData;
@@ -437,11 +438,12 @@ WHERE id = $1
     expectedVersion: number;
     gameTags: string[];
     serviceTags: string[];
+    languageTags?: string[];
     now: Date;
   }): Promise<PlayerProfileRecord> {
     const current = await this.requireProfile(input.playerId);
     this.assertVersion(current, input.expectedVersion);
-    await this.replaceSkills(input.playerId, input.gameTags, input.serviceTags, input.now);
+    await this.replaceSkills(input.playerId, input.gameTags, input.serviceTags, input.now, input.languageTags);
     await this.client.query(
       `
 UPDATE player_profiles
@@ -742,17 +744,18 @@ export function registerPlayerRoutes(
     targetId: (request) => playerIdParam(request),
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: async (request) => {
-      const body = parseTagsBody(request.body);
+      const body = await parseApprovalSelection(request.body, options.businessTags);
       return toApiProfile(await options.store.updateTags({
         playerId: playerIdParam(request),
         expectedVersion: body.expectedVersion,
         gameTags: body.gameTags,
         serviceTags: body.serviceTags,
+        languageTags: body.languageTags,
         now: now()
       }));
     },
     mapError: mapPlayerError,
-    fingerprintBody: (request) => parseTagsBody(request.body)
+    fingerprintBody: (request) => request.body
   });
 }
 
@@ -910,15 +913,16 @@ async function parseApprovalSelection(body: unknown, businessTags?: BusinessTagS
 }> {
   if (!businessTags) return { ...parseApproveBody(body), languageTags: [] };
   const input = objectBody(body);
-  const resolve = async (field: string, type: 'GAME' | 'SERVICE' | 'LANGUAGE') => {
+  const resolve = async (field: string, type: 'GAME' | 'SERVICE' | 'LANGUAGE', required = false) => {
     const ids = tags(input[field], field);
+    if(required&&ids.length===0)throw new PlayerError('VALIDATION_ERROR',`${field} requires at least one business tag.`);
     try { return (await businessTags.resolveEnabled(ids, [type])).map((tag) => tag.code); }
     catch { throw new PlayerError('VALIDATION_ERROR', `${field} contains a missing, disabled, or wrong-type business tag.`); }
   };
   return {
     expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'),
-    gameTags: await resolve('gameTagIds', 'GAME'),
-    serviceTags: await resolve('serviceTagIds', 'SERVICE'),
+    gameTags: await resolve('gameTagIds', 'GAME', true),
+    serviceTags: await resolve('serviceTagIds', 'SERVICE', true),
     languageTags: await resolve('languageTagIds', 'LANGUAGE'),
     reasonCode: stringValue(input.reasonCode, 'reasonCode')
   };

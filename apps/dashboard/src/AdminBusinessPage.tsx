@@ -82,7 +82,7 @@ function AdminBusinessTable(props: {
             {columns.map((column) => <td key={column}>{displayValue(column, item[column], item.currency)}</td>)}
             {hasOperations && <td className="table-actions">
               {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-              {itemActions.map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+              {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
             </td>}
           </tr>
         ))}</tbody>
@@ -90,6 +90,8 @@ function AdminBusinessTable(props: {
     </div>
   );
 }
+
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };
@@ -104,7 +106,7 @@ function AdminActionPanel(props: {
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={(event) => submitAction(event, props)}>
-        <ActionFields action={action} businessTagOptions={props.businessTagOptions} />
+        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} />
         {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
@@ -116,8 +118,9 @@ function AdminActionPanel(props: {
   );
 }
 
-function ActionFields({ action, businessTagOptions }: { action: AdminBusinessAction; businessTagOptions?: BusinessTagGroups }) {
+function ActionFields({ action, item, businessTagOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups }) {
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
+  if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
   if(action.id==='REJECT_COMPANION')return <label className="field field--full"><span>拒绝说明</span><textarea name="note" required rows={4} maxLength={1000}/></label>;
   if (action.id === 'SET_OPERATIONAL_STATUS') return <>
     <label className="field"><span>目标状态</span><select name="status" required defaultValue="PAUSED"><option value="ACTIVE">恢复</option><option value="PAUSED">暂停</option><option value="SUSPENDED">停用</option></select></label>
@@ -162,7 +165,8 @@ function ServiceCatalogFields({options}:{options?:BusinessTagGroups}) {
   </>;
 }
 
-function TagSelect(props:{name:string;label:string;items:BusinessTagRecord[];multiple?:boolean;required?:boolean}){return <label className="field"><span>{props.label}</span><select name={props.name} multiple={props.multiple} required={props.required??true} size={props.multiple?Math.min(5,Math.max(2,props.items.length)):undefined} defaultValue={props.multiple?[]:''}><option value="" disabled={props.required??true}>请选择</option>{props.items.map((item)=><option key={item.id} value={item.id}>{item.displayName} · {item.code}</option>)}</select></label>}
+function TagSelect(props:{name:string;label:string;items:BusinessTagRecord[];multiple?:boolean;required?:boolean;selectedCodes?:string[]}){if(props.multiple)return <fieldset className="field tag-checklist"><legend>{props.label}</legend>{props.items.map((item)=><label className="checkbox-field" key={item.id}><input type="checkbox" name={props.name} value={item.id} defaultChecked={props.selectedCodes?.includes(item.code)}/><span>{item.displayName} · {item.code}</span></label>)}</fieldset>;return <label className="field"><span>{props.label}</span><select name={props.name} required={props.required??true} defaultValue=""><option value="" disabled={props.required??true}>请选择</option>{props.items.map((item)=><option key={item.id} value={item.id}>{item.displayName} · {item.code}</option>)}</select></label>}
+function stringList(value:unknown):string[]{return Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[];}
 
 function VersionActionFields(props: { action: AdminBusinessAction; replacementAction: string; replacementFields: ReactNode }) {
   const [action, setAction] = useState('DISABLE');

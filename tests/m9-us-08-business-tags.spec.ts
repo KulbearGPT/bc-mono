@@ -9,6 +9,7 @@ import {
 } from '@blackcat/api/business-tags';
 import { BusinessTagsPage } from '../apps/dashboard/src/BusinessTagsPage.js';
 import { buildBusinessTagCreateRequest, groupEnabledBusinessTags } from '../apps/dashboard/src/business-tags.js';
+import { buildAdminActionRequest } from '../apps/dashboard/src/admin-business.js';
 
 const actor = { actorStaffId: 'staff-1', actorLevel: 'L3_OPERATIONS' as const };
 
@@ -56,6 +57,8 @@ describe('M9-US-08 unified business tags', () => {
     expect(source).toContain('name="gameTagId"');
     expect(source).toContain('name="serviceTagIds"');
     expect(source).toContain('name="giftCategoryTagId"');
+    expect(source).toContain('type="checkbox"');
+    expect(source).toContain("action.id==='EDIT_COMPANION_TAGS'");
     expect(source).not.toContain('游戏标签（逗号分隔）');
     expect(source).not.toContain('服务标签（逗号分隔）');
   });
@@ -68,5 +71,16 @@ describe('M9-US-08 unified business tags', () => {
     expect(routeSource).toContain("permission:'catalog.manage'");
     expect(routeSource).not.toContain('requiresRecentStepUp:true');
     expect(tagPaths).not.toContain('x-requires-recent-step-up');
+  });
+
+  test('replaces an approved companion support range with multiple tag IDs', () => {
+    expect(buildAdminActionRequest({
+      actionId: 'EDIT_COMPANION_TAGS',
+      item: { playerId: 'player-1', version: 4 },
+      fields: { gameTagIds: 'game-1,game-2', serviceTagIds: 'service-1,service-2', languageTagIds: 'language-1', reasonCode: 'SUPPORT_RANGE_UPDATE' }
+    })).toEqual({
+      method: 'PUT', path: '/api/v1/admin/players/player-1/tags',
+      body: { expectedVersion: 4, gameTagIds: ['game-1','game-2'], serviceTagIds: ['service-1','service-2'], languageTagIds: ['language-1'], reasonCode: 'SUPPORT_RANGE_UPDATE' }
+    });
   });
 });

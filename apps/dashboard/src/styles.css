@@ -2150,6 +2150,32 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.tag-checklist {
+  align-content: start;
+  min-width: 0;
+  max-height: 230px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.tag-checklist legend {
+  padding: 0 6px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.tag-checklist .checkbox-field {
+  justify-content: flex-start;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.tag-checklist .checkbox-field:hover {
+  background: var(--surface-muted);
+}
+
 .tag-row {
   display: grid;
   grid-template-columns: minmax(120px, .8fr) minmax(180px, 1.4fr) auto auto auto;
