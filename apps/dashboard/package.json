@@ -9,6 +9,7 @@
     "./dashboard-shell": "./src/dashboard-shell.ts",
     "./support-workbench": "./src/support-workbench.ts",
     "./operations": "./src/operations.ts",
+    "./access-management": "./src/access-management.ts",
     "./settlements": "./src/settlements.ts",
     "./customer-profile": "./src/customer-profile.ts",
     "./customer-wallet": "./src/customer-wallet.ts"

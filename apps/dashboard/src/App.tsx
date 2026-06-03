@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
@@ -36,6 +36,7 @@ import { SecurityPage } from './SecurityPage.js';
 import { OperationsRoute } from './OperationsRoute.js';
 import { SettlementRoute } from './SettlementRoute.js';
 import { CustomerProfileRoute } from './CustomerProfileRoute.js';
+import { AccessManagementRoute } from './AccessManagementRoute.js';
 import { buildSettlementNavigation } from './settlements.js';
 import {
   getSandboxBanner,
@@ -56,6 +57,8 @@ interface DashboardChromeProps {
   navigation: DashboardNavItem[];
   currentPath: string;
   banner?: string | null;
+  contentBusy?: boolean;
+  onNavigate?: (href: string) => void;
   children: ReactNode;
 }
 
@@ -79,6 +82,8 @@ const navigationIcons: Array<[RegExp, LucideIcon]> = [
 export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}) {
   const manifest = buildDashboardManifest();
   const [result, setResult] = useState<{ status: number; capabilities?: DashboardCapabilities } | null>(null);
+  const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
+  const [contentBusy, setContentBusy] = useState(false);
 
   useEffect(() => {
     void createDashboardApiClient().get('/api/v1/admin/me/capabilities').then(async (response) => {
@@ -87,10 +92,23 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     }).catch(() => setResult({ status: 500 }));
   }, []);
 
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = useCallback((href: string) => {
+    if (href === currentPath) return;
+    setContentBusy(true);
+    window.history.pushState(null, '', href);
+    setCurrentPath(window.location.pathname);
+    window.requestAnimationFrame(() => setContentBusy(false));
+  }, [currentPath]);
+
   const state = result ? buildDashboardState(result) : null;
   const enabledFeatures = result?.capabilities?.enabledFeatures;
   const adminNavigation = result?.capabilities ? buildAdminBusinessNavigation(result.capabilities.permissions, enabledFeatures) : [];
-  const currentPath = window.location.pathname;
   const activeAdminPage = resolveAdminBusinessPage(currentPath);
   const profileMatch = currentPath.match(/^\/admin\/users\/([^/]+)\/profile$/u);
   const m6Navigation = result?.capabilities ? buildSettlementNavigation(result.capabilities.permissions, enabledFeatures) : [];
@@ -131,6 +149,8 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     ? <SecurityPage capabilities={result!.capabilities!} />
     : currentPath === '/operations'
     ? <OperationsRoute capabilities={result!.capabilities!} />
+    : currentPath === '/access'
+    ? <AccessManagementRoute capabilities={result!.capabilities!} />
     : <DashboardOverview capabilities={result!.capabilities!} navigation={navigation} />;
 
   return (
@@ -140,6 +160,8 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
       navigation={navigation}
       currentPath={currentPath}
       banner={sandboxBanner}
+      contentBusy={contentBusy}
+      onNavigate={navigate}
     >
       {content}
     </DashboardChrome>
@@ -154,12 +176,17 @@ export function DashboardChrome(props: DashboardChromeProps) {
   const environmentClass = props.capabilities.businessEnvironment === 'SANDBOX'
     ? 'is-sandbox'
     : props.capabilities.businessEnvironment === 'PRODUCTION' ? 'is-production' : 'is-unknown';
+  const routeClick = (href: string) => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!props.onNavigate || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    props.onNavigate(href);
+  };
 
   return (
     <div className="dashboard-app">
       <a className="skip-link" href="#dashboard-main">跳到主要内容</a>
       <aside className="dashboard-sidebar" aria-label={props.appName}>
-        <a className="brand-lockup" href="/" aria-label="BlackCat 运营台首页">
+        <a className="brand-lockup" href="/" aria-label="BlackCat 运营台首页" onClick={routeClick('/')}>
           <span className="brand-mark" aria-hidden="true"><Sparkles size={21} strokeWidth={2.2} /></span>
           <span>
             <strong>BLACKCAT</strong>
@@ -177,7 +204,7 @@ export function DashboardChrome(props: DashboardChromeProps) {
               const Icon = iconForPath(item.href);
               const active = isActivePath(item.href, props.currentPath);
               return (
-                <a key={`${item.id}:${item.href}`} href={item.href} aria-current={active ? 'page' : undefined}>
+                <a key={`${item.id}:${item.href}`} href={item.href} aria-current={active ? 'page' : undefined} onClick={routeClick(item.href)}>
                   <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
                   <span>{item.label}</span>
                   {active && <span className="nav-active-dot" aria-hidden="true" />}
@@ -207,7 +234,8 @@ export function DashboardChrome(props: DashboardChromeProps) {
           </div>
         </header>
         {props.banner && <div className="sandbox-banner" role="status">{props.banner}</div>}
-        <main id="dashboard-main" className="dashboard-content" tabIndex={-1}>
+        <main id="dashboard-main" className="dashboard-content" tabIndex={-1} aria-busy={props.contentBusy}>
+          {props.contentBusy && <div className="content-route-loader" role="status"><Activity size={20} aria-hidden="true" /><span>正在切换工作区…</span></div>}
           {props.children}
         </main>
       </div>

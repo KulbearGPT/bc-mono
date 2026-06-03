@@ -530,9 +530,57 @@ textarea:focus-visible {
 
 .dashboard-content {
   position: relative;
+  position: relative;
   z-index: 1;
   min-width: 0;
   min-height: calc(100dvh - 76px);
+}
+
+.content-route-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 240px;
+  color: var(--accent-electric);
+  font-weight: 700;
+  background: color-mix(in srgb, var(--surface-page) 88%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+.content-route-loader svg { animation: route-loader-spin .8s linear infinite; }
+
+@keyframes route-loader-spin { to { transform: rotate(360deg); } }
+
+.access-principles .metric-card strong { font-size: clamp(1.15rem, 2vw, 1.55rem); }
+.access-principles .metric-card small { color: var(--text-muted); }
+.access-mapping-list { display: grid; gap: 12px; }
+.access-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(170px, .75fr) minmax(240px, 1.25fr) minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-panel) 92%, var(--accent-electric) 8%);
+}
+.access-mapping-row__level { display: grid; gap: 3px; align-self: center; }
+.access-mapping-row__level small,
+.access-mapping-row__level span { color: var(--text-muted); }
+.access-mapping-row__level strong { font-size: 1.05rem; }
+.status-notice { padding: 13px 16px; border: 1px solid rgba(32, 201, 183, .32); border-radius: var(--radius-md); background: rgba(32, 201, 183, .08); }
+
+@media (max-width: 1100px) {
+  .access-mapping-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .access-mapping-row { grid-template-columns: 1fr; }
+  .access-mapping-row button { width: 100%; }
 }
 
 .dashboard-page,
