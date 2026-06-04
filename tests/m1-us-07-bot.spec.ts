@@ -174,6 +174,26 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(result.message.body).toContain('预计价格：1,200.0 CAT');
   });
 
+  test('refreshes an already submitted order in place without reopening draft confirmation', async () => {
+    const client = api({
+      getOrder: vi.fn().mockResolvedValue(draftOrder({ status: 'PENDING_DISPATCH', version: 6 })),
+      estimateOrder: vi.fn(),
+      getCurrentBalance: vi.fn()
+    });
+    const result = await handleOpenOrderConfirmation({
+      api: client,
+      actor: actor(),
+      orderId,
+      expectedVersion: 6,
+      idempotencyKey: 'discord:order:refresh:submitted'
+    });
+    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-1042' } });
+    expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && result.message.title).not.toContain('最后确认');
+    expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && JSON.stringify(result.message.components)).not.toContain('submit-final');
+    expect(client.estimateOrder).not.toHaveBeenCalled();
+    expect(client.getCurrentBalance).not.toHaveBeenCalled();
+  });
+
   test('refreshes the draft panel when expectedVersion is stale instead of submitting stale data', async () => {
     const refreshed = draftOrder({ version: 6, notes: '已刷新' });
     const client = api({
@@ -258,5 +278,6 @@ describe('M1-US-07 Sapphire order confirmation wiring', () => {
     expect(source).toContain('handleOpenOrderConfirmation');
     expect(source).toContain("route.area === 'entry' || route.area === 'order-action'");
     expect(source).toContain('buildDiscordIdempotencyKey');
+    expect(source).toContain('await interaction.update({ content: null, embeds: reply.embeds, components: reply.components })');
   });
 });

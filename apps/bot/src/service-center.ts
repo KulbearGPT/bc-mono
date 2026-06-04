@@ -1612,6 +1612,9 @@ export async function handleOpenOrderConfirmation(input: {
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
   const order = await input.api.getOrder(input.orderId, input.actor);
+  if (order.status !== 'DRAFT') {
+    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(order) };
+  }
   try {
     const [estimate, balance] = await Promise.all([
       input.api.estimateOrder(

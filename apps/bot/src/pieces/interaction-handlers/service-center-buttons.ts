@@ -323,7 +323,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey('order:estimate', interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      await interaction.reply(toDiscordReply(result.message));
+      const reply = toDiscordReply(result.message);
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {
@@ -396,7 +397,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey('order:submit-final', interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      await interaction.reply(toDiscordReply(result.message));
+      const reply = toDiscordReply(result.message);
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {
