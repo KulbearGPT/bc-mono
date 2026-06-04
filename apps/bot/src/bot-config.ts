@@ -563,7 +563,7 @@ function formatConfigValue(field: BotConfigManageableField, value: BotConfigValu
 
 function fieldLabel(field: BotConfigManageableField): string {
   const labels: Record<BotConfigManageableField, string> = {
-    public_entry_channel_id: '新人入口频道',
+    public_entry_channel_id: '玩家入口频道（注册 / 下单）',
     private_order_category_id: '私密订单频道分类',
     order_archive_category_id: '订单归档频道分类',
     dispatch_channel_id: '派单频道',

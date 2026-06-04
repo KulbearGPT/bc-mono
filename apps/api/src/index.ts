@@ -203,7 +203,7 @@ const server = buildApiServer({
     store: customerProfileStore,
     walletFunding: walletStore
   },
-  wallet: { service: walletStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
+  wallet: { service: walletStore, accountStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
   onboarding: { store: new PostgresOnboardingStore(databasePool) },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,

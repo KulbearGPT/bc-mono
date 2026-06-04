@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import {
   buildDiscordIdempotencyKey,
   buildOrderNotesModal,
@@ -136,6 +137,11 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
         `bc:modal-open:order-notes:${orderId}:v3`
       ])
     );
+    expect(message.components).toHaveLength(5);
+    expect(message.components.every((row) => {
+      const selects = row.components.filter((component) => component.type === 'SELECT');
+      return selects.length === 0 || (selects.length === 1 && row.components.length === 1);
+    })).toBe(true);
     expect(JSON.stringify(message)).not.toMatch(/playerEarning|playerPayout|陪玩结算|可用余额|余额/);
   });
 
@@ -279,6 +285,15 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
     );
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
     expect(result.message.title).toBe('订单 #P-1042');
+  });
+
+  test('select handler updates the original panel without posting an ephemeral acknowledgement', async () => {
+    const source = await readFile('apps/bot/src/pieces/interaction-handlers/order-selects.ts', 'utf8');
+    expect(source).toContain('handleOrderSelectSubmit');
+    expect(source).toContain('interaction.deferUpdate');
+    expect(source).toContain('interaction.editReply');
+    expect(source).not.toContain('订单选项已收到');
+    expect(source).not.toContain('interaction.reply');
   });
 
   test('notes submit calls updateOrder and stale version conflicts refresh from API', async () => {

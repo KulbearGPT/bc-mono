@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Guild, type MessageE
 
 export const REGISTER_PLAYER_CUSTOM_ID = 'onboarding:register-player:v1';
 export const APPLY_COMPANION_CUSTOM_ID = 'onboarding:apply-companion:v1';
-export const ONBOARDING_RENDERED_VERSION = 1;
+export const ONBOARDING_RENDERED_VERSION = 2;
 
 export interface OnboardingActor { guildId:string;discordUserId:string;interactionId:string;displayName:string }
 export interface PlayerRegistrationResult {userId:string;walletAccountId:string;guildId:string;discordUserId:string;playerRoleId:string;created:boolean;roleSyncStatus:'PENDING'}
@@ -47,10 +47,11 @@ export async function reconcileProductRoleTasks(input:{guild:Guild;api:HttpOnboa
 }
 
 export function buildOnboardingMessage():MessageEditOptions{
-  return {content:'**欢迎来到 Blackcat Companion**\n\n点击「注册为玩家」即可创建猫条钱包并获取玩家角色；你也可以申请成为陪玩。陪玩仍然保留玩家身份，也可以正常下单。',
+  return {content:'**欢迎来到 Blackcat Companion**\n\n点击「注册为玩家」创建账户；点击「开始找陪玩」即可创建订单。你也可以申请成为陪玩，陪玩仍然保留玩家身份。',
     components:[new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(REGISTER_PLAYER_CUSTOM_ID).setLabel('注册为玩家').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(APPLY_COMPANION_CUSTOM_ID).setLabel('申请成为陪玩').setStyle(ButtonStyle.Secondary)
+      new ButtonBuilder().setCustomId(APPLY_COMPANION_CUSTOM_ID).setLabel('申请成为陪玩').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('bc:entry:create-order').setLabel('开始找陪玩').setStyle(ButtonStyle.Success)
     )],allowedMentions:{parse:[]}};
 }
 

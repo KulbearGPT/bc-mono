@@ -662,13 +662,29 @@ export interface WalletApplicationService {
   stageCreateReceiptAttachment?(input: Parameters<WalletApplicationService['createReceiptAttachment']>[0]): Promise<{ data: ReceiptAttachmentMetadata; commit: (audit: AuditRecord) => Promise<void> }>;
 }
 
-export function registerWalletRoutes(server: FastifyInstance, options: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date }): void {
+export interface WalletActorAccountResolver {
+  findByDiscord(input: { guildId: string; discordUserId: string }): Promise<{ userId: string } | null>;
+}
+
+export async function resolveWalletActorUserId(
+  actor: { actorUserId: string | null; guildId: string | null; discordUserId: string | null },
+  accounts?: WalletActorAccountResolver
+): Promise<string> {
+  if (actor.actorUserId) return actor.actorUserId;
+  if (actor.guildId && actor.discordUserId && accounts) {
+    const binding = await accounts.findByDiscord({ guildId: actor.guildId, discordUserId: actor.discordUserId });
+    if (binding) return binding.userId;
+  }
+  throw new WalletError('PERMISSION_DENIED', 'A bound wallet account is required.');
+}
+
+export function registerWalletRoutes(server: FastifyInstance, options: { service: WalletApplicationService; accountStore?: WalletActorAccountResolver; receiptStorage?: ReceiptStorage; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Wallet routes require security options.');
   const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/me/balance', permission: 'balance.self.read', action: 'GET_MY_WALLET_BALANCE',
     targetType: 'wallet_account', acceptedSources: ['DISCORD_BOT', 'DASHBOARD'], allowServiceActor: true,
-    handler: (_request, actor) => options.service.getBalance({ userId: requireActorUser(actor), now: now() })
+    handler: async (_request, actor) => options.service.getBalance({ userId: await resolveWalletActorUserId(actor, options.accountStore), now: now() })
   });
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_ADMIN_WALLET',

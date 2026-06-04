@@ -124,7 +124,7 @@ export interface ApiServerOptions {
   adminDirectory?: { store: AdminDirectoryStore; businessTags?: BusinessTagStore; timelineStore?: TransactionTimelineStore; customerScope?: CustomerProfileScope; now?: () => Date };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
-  wallet?: { service: WalletApplicationService; receiptStorage?: ReceiptStorage; now?: () => Date };
+  wallet?: { service: WalletApplicationService; accountStore?: Pick<AccountStore, 'findByDiscord'>; receiptStorage?: ReceiptStorage; now?: () => Date };
   onboarding?: { store: OnboardingStore; now?: () => Date };
 }
 

@@ -974,7 +974,12 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
           select(`bc:select:order:${order.id}:game:v${order.version}`, '选择游戏', [
             { label: '无畏契约', value: 'VALORANT' },
             { label: '英雄联盟', value: 'LEAGUE_OF_LEGENDS' }
-          ]),
+          ])
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
           select(`bc:select:order:${order.id}:service:v${order.version}`, '选择服务', [
             { label: '娱乐陪玩', value: 'ENTERTAINMENT' },
             { label: '上分陪玩', value: 'RANKED' }
@@ -987,7 +992,12 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
           select(`bc:select:order:${order.id}:region:v${order.version}`, '选择区服', [
             { label: '北美', value: 'NA' },
             { label: '国服', value: 'CN' }
-          ]),
+          ])
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
           select(`bc:select:order:${order.id}:duration:v${order.version}`, '选择时长', [
             { label: '1 小时', value: '1' },
             { label: '2 小时', value: '2' },

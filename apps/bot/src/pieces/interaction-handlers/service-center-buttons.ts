@@ -1,5 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import type { ButtonInteraction, Interaction } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, type ButtonInteraction, type Interaction } from 'discord.js';
+import { botConfigCache } from '../../bot-config.js';
 import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
 import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftRequestMessage,
   createGiftContinuationToken, readGiftContinuationToken } from '../../gifts.js';
@@ -15,6 +16,7 @@ import {
   handleOpenOrderConfirmation,
   handleOpenCancellationPreview,
   handleConfirmCancellation,
+  handleCreateOrderFromPublicEntry,
   handleOpenPlayerWorkbench,
   handleOpenServiceCenterFromPublicEntry,
   handleServiceLifecycleAction,
@@ -67,10 +69,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         return;
       }
 
-      await interaction.reply({
-        content: '正在准备私密订单频道。',
-        ephemeral: true
-      });
+      await this.createOrderFromEntry(interaction);
       return;
     }
 
@@ -107,6 +106,26 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
 
     await interaction.reply({ content: '该订单操作将在后续步骤处理。request_id: local-action-pending', ephemeral: true });
+  }
+
+  private async createOrderFromEntry(interaction: ButtonInteraction):Promise<void>{
+    if(!interaction.guild||!interaction.guildId){await interaction.reply({content:'请在服务器内创建订单。',ephemeral:true});return;}
+    await interaction.deferReply({ephemeral:true});
+    const values=botConfigCache.get(interaction.guildId)?.values;
+    const categoryId=typeof values?.private_order_category_id==='string'?values.private_order_category_id:null;
+    if(values?.new_orders_enabled===false||!categoryId){await interaction.editReply('当前未开放新订单，或尚未配置私密订单频道分类。');return;}
+    let channel=null;
+    try{
+      const staffRoleIds=['staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].map((key)=>values?.[key]).filter((id):id is string=>typeof id==='string');
+      channel=await interaction.guild.channels.create({name:`order-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/gu,'-').slice(0,80),type:ChannelType.GuildText,parent:categoryId,
+        permissionOverwrites:[{id:interaction.guildId,deny:[PermissionFlagsBits.ViewChannel]},{id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]},{id:interaction.client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]},...staffRoleIds.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]}))]});
+      const placeholder=await channel.send('正在创建订单面板…');
+      const actor=actorFromInteraction(interaction)!;
+      const result=await handleCreateOrderFromPublicEntry({api:createBotApiClient(),actor,provisionalChannel:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:null},idempotencyKey:buildDiscordIdempotencyKey('order:create',interaction.id)});
+      if(result.kind==='CREATE_PRIVATE_CHANNEL'){const reply=toDiscordReply(result.message);await placeholder.edit({content:reply.content,components:reply.components});await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
+      if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(`你已有进行中的订单：<#${result.channelId}>`);return;}
+      await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
+    }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(`订单频道创建失败，请稍后重试。request_id: ${requestId}`);}
   }
 
   private async handleServiceLifecycleButton(

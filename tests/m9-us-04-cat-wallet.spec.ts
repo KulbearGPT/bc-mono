@@ -1,5 +1,5 @@
 import { describe,expect,test } from 'vitest';
-import { InMemoryWalletStore,WalletService } from '@blackcat/api/wallet';
+import { InMemoryWalletStore,WalletService,resolveWalletActorUserId } from '@blackcat/api/wallet';
 import { buildWalletRequest,formatWalletMoney } from '@blackcat/dashboard/customer-wallet';
 import { formatCustomerWalletAmount,parseWalletDisplayConfig } from '@blackcat/bot/wallet-display';
 
@@ -17,4 +17,9 @@ describe('M9-US-04 fixed USD receipt to CAT wallet conversion',()=>{
 
   test('wallet display is fixed and rejects legacy configurable token branding',()=>{expect(parseWalletDisplayConfig({})).toEqual({displayName:'猫条',symbol:'CAT',subunitsPerCat:10});
     expect(()=>parseWalletDisplayConfig({WALLET_DISPLAY_SYMBOL:'CAT'})).toThrow(/fixed/u);});
+
+  test('Discord customers resolve their wallet through the trusted Guild account binding',async()=>{
+    const findByDiscord=async()=>({userId,guildId:'1533309755873955880',discordUserId:'1349164563869859955',status:'ACTIVE' as const,version:1});
+    await expect(resolveWalletActorUserId({actorUserId:null,guildId:'1533309755873955880',discordUserId:'1349164563869859955'}, {findByDiscord})).resolves.toBe(userId);
+  });
 });
