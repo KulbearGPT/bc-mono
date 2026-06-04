@@ -46,6 +46,7 @@ import type { ReceiptStorage } from './receipt-storage.js';
 import { registerOnboardingRoutes, type OnboardingStore } from './onboarding.js';
 import { registerBusinessTagRoutes,type BusinessTagStore } from './business-tags.js';
 import { registerPlayerCompensationRoutes,type PlayerCompensationStore } from './player-compensation.js';
+import { registerOrderChannelEventRoutes,type OrderChannelEventStore } from './order-channel-events.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -129,6 +130,7 @@ export interface ApiServerOptions {
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
   wallet?: { service: WalletApplicationService; accountStore?: Pick<AccountStore, 'findByDiscord'>; receiptStorage?: ReceiptStorage; now?: () => Date };
   onboarding?: { store: OnboardingStore; now?: () => Date };
+  orderChannelEvents?: { store: OrderChannelEventStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -341,6 +343,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     if (!server.securityOptions) throw new Error('Onboarding routes require buildApiServer({ security, onboarding })');
     registerOnboardingRoutes(server, options.onboarding);
   }
+  if (options.orderChannelEvents) registerOrderChannelEventRoutes(server, options.orderChannelEvents);
 
   return server;
 }

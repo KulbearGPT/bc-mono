@@ -197,7 +197,7 @@ const authenticatedActorPermissions = new Set([
   'access.role_sync',
   'operations.failure.report'
 ]);
-const serviceActorPermissions = new Set(['access.role_sync', 'bot_config.read', 'onboarding.message.manage']);
+const serviceActorPermissions = new Set(['access.role_sync', 'bot_config.read', 'onboarding.message.manage', 'transcript.event.append']);
 
 export class InMemoryAuditSink implements AuditSink {
   readonly records: AuditRecord[] = [];

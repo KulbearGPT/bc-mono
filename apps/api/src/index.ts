@@ -32,6 +32,7 @@ import { PrivateFileReceiptStorage } from './receipt-storage.js';
 import { PostgresOnboardingStore } from './onboarding.js';
 import { PostgresBusinessTagStore } from './business-tags.js';
 import { PostgresPlayerCompensationStore } from './player-compensation.js';
+import { PostgresOrderChannelEventStore } from './order-channel-events.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -209,6 +210,7 @@ const server = buildApiServer({
   },
   wallet: { service: walletStore, accountStore, receiptStorage: new PrivateFileReceiptStorage(process.env.RECEIPT_STORAGE_DIR?.trim() || '/tmp/blackcat-receipts') },
   onboarding: { store: new PostgresOnboardingStore(databasePool) },
+  orderChannelEvents: { store: new PostgresOrderChannelEventStore(databasePool) },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,
     oauth: new DiscordHttpOAuthProvider({

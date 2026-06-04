@@ -50,7 +50,8 @@ if (!validation.values.discordBotToken) {
   if (configuredGuildId) ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId]);
   const client = new SapphireClient({
     baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), 'pieces'),
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences,
+      GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
   });
   await client.login(validation.values.discordBotToken);
   const apiHealth = await fetch(new URL('/health', validation.values.apiBaseUrl));

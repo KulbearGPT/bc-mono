@@ -1226,6 +1226,7 @@ model Order {
   playerEarning       PlayerEarning?
   riskEvents          RiskEvent[]
   outboxEvents        OutboxEvent[]
+  channelMessageEvents OrderChannelMessageEvent[]
 
   @@index([customerId, createdAt])
   @@index([playerId, createdAt])
@@ -1233,6 +1234,38 @@ model Order {
   @@index([status, readinessDueAt])
   @@index([serviceCatalogVersionId])
   @@map("orders")
+}
+
+enum OrderChannelMessageEventType {
+  CREATED
+  UPDATED
+  DELETED
+}
+
+model OrderChannelMessageEvent {
+  id                   String                       @id @default(uuid()) @db.Uuid
+  orderId              String                       @map("order_id") @db.Uuid
+  orderPublicId        String                       @map("order_public_id") @db.VarChar(30)
+  guildId              String                       @map("guild_id") @db.VarChar(32)
+  channelId            String                       @map("channel_id") @db.VarChar(32)
+  discordMessageId     String                       @map("discord_message_id") @db.VarChar(32)
+  eventId              String                       @unique @map("event_id") @db.VarChar(150)
+  eventType            OrderChannelMessageEventType @map("event_type")
+  authorDiscordId      String?                      @map("author_discord_id") @db.VarChar(32)
+  authorDisplayName    String?                      @map("author_display_name") @db.VarChar(100)
+  authorIsBot          Boolean?                     @map("author_is_bot")
+  contentSnapshot      String?                      @map("content_snapshot") @db.VarChar(4000)
+  embedsSnapshot       Json                         @default("[]") @map("embeds_snapshot") @db.JsonB
+  attachmentsSnapshot  Json                         @default("[]") @map("attachments_snapshot") @db.JsonB
+  replyToMessageId     String?                      @map("reply_to_message_id") @db.VarChar(32)
+  discordCreatedAt     DateTime?                    @map("discord_created_at") @db.Timestamptz(3)
+  discordEditedAt      DateTime?                    @map("discord_edited_at") @db.Timestamptz(3)
+  observedAt           DateTime                     @default(now()) @map("observed_at") @db.Timestamptz(3)
+  order                Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderPublicId, observedAt])
+  @@index([orderId, observedAt])
+  @@map("order_channel_message_events")
 }
 
 model OrderEvent {
