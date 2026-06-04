@@ -80,6 +80,7 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     createdAt: now.toISOString(),
     activatedAt: now.toISOString(),
     retiredAt: null,
+    archivedAt: null,
     ...overrides
   };
 }

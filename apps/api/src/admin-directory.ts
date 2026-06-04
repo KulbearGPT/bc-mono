@@ -21,7 +21,7 @@ export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 
 export interface AdminUserRecord { id: string; displayName: string; status: string; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number }
 export interface AdminPlayerRecord { playerId: string; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; languageTags?: string[]; activeOrderId: string | null; version: number }
 export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null; guildId?: string }
-export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; createdAt: string }
+export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; archived?: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; createdAt: string }
 export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; senderId: string; receiverId: string; status: string; rowVersion: number; giftName: string; amountMinor: number; currency: string; announcementStatus: string; createdAt: string }
 interface Page<T> { items: T[]; nextCursor: string | null }
 interface StagedAdminWrite<T> {
@@ -86,7 +86,7 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
   }
   listPlayers(input: PageInput & { reviewStatus?: string }) { return page(this.players.filter((item) => !input.reviewStatus || item.reviewStatus === input.reviewStatus), input, 'players', playerCursorKeys); }
   getPlayer(playerId: string) { return clone(this.players.find((item) => item.playerId === playerId) ?? null); }
-  listGiftCatalog(input: PageInput) { return page(this.gifts, input, 'gift_catalog', giftCatalogCursorKeys); }
+  listGiftCatalog(input: PageInput) { return page(this.gifts.filter((item)=>!item.archived), input, 'gift_catalog', giftCatalogCursorKeys); }
   listGiftRequests(input: PageInput & { status?: string; actorStaffId: string; actorLevel: string }) { const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleGiftRequestIdsByStaffId[input.actorStaffId] ?? []) : null; return page(this.giftRequests.filter((item) => (!visibleIds || visibleIds.has(item.id)) && (!input.status || item.status === input.status)), input, 'gift_requests', giftRequestCursorKeys); }
   getGiftRequest(input: { giftRequestId: string; actorStaffId: string; actorLevel: string }) { const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleGiftRequestIdsByStaffId[input.actorStaffId] ?? []) : null; return clone(this.giftRequests.find((item) => item.id === input.giftRequestId && (!visibleIds || visibleIds.has(item.id))) ?? null); }
 
@@ -248,7 +248,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
         SELECT name, price_minor, currency, status, version, broadcast_template, gift_category_tag_id, created_at, id
         FROM gift_catalog_versions WHERE gift_catalog_item_id = item.id ORDER BY version DESC LIMIT 1
       ) version ON TRUE
-      WHERE ($1::timestamptz IS NULL OR (version.created_at, item.id) < ($1::timestamptz, $2::uuid))
+      WHERE item.archived_at IS NULL AND ($1::timestamptz IS NULL OR (version.created_at, item.id) < ($1::timestamptz, $2::uuid))
       ORDER BY version.created_at DESC, item.id DESC LIMIT $3`, [keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1]);
     return pageFromRows(rows.rows.map(mapGiftCatalog), input, 'gift_catalog', giftCatalogCursorKeys);
   }
@@ -282,7 +282,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
   }
 
   async updateGiftCatalog(input: { giftCatalogId: string; expectedVersion: number; action: string; reasonCode: string; replacement: GiftCatalogCreateBody | null; actorStaffId: string; now: Date }) {
-    if (!['ENABLE', 'DISABLE', 'CREATE_REPLACEMENT_VERSION'].includes(input.action)) {
+    if (!['ENABLE', 'DISABLE', 'CREATE_REPLACEMENT_VERSION', 'ARCHIVE'].includes(input.action)) {
       throw new AdminDirectoryError('VALIDATION_ERROR', 'Gift catalog action is invalid.');
     }
     if (input.action === 'CREATE_REPLACEMENT_VERSION' && !input.replacement) {
@@ -302,6 +302,11 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
           const locked = await client.query<GiftCatalogRow>(`${giftCatalogCurrentSelect} FOR UPDATE OF item`, [input.giftCatalogId]);
           if (!locked.rows[0]) throw new AdminDirectoryError('NOT_FOUND', 'Gift catalog item was not found.');
           if (mapGiftCatalog(locked.rows[0]).version !== input.expectedVersion) throw new AdminDirectoryError('CONFLICT', 'Gift catalog version is stale.');
+          if(input.action==='ARCHIVE'){
+            await client.query(`UPDATE gift_catalog_items SET archived_at=$2,updated_at=$2 WHERE id=$1 AND archived_at IS NULL`,[input.giftCatalogId,input.now]);
+            await client.query(`UPDATE gift_catalog_versions SET status='RETIRED',active_gift_key=NULL,retired_at=COALESCE(retired_at,$2) WHERE gift_catalog_item_id=$1 AND status='ACTIVE'`,[input.giftCatalogId,input.now]);
+            await insertPostgresAuditRecord(client,auditRecord);await client.query('COMMIT');return;
+          }
           await client.query(`UPDATE gift_catalog_versions SET status = 'RETIRED', active_gift_key = NULL, retired_at = $2
             WHERE gift_catalog_item_id = $1 AND status = 'ACTIVE'`, [input.giftCatalogId, input.now]);
           await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, created_at)
@@ -405,6 +410,7 @@ function buildUpdatedGift(
   if (input.action === 'DISABLE') {
     return { ...current, enabled: false, version: current.version + 1, createdAt: input.now.toISOString() };
   }
+  if(input.action==='ARCHIVE')return{...current,enabled:false,archived:true,createdAt:input.now.toISOString()};
   if (input.action === 'CREATE_REPLACEMENT_VERSION' && input.replacement) {
     return {
       ...current,

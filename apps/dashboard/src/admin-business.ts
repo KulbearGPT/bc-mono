@@ -109,7 +109,8 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [],
     actions: [
       { id: 'CREATE_SERVICE_VERSION', label: '创建服务版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
-      { id: 'UPDATE_VERSION', label: '编辑服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'UPDATE_VERSION', label: '编辑服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' },
+      { id: 'ARCHIVE_SERVICE', label: '删除', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -118,7 +119,8 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [],
     actions: [
       { id: 'CREATE_GIFT', label: '创建礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'COLLECTION' },
-      { id: 'UPDATE_GIFT_VERSION', label: '编辑礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'UPDATE_GIFT_VERSION', label: '编辑礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' },
+      { id: 'ARCHIVE_GIFT', label: '删除', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -297,6 +299,7 @@ export function buildAdminActionRequest(input: {
       body: { expectedVersion: item.version, action, reasonCode, replacement: action === 'CREATE_REPLACEMENT_VERSION' ? buildGiftCatalogCreateBody(input.fields, reasonCode) : null }
     };
   }
+  if(input.actionId==='ARCHIVE_GIFT'){const item=requireItem(input.item);return{method:'PATCH',path:`/api/v1/admin/gift-catalog/${encodeURIComponent(item.id)}`,body:{expectedVersion:item.version,action:'ARCHIVE',reasonCode:requireReasonCode(input.fields.reasonCode),replacement:null}};}
   if (input.actionId === 'UPDATE_VERSION') {
     const item = requireItem(input.item);
     const action = requireEnum(input.fields.action, ['ENABLE', 'DISABLE', 'SUPERSEDE'], 'action');
@@ -306,6 +309,7 @@ export function buildAdminActionRequest(input: {
       body: { expectedVersion: item.version, action, reasonCode, replacement: action === 'SUPERSEDE' ? buildServiceCatalogCreateBody(input.fields, reasonCode) : null }
     };
   }
+  if(input.actionId==='ARCHIVE_SERVICE'){const item=requireItem(input.item);return{method:'PATCH',path:`/api/v1/admin/service-catalog/${encodeURIComponent(item.id)}`,body:{expectedVersion:item.version,action:'ARCHIVE',reasonCode:requireReasonCode(input.fields.reasonCode),replacement:null}};}
   if (input.actionId === 'CREATE_RISK_EVENT') {
     const item = requireItem(input.item);
     return {

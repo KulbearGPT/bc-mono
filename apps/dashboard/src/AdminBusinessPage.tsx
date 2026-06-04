@@ -82,7 +82,7 @@ function AdminBusinessTable(props: {
           <tr key={typeof item.id === 'string' ? item.id : index}>
             {hasOperations && <td className="table-actions">
               {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-              {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+              {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
             </td>}
             {columns.map((column) => <td key={column}>{displayValue(column, item[column], item.currency)}</td>)}
           </tr>
@@ -133,6 +133,7 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions 
   if (action.id === 'CREATE_SERVICE_VERSION') return <ServiceCatalogFields options={businessTagOptions}/>;
   if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields options={businessTagOptions} item={item}/>} />;
   if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields options={businessTagOptions} item={item}/>} />;
+  if(action.id==='ARCHIVE_SERVICE'||action.id==='ARCHIVE_GIFT')return <div className="field field--full archive-warning"><strong>确认从目录中删除？</strong><p>该操作会归档当前项目，使其不再出现在目录中；历史订单、礼物记录和金额快照不会受到影响。</p></div>;
   if (action.id === 'CREATE_RISK_EVENT') return <>
     <label className="field"><span>事件类型</span><select name="type" required defaultValue="PAYMENT_ANOMALY"><option value="PAYMENT_ANOMALY">支付异常</option><option value="DUPLICATE_ACCOUNT_SIGNAL">重复账号信号</option><option value="REFERRAL_ABUSE_SIGNAL">返佣滥用信号</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">用户未到场</option></select></label>
     <label className="field"><span>严重程度</span><select name="severity" required defaultValue="MEDIUM"><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label>

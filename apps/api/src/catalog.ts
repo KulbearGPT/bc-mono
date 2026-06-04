@@ -38,6 +38,7 @@ export interface ServiceCatalogRecord {
   createdAt: string;
   activatedAt: string | null;
   retiredAt: string | null;
+  archivedAt?: string | null;
 }
 
 export interface PublicServiceCatalog {
@@ -121,7 +122,7 @@ export interface CreateServiceCatalogInput {
 
 export interface UpdateServiceCatalogInput {
   expectedVersion: number;
-  action: 'ENABLE' | 'DISABLE' | 'SUPERSEDE';
+  action: 'ENABLE' | 'DISABLE' | 'SUPERSEDE' | 'ARCHIVE';
   reasonCode: string;
   replacement?: CreateServiceCatalogInput | null;
 }
@@ -176,7 +177,7 @@ export class InMemoryServiceCatalogStore implements ServiceCatalogStore {
   }
 
   async listPage(input: CatalogPageInput): Promise<CatalogPage> {
-    return pageCatalogRecords(Array.from(this.records.values()), input);
+    return pageCatalogRecords(Array.from(this.records.values()).filter((record)=>!record.archivedAt), input);
   }
 
   async getById(id: string): Promise<ServiceCatalogRecord | null> {
@@ -221,7 +222,7 @@ export class PostgresServiceCatalogStore implements ServiceCatalogStore {
   async list(): Promise<ServiceCatalogRecord[]> {
     const result = await this.client.query<ServiceCatalogRow>(`
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code,
+       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -238,7 +239,7 @@ ORDER BY offering.game_code ASC, offering.service_code ASC, offering.region_code
     const result = await this.client.query<ServiceCatalogRow>(
       `
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code,
+       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -246,7 +247,7 @@ SELECT version.id, version.service_offering_id, offering.game_code, offering.gam
        version.activated_at, version.retired_at
 FROM service_catalog_versions AS version
 JOIN service_offerings AS offering ON offering.id = version.service_offering_id
-WHERE ($1::timestamptz IS NULL OR (version.created_at, version.id) < ($1::timestamptz, $2::uuid))
+WHERE offering.archived_at IS NULL AND ($1::timestamptz IS NULL OR (version.created_at, version.id) < ($1::timestamptz, $2::uuid))
 ORDER BY version.created_at DESC, version.id DESC
 LIMIT $3
       `,
@@ -259,7 +260,7 @@ LIMIT $3
     const result = await this.client.query<ServiceCatalogRow>(
       `
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code,
+       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -315,14 +316,15 @@ async function savePostgresCatalogRecord(
     `
 WITH offering AS (
   INSERT INTO service_offerings (
-    id, code, game_code, game_name, service_code, service_name, region_code, created_at, updated_at
+    id, code, game_code, game_name, service_code, service_name, region_code, archived_at, created_at, updated_at
   )
-  VALUES ($13, $14, $2, $2, $3, $3, $4, $15, $15)
+  VALUES ($13, $14, $2, $2, $3, $3, $4, $19, $15, $15)
   ON CONFLICT (code) DO UPDATE
     SET game_name = EXCLUDED.game_name,
         service_name = EXCLUDED.service_name,
+        archived_at = EXCLUDED.archived_at,
         updated_at = EXCLUDED.updated_at
-  RETURNING id, game_code, game_name, service_code, service_name, region_code
+  RETURNING id, game_code, game_name, service_code, service_name, region_code, archived_at
 ),
 version_upsert AS (
   INSERT INTO service_catalog_versions (
@@ -344,7 +346,7 @@ version_upsert AS (
             created_by_staff_id, created_at, activated_at, retired_at
 )
 SELECT version_upsert.id, version_upsert.service_offering_id,
-       offering.game_code, offering.game_name, offering.service_code, offering.service_name, offering.region_code,
+       offering.game_code, offering.game_name, offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
        version_upsert.billing_unit_minutes, version_upsert.minimum_units,
        version_upsert.customer_unit_price_minor, version_upsert.player_unit_payout_minor, version_upsert.default_player_payout_bps,
        version_upsert.currency, version_upsert.status, version_upsert.version,
@@ -371,7 +373,8 @@ JOIN offering ON offering.id = version_upsert.service_offering_id
       new Date(record.createdAt),
       record.activatedAt ? new Date(record.activatedAt) : null,
       record.retiredAt ? new Date(record.retiredAt) : null,
-      record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor ?? 0) * 10000 / (record.customerUnitPriceMinor ?? 1))
+      record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor ?? 0) * 10000 / (record.customerUnitPriceMinor ?? 1)),
+      record.archivedAt ? new Date(record.archivedAt) : null
     ]
   );
   if (!result.rows[0]) {
@@ -484,6 +487,13 @@ export async function prepareUpdateServiceCatalogVersion(input: {
   if (record.version !== input.input.expectedVersion) {
     throw new CatalogError('CONFLICT', 'Service catalog version is stale.');
   }
+
+  if(input.input.action==='ARCHIVE'){
+    if(record.archivedAt)throw new CatalogError('CONFLICT','Service offering is already archived.');
+    const archived={...record,status:'RETIRED' as const,retiredAt:record.retiredAt??input.now.toISOString(),archivedAt:input.now.toISOString()};
+    return{data:toAdminCatalog(archived),records:[archived]};
+  }
+  if(record.archivedAt)throw new CatalogError('BUSINESS_RULE_VIOLATION','Archived service offerings cannot be changed.');
 
   if (input.input.action === 'DISABLE') {
     const retired = {
@@ -721,7 +731,8 @@ function buildCreatedCatalogRecord(input: {
     createdByStaffId: input.actor.actorStaffId ?? '00000000-0000-0000-0000-000000000000',
     createdAt: input.now.toISOString(),
     activatedAt: input.normalized.enabled ? input.now.toISOString() : null,
-    retiredAt: null
+    retiredAt: null,
+    archivedAt: null
   };
 }
 
@@ -762,6 +773,7 @@ function isPubliclyAvailable(record: ServiceCatalogRecord): record is ServiceCat
 } {
   return (
     record.status === 'ACTIVE' &&
+    !record.archivedAt &&
     typeof record.customerUnitPriceMinor === 'number' &&
     record.customerUnitPriceMinor > 0 &&
     typeof record.playerUnitPayoutMinor === 'number' &&
@@ -770,7 +782,7 @@ function isPubliclyAvailable(record: ServiceCatalogRecord): record is ServiceCat
 }
 
 function assertCompletePrices(record: ServiceCatalogRecord): void {
-  if (!isPubliclyAvailable({ ...record, status: 'ACTIVE' })) {
+  if (typeof record.customerUnitPriceMinor!=='number'||record.customerUnitPriceMinor<1||typeof record.playerUnitPayoutMinor!=='number'||record.playerUnitPayoutMinor<1) {
     throw new CatalogError('BUSINESS_RULE_VIOLATION', 'Catalog version requires customer and player prices before enable.');
   }
 }
@@ -939,6 +951,7 @@ interface ServiceCatalogRow {
   created_at: Date | string;
   activated_at: Date | string | null;
   retired_at: Date | string | null;
+  archived_at: Date | string | null;
 }
 
 function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
@@ -960,7 +973,8 @@ function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
     createdByStaffId: row.created_by_staff_id,
     createdAt: toIsoString(row.created_at),
     activatedAt: row.activated_at ? toIsoString(row.activated_at) : null,
-    retiredAt: row.retired_at ? toIsoString(row.retired_at) : null
+    retiredAt: row.retired_at ? toIsoString(row.retired_at) : null,
+    archivedAt: row.archived_at ? toIsoString(row.archived_at) : null
   };
 }
 

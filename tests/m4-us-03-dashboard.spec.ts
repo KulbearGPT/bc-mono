@@ -95,7 +95,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       nextCursor: null
     });
 
-    expect(catalog.actions.map((action) => action.id)).toEqual(['CREATE_SERVICE_VERSION', 'UPDATE_VERSION']);
+    expect(catalog.actions.map((action) => action.id)).toEqual(['CREATE_SERVICE_VERSION', 'UPDATE_VERSION', 'ARCHIVE_SERVICE']);
     expect(catalog.actions.every((action) => action.requiresReason)).toBe(true);
     expect(earnings.actions.map((action) => action.id)).toEqual(['CONFIRM', 'MARK_PAID']);
     expect(earnings.actions.every((action) => action.requiresReason)).toBe(true);
@@ -212,6 +212,15 @@ describe('M4-US-03 Dashboard business object pages', () => {
     })).toEqual({
       method: 'POST', path: '/api/v1/admin/users/user-1/risk-events',
       body: { type: 'PAYMENT_ANOMALY', severity: 'HIGH', source: 'STAFF_REVIEW', notes: 'Provider verification mismatch.', orderId: null }
+    });
+  });
+
+  test('maps visible delete actions to audited archive writes instead of hard deletes', () => {
+    expect(buildAdminActionRequest({ actionId: 'ARCHIVE_SERVICE', item: { id: 'service-v1', version: 2 }, fields: { reasonCode: 'NO_LONGER_SOLD' } })).toEqual({
+      method: 'PATCH', path: '/api/v1/admin/service-catalog/service-v1', body: { expectedVersion: 2, action: 'ARCHIVE', reasonCode: 'NO_LONGER_SOLD', replacement: null }
+    });
+    expect(buildAdminActionRequest({ actionId: 'ARCHIVE_GIFT', item: { id: 'gift-1', version: 3 }, fields: { reasonCode: 'NO_LONGER_SOLD' } })).toEqual({
+      method: 'PATCH', path: '/api/v1/admin/gift-catalog/gift-1', body: { expectedVersion: 3, action: 'ARCHIVE', reasonCode: 'NO_LONGER_SOLD', replacement: null }
     });
   });
 

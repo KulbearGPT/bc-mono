@@ -947,6 +947,18 @@ textarea:focus-visible {
   font-size: 12px;
 }
 
+.table-actions .table-action--danger {
+  border-color: color-mix(in srgb, #ef476f 48%, var(--border-soft));
+  color: #c72f52;
+}
+
+.archive-warning {
+  border: 1px solid color-mix(in srgb, #ef476f 35%, var(--border-soft));
+  border-radius: 14px;
+  padding: 16px;
+  background: color-mix(in srgb, #ef476f 7%, var(--surface-panel));
+}
+
 .pagination-bar {
   justify-content: flex-end;
   margin-top: 12px;
