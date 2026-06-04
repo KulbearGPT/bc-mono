@@ -5,6 +5,7 @@ import {
   BotApiError,
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
+  buildOrderPanelMessage,
   handleOrderSelectSubmit,
   parseServiceCenterCustomId,
   type BotActorContext,
@@ -54,7 +55,15 @@ export default class OrderSelectHandler extends InteractionHandler {
       await interaction.editReply({ content: '订单选项更新失败，请刷新订单面板。', components: [] });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-order-select-failed';
-      await interaction.editReply({ content: `订单选项更新失败，请刷新后重试。request_id: ${requestId}`, components: [] });
+      try {
+        const order = await new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' })
+          .getOrder(parsedData.orderId, actor);
+        const reply = toDiscordReply(buildOrderPanelMessage(order));
+        await interaction.editReply({ content: reply.content, components: reply.components });
+        await interaction.followUp({ content: `这个选项暂时无法保存，订单菜单已恢复。request_id: ${requestId}`, ephemeral: true });
+      } catch {
+        await interaction.followUp({ content: `订单菜单恢复失败，请联系客服。request_id: ${requestId}`, ephemeral: true });
+      }
     }
   }
 }

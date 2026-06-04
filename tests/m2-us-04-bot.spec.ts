@@ -50,7 +50,8 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
           label: '我已就绪',
           customId: 'bc:service:ready:00000000-0000-0000-0000-00000000b401:v4'
         }),
-        expect.objectContaining({ label: '联系客服' })
+        expect.objectContaining({ label: '取消订单' }),
+        expect.objectContaining({ label: '我要申诉' })
       ])
     );
   });
@@ -126,9 +127,24 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
         expect.objectContaining({
           label: '确认完成',
           customId: 'bc:service:confirm:00000000-0000-0000-0000-00000000b401:v7'
-        })
+        }),
+        expect.objectContaining({ label: '取消订单' }),
+        expect.objectContaining({ label: '我要申诉' })
       ])
     );
+  });
+
+  test('keeps cancellation and appeal controls on the customer in-service panel without unilateral completion', () => {
+    const message = buildServiceLifecyclePanelMessage({
+      ...acceptedOrder,
+      status: 'IN_SERVICE', version: 6, actorRole: 'CUSTOMER',
+      readiness: { ...acceptedOrder.readiness, customer: 'READY', player: 'READY', bothReady: true, startedAt: '2026-07-18T04:01:00.000Z' }
+    });
+    const controls=message.components.flatMap((row)=>row.components);
+    expect(controls).toEqual(expect.arrayContaining([
+      expect.objectContaining({label:'取消订单'}),expect.objectContaining({label:'我要申诉'})
+    ]));
+    expect(controls.some((control)=>control.type==='BUTTON'&&control.label==='确认完成')).toBe(false);
   });
 
   test('renders staff takeover state when cancellation or incident needs support', () => {

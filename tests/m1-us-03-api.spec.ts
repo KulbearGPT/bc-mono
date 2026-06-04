@@ -261,7 +261,8 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
     expect(orderStore.events.at(-1)).toMatchObject({
       eventType: 'DETAILS_UPDATED',
       fromStatus: 'DRAFT',
-      toStatus: 'DRAFT'
+      toStatus: 'DRAFT',
+      sequence: 2
     });
   });
 

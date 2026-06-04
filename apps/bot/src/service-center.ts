@@ -26,6 +26,7 @@ export interface OrderSummary {
   publicId: string;
   status: string;
   version: number;
+  serviceCatalogId?: string | null;
   game: string | null;
   service: string | null;
   region: string | null;
@@ -47,6 +48,11 @@ export interface OrderSummary {
     reasonCode: string | null;
     expiresAt: string | null;
   };
+}
+
+export interface PublicServiceSummary {
+  id: string; game: string; service: string; region: string | null; billingUnitMinutes: number;
+  minimumUnits: number; customerUnitPriceMinor: number; currency: string; version: number;
 }
 
 export interface CurrentUserSummary {
@@ -286,6 +292,7 @@ export interface OrderCompletionSummary {
 }
 
 export interface BotApiClient {
+  listServices(actor: BotActorContext): Promise<{ items: PublicServiceSummary[] }>;
   createOrder(
     input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
     actor: BotActorContext,
@@ -384,6 +391,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<GiftRequestResult>;
+  createOrderAppeal(
+    orderId: string,
+    input: { type: 'ORDER_ASSIST'; reasonCode: 'CUSTOMER_DISPUTE'; note: string; voiceChannelId: null },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<{ id: string; publicId: string }>;
 }
 
 export class BotApiError extends Error {
@@ -422,6 +435,10 @@ export class HttpBotApiClient implements BotApiClient {
       includeStatus: true
     });
     return { statusCode: response.statusCode, order: response.data };
+  }
+
+  public async listServices(actor: BotActorContext): Promise<{ items: PublicServiceSummary[] }> {
+    return this.request('/api/v1/services', { method: 'GET', actor });
   }
 
   public async reportChannelCreationFailure(
@@ -495,6 +512,17 @@ export class HttpBotApiClient implements BotApiClient {
     idempotencyKey: string
   ): Promise<GiftRequestResult> {
     return this.request<GiftRequestResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-requests`, {
+      method: 'POST', actor, idempotencyKey, body: input
+    });
+  }
+
+  public async createOrderAppeal(
+    orderId: string,
+    input: { type: 'ORDER_ASSIST'; reasonCode: 'CUSTOMER_DISPUTE'; note: string; voiceChannelId: null },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<{ id: string; publicId: string }> {
+    return this.request(`/api/v1/orders/${encodeURIComponent(orderId)}/staff-tasks`, {
       method: 'POST', actor, idempotencyKey, body: input
     });
   }
@@ -844,7 +872,7 @@ export type ServiceCenterRoute =
   | { area: 'entry'; action: 'create-order' | 'service-center' | 'player-workbench' }
   | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
   | { area: 'cancellation-action'; action: 'confirm'; orderId: string; previewId: string; expectedVersion: number }
-  | { area: 'order-select'; orderId: string; field: 'game' | 'service' | 'region' | 'duration'; expectedVersion: number }
+  | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration'; expectedVersion: number }
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
@@ -948,7 +976,7 @@ export function buildAcceptedPlayerChannelPermissionPlan(input: {
   };
 }
 
-export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
+export function buildOrderPanelMessage(order: OrderSummary, services: PublicServiceSummary[] = []): MessageSpec {
   if (order.automation?.state === 'PAUSED') {
     return buildPausedAutomationMessage(order);
   }
@@ -971,28 +999,7 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
       {
         type: 'ACTION_ROW',
         components: [
-          select(`bc:select:order:${order.id}:game:v${order.version}`, '选择游戏', [
-            { label: '无畏契约', value: 'VALORANT' },
-            { label: '英雄联盟', value: 'LEAGUE_OF_LEGENDS' }
-          ])
-        ]
-      },
-      {
-        type: 'ACTION_ROW',
-        components: [
-          select(`bc:select:order:${order.id}:service:v${order.version}`, '选择服务', [
-            { label: '娱乐陪玩', value: 'ENTERTAINMENT' },
-            { label: '上分陪玩', value: 'RANKED' }
-          ])
-        ]
-      },
-      {
-        type: 'ACTION_ROW',
-        components: [
-          select(`bc:select:order:${order.id}:region:v${order.version}`, '选择区服', [
-            { label: '北美', value: 'NA' },
-            { label: '国服', value: 'CN' }
-          ])
+          select(`bc:select:order:${order.id}:catalog:v${order.version}`, '选择陪玩项目', serviceOptions(order, services))
         ]
       },
       {
@@ -1010,7 +1017,8 @@ export function buildOrderPanelMessage(order: OrderSummary): MessageSpec {
         components: [
           { type: 'BUTTON', style: 'SECONDARY', customId: `bc:modal-open:order-notes:${order.id}:v${order.version}`, label: '补充备注' },
           { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${order.version}`, label: '确认订单' },
-          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '取消订单' }
+          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '取消订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${order.version}`, label: '我要申诉' }
         ]
       }
     ]
@@ -1029,7 +1037,7 @@ function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
     components: [{
       type: 'ACTION_ROW',
       components: [
-        { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:support', label: '联系客服' },
+        { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${order.version}`, label: '我要申诉' },
         { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '查看取消影响' }
       ]
     }]
@@ -1068,7 +1076,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
       nextStep
     ].filter(Boolean).join('\n'),
     visibility: 'PRIVATE_CHANNEL',
-    components: []
+    components: [{ type: 'ACTION_ROW', components: orderMenuControls(order.id, order.version) }]
   };
 }
 
@@ -1392,10 +1400,14 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
               label: '我已就绪'
             },
             {
-              type: 'BUTTON',
-              style: 'SECONDARY',
+              type: 'BUTTON', style: 'DANGER',
+              customId: `bc:order:${order.orderId}:cancel:v${order.version}`,
+              label: '取消订单'
+            },
+            {
+              type: 'BUTTON', style: 'SECONDARY',
               customId: `bc:service:support:${order.orderId}:v${order.version}`,
-              label: '联系客服'
+              label: '我要申诉'
             },
             ...(order.actorRole === 'CUSTOMER' && giftsEnabled ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const,
               customId: `bc:gift:open:${order.orderId}:v${order.version}`, label: '赠送礼物' }] : [])
@@ -1405,14 +1417,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     };
   }
   if (order.status === 'IN_SERVICE') {
-    const components: ComponentSpec[] = [
-      {
-        type: 'BUTTON',
-        style: 'SECONDARY',
-        customId: `bc:service:support:${order.orderId}:v${order.version}`,
-        label: '联系客服'
-      }
-    ];
+    const components: ComponentSpec[] = orderMenuControls(order.orderId, order.version);
     if (order.actorRole === 'PLAYER') {
       components.unshift({
         type: 'BUTTON',
@@ -1431,14 +1436,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     };
   }
   if (order.status === 'PENDING_CONFIRMATION') {
-    const components: ComponentSpec[] = [
-      {
-        type: 'BUTTON',
-        style: 'SECONDARY',
-        customId: `bc:service:support:${order.orderId}:v${order.version}`,
-        label: '联系客服'
-      }
-    ];
+    const components: ComponentSpec[] = orderMenuControls(order.orderId, order.version);
     if (order.actorRole === 'CUSTOMER') {
       components.unshift({
         type: 'BUTTON',
@@ -1531,6 +1529,7 @@ export function buildOrderConfirmationMessage(input: {
           },
           { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.order.id}:refresh:v${input.order.version}`, label: '刷新确认' },
           { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.order.id}:cancel:v${input.order.version}`, label: '取消订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${input.order.id}:v${input.order.version}`, label: '我要申诉' },
           { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:service-center:recharge', label: '联系客服充值', disabled: deficitMinor === 0 }
         ]
       }
@@ -1560,7 +1559,8 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
         type: 'ACTION_ROW',
         components: [
           { type: 'BUTTON', style: 'SECONDARY', customId: `bc:order:${input.orderId}:submit:v${input.version}`, label: '刷新订单' },
-          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.orderId}:cancel:v${input.version}`, label: '取消订单' }
+          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${input.orderId}:cancel:v${input.version}`, label: '取消订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${input.orderId}:v${input.version}`, label: '我要申诉' }
         ]
       }
     ]
@@ -1718,7 +1718,10 @@ export async function handleServiceLifecycleAction(input: {
         message: `订单已确认完成。扣款 ${formatCustomerMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
       };
     }
-    return { kind: 'EPHEMERAL_MESSAGE', message: '客服协助请求将在后续步骤处理。request_id: local-support-pending' };
+    const task = await input.api.createOrderAppeal(input.orderId, {
+      type: 'ORDER_ASSIST', reasonCode: 'CUSTOMER_DISPUTE', note: '用户从订单常驻菜单发起申诉。', voiceChannelId: null
+    }, input.actor, input.idempotencyKey);
+    return { kind: 'EPHEMERAL_MESSAGE', message: `申诉已提交，客服任务：${task.publicId}` };
   } catch (error) {
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '订单状态操作失败') };
   }
@@ -1874,13 +1877,22 @@ export async function handleOrderSelectSubmit(input: {
   actor: BotActorContext;
   orderId: string;
   expectedVersion: number;
-  field: 'game' | 'service' | 'region' | 'duration';
+  field: 'catalog' | 'duration';
   value: string;
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
-  const payload = orderSelectionPatch(input.field, input.value, input.expectedVersion);
+  const [order, catalog] = await Promise.all([input.api.getOrder(input.orderId, input.actor), input.api.listServices(input.actor)]);
+  const selected = input.field === 'catalog'
+    ? catalog.items.find((item) => item.id === input.value)
+    : catalog.items.find((item) => item.id === order.serviceCatalogId);
+  if (!selected) throw new Error('The selected service catalog is unavailable.');
+  const payload = {
+    expectedVersion: input.expectedVersion,
+    serviceCatalogId: selected.id,
+    unitCount: input.field === 'duration' ? Number.parseInt(input.value, 10) : Math.max(order.unitCount ?? 0, selected.minimumUnits)
+  };
   const updated = await input.api.updateOrder(input.orderId, payload, input.actor, input.idempotencyKey);
-  return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated) };
+  return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated, catalog.items) };
 }
 
 export async function handleOrderNotesSubmit(input: {
@@ -1957,12 +1969,12 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
     };
   }
 
-  const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(game|service|region|duration):v([1-9][0-9]*)$/u.exec(customId);
+  const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(catalog|duration):v([1-9][0-9]*)$/u.exec(customId);
   if (orderSelect) {
     return {
       area: 'order-select',
       orderId: orderSelect[1],
-      field: orderSelect[2] as 'game' | 'service' | 'region' | 'duration',
+      field: orderSelect[2] as 'catalog' | 'duration',
       expectedVersion: Number.parseInt(orderSelect[3], 10)
     };
   }
@@ -2011,17 +2023,20 @@ function select(
   return { type: 'STRING_SELECT', customId, placeholder, options };
 }
 
-function orderSelectionPatch(field: string, value: string, expectedVersion: number): Record<string, unknown> {
-  if (field === 'duration') {
-    return { expectedVersion, unitCount: Number.parseInt(value, 10) };
-  }
-  if (field === 'game') {
-    return { expectedVersion, game: value };
-  }
-  if (field === 'service') {
-    return { expectedVersion, service: value };
-  }
-  return { expectedVersion, region: value };
+function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
+  return [
+    { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${orderId}:cancel:v${version}`, label: '取消订单' },
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${orderId}:v${version}`, label: '我要申诉' }
+  ];
+}
+
+function serviceOptions(order: OrderSummary, services: PublicServiceSummary[]): Array<{ label: string; value: string }> {
+  const options = services.slice(0, 25).map((item) => ({
+    label: `${item.game} · ${item.service}${item.region ? ` · ${item.region}` : ''}`.slice(0, 100), value: item.id
+  }));
+  if (options.length) return options;
+  if (order.serviceCatalogId) return [{ label: `${order.game ?? '陪玩'} · ${order.service ?? '服务'}`.slice(0, 100), value: order.serviceCatalogId }];
+  return [{ label: '暂无可用陪玩项目', value: 'unavailable' }];
 }
 
 function isApiError(error: unknown, code: string): boolean {

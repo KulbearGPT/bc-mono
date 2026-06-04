@@ -50,6 +50,9 @@ describe('M2-US-07 Discord matching progress rendering', () => {
     }));
     expect(message.title).toContain('正在匹配陪玩');
     expect(message.components.flatMap((row) => row.components).some((component) => component.type === 'SELECT')).toBe(false);
+    expect(message.components.flatMap((row) => row.components)).toEqual(expect.arrayContaining([
+      expect.objectContaining({label:'取消订单'}), expect.objectContaining({label:'我要申诉'})
+    ]));
   });
 });
 

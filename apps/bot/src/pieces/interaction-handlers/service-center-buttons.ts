@@ -7,6 +7,7 @@ import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftReques
 import {
   HttpBotApiClient,
   BotApiError,
+  buildOrderPanelMessage,
   buildCurrentPlayerWeeklyReportDetailMessage,
   buildCurrentPlayerWeeklyReportListMessage,
   buildCurrentUserConsumptionsMessage,
@@ -121,8 +122,12 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         permissionOverwrites:[{id:interaction.guildId,deny:[PermissionFlagsBits.ViewChannel]},{id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]},{id:interaction.client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]},...staffRoleIds.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]}))]});
       const placeholder=await channel.send('正在创建订单面板…');
       const actor=actorFromInteraction(interaction)!;
-      const result=await handleCreateOrderFromPublicEntry({api:createBotApiClient(),actor,provisionalChannel:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:null},idempotencyKey:buildDiscordIdempotencyKey('order:create',interaction.id)});
-      if(result.kind==='CREATE_PRIVATE_CHANNEL'){const reply=toDiscordReply(result.message);await placeholder.edit({content:reply.content,components:reply.components});await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
+      const api=createBotApiClient();
+      const result=await handleCreateOrderFromPublicEntry({api,actor,provisionalChannel:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:null},idempotencyKey:buildDiscordIdempotencyKey('order:create',interaction.id)});
+      if(result.kind==='CREATE_PRIVATE_CHANNEL'){
+        const catalog=await api.listServices(actor);const first=catalog.items[0];
+        const order=first?await api.updateOrder(result.order.id,{expectedVersion:result.order.version,serviceCatalogId:first.id,unitCount:first.minimumUnits},actor,buildDiscordIdempotencyKey('order:initialize',interaction.id)):result.order;
+        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:reply.content,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
       if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(`你已有进行中的订单：<#${result.channelId}>`);return;}
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
     }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(`订单频道创建失败，请稍后重试。request_id: ${requestId}`);}

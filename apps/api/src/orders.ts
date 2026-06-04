@@ -1195,7 +1195,7 @@ export async function prepareUpdateOrder(input: {
       toStatus: 'DRAFT',
       actor: input.actor,
       now: input.now,
-      sequence: 1,
+      sequence: updated.version,
       payload: {
         serviceCatalogId: updated.serviceCatalogId,
         catalogVersion: updated.catalogVersion,

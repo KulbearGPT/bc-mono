@@ -36,6 +36,7 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     publicId: 'P-1042',
     status: 'DRAFT',
     version: 3,
+    serviceCatalogId: '00000000-0000-0000-0000-00000000c104',
     game: 'VALORANT',
     service: 'ENTERTAINMENT',
     region: 'NA',
@@ -55,6 +56,7 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
 
 function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
   return {
+    listServices: vi.fn().mockResolvedValue({ items: [{ id: '00000000-0000-0000-0000-00000000c104', game: '无畏契约', service: '娱乐陪玩', region: '北美', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }] }),
     createOrder: vi.fn().mockResolvedValue({ statusCode: 201, order: draftOrder() }),
     reportChannelCreationFailure: vi.fn().mockResolvedValue(undefined),
     updateOrder: vi.fn().mockResolvedValue(draftOrder({ version: 4 })),
@@ -122,7 +124,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
   });
 
   test('order panel renders structured message selects and current draft summary without leaking player payout', () => {
-    const message = buildOrderPanelMessage(draftOrder());
+    const message = buildOrderPanelMessage(draftOrder(), [{ id: '00000000-0000-0000-0000-00000000c104', game: '无畏契约', service: '娱乐陪玩', region: '北美', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }]);
 
     expect(message.title).toBe('订单 #P-1042');
     expect(message.body).toContain('无畏契约');
@@ -130,14 +132,12 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     expect(message.body).toContain('1,200.0 CAT');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
       expect.arrayContaining([
-        `bc:select:order:${orderId}:game:v3`,
-        `bc:select:order:${orderId}:service:v3`,
-        `bc:select:order:${orderId}:region:v3`,
+        `bc:select:order:${orderId}:catalog:v3`,
         `bc:select:order:${orderId}:duration:v3`,
         `bc:modal-open:order-notes:${orderId}:v3`
       ])
     );
-    expect(message.components).toHaveLength(5);
+    expect(message.components).toHaveLength(3);
     expect(message.components.every((row) => {
       const selects = row.components.filter((component) => component.type === 'SELECT');
       return selects.length === 0 || (selects.length === 1 && row.components.length === 1);
@@ -279,7 +279,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
 
     expect(client.updateOrder).toHaveBeenCalledWith(
       orderId,
-      { expectedVersion: 3, unitCount: 2 },
+      { expectedVersion: 3, serviceCatalogId: '00000000-0000-0000-0000-00000000c104', unitCount: 2 },
       actor(),
       'discord:order:update:duration'
     );
