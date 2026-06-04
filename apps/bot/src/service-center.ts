@@ -2079,7 +2079,7 @@ function formatRegion(value: string | null): string {
     NA: '北美',
     CN: '国服'
   };
-  return value ? labels[value] ?? value : '未选择区服';
+  return value ? labels[value] ?? value : '无指定区服';
 }
 
 function formatDuration(order: OrderSummary): string {
@@ -2119,9 +2119,6 @@ function missingConfirmationFields(order: OrderSummary): string[] {
   }
   if (!order.service) {
     missing.push('服务');
-  }
-  if (!order.region) {
-    missing.push('区服');
   }
   if (!order.billingUnitMinutes || !order.unitCount) {
     missing.push('时长');

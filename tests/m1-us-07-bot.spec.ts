@@ -144,6 +144,13 @@ describe('M1-US-07 order confirmation panel', () => {
     );
   });
 
+  test('allows final submit when the selected service does not define an optional region',()=>{
+    const message=buildOrderConfirmationMessage({order:draftOrder({region:null}),estimate:estimate(),balance:balance()});
+    expect(message.body).toContain('区服：无指定区服');
+    expect(message.body).not.toContain('请补齐区服');
+    expect(message.components.flatMap((row)=>row.components)).toEqual(expect.arrayContaining([expect.objectContaining({customId:`bc:order:${orderId}:submit-final:v5`,disabled:false})]));
+  });
+
   test('opens confirmation by calling getOrder, estimateOrder and getCurrentBalance through unified API client', async () => {
     const client = api();
 
