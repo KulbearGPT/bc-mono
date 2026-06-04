@@ -127,7 +127,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       if(result.kind==='CREATE_PRIVATE_CHANNEL'){
         const catalog=await api.listServices(actor);const first=catalog.items[0];
         const order=first?await api.updateOrder(result.order.id,{expectedVersion:result.order.version,serviceCatalogId:first.id,unitCount:first.minimumUnits},actor,buildDiscordIdempotencyKey('order:initialize',interaction.id)):result.order;
-        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:reply.content,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
+        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
       if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(`你已有进行中的订单：<#${result.channelId}>`);return;}
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
     }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(`订单频道创建失败，请稍后重试。request_id: ${requestId}`);}
@@ -154,7 +154,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
       const reply = toDiscordReply(result.message);
-      await interaction.update({ content: reply.content, components: reply.components });
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {
@@ -175,7 +175,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           ? buildCurrentUserConsumptionsMessage(await api.listCurrentUserConsumptions(actor, route.cursor, 5))
           : buildCurrentUserProfileMessage(await api.getCurrentUserProfileSummary(actor));
       const reply = toDiscordReply(message);
-      await interaction.update({ content: reply.content, components: reply.components });
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-profile-fallback';
       await interaction.reply({ content: `个人中心暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
@@ -191,7 +191,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         ? buildCurrentPlayerWeeklyReportDetailMessage(await api.getCurrentPlayerWeeklyReport(route.reportId, actor))
         : buildCurrentPlayerWeeklyReportListMessage(await api.listCurrentPlayerWeeklyReports(actor, route.cursor, 4));
       const reply = toDiscordReply(message);
-      await interaction.update({ content: reply.content, components: reply.components });
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
       await interaction.reply({ content: `我的周报暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
@@ -214,7 +214,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       if (route.action === 'back') {
         const [order, catalog] = await Promise.all([api.getOrder(context.orderId, actor), api.listGifts(context.orderId, actor)]);
         const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret));
-        await interaction.update({ content: reply.content, components: reply.components });
+        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
       const affordability = await api.checkGiftAffordability(context.orderId, context.giftCatalogVersionId, actor);
@@ -224,14 +224,14 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const changed = affordability.catalogVersion !== context.catalogVersion || affordability.priceMinor !== context.priceMinor;
       if (route.action !== 'confirm' || changed || !affordability.canAfford) {
         const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken));
-        await interaction.update({ content: reply.content, components: reply.components });
+        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
       const created = await api.createOrderGiftRequest(context.orderId, { expectedOrderVersion: context.orderVersion,
         giftCatalogVersionId: context.giftCatalogVersionId, expectedCatalogVersion: context.catalogVersion,
         expectedPriceMinor: context.priceMinor }, actor, buildDiscordIdempotencyKey('gift:confirm', interaction.id));
       const reply = toDiscordReply(buildGiftRequestMessage(created));
-      await interaction.update({ content: reply.content, components: reply.components });
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-gift-context';
       await interaction.reply({ content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`, ephemeral: true });
@@ -295,7 +295,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const result = await handleOpenPlayerWorkbench({ api, actor });
       if (result.kind === 'SHOW_PLAYER_WORKBENCH') {
         const reply = toDiscordReply(result.message);
-        await interaction.update({ content: reply.content, components: reply.components });
+        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
       await interaction.reply({ content: '可接单状态已更新，请刷新工作台。', ephemeral: true });
@@ -348,7 +348,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
       const reply = toDiscordReply(result.message);
-      await interaction.update({ content: reply.content, components: reply.components });
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
       return;
     }
     await interaction.reply({

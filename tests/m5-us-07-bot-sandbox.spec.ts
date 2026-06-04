@@ -27,7 +27,7 @@ describe('M5-US-07 Sandbox Bot presentation', () => {
   it('applies the configured warning at the final Discord render boundary', () => {
     configureDiscordRendererEnvironment('SANDBOX');
     const reply = toDiscordReply({ title: '个人中心', body: '余额', visibility: 'EPHEMERAL', components: [] });
-    expect(reply.content).toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
+    expect(JSON.stringify(reply.embeds)).toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
     configureDiscordRendererEnvironment('PRODUCTION');
   });
 

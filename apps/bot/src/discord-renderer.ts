@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
   ModalBuilder,
   StringSelectMenuBuilder,
   TextInputBuilder,
@@ -38,7 +39,11 @@ export function configureDiscordRendererEnvironment(value: string | undefined): 
 export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
   return {
-    content: `**${rendered.title}**\n${rendered.body}`,
+    embeds: [new EmbedBuilder()
+      .setColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
+      .setTitle(rendered.title.slice(0, 256))
+      .setDescription(rendered.body.slice(0, 4096))
+      .setFooter({ text: 'Blackcat Companion' })],
     components: rendered.components.map(toDiscordActionRow),
     ephemeral: rendered.visibility === 'EPHEMERAL'
   };

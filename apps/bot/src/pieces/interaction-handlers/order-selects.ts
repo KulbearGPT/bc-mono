@@ -49,7 +49,7 @@ export default class OrderSelectHandler extends InteractionHandler {
       });
       if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
         const reply = toDiscordReply(result.message);
-        await interaction.editReply({ content: reply.content, components: reply.components });
+        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
       await interaction.editReply({ content: '订单选项更新失败，请刷新订单面板。', components: [] });
@@ -59,7 +59,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         const order = await new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' })
           .getOrder(parsedData.orderId, actor);
         const reply = toDiscordReply(buildOrderPanelMessage(order));
-        await interaction.editReply({ content: reply.content, components: reply.components });
+        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
         await interaction.followUp({ content: `这个选项暂时无法保存，订单菜单已恢复。request_id: ${requestId}`, ephemeral: true });
       } catch {
         await interaction.followUp({ content: `订单菜单恢复失败，请联系客服。request_id: ${requestId}`, ephemeral: true });

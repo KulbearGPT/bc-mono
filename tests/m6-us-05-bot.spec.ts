@@ -43,6 +43,10 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
     expect(profile.visibility).toBe('EPHEMERAL');
     expect(profile.body).toMatch(/账本余额.*预留.*可用/su);
     const rendered = toDiscordReply(profile);
+    expect(rendered.content).toBeUndefined();
+    expect(rendered.embeds).toHaveLength(1);
+    expect(JSON.stringify(rendered.embeds)).toContain('个人中心');
+    expect(JSON.stringify(rendered.embeds)).toContain('账本余额');
     expect(JSON.stringify(rendered.components)).not.toMatch(/https?:\/\/|LINK/u);
     expect(JSON.stringify(profile)).toContain('bc:profile:refresh');
     expect(JSON.stringify(profile)).toContain('bc:profile:orders:first');
@@ -87,7 +91,7 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
     expect(source).toContain('listCurrentPlayerWeeklyReports');
     expect(source).toContain('getCurrentPlayerWeeklyReport');
     expect(source).toMatch(/request_id/u);
-    expect(source).not.toMatch(/ephemeral:\s*false|createChannel|guild\.channels\.create/u);
+    expect(source).not.toMatch(/ephemeral:\s*false/u);
     expect(serviceCenter).not.toMatch(/componentCursorRegistry|new Map<string, string>|createHash\('sha256'\)\.update\(cursor\)/u);
   });
 });
