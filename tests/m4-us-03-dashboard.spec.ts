@@ -171,7 +171,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
   test('maps service versions, gift replacements and append-only user risk events to unified API writes', () => {
     const serviceFields = {
       gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: '60', minimumUnits: '2',
-      customerAmountMinor: '6000', playerAmountMinor: '4000', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
+      customerAmountMinor: '6000', defaultPlayerPayoutPercent: '66.67', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
     };
 
     expect(buildAdminActionRequest({ actionId: 'CREATE_SERVICE_VERSION', fields: serviceFields })).toEqual({
@@ -179,7 +179,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       path: '/api/v1/admin/service-catalog',
       body: {
         gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: 60, minimumUnits: 2,
-        customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
+        customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' }, defaultPlayerPayoutBps: 6667,
         enabled: true, reasonCode: 'INITIAL_VERSION'
       }
     });
@@ -191,7 +191,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
         expectedVersion: 2, action: 'SUPERSEDE', reasonCode: 'PRICE_REFRESH',
         replacement: {
           gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: 60, minimumUnits: 2,
-          customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' },
+          customerUnitPrice: { amountMinor: 6000, currency: 'CAT' }, playerUnitPayout: { amountMinor: 4000, currency: 'CAT' }, defaultPlayerPayoutBps: 6667,
           enabled: true, reasonCode: 'PRICE_REFRESH'
         }
       }
@@ -286,7 +286,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     }));
 
     expect(serviceHtml).toContain('name="customerAmountMinor"');
-    expect(serviceHtml).toContain('name="playerAmountMinor"');
+    expect(serviceHtml).toContain('name="defaultPlayerPayoutPercent"');
     expect(giftHtml).toContain('value="CREATE_REPLACEMENT_VERSION"');
     expect(giftHtml).toContain('保存修改（创建新版本）');
     expect(riskHtml).toContain('name="severity"');

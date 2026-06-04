@@ -21,6 +21,7 @@ export function AdminBusinessPage(props: {
   onNextConsumptions?: (cursor: string) => void;
   onNextTimeline?: (cursor: string) => void;
   businessTagOptions?: BusinessTagGroups;
+  serviceCatalogOptions?: Array<Record<string, unknown>>;
 }) {
   const { model } = props;
   if (model.kind === 'FORBIDDEN') {
@@ -54,7 +55,7 @@ export function AdminBusinessPage(props: {
       {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}
 
       {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
-       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions}
+       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} />}
 
       {model.pagination.hasNext && model.pagination.nextCursor && (
@@ -100,13 +101,14 @@ function AdminActionPanel(props: {
   onCancel?: () => void;
   onSubmit?: (action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) => void;
   businessTagOptions?: BusinessTagGroups;
+  serviceCatalogOptions?: Array<Record<string, unknown>>;
 }) {
   const action = props.active.action;
   return (
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={(event) => submitAction(event, props)}>
-        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} />
+        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} />
         {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
@@ -118,9 +120,10 @@ function AdminActionPanel(props: {
   );
 }
 
-function ActionFields({ action, item, businessTagOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups }) {
+function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>> }) {
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
   if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
+  if(action.id==='EDIT_PLAYER_COMPENSATION')return <PlayerCompensationFields offerings={serviceCatalogOptions??[]}/>;
   if(action.id==='REJECT_COMPANION')return <label className="field field--full"><span>拒绝说明</span><textarea name="note" required rows={4} maxLength={1000}/></label>;
   if (action.id === 'SET_OPERATIONAL_STATUS') return <>
     <label className="field"><span>目标状态</span><select name="status" required defaultValue="PAUSED"><option value="ACTIVE">恢复</option><option value="PAUSED">暂停</option><option value="SUSPENDED">停用</option></select></label>
@@ -139,6 +142,14 @@ function ActionFields({ action, item, businessTagOptions }: { action: AdminBusin
   </>;
   return null;
 }
+
+function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){const[selected,setSelected]=useState('');const selectedOffering=offerings.find((item)=>item.serviceOfferingId===selected);const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;const[type,setType]=useState('PERCENT_BPS');return <>
+  <label className="field field--full"><span>陪玩项目</span><select name="serviceOfferingId" required value={selected} onChange={(event)=>{const value=event.currentTarget.value;setSelected(value);const next=offerings.find((item)=>item.serviceOfferingId===value)?.compensationRule as Record<string,unknown>|undefined;setType(textValue(next?.type)||'PERCENT_BPS');}}><option value="" disabled>请选择项目</option>{offerings.map((item)=><option key={textValue(item.serviceOfferingId)} value={textValue(item.serviceOfferingId)}>{[item.game,item.service,item.region].filter(Boolean).join(' · ')}</option>)}</select></label>
+  <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
+  <label className="field"><span>分成方式</span><select name="compensationType" value={type} onChange={(event)=>setType(event.currentTarget.value)}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
+  {type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input key={`${selected}:percent`} name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" defaultValue={rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?rule.value/100:undefined}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input key={`${selected}:fixed`} name="fixedAmountMinor" type="number" required min="1" step="1" defaultValue={rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?rule.value:undefined}/></label>}
+  <p className="field-help field--full">个人设置优先；未设置时使用服务项目的默认分成。修改不会追溯已接单订单。</p>
+</>}
 
 function GiftCatalogFields({options,item}:{options?:BusinessTagGroups;item?:Record<string,unknown>}) {
   return <>
@@ -159,7 +170,7 @@ function ServiceCatalogFields({options,item}:{options?:BusinessTagGroups;item?:R
     <label className="field"><span>计费单位（分钟）</span><input name="billingUnitMinutes" type="number" required min={1} max={1440} step={1} defaultValue={numberValue(item?.billingUnitMinutes)} /></label>
     <label className="field"><span>最少单位数</span><input name="minimumUnits" type="number" required min={1} max={1440} step={1} defaultValue={numberValue(item?.minimumUnits)} /></label>
     <label className="field"><span>用户单价（minor units）</span><input name="customerAmountMinor" type="number" required min={1} step={1} defaultValue={numberValue(item?.customerUnitPriceMinor)} /></label>
-    <label className="field"><span>陪玩单价（minor units）</span><input name="playerAmountMinor" type="number" required min={1} step={1} defaultValue={numberValue(item?.playerUnitPayoutMinor)} /></label>
+    <label className="field"><span>默认陪玩分成（%）</span><input name="defaultPlayerPayoutPercent" type="number" required min="0.01" max="100" step="0.01" defaultValue={typeof item?.defaultPlayerPayoutBps==='number'?item.defaultPlayerPayoutBps/100:60} /></label>
     <label className="field"><span>币种</span><select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
     <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked={item?.enabled!==false} /><span>立即启用</span></label>
   </>;

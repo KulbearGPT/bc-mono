@@ -79,6 +79,11 @@ enum SkillTagType {
   GIFT_CATEGORY
 }
 
+enum PlayerCompensationType {
+  PERCENT_BPS
+  FIXED_MINOR
+}
+
 enum StaffLevel {
   L1_SUPPORT
   L2_SUPERVISOR
@@ -1075,6 +1080,23 @@ model PlayerSkill {
   @@map("player_skills")
 }
 
+model PlayerServiceCompensationRule {
+  id                String                 @id @default(uuid()) @db.Uuid
+  playerId          String                 @map("player_id") @db.Uuid
+  serviceOfferingId String                 @map("service_offering_id") @db.Uuid
+  type              PlayerCompensationType
+  value             BigInt
+  currency          String?                @db.Char(3)
+  rowVersion        Int                    @default(1) @map("row_version")
+  updatedByStaffId  String                 @map("updated_by_staff_id") @db.Uuid
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([playerId, serviceOfferingId])
+  @@index([serviceOfferingId])
+  @@map("player_service_compensation_rules")
+}
+
 model ServiceOffering {
   id          String    @id @default(uuid()) @db.Uuid
   code        String    @unique @db.VarChar(100)
@@ -1104,6 +1126,7 @@ model ServiceCatalogVersion {
   minimumUnits           Int                  @map("minimum_units")
   customerUnitPriceMinor BigInt               @map("customer_unit_price_minor")
   playerUnitPayoutMinor  BigInt               @map("player_unit_payout_minor")
+  defaultPlayerPayoutBps Int                  @default(6000) @map("default_player_payout_bps")
   currency               String               @db.Char(3)
   createdByStaffId       String               @map("created_by_staff_id") @db.Uuid
   activatedAt            DateTime?            @map("activated_at") @db.Timestamptz(3)

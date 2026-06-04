@@ -34,6 +34,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [actionError, setActionError] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
+  const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
@@ -60,6 +61,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     if (!mayReadPage) return;
     void load(null, {});
     if(['players','serviceCatalog','giftCatalog'].includes(props.page))void client.get('/api/v1/admin/business-tags?enabled=true').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;const items=Array.isArray(body?.data)?body.data:body?.data?.items??[];if(response.ok)setBusinessTagOptions(groupEnabledBusinessTags(items));});
+    if(props.page==='players')void client.get('/api/v1/admin/service-catalog?limit=100').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(response.ok)setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));});
   }, [props.page, mayReadPage]);
 
   async function submitAction(action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) {
@@ -184,14 +186,24 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     void loadUserConsumptions(userId, cursor, true);
   }
 
+  async function openAction(action:AdminBusinessAction,item?:Record<string,unknown>){
+    activeWrite.current=null;
+    if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
+      const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
+      const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
+      if(response.ok){const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));}
+    }
+    setActiveAction({action,item});setActionError(null);setActionStatus('IDLE');
+  }
+
   const model = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status, items, nextCursor, requestId });
   return <AdminBusinessPage model={model} onRetry={() => void load()} onNextPage={(cursor) => void load(cursor)}
     onClearFilters={() => { setFilters({}); void load(null, {}); }}
     onFilter={(value) => { setFilters(value); void load(null, value); }}
-    onAction={(action, item) => { activeWrite.current = null; setActiveAction({ action, item }); setActionError(null); setActionStatus('IDLE'); }}
+    onAction={(action, item) => { void openAction(action,item); }}
     activeAction={activeAction} actionStatus={actionStatus} actionError={actionError}
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} />;
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} />;
 }

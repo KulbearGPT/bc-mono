@@ -34,6 +34,7 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_admin_directory']);
     await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_admin_directory', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_admin_directory', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000013_business_tags/migration.sql']);
     pool = new Pool({ host: root, port, database: 'blackcat_m4_admin_directory' });
     await seed();
   }, 30_000);

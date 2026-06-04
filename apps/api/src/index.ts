@@ -31,6 +31,7 @@ import { PostgresWalletStore } from './wallet.js';
 import { PrivateFileReceiptStorage } from './receipt-storage.js';
 import { PostgresOnboardingStore } from './onboarding.js';
 import { PostgresBusinessTagStore } from './business-tags.js';
+import { PostgresPlayerCompensationStore } from './player-compensation.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -74,6 +75,7 @@ const accountStore = new PostgresAccountStore({ pool: databasePool });
 const orderStore = new PostgresOrderStore({ pool: databasePool });
 const playerStore = new PostgresPlayerStore({ pool: databasePool });
 const businessTagStore = new PostgresBusinessTagStore(databasePool);
+const playerCompensationStore = new PostgresPlayerCompensationStore(databasePool);
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
 const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
@@ -139,6 +141,7 @@ const server = buildApiServer({
     businessTags: businessTagStore
   },
   businessTags:{store:businessTagStore},
+  playerCompensation:{store:playerCompensationStore},
   account: {
     store: accountStore,
     walletFunding: walletStore,
@@ -159,7 +162,8 @@ const server = buildApiServer({
     orderStore,
     dispatchStore,
     playerPool: dispatchPlayerPool,
-    dispatchChannelId
+    dispatchChannelId,
+    compensationStore:playerCompensationStore
   },
   serviceLifecycle: {
     store: serviceLifecycleStore

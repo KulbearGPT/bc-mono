@@ -22,6 +22,7 @@ export interface MoneyInput {
 export interface ServiceCatalogRecord {
   id: string;
   offeringKey: string;
+  serviceOfferingId?: string | null;
   game: string;
   service: string;
   region: string | null;
@@ -29,6 +30,7 @@ export interface ServiceCatalogRecord {
   minimumUnits: number;
   customerUnitPriceMinor: number | null;
   playerUnitPayoutMinor: number | null;
+  defaultPlayerPayoutBps?: number | null;
   currency: Currency;
   status: CatalogStatus;
   version: number;
@@ -51,6 +53,8 @@ export interface PublicServiceCatalog {
 }
 
 export interface AdminServiceCatalog extends PublicServiceCatalog {
+  serviceOfferingId: string;
+  defaultPlayerPayoutBps: number;
   playerUnitPayoutMinor: number;
   enabled: boolean;
   createdAt: string;
@@ -110,6 +114,7 @@ export interface CreateServiceCatalogInput {
   minimumUnits: number;
   customerUnitPrice: MoneyInput | null;
   playerUnitPayout: MoneyInput | null;
+  defaultPlayerPayoutBps?: number;
   enabled: boolean;
   reasonCode: string;
 }
@@ -218,7 +223,7 @@ export class PostgresServiceCatalogStore implements ServiceCatalogStore {
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
        offering.service_code, offering.service_name, offering.region_code,
        version.billing_unit_minutes, version.minimum_units,
-       version.customer_unit_price_minor, version.player_unit_payout_minor,
+       version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
        version.created_by_staff_id, version.created_at,
        version.activated_at, version.retired_at
@@ -235,7 +240,7 @@ ORDER BY offering.game_code ASC, offering.service_code ASC, offering.region_code
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
        offering.service_code, offering.service_name, offering.region_code,
        version.billing_unit_minutes, version.minimum_units,
-       version.customer_unit_price_minor, version.player_unit_payout_minor,
+       version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
        version.created_by_staff_id, version.created_at,
        version.activated_at, version.retired_at
@@ -256,7 +261,7 @@ LIMIT $3
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
        offering.service_code, offering.service_name, offering.region_code,
        version.billing_unit_minutes, version.minimum_units,
-       version.customer_unit_price_minor, version.player_unit_payout_minor,
+       version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
        version.created_by_staff_id, version.created_at,
        version.activated_at, version.retired_at
@@ -322,12 +327,12 @@ WITH offering AS (
 version_upsert AS (
   INSERT INTO service_catalog_versions (
     id, service_offering_id, version, status, active_offering_key,
-    billing_unit_minutes, minimum_units, customer_unit_price_minor, player_unit_payout_minor,
+    billing_unit_minutes, minimum_units, customer_unit_price_minor, player_unit_payout_minor, default_player_payout_bps,
     currency, created_by_staff_id, activated_at, retired_at, created_at
   )
   SELECT $1, offering.id, $12, $9::"CatalogVersionStatus",
          CASE WHEN $9 = 'ACTIVE' THEN offering.id ELSE NULL END,
-         $5, $6, $7, $8, $10, $11, $16, $17, $15
+         $5, $6, $7, $8, $18, $10, $11, $16, $17, $15
   FROM offering
   ON CONFLICT (id) DO UPDATE
     SET status = EXCLUDED.status,
@@ -335,13 +340,13 @@ version_upsert AS (
         activated_at = EXCLUDED.activated_at,
         retired_at = EXCLUDED.retired_at
   RETURNING id, service_offering_id, billing_unit_minutes, minimum_units,
-            customer_unit_price_minor, player_unit_payout_minor, currency, status, version,
+            customer_unit_price_minor, player_unit_payout_minor, default_player_payout_bps, currency, status, version,
             created_by_staff_id, created_at, activated_at, retired_at
 )
 SELECT version_upsert.id, version_upsert.service_offering_id,
        offering.game_code, offering.game_name, offering.service_code, offering.service_name, offering.region_code,
        version_upsert.billing_unit_minutes, version_upsert.minimum_units,
-       version_upsert.customer_unit_price_minor, version_upsert.player_unit_payout_minor,
+       version_upsert.customer_unit_price_minor, version_upsert.player_unit_payout_minor, version_upsert.default_player_payout_bps,
        version_upsert.currency, version_upsert.status, version_upsert.version,
        version_upsert.created_by_staff_id, version_upsert.created_at,
        version_upsert.activated_at, version_upsert.retired_at
@@ -365,7 +370,8 @@ JOIN offering ON offering.id = version_upsert.service_offering_id
       record.offeringKey,
       new Date(record.createdAt),
       record.activatedAt ? new Date(record.activatedAt) : null,
-      record.retiredAt ? new Date(record.retiredAt) : null
+      record.retiredAt ? new Date(record.retiredAt) : null,
+      record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor ?? 0) * 10000 / (record.customerUnitPriceMinor ?? 1))
     ]
   );
   if (!result.rows[0]) {
@@ -647,7 +653,8 @@ function normalizeCreateInput(input: CreateServiceCatalogInput): NormalizedCreat
     input.billingUnitMinutes < 1 ||
     input.minimumUnits < 1 ||
     input.customerUnitPrice.amountMinor < 1 ||
-    input.playerUnitPayout.amountMinor < 1
+    input.playerUnitPayout.amountMinor < 1 ||
+    (input.defaultPlayerPayoutBps !== undefined && (!Number.isInteger(input.defaultPlayerPayoutBps) || input.defaultPlayerPayoutBps < 1 || input.defaultPlayerPayoutBps > 10000))
   ) {
     throw new CatalogError('BUSINESS_RULE_VIOLATION', 'Catalog units and prices must be positive.');
   }
@@ -707,6 +714,7 @@ function buildCreatedCatalogRecord(input: {
     minimumUnits: input.normalized.minimumUnits,
     customerUnitPriceMinor: input.normalized.customerUnitPrice.amountMinor,
     playerUnitPayoutMinor: input.normalized.playerUnitPayout.amountMinor,
+    defaultPlayerPayoutBps: input.normalized.defaultPlayerPayoutBps ?? Math.floor(input.normalized.playerUnitPayout.amountMinor * 10000 / input.normalized.customerUnitPrice.amountMinor),
     currency: input.normalized.customerUnitPrice.currency,
     status: input.normalized.enabled ? 'ACTIVE' : 'DRAFT',
     version: input.version,
@@ -785,6 +793,8 @@ function toAdminCatalog(record: ServiceCatalogRecord): AdminServiceCatalog {
   assertCompletePrices(record);
   return {
     ...toPublicCatalog(record as ServiceCatalogRecord & { customerUnitPriceMinor: number }),
+    serviceOfferingId: record.serviceOfferingId ?? record.offeringKey,
+    defaultPlayerPayoutBps: record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor as number) * 10000 / (record.customerUnitPriceMinor as number)),
     playerUnitPayoutMinor: record.playerUnitPayoutMinor as number,
     enabled: record.status === 'ACTIVE',
     createdAt: record.createdAt
@@ -921,6 +931,7 @@ interface ServiceCatalogRow {
   minimum_units: number;
   customer_unit_price_minor: number | string | bigint | null;
   player_unit_payout_minor: number | string | bigint | null;
+  default_player_payout_bps: number | null;
   currency: string;
   status: CatalogStatus;
   version: number;
@@ -934,6 +945,7 @@ function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
   return {
     id: row.id,
     offeringKey: `${row.game_code}|${row.service_code}|${row.region_code ?? ''}`,
+    serviceOfferingId: row.service_offering_id,
     game: row.game_code,
     service: row.service_code,
     region: row.region_code,
@@ -941,6 +953,7 @@ function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
     minimumUnits: row.minimum_units,
     customerUnitPriceMinor: toNullableNumber(row.customer_unit_price_minor),
     playerUnitPayoutMinor: toNullableNumber(row.player_unit_payout_minor),
+    defaultPlayerPayoutBps: row.default_player_payout_bps,
     currency: row.currency as Currency,
     status: row.status,
     version: row.version,

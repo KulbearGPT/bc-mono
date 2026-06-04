@@ -39,6 +39,8 @@ describe('M1-US-01 Postgres catalog integration', () => {
       '-f',
       'database/prisma/migrations/000001_p0_baseline/migration.sql'
     ]);
+    await execFile('psql', ['-h', socketDir, '-p', String(port), '-d', 'blackcat_m1_catalog', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000013_business_tags/migration.sql']);
+    await execFile('psql', ['-h', socketDir, '-p', String(port), '-d', 'blackcat_m1_catalog', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000014_player_service_compensation/migration.sql']);
 
     client = new Client({
       host: socketDir,
@@ -96,7 +98,7 @@ VALUES (
       "SELECT count(*) AS count, max(reason) AS reason FROM audit_logs WHERE action = 'CREATE_SERVICE_CATALOG_VERSION'"
     );
 
-    expect(records).toEqual([service()]);
+    expect(records).toMatchObject([service()]);
     expect(audit.rows[0]).toEqual({ count: '1', reason: 'INITIAL_CATALOG_VERSION' });
   });
 

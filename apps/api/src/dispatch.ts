@@ -6,6 +6,7 @@ import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { registerSecureWriteRoute } from './security.js';
 import type { OutboxJob } from './outbox.js';
 import type { OrderRecord, OrderStatus, OrderStore } from './orders.js';
+import { calculatePlayerCompensation,type PlayerCompensationStore } from './player-compensation.js';
 import {
   selectEligibleDispatchCandidates,
   type DiscordPresenceStatus,
@@ -466,6 +467,8 @@ UPDATE orders
 SET status = 'ACCEPTED',
     player_id = $4,
     active_player_slot_id = $4,
+    player_unit_payout_minor = $7,
+    expected_player_earning_minor = $8,
     row_version = row_version + 1,
     accepted_at = $5,
     readiness_due_at = $6,
@@ -491,6 +494,8 @@ RETURNING id
           input.player.userId,
           input.now.toISOString(),
           new Date(input.now.getTime() + 10 * 60_000).toISOString()
+          ,input.order.playerUnitPayoutMinor,
+          input.order.playerEarningMinor
         ]
       );
       if ((order.rowCount ?? 0) !== 1) {
@@ -806,21 +811,24 @@ export async function acceptOrder(input: {
   actor: { guildId: string; discordUserId: string };
   idempotencyKey: string;
   now: Date;
+  compensationStore?: PlayerCompensationStore;
 }): Promise<AcceptedOrderResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
   const player = await requireActorPlayer(input.playerPool, input.actor);
   if (!isPlayerEligibleForOrder(player, order)) {
     throw new DispatchError('PLAYER_NOT_ELIGIBLE', 'Player is not eligible for this order.');
   }
+  let acceptedOrder=order;
+  if(input.compensationStore?.findForCatalog&&order.serviceCatalogId&&order.customerUnitPriceMinor&&order.playerUnitPayoutMinor&&order.unitCount){const rule=await input.compensationStore.findForCatalog(player.playerId,order.serviceCatalogId);const defaultPayoutBps=Math.floor(order.playerUnitPayoutMinor*10000/order.customerUnitPriceMinor);const compensation=calculatePlayerCompensation({customerUnitPriceMinor:order.customerUnitPriceMinor,unitCount:order.unitCount,defaultPayoutBps,rule});acceptedOrder={...order,playerUnitPayoutMinor:compensation.unitPayoutMinor,playerEarningMinor:compensation.totalPayoutMinor};}
   await input.dispatchStore.commitAcceptance({
     orderStore: input.orderStore,
-    order,
+    order:acceptedOrder,
     expectedVersion: input.expectedVersion,
     dispatchAttemptId: input.dispatchAttemptId,
     player,
     outboxJobs: [
       buildAcceptedOrderOutboxJob({
-        order,
+        order:acceptedOrder,
         player,
         dispatchAttemptId: input.dispatchAttemptId,
         idempotencyKey: input.idempotencyKey,
@@ -870,6 +878,7 @@ export function registerDispatchRoutes(
     now?: () => Date;
     policyReader?: PolicyReader;
     botConfigStore?: BotConfigStore;
+    compensationStore?: PlayerCompensationStore;
   }
 ): void {
   const security = server.securityOptions;
@@ -929,6 +938,7 @@ export function registerDispatchRoutes(
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         idempotencyKey: idempotencyKey(request),
         now: now()
+        ,compensationStore:options.compensationStore
       });
     },
     mapError: mapDispatchError,

@@ -11,7 +11,7 @@ describe('M2-US-11 Discord paused automation state', () => {
     expect(message.body).toContain('自动派单和超时处理已暂停');
     expect(message.body).not.toContain('内部');
     expect(controls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'BUTTON', label: '联系客服' }),
+      expect.objectContaining({ type: 'BUTTON', label: '我要申诉' }),
       expect.objectContaining({ type: 'BUTTON', label: '查看取消影响' })
     ]));
     expect(controls.some((control) => control.type === 'SELECT')).toBe(false);

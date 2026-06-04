@@ -100,7 +100,8 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     actions: [
       { id: 'APPROVE_COMPANION', label: '批准陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
       { id: 'REJECT_COMPANION', label: '拒绝陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
-      { id: 'EDIT_COMPANION_TAGS', label: '编辑支持范围', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'EDIT_COMPANION_TAGS', label: '编辑支持范围', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' },
+      { id: 'EDIT_PLAYER_COMPENSATION', label: '设置项目分成', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -263,6 +264,9 @@ export function buildAdminActionRequest(input: {
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+  if(input.actionId==='EDIT_PLAYER_COMPENSATION'){const item=requirePlayerItem(input.item);const serviceOfferingId=requireText(input.fields.serviceOfferingId,'serviceOfferingId');const type=requireEnum(input.fields.compensationType,['PERCENT_BPS','FIXED_MINOR'],'compensationType');
+    const value=type==='PERCENT_BPS'?requirePercentageBps(input.fields.percentage):requirePositiveInteger(input.fields.fixedAmountMinor,'fixedAmountMinor');
+    return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation/${encodeURIComponent(serviceOfferingId)}`,body:{expectedVersion:optionalPositiveInteger(input.fields.compensationVersion),type,value,currency:type==='FIXED_MINOR'?'CAT':null,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
     reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}
   if (input.actionId === 'SET_OPERATIONAL_STATUS') {
@@ -373,6 +377,8 @@ function requirePositiveInteger(value: string | boolean | undefined, field: stri
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new TypeError(`${field} must be a positive integer.`);
   return parsed;
 }
+function optionalPositiveInteger(value:string|boolean|undefined):number|null{if(value===undefined||value==='')return null;return requirePositiveInteger(value,'compensationVersion');}
+function requirePercentageBps(value:string|boolean|undefined):number{const parsed=typeof value==='string'?Number(value):Number.NaN;if(!Number.isFinite(parsed)||parsed<=0||parsed>100)throw new TypeError('percentage must be between 0 and 100.');const bps=Math.round(parsed*100);if(!Number.isSafeInteger(bps)||bps<1||bps>10000)throw new TypeError('percentage must be between 0 and 100.');return bps;}
 
 function requireIntegerInRange(value: string | boolean | undefined, field: string, minimum: number, maximum: number): number {
   const parsed = requirePositiveInteger(value, field);
@@ -388,14 +394,17 @@ function requireCurrency(value: string | boolean | undefined): string {
 
 function buildServiceCatalogCreateBody(fields: Record<string, string | boolean>, reasonCode: string) {
   const currency = requireCurrency(fields.currency);
+  const customerAmountMinor = requirePositiveInteger(fields.customerAmountMinor, 'customerAmountMinor');
+  const defaultPlayerPayoutBps = requirePercentageBps(fields.defaultPlayerPayoutPercent);
   return {
     gameTagId: requireText(fields.gameTagId, 'gameTagId', 100),
     serviceTagId: requireText(fields.serviceTagId, 'serviceTagId', 100),
     regionTagId: optionalText(fields.regionTagId),
     billingUnitMinutes: requireIntegerInRange(fields.billingUnitMinutes, 'billingUnitMinutes', 1, 1_440),
     minimumUnits: requireIntegerInRange(fields.minimumUnits, 'minimumUnits', 1, 1_440),
-    customerUnitPrice: { amountMinor: requirePositiveInteger(fields.customerAmountMinor, 'customerAmountMinor'), currency },
-    playerUnitPayout: { amountMinor: requirePositiveInteger(fields.playerAmountMinor, 'playerAmountMinor'), currency },
+    customerUnitPrice: { amountMinor: customerAmountMinor, currency },
+    playerUnitPayout: { amountMinor: Math.floor(customerAmountMinor * defaultPlayerPayoutBps / 10000), currency },
+    defaultPlayerPayoutBps,
     enabled: fields.enabled === true,
     reasonCode
   };

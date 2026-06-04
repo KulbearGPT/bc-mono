@@ -45,6 +45,7 @@ import { registerWalletRoutes, type WalletApplicationService, type WalletFunding
 import type { ReceiptStorage } from './receipt-storage.js';
 import { registerOnboardingRoutes, type OnboardingStore } from './onboarding.js';
 import { registerBusinessTagRoutes,type BusinessTagStore } from './business-tags.js';
+import { registerPlayerCompensationRoutes,type PlayerCompensationStore } from './player-compensation.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -75,12 +76,14 @@ export interface ApiServerOptions {
     now?: () => Date;
   };
   businessTags?: { store: BusinessTagStore; now?: () => Date };
+  playerCompensation?: { store: PlayerCompensationStore; now?: () => Date };
   dispatch?: {
     orderStore: OrderStore;
     dispatchStore: DispatchStore;
     playerPool: DispatchPlayerPool;
     dispatchChannelId: string;
     now?: () => Date;
+    compensationStore?: PlayerCompensationStore;
   };
   serviceLifecycle?: {
     store: ServiceLifecycleStore;
@@ -234,6 +237,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
     registerCatalogRoutes(server, options.catalog);
   }
   if(options.businessTags){if(!server.securityOptions)throw new Error('Business tag routes require buildApiServer({ security, businessTags })');registerBusinessTagRoutes(server,options.businessTags);}
+  if(options.playerCompensation)registerPlayerCompensationRoutes(server,options.playerCompensation);
 
   if (options.account) {
     if (!server.securityOptions) {

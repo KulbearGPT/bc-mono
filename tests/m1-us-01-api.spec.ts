@@ -64,6 +64,8 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
   return {
     id: '00000000-0000-0000-0000-00000000c001',
     offeringKey: 'VALORANT|ENTERTAINMENT|NA',
+    serviceOfferingId: undefined,
+    defaultPlayerPayoutBps: undefined,
     game: 'VALORANT',
     service: 'ENTERTAINMENT',
     region: 'NA',
@@ -452,6 +454,7 @@ describe('M1-US-01 Postgres service catalog store', () => {
     await expect(store.list()).resolves.toEqual([
       service({
         version: 3,
+        serviceOfferingId: '00000000-0000-0000-0000-00000000f001',
         game: 'VALORANT',
         service: 'ENTERTAINMENT',
         createdAt: now.toISOString()
