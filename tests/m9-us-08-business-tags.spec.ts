@@ -83,4 +83,13 @@ describe('M9-US-08 unified business tags', () => {
       body: { expectedVersion: 4, gameTagIds: ['game-1','game-2'], serviceTagIds: ['service-1','service-2'], languageTagIds: ['language-1'], reasonCode: 'SUPPORT_RANGE_UPDATE' }
     });
   });
+
+  test('does not require MFA step-up for service or gift catalog maintenance', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const catalog = await readFile('apps/api/src/catalog.ts', 'utf8');
+    const directory = await readFile('apps/api/src/admin-directory.ts', 'utf8');
+    const giftRoutes = directory.slice(directory.indexOf("url: '/api/v1/admin/gift-catalog'"), directory.indexOf('\n}\n\nfunction bindAudit'));
+    expect(catalog.slice(catalog.indexOf("url: '/api/v1/admin/service-catalog'"), catalog.indexOf('\nfunction requireCatalogManager'))).not.toContain('requiresRecentStepUp');
+    expect(giftRoutes).not.toContain('requiresRecentStepUp');
+  });
 });

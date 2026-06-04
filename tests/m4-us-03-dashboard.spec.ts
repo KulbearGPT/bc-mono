@@ -288,9 +288,17 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(serviceHtml).toContain('name="customerAmountMinor"');
     expect(serviceHtml).toContain('name="playerAmountMinor"');
     expect(giftHtml).toContain('value="CREATE_REPLACEMENT_VERSION"');
+    expect(giftHtml).toContain('保存修改（创建新版本）');
     expect(riskHtml).toContain('name="severity"');
     expect(riskHtml).toContain('name="notes"');
     expect(riskHtml).not.toContain('name="reasonCode"');
+  });
+
+  test('renders the operations column before business data columns', () => {
+    const model = buildAdminBusinessPage({ page: 'serviceCatalog', permissions: ['catalog.read', 'catalog.manage'], status: 'READY', items: [{ id: 'service-1', version: 1, game: 'VALORANT' }] });
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, onAction: () => undefined }));
+    expect(html.indexOf('<th scope="col">操作</th>')).toBeLessThan(html.indexOf('<th scope="col">id</th>'));
+    expect(html.indexOf('class="table-actions"')).toBeLessThan(html.indexOf('>service-1</td>'));
   });
 
   test('reuses a generated idempotency key for retries of one logical write', async () => {

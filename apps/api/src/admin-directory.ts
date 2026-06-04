@@ -370,11 +370,11 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.setUserStatus({ userId: param(request, 'userId'), actorStaffId: actor.actorStaffId, now: now(), ...parseUserStatus(request.body) }), auditSink); },
     successReason: (request) => parseUserStatus(request.body).reasonCode, mapError });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'CREATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
-    successStatusCode: 201, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
+    successStatusCode: 201, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); const body=await giftCreateInput(request.body,options.businessTags); return bindAudit(await options.store.createGiftCatalog({ ...body, actorStaffId: actor.actorStaffId, now: now() }), auditSink); },
     successReason: (request) => parseGiftCreate(request.body).reasonCode, mapError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/gift-catalog/:giftCatalogId', permission: 'gift_catalog.manage', requiredFeature: 'GIFTS', action: 'UPDATE_GIFT_CATALOG_ITEM', targetType: 'gift_catalog',
-    targetId: (request) => param(request, 'giftCatalogId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true,
+    targetId: (request) => param(request, 'giftCatalogId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     handler: async (request, actor) => { if (!actor.actorStaffId) throw new AdminDirectoryError('PERMISSION_DENIED', 'Staff is required.'); return bindAudit(await options.store.updateGiftCatalog({ giftCatalogId: param(request, 'giftCatalogId'), actorStaffId: actor.actorStaffId, now: now(), ...await giftUpdateInput(request.body,options.businessTags) }), auditSink); },
     successReason: (request) => parseGiftUpdate(request.body).reasonCode, mapError });
 }

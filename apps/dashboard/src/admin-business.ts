@@ -108,7 +108,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [],
     actions: [
       { id: 'CREATE_SERVICE_VERSION', label: '创建服务版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
-      { id: 'UPDATE_VERSION', label: '更新版本状态', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'UPDATE_VERSION', label: '编辑服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -117,7 +117,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [],
     actions: [
       { id: 'CREATE_GIFT', label: '创建礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'COLLECTION' },
-      { id: 'UPDATE_GIFT_VERSION', label: '更新礼物版本', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'UPDATE_GIFT_VERSION', label: '编辑礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {

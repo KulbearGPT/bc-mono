@@ -76,14 +76,14 @@ function AdminBusinessTable(props: {
   return (
     <div className="table-scroll content-panel content-panel--flush">
       <table className="data-table">
-        <thead><tr>{columns.map((column) => <th key={column} scope="col">{column}</th>)}{hasOperations && <th scope="col">操作</th>}</tr></thead>
+        <thead><tr>{hasOperations && <th scope="col">操作</th>}{columns.map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead>
         <tbody>{props.model.items.map((item, index) => (
           <tr key={typeof item.id === 'string' ? item.id : index}>
-            {columns.map((column) => <td key={column}>{displayValue(column, item[column], item.currency)}</td>)}
             {hasOperations && <td className="table-actions">
               {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
               {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
             </td>}
+            {columns.map((column) => <td key={column}>{displayValue(column, item[column], item.currency)}</td>)}
           </tr>
         ))}</tbody>
       </table>
@@ -128,8 +128,8 @@ function ActionFields({ action, item, businessTagOptions }: { action: AdminBusin
   </>;
   if (action.id === 'CREATE_GIFT') return <GiftCatalogFields options={businessTagOptions}/>;
   if (action.id === 'CREATE_SERVICE_VERSION') return <ServiceCatalogFields options={businessTagOptions}/>;
-  if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields options={businessTagOptions}/>} />;
-  if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields options={businessTagOptions}/>} />;
+  if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields options={businessTagOptions} item={item}/>} />;
+  if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields options={businessTagOptions} item={item}/>} />;
   if (action.id === 'CREATE_RISK_EVENT') return <>
     <label className="field"><span>事件类型</span><select name="type" required defaultValue="PAYMENT_ANOMALY"><option value="PAYMENT_ANOMALY">支付异常</option><option value="DUPLICATE_ACCOUNT_SIGNAL">重复账号信号</option><option value="REFERRAL_ABUSE_SIGNAL">返佣滥用信号</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">用户未到场</option></select></label>
     <label className="field"><span>严重程度</span><select name="severity" required defaultValue="MEDIUM"><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label>
@@ -140,38 +140,40 @@ function ActionFields({ action, item, businessTagOptions }: { action: AdminBusin
   return null;
 }
 
-function GiftCatalogFields({options}:{options?:BusinessTagGroups}) {
+function GiftCatalogFields({options,item}:{options?:BusinessTagGroups;item?:Record<string,unknown>}) {
   return <>
-    <label className="field"><span>礼物名称</span><input name="name" required maxLength={100} /></label>
-    <TagSelect name="giftCategoryTagId" label="礼物分类" items={options?.GIFT_CATEGORY??[]}/>
-    <label className="field"><span>价格（minor units）</span><input name="amountMinor" type="number" required min={1} step={1} /></label>
+    <label className="field"><span>礼物名称</span><input name="name" required maxLength={100} defaultValue={textValue(item?.name)} /></label>
+    <TagSelect name="giftCategoryTagId" label="礼物分类" items={options?.GIFT_CATEGORY??[]} selectedValue={textValue(item?.giftCategoryTagId)}/>
+    <label className="field"><span>价格（minor units）</span><input name="amountMinor" type="number" required min={1} step={1} defaultValue={numberValue(item?.priceMinor)} /></label>
     <label className="field"><span>币种</span><select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
-    <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked /><span>立即启用</span></label>
-    <label className="field field--full"><span>播报模板</span><textarea name="broadcastTemplate" required rows={3} maxLength={500} /></label>
+    <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked={item?.enabled!==false} /><span>立即启用</span></label>
+    <label className="field field--full"><span>播报模板</span><textarea name="broadcastTemplate" required rows={3} maxLength={500} defaultValue={textValue(item?.broadcastTemplate)} /></label>
   </>;
 }
 
-function ServiceCatalogFields({options}:{options?:BusinessTagGroups}) {
+function ServiceCatalogFields({options,item}:{options?:BusinessTagGroups;item?:Record<string,unknown>}) {
   return <>
-    <TagSelect name="gameTagId" label="游戏" items={options?.GAME??[]}/>
-    <TagSelect name="serviceTagId" label="服务/种类" items={options?.SERVICE??[]}/>
-    <TagSelect name="regionTagId" label="地区（可选）" items={options?.REGION??[]} required={false}/>
-    <label className="field"><span>计费单位（分钟）</span><input name="billingUnitMinutes" type="number" required min={1} max={1440} step={1} /></label>
-    <label className="field"><span>最少单位数</span><input name="minimumUnits" type="number" required min={1} max={1440} step={1} /></label>
-    <label className="field"><span>用户单价（minor units）</span><input name="customerAmountMinor" type="number" required min={1} step={1} /></label>
-    <label className="field"><span>陪玩单价（minor units）</span><input name="playerAmountMinor" type="number" required min={1} step={1} /></label>
+    <TagSelect name="gameTagId" label="游戏" items={options?.GAME??[]} selectedCodes={[textValue(item?.game)]}/>
+    <TagSelect name="serviceTagId" label="服务/种类" items={options?.SERVICE??[]} selectedCodes={[textValue(item?.service)]}/>
+    <TagSelect name="regionTagId" label="地区（可选）" items={options?.REGION??[]} required={false} selectedCodes={[textValue(item?.region)]}/>
+    <label className="field"><span>计费单位（分钟）</span><input name="billingUnitMinutes" type="number" required min={1} max={1440} step={1} defaultValue={numberValue(item?.billingUnitMinutes)} /></label>
+    <label className="field"><span>最少单位数</span><input name="minimumUnits" type="number" required min={1} max={1440} step={1} defaultValue={numberValue(item?.minimumUnits)} /></label>
+    <label className="field"><span>用户单价（minor units）</span><input name="customerAmountMinor" type="number" required min={1} step={1} defaultValue={numberValue(item?.customerUnitPriceMinor)} /></label>
+    <label className="field"><span>陪玩单价（minor units）</span><input name="playerAmountMinor" type="number" required min={1} step={1} defaultValue={numberValue(item?.playerUnitPayoutMinor)} /></label>
     <label className="field"><span>币种</span><select name="currency" required defaultValue="CAT"><option value="CAT">猫条（CAT）</option></select></label>
-    <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked /><span>立即启用</span></label>
+    <label className="checkbox-field"><input name="enabled" type="checkbox" defaultChecked={item?.enabled!==false} /><span>立即启用</span></label>
   </>;
 }
 
-function TagSelect(props:{name:string;label:string;items:BusinessTagRecord[];multiple?:boolean;required?:boolean;selectedCodes?:string[]}){if(props.multiple)return <fieldset className="field tag-checklist"><legend>{props.label}</legend>{props.items.map((item)=><label className="checkbox-field" key={item.id}><input type="checkbox" name={props.name} value={item.id} defaultChecked={props.selectedCodes?.includes(item.code)}/><span>{item.displayName} · {item.code}</span></label>)}</fieldset>;return <label className="field"><span>{props.label}</span><select name={props.name} required={props.required??true} defaultValue=""><option value="" disabled={props.required??true}>请选择</option>{props.items.map((item)=><option key={item.id} value={item.id}>{item.displayName} · {item.code}</option>)}</select></label>}
+function TagSelect(props:{name:string;label:string;items:BusinessTagRecord[];multiple?:boolean;required?:boolean;selectedCodes?:string[];selectedValue?:string}){if(props.multiple)return <fieldset className="field tag-checklist"><legend>{props.label}</legend>{props.items.map((item)=><label className="checkbox-field" key={item.id}><input type="checkbox" name={props.name} value={item.id} defaultChecked={props.selectedCodes?.includes(item.code)}/><span>{item.displayName} · {item.code}</span></label>)}</fieldset>;const selected=props.selectedValue||props.items.find((item)=>props.selectedCodes?.includes(item.code))?.id||'';return <label className="field"><span>{props.label}</span><select name={props.name} required={props.required??true} defaultValue={selected}><option value="" disabled={props.required??true}>请选择</option>{props.items.map((item)=><option key={item.id} value={item.id}>{item.displayName} · {item.code}</option>)}</select></label>}
 function stringList(value:unknown):string[]{return Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[];}
+function textValue(value:unknown):string{return typeof value==='string'?value:'';}
+function numberValue(value:unknown):number|undefined{return typeof value==='number'&&Number.isFinite(value)?value:undefined;}
 
 function VersionActionFields(props: { action: AdminBusinessAction; replacementAction: string; replacementFields: ReactNode }) {
-  const [action, setAction] = useState('DISABLE');
+  const [action, setAction] = useState(props.replacementAction);
   return <>
-    <label className="field"><span>版本动作</span><select name="action" required value={action} onChange={(event) => setAction(event.currentTarget.value)}><option value="ENABLE">启用</option><option value="DISABLE">停用</option><option value={props.replacementAction}>{props.action.id === 'UPDATE_VERSION' ? '创建替代服务版本' : '创建替代礼物版本'}</option></select></label>
+    <label className="field"><span>操作</span><select name="action" required value={action} onChange={(event) => setAction(event.currentTarget.value)}><option value={props.replacementAction}>保存修改（创建新版本）</option><option value="ENABLE">启用</option><option value="DISABLE">停用</option></select></label>
     {action === props.replacementAction && props.replacementFields}
   </>;
 }
