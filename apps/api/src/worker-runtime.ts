@@ -6,6 +6,7 @@ export type ProductionHandlerMap = Partial<Record<JobType, OutboxHandler>>;
 export const productionJobTypes = [
   'GIFT_ANNOUNCEMENT',
   'GIFT_EXPIRY',
+  'DISPATCH_START',
   'DISPATCH_MESSAGE',
   'DISPATCH_TIMEOUT',
   'READINESS_TIMEOUT',
@@ -19,6 +20,7 @@ export const productionJobTypes = [
 export function createProductionHandlerMap(input: {
   giftAnnouncement: OutboxHandler;
   giftExpiry: OutboxHandler;
+  dispatchStart: OutboxHandler;
   dispatchMessage: OutboxHandler;
   dispatchTimeout: OutboxHandler;
   readinessTimeout: OutboxHandler;
@@ -31,6 +33,7 @@ export function createProductionHandlerMap(input: {
   const handlers: ProductionHandlerMap = {
     GIFT_ANNOUNCEMENT: input.giftAnnouncement,
     GIFT_EXPIRY: input.giftExpiry,
+    DISPATCH_START: input.dispatchStart,
     DISPATCH_MESSAGE: input.dispatchMessage,
     DISPATCH_TIMEOUT: input.dispatchTimeout,
     READINESS_TIMEOUT: input.readinessTimeout,

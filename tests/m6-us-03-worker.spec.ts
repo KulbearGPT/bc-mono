@@ -33,7 +33,7 @@ describe('M6-US-03 weekly report worker', () => {
   test('registers generation and notification as production handlers', () => {
     const noop = async () => undefined;
     const handlers = createProductionHandlerMap({ giftAnnouncement: noop, giftExpiry: noop, dispatchMessage: noop,
-      dispatchTimeout: noop, readinessTimeout: noop, channelArchive: noop, panelSync: noop, roleReconciliation: noop,
+      dispatchStart: noop, dispatchTimeout: noop, readinessTimeout: noop, channelArchive: noop, panelSync: noop, roleReconciliation: noop,
       weeklyReportGenerate: noop, weeklyReportNotify: noop });
     expect(Object.keys(handlers)).toEqual(expect.arrayContaining(['WEEKLY_REPORT_GENERATE', 'WEEKLY_REPORT_NOTIFY']));
   });
@@ -46,7 +46,7 @@ describe('M6-US-03 weekly report worker', () => {
       dispatchMessage: noop,
       dispatchTimeout: noop,
       readinessTimeout: noop,
-      channelArchive: noop,
+      dispatchStart: noop, channelArchive: noop,
       panelSync: noop,
       roleReconciliation: noop,
       weeklyReportGenerate: noop,
@@ -74,7 +74,7 @@ describe('M6-US-03 weekly report worker', () => {
       dispatchMessage: noop,
       dispatchTimeout: noop,
       readinessTimeout: noop,
-      channelArchive: noop,
+      dispatchStart: noop, channelArchive: noop,
       panelSync: noop,
       roleReconciliation: noop
     }, { m6Enabled: false });
@@ -101,7 +101,7 @@ describe('M6-US-03 weekly report worker', () => {
       dispatchMessage: noop,
       dispatchTimeout: noop,
       readinessTimeout: noop,
-      channelArchive: noop,
+      dispatchStart: noop, channelArchive: noop,
       panelSync: noop,
       roleReconciliation: noop
     }, { m6Enabled: false });

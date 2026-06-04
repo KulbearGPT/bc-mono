@@ -18,6 +18,7 @@ import {
   type FundReservationStatus
 } from './funding.js';
 import type { WalletFundingService } from './wallet.js';
+import type { OutboxJob } from './outbox.js';
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
@@ -345,6 +346,7 @@ export interface PreparedSubmitOrderWrite {
   reservationEvent: FundReservationEventRecord;
   externalTransactions: ExternalTransactionMirrorRecord[];
   ledgerBalanceMinor: number;
+  dispatchStartJob: OutboxJob;
 }
 
 export interface PreparedCancelOrderWrite {
@@ -389,6 +391,7 @@ export interface OrderStore {
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
+    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void>;
@@ -496,6 +499,7 @@ export class InMemoryOrderStore implements OrderStore {
   readonly reservations: FundReservationRecord[];
   readonly reservationEvents: FundReservationEventRecord[];
   readonly externalTransactions: ExternalTransactionMirrorRecord[];
+  readonly outboxJobs: OutboxJob[] = [];
   readonly cancellationPreviews: CancellationPreviewRecord[];
 
   constructor(input: {
@@ -613,6 +617,7 @@ export class InMemoryOrderStore implements OrderStore {
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
+    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
@@ -637,6 +642,7 @@ export class InMemoryOrderStore implements OrderStore {
     this.reservationEvents.push(clone(input.reservationEvent));
     this.externalTransactions.push(...input.externalTransactions.map(clone));
     this.events.push(clone(input.orderEvent));
+    this.outboxJobs.push(clone(input.dispatchStartJob));
     await input.auditSink.append(input.auditRecord);
   }
 
@@ -956,6 +962,7 @@ WHERE order_id = $1
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
+    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
@@ -981,6 +988,10 @@ WHERE order_id = $1
         await insertExternalTransaction(transactionClient, transaction);
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
+      await transactionClient.query(`INSERT INTO outbox_events
+        (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
+        VALUES ($1,'DISPATCH_START','order',$2,$2,$3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5)`,
+      [input.dispatchStartJob.id,input.order.id,input.dispatchStartJob.dedupeKey,JSON.stringify(input.dispatchStartJob.payload),input.dispatchStartJob.runAfter]);
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -1323,7 +1334,13 @@ export async function prepareSubmitOrder(input: {
     reservation: activatedReservation,
     reservationEvent,
     ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
-    externalTransactions: []
+    externalTransactions: [],
+    dispatchStartJob: {
+      id: crypto.randomUUID(), type: 'DISPATCH_START', status: 'PENDING', aggregateType: 'order', aggregateId: submittedOrder.id,
+      dedupeKey: `${input.idempotencyKey}:dispatch-start`, payload: { orderId: submittedOrder.id, expectedVersion: submittedOrder.version, trigger: 'ORDER_SUBMITTED' },
+      attempts: 0, maxAttempts: 8, runAfter: input.now.toISOString(), lockedAt: null, lockedBy: null, completedAt: null,
+      lastError: null, version: 1, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+    }
   };
 }
 
@@ -1903,6 +1920,7 @@ export function registerOrderRoutes(
               reservation: prepared.reservation,
               reservationEvent: prepared.reservationEvent,
               externalTransactions: prepared.externalTransactions,
+              dispatchStartJob: prepared.dispatchStartJob,
               auditRecord: {
                 ...auditRecord,
                 beforeSnapshot: {

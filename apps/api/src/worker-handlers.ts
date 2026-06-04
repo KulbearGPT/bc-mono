@@ -21,6 +21,12 @@ export interface DispatchOfferDiscordAdapter {
   ): Promise<{ messageId: string; recreated: boolean }>;
 }
 
+export function createDispatchStartHandler(input:{start:(payload:{orderId:string;expectedVersion:number;trigger:'ORDER_SUBMITTED'|'TIMEOUT_RETRY'},job:Parameters<OutboxHandler>[0])=>Promise<unknown>}):OutboxHandler{
+  return async(job)=>{if(job.type!=='DISPATCH_START')throw new Error('Expected a DISPATCH_START job.');const payload=job.payload as {orderId?:unknown;expectedVersion?:unknown;trigger?:unknown}|null;
+    if(!payload||payload.orderId!==job.aggregateId||!Number.isInteger(payload.expectedVersion)||(payload.trigger!=='ORDER_SUBMITTED'&&payload.trigger!=='TIMEOUT_RETRY'))throw new Error('Dispatch start payload is invalid.');
+    await input.start({orderId:String(payload.orderId),expectedVersion:Number(payload.expectedVersion),trigger:payload.trigger},job);};
+}
+
 export function createDispatchMessageHandler(input: {
   store: DispatchMessageStore;
   discord: DispatchOfferDiscordAdapter;

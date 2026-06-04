@@ -22,6 +22,7 @@ describe('M5-US-02 production Worker runtime', () => {
     const handlers = createProductionHandlerMap({
       giftAnnouncement: handler,
       giftExpiry: handler,
+      dispatchStart: handler,
       dispatchMessage: handler,
       dispatchTimeout: handler,
       readinessTimeout: handler,

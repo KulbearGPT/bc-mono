@@ -3,7 +3,8 @@ import { hostname } from 'node:os';
 import { Pool } from 'pg';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { PostgresAuditSink } from './security.js';
-import { PostgresDispatchStore, expireDispatchAttempt } from './dispatch.js';
+import { PostgresDispatchPlayerPool, PostgresDispatchStore, dispatchOrder, expireDispatchAttempt } from './dispatch.js';
+import { PostgresBotConfigStore } from './bot-config.js';
 import { PostgresGiftStore, createGiftAnnouncementHandler, createGiftExpiryHandler } from './gifts.js';
 import { PostgresOrderStore } from './orders.js';
 import { OutboxWorker, PostgresOutboxStore } from './outbox.js';
@@ -13,6 +14,7 @@ import { DiscordRestDeliveryAdapter, PostgresDispatchMessageStore } from './work
 import {
   createChannelArchiveHandler,
   createDispatchMessageHandler,
+  createDispatchStartHandler,
   createDispatchTimeoutHandler,
   createReadinessTimeoutHandler,
   createRoleReconciliationHandler
@@ -32,6 +34,8 @@ const pool = new Pool({ connectionString: validation.values.databaseUrl, applica
 const outboxStore = new PostgresOutboxStore({ client: pool });
 const orderStore = new PostgresOrderStore({ pool });
 const dispatchStore = new PostgresDispatchStore({ pool });
+const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool });
+const botConfigStore = new PostgresBotConfigStore(pool);
 const lifecycleStore = new PostgresServiceLifecycleStore({ pool });
 const giftStore = new PostgresGiftStore(pool);
 const dispatchMessageStore = new PostgresDispatchMessageStore(pool);
@@ -61,9 +65,15 @@ const runtime = new ProductionOutboxRuntime({
   handlers: createProductionHandlerMap({
     giftAnnouncement: createGiftAnnouncementHandler({ store: giftStore, send: (message) => delivery.sendMessage(message) }),
     giftExpiry: createGiftExpiryHandler({ store: giftStore }),
+    dispatchStart:createDispatchStartHandler({start:(payload,job)=>dispatchOrder({orderStore,dispatchStore,playerPool:dispatchPlayerPool,
+      orderId:payload.orderId,expectedVersion:payload.expectedVersion,trigger:payload.trigger,dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
+      botConfigStore,idempotencyKey:job.dedupeKey,now:new Date(),timeoutMinutes:1.5})}),
     dispatchMessage: createDispatchMessageHandler({ store: dispatchMessageStore, discord: delivery }),
     dispatchTimeout: createDispatchTimeoutHandler({
-      expire: (dispatchAttemptId) => expireDispatchAttempt({ orderStore, dispatchStore, dispatchAttemptId, now: new Date() })
+      expire: async(dispatchAttemptId) => {const now=new Date();const result=await expireDispatchAttempt({orderStore,dispatchStore,dispatchAttemptId,now});
+        if(result.status==='DISPATCH_TIMEOUT'&&result.orderStatus==='PENDING_DISPATCH'){const order=await orderStore.findById(result.orderId);if(order)await dispatchOrder({orderStore,dispatchStore,
+          playerPool:dispatchPlayerPool,orderId:order.id,expectedVersion:order.version,trigger:'TIMEOUT_RETRY',dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
+          botConfigStore,idempotencyKey:`dispatch-timeout-retry:${dispatchAttemptId}`,now,timeoutMinutes:1.5});}return result;}
     }),
     readinessTimeout: createReadinessTimeoutHandler({
       expire: (job) => handleReadinessTimeoutJob({ job, store: lifecycleStore, now: new Date() })

@@ -73,7 +73,7 @@ const levelRank: Record<StaffLevel, number> = {
 };
 const retryableJobTypes = new Set<JobType>(['GIFT_ANNOUNCEMENT', 'DISPATCH_MESSAGE', 'CHANNEL_ARCHIVE', 'PANEL_SYNC']);
 const listedJobTypes = new Set<JobType>([
-  'GIFT_ANNOUNCEMENT', 'GIFT_EXPIRY', 'DISPATCH_MESSAGE', 'DISPATCH_TIMEOUT',
+  'GIFT_ANNOUNCEMENT', 'GIFT_EXPIRY', 'DISPATCH_START', 'DISPATCH_MESSAGE', 'DISPATCH_TIMEOUT',
   'READINESS_TIMEOUT', 'CHANNEL_ARCHIVE', 'PANEL_SYNC', 'CHANNEL_CREATE_FAILURE', 'ROLE_RECONCILIATION'
 ]);
 const sensitiveAuditPermissionPrefixes = ['access.', 'mfa.', 'step_up.', 'staff.session.'];
