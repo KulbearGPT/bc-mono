@@ -35,6 +35,7 @@ export interface OrderSummary {
   amountMinor: number;
   currency: string;
   notes: string | null;
+  preferredPlayerDiscordUserIds?: string[];
   channelSpec: OrderChannelSpec;
   matching: {
     stage: 'SEARCHING' | 'WAITING_FOR_ACCEPTANCE' | 'TIMED_OUT' | 'ACCEPTED';
@@ -814,6 +815,14 @@ export type ComponentSpec =
       placeholder: string;
       options: Array<{ label: string; value: string }>;
       disabled?: boolean;
+    }
+  | {
+      type: 'USER_SELECT';
+      customId: string;
+      placeholder: string;
+      minValues: number;
+      maxValues: number;
+      disabled?: boolean;
     };
 
 export interface MessageSpec {
@@ -872,7 +881,7 @@ export type ServiceCenterRoute =
   | { area: 'entry'; action: 'create-order' | 'service-center' | 'player-workbench' }
   | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
   | { area: 'cancellation-action'; action: 'confirm'; orderId: string; previewId: string; expectedVersion: number }
-  | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration'; expectedVersion: number }
+  | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration' | 'preferred-players'; expectedVersion: number }
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
@@ -988,6 +997,7 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
     `${formatGame(order.game)} · ${formatService(order.service)}`,
     `${formatRegion(order.region)} · ${formatDuration(order)}`,
     `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
+    `优先陪玩：${order.preferredPlayerDiscordUserIds?.length ?? 0}/3（可选）`,
     order.notes ? `备注：${order.notes}` : '备注：未填写'
   ].join('\n');
 
@@ -1011,6 +1021,16 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
             { label: '3 小时', value: '3' }
           ])
         ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [{
+          type: 'USER_SELECT',
+          customId: `bc:select:order:${order.id}:preferred-players:v${order.version}`,
+          placeholder: `优先陪玩（已选 ${order.preferredPlayerDiscordUserIds?.length ?? 0}/3）`,
+          minValues: 0,
+          maxValues: 3
+        }]
       },
       {
         type: 'ACTION_ROW',
@@ -1880,8 +1900,8 @@ export async function handleOrderSelectSubmit(input: {
   actor: BotActorContext;
   orderId: string;
   expectedVersion: number;
-  field: 'catalog' | 'duration';
-  value: string;
+  field: 'catalog' | 'duration' | 'preferred-players';
+  value: string | string[];
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
   const [order, catalog] = await Promise.all([input.api.getOrder(input.orderId, input.actor), input.api.listServices(input.actor)]);
@@ -1889,11 +1909,16 @@ export async function handleOrderSelectSubmit(input: {
     ? catalog.items.find((item) => item.id === input.value)
     : catalog.items.find((item) => item.id === order.serviceCatalogId);
   if (!selected) throw new Error('The selected service catalog is unavailable.');
-  const payload = {
+  const payload: Record<string, unknown> = {
     expectedVersion: input.expectedVersion,
     serviceCatalogId: selected.id,
-    unitCount: input.field === 'duration' ? Number.parseInt(input.value, 10) : Math.max(order.unitCount ?? 0, selected.minimumUnits)
+    unitCount: input.field === 'duration' ? Number.parseInt(String(input.value), 10) : Math.max(order.unitCount ?? 0, selected.minimumUnits)
   };
+  if (input.field === 'preferred-players' || order.preferredPlayerDiscordUserIds?.length) {
+    payload.preferredPlayerDiscordUserIds = input.field === 'preferred-players'
+      ? (Array.isArray(input.value) ? input.value : [input.value])
+      : order.preferredPlayerDiscordUserIds;
+  }
   const updated = await input.api.updateOrder(input.orderId, payload, input.actor, input.idempotencyKey);
   return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated, catalog.items) };
 }
@@ -1972,12 +1997,12 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
     };
   }
 
-  const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(catalog|duration):v([1-9][0-9]*)$/u.exec(customId);
+  const orderSelect = /^bc:select:order:([0-9a-f-]{36}):(catalog|duration|preferred-players):v([1-9][0-9]*)$/u.exec(customId);
   if (orderSelect) {
     return {
       area: 'order-select',
       orderId: orderSelect[1],
-      field: orderSelect[2] as 'catalog' | 'duration',
+      field: orderSelect[2] as 'catalog' | 'duration' | 'preferred-players',
       expectedVersion: Number.parseInt(orderSelect[3], 10)
     };
   }

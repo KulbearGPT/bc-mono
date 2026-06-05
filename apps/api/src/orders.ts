@@ -84,6 +84,7 @@ export interface OrderRecord {
   playerEarningMinor: number;
   currency: Currency;
   notes: string | null;
+  preferredPlayerDiscordUserIds?: string[];
   channelSpec: ChannelSpec;
   automationState?: 'RUNNING' | 'PAUSED';
   automationVersion?: number;
@@ -126,6 +127,7 @@ export interface UpdateOrderInput {
   region?: string | null;
   notes?: string | null;
   voiceChannelId?: string | null;
+  preferredPlayerDiscordUserIds?: string[];
 }
 
 export interface EstimateOrderInput {
@@ -469,6 +471,7 @@ export interface OrderApiRecord {
   playerId: string | null;
   region: string | null;
   notes: string | null;
+  preferredPlayerDiscordUserIds: string[];
   channelSpec: ChannelSpec;
   createdAt: string;
   updatedAt: string;
@@ -1194,6 +1197,7 @@ export async function prepareUpdateOrder(input: {
     region: input.input.region ?? service.region,
     notes: input.input.notes ?? null,
     voiceChannelId: input.input.voiceChannelId ?? order.channelSpec.voiceChannelId,
+    preferredPlayerDiscordUserIds: input.input.preferredPlayerDiscordUserIds ?? order.preferredPlayerDiscordUserIds ?? [],
     now: input.now
   });
   return {
@@ -1212,7 +1216,8 @@ export async function prepareUpdateOrder(input: {
         catalogVersion: updated.catalogVersion,
         unitCount: updated.unitCount,
         amountMinor: updated.amountMinor,
-        currency: updated.currency
+        currency: updated.currency,
+        preferredPlayerDiscordUserIds: updated.preferredPlayerDiscordUserIds
       }
     })
   };
@@ -2087,6 +2092,7 @@ function buildDraftOrder(input: {
     playerEarningMinor: 0,
     currency: 'CAT',
     notes: null,
+    preferredPlayerDiscordUserIds: [],
     channelSpec: clone(input.channelSpec),
     createdAt,
     updatedAt: createdAt
@@ -2103,6 +2109,7 @@ function applyServiceSnapshot(input: {
   region: string | null;
   notes: string | null;
   voiceChannelId: string | null;
+  preferredPlayerDiscordUserIds: string[];
   now: Date;
 }): OrderRecord {
   return {
@@ -2121,6 +2128,7 @@ function applyServiceSnapshot(input: {
     playerEarningMinor: input.unitCount * input.service.playerUnitPayoutMinor,
     currency: input.service.currency,
     notes: input.notes,
+    preferredPlayerDiscordUserIds: [...input.preferredPlayerDiscordUserIds],
     channelSpec: {
       ...input.order.channelSpec,
       voiceChannelId: input.voiceChannelId
@@ -2225,6 +2233,16 @@ function validateUpdateOrderInput(input: UpdateOrderInput): void {
   if (input.voiceChannelId !== undefined && input.voiceChannelId !== null && !isSnowflake(input.voiceChannelId)) {
     throw new OrderError('VALIDATION_ERROR', 'voiceChannelId must be a Discord snowflake or null.');
   }
+  if (input.preferredPlayerDiscordUserIds !== undefined) {
+    if (
+      !Array.isArray(input.preferredPlayerDiscordUserIds) ||
+      input.preferredPlayerDiscordUserIds.length > 3 ||
+      new Set(input.preferredPlayerDiscordUserIds).size !== input.preferredPlayerDiscordUserIds.length ||
+      input.preferredPlayerDiscordUserIds.some((id) => !isSnowflake(id))
+    ) {
+      throw new OrderError('VALIDATION_ERROR', 'preferredPlayerDiscordUserIds must contain at most three unique Discord users.');
+    }
+  }
 }
 
 function validateChannelSpec(channelSpec: ChannelSpec): void {
@@ -2304,6 +2322,7 @@ function toApiOrder(
     playerId: order.playerId,
     region: order.region,
     notes: order.notes,
+    preferredPlayerDiscordUserIds: [...(order.preferredPlayerDiscordUserIds ?? [])],
     channelSpec: clone(order.channelSpec),
     createdAt: order.createdAt,
     updatedAt: order.updatedAt
@@ -2666,10 +2685,11 @@ SET row_version = $2,
     currency = $16,
     customer_note = $17,
     voice_channel_id = $18,
-    updated_at = $19
+    requirement_snapshot = $19::jsonb,
+    updated_at = $20
 WHERE id = $1
   AND status = 'DRAFT'
-  AND row_version = $20
+  AND row_version = $21
     `,
     [
       order.id,
@@ -2690,6 +2710,7 @@ WHERE id = $1
       order.currency,
       order.notes,
       order.channelSpec.voiceChannelId,
+      JSON.stringify({ preferredPlayerDiscordUserIds: order.preferredPlayerDiscordUserIds ?? [] }),
       new Date(order.updatedAt),
       expectedVersion
     ]
@@ -2996,6 +3017,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
     currency: (row.currency ?? 'CAT') as Currency,
     notes: row.customer_note,
+    preferredPlayerDiscordUserIds: preferredPlayerIdsFromSnapshot(row.requirement_snapshot),
     channelSpec: {
       channelId: row.channel_id ?? '',
       panelMessageId: row.panel_message_id ?? '',
@@ -3014,6 +3036,12 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
   };
+}
+
+function preferredPlayerIdsFromSnapshot(snapshot: unknown): string[] {
+  if (!snapshot || typeof snapshot !== 'object' || !('preferredPlayerDiscordUserIds' in snapshot)) return [];
+  const value = (snapshot as { preferredPlayerDiscordUserIds?: unknown }).preferredPlayerDiscordUserIds;
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && isSnowflake(id)).slice(0, 3) : [];
 }
 
 function mapFundReservationRow(row: FundReservationRow): FundReservationRecord {
@@ -3107,6 +3135,7 @@ interface OrderRow {
   expected_player_earning_minor: number | string | bigint | null;
   currency: string | null;
   customer_note: string | null;
+  requirement_snapshot: unknown;
   channel_id: string | null;
   panel_message_id: string | null;
   voice_channel_id: string | null;

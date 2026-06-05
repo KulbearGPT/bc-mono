@@ -137,7 +137,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
         `bc:modal-open:order-notes:${orderId}:v3`
       ])
     );
-    expect(message.components).toHaveLength(3);
+    expect(message.components).toHaveLength(4);
     expect(message.components.every((row) => {
       const selects = row.components.filter((component) => component.type === 'SELECT');
       return selects.length === 0 || (selects.length === 1 && row.components.length === 1);

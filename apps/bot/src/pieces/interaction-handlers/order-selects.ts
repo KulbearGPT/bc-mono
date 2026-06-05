@@ -18,7 +18,7 @@ export default class OrderSelectHandler extends InteractionHandler {
   }
 
   public override parse(interaction: Interaction) {
-    if (!interaction.isStringSelectMenu()) {
+    if (!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
@@ -26,7 +26,7 @@ export default class OrderSelectHandler extends InteractionHandler {
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if (!interaction.isStringSelectMenu() || parsedData?.area !== 'order-select') {
+    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || parsedData?.area !== 'order-select') {
       return;
     }
 
@@ -44,7 +44,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         orderId: parsedData.orderId,
         expectedVersion: parsedData.expectedVersion,
         field: parsedData.field,
-        value: interaction.values[0] ?? '',
+        value: parsedData.field === 'preferred-players' ? interaction.values : interaction.values[0] ?? '',
         idempotencyKey: buildDiscordIdempotencyKey(`order:update:${parsedData.field}`, interaction.id)
       });
       if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {

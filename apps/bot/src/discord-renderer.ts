@@ -5,6 +5,7 @@ import {
   EmbedBuilder,
   ModalBuilder,
   StringSelectMenuBuilder,
+  UserSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   type InteractionReplyOptions
@@ -56,13 +57,13 @@ export function toDiscordModal(modal: ModalSpec): ModalBuilder {
     .addComponents(modal.components.map(toDiscordTextInputRow));
 }
 
-function toDiscordActionRow(row: ActionRowSpec): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder> {
-  return new ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>().addComponents(
+function toDiscordActionRow(row: ActionRowSpec): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder> {
+  return new ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder>().addComponents(
     row.components.map(toDiscordComponent)
   );
 }
 
-function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSelectMenuBuilder {
+function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder {
   if (component.type === 'LINK_BUTTON') {
     return new ButtonBuilder().setLabel(component.label).setURL(component.url).setStyle(ButtonStyle.Link).setDisabled(component.disabled ?? false);
   }
@@ -71,6 +72,14 @@ function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSel
       .setCustomId(component.customId)
       .setLabel(component.label)
       .setStyle(toButtonStyle(component.style))
+      .setDisabled(component.disabled ?? false);
+  }
+  if (component.type === 'USER_SELECT') {
+    return new UserSelectMenuBuilder()
+      .setCustomId(component.customId)
+      .setPlaceholder(component.placeholder)
+      .setMinValues(component.minValues)
+      .setMaxValues(component.maxValues)
       .setDisabled(component.disabled ?? false);
   }
 

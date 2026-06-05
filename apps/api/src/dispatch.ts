@@ -717,7 +717,12 @@ export async function dispatchOrder(input: {
   const dispatchChannelId=await resolveBotConfigString(input.botConfigStore,order.guildId,'dispatch_channel_id',input.dispatchChannelId);
   const requirement = requireOrderRequirement(order);
   const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
-  const candidates = selectEligibleDispatchCandidates(pool, requirement);
+  const eligibleCandidates = selectEligibleDispatchCandidates(pool, requirement);
+  const candidates = prioritizeDispatchCandidates(
+    eligibleCandidates,
+    order.preferredPlayerDiscordUserIds ?? [],
+    input.trigger
+  );
   const round = await input.dispatchStore.nextRound(order.id);
   const attemptId = crypto.randomUUID();
   const expiresAt = new Date(input.now.getTime() + (input.timeoutMinutes ?? 5) * 60_000).toISOString();
@@ -765,6 +770,20 @@ export async function dispatchOrder(input: {
     candidateCount: candidateRecords.length,
     expiresAt
   };
+}
+
+export function prioritizeDispatchCandidates(
+  eligibleCandidates: PlayerProfileRecord[],
+  preferredDiscordUserIds: string[],
+  trigger: DispatchTrigger
+): PlayerProfileRecord[] {
+  if (trigger !== 'ORDER_SUBMITTED' || preferredDiscordUserIds.length === 0) return eligibleCandidates;
+  const byDiscordId = new Map(eligibleCandidates.map((candidate) => [candidate.discordUserId, candidate]));
+  const preferred = preferredDiscordUserIds
+    .slice(0, 3)
+    .map((discordUserId) => byDiscordId.get(discordUserId))
+    .filter((candidate): candidate is PlayerProfileRecord => Boolean(candidate));
+  return preferred.length > 0 ? preferred : eligibleCandidates;
 }
 
 export async function expireDispatchAttempt(input: {
