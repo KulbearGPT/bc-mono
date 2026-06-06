@@ -912,10 +912,15 @@ export function registerDispatchRoutes(
     action: 'DISPATCH_ORDER',
     targetType: 'order',
     targetId: (request) => orderIdParam(request),
-    acceptedSources: ['SYSTEM_JOB'],
-    handler: async (request) => {
+    acceptedSources: ['SYSTEM_JOB', 'DASHBOARD'],
+    handler: async (request, actor) => {
       const body = parseDispatchOrderBody(request.body);
-      const timeoutMinutes = await options.policyReader?.getPolicyInteger('DISPATCH_TIMEOUT_MINUTES', 5) ?? 5;
+      if (actor.actorSource === 'DASHBOARD' && body.trigger !== 'MANUAL_RETRY') {
+        throw new DispatchError('VALIDATION_ERROR', 'Dashboard dispatch must use MANUAL_RETRY.');
+      }
+      const timeoutMinutes = body.trigger === 'MANUAL_RETRY'
+        ? 1.5
+        : await options.policyReader?.getPolicyInteger('DISPATCH_TIMEOUT_MINUTES', 5) ?? 5;
       return dispatchOrder({
         orderStore: options.orderStore,
         dispatchStore: options.dispatchStore,

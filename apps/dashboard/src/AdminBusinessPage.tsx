@@ -92,7 +92,7 @@ function AdminBusinessTable(props: {
   );
 }
 
-function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';return true;}
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='MANUAL_DISPATCH')return item.status==='PENDING_DISPATCH';if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };

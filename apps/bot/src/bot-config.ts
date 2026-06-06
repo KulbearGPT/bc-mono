@@ -588,7 +588,7 @@ function fieldLabel(field: BotConfigManageableField): string {
     gift_review_reminder_minutes: '礼物审核提醒间隔（分钟）',
     channel_archive_after_completion_minutes: '完单后频道归档时间（分钟）',
     new_orders_enabled: '允许新订单',
-    auto_dispatch_enabled: '启用自动派单',
+    auto_dispatch_enabled: '自动派单（关闭即手动模式）',
     gift_requests_enabled: '允许礼物申请',
     maintenance_notice: '启用维护公告',
     gift_broadcast_template: '礼物播报模板'

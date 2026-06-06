@@ -63,6 +63,17 @@ export async function resolveBotConfigString(store:BotConfigStore|undefined,guil
   if(!store||!guildId)return fallback;const value=(await store.get(guildId))?.values[field];return typeof value==='string'&&value?value:fallback;
 }
 
+export async function resolveBotConfigBoolean(
+  store: BotConfigStore | undefined,
+  guildId: string | null | undefined,
+  field: BotConfigFieldName,
+  fallback: boolean
+): Promise<boolean> {
+  if (!store || !guildId) return fallback;
+  const value = (await store.get(guildId))?.values[field];
+  return typeof value === 'boolean' ? value : fallback;
+}
+
 export interface BotConfigDiscordAdapter {
   validateObject(input: { guildId: string; field: string; value: string }): Promise<
     { ok: true } | { ok: false; code: string; message: string }

@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { PostgresAuditSink } from './security.js';
 import { PostgresDispatchPlayerPool, PostgresDispatchStore, dispatchOrder, expireDispatchAttempt } from './dispatch.js';
-import { PostgresBotConfigStore } from './bot-config.js';
+import { PostgresBotConfigStore, resolveBotConfigBoolean } from './bot-config.js';
 import { PostgresGiftStore, createGiftAnnouncementHandler, createGiftExpiryHandler } from './gifts.js';
 import { PostgresOrderStore } from './orders.js';
 import { OutboxWorker, PostgresOutboxStore } from './outbox.js';
@@ -65,13 +65,16 @@ const runtime = new ProductionOutboxRuntime({
   handlers: createProductionHandlerMap({
     giftAnnouncement: createGiftAnnouncementHandler({ store: giftStore, send: (message) => delivery.sendMessage(message) }),
     giftExpiry: createGiftExpiryHandler({ store: giftStore }),
-    dispatchStart:createDispatchStartHandler({start:(payload,job)=>dispatchOrder({orderStore,dispatchStore,playerPool:dispatchPlayerPool,
-      orderId:payload.orderId,expectedVersion:payload.expectedVersion,trigger:payload.trigger,dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
-      botConfigStore,idempotencyKey:job.dedupeKey,now:new Date(),timeoutMinutes:1.5})}),
+    dispatchStart:createDispatchStartHandler({start:async(payload,job)=>{const order=await orderStore.findById(payload.orderId);
+      if(order&&!await resolveBotConfigBoolean(botConfigStore,order.guildId,'auto_dispatch_enabled',true))return;
+      return dispatchOrder({orderStore,dispatchStore,playerPool:dispatchPlayerPool,
+        orderId:payload.orderId,expectedVersion:payload.expectedVersion,trigger:payload.trigger,dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
+        botConfigStore,idempotencyKey:job.dedupeKey,now:new Date(),timeoutMinutes:1.5});}}),
     dispatchMessage: createDispatchMessageHandler({ store: dispatchMessageStore, discord: delivery }),
     dispatchTimeout: createDispatchTimeoutHandler({
       expire: async(dispatchAttemptId) => {const now=new Date();const result=await expireDispatchAttempt({orderStore,dispatchStore,dispatchAttemptId,now});
-        if(result.status==='DISPATCH_TIMEOUT'&&result.orderStatus==='PENDING_DISPATCH'){const order=await orderStore.findById(result.orderId);if(order)await dispatchOrder({orderStore,dispatchStore,
+        if(result.status==='DISPATCH_TIMEOUT'&&result.orderStatus==='PENDING_DISPATCH'){const order=await orderStore.findById(result.orderId);
+          if(order&&await resolveBotConfigBoolean(botConfigStore,order.guildId,'auto_dispatch_enabled',true))await dispatchOrder({orderStore,dispatchStore,
           playerPool:dispatchPlayerPool,orderId:order.id,expectedVersion:order.version,trigger:'TIMEOUT_RETRY',dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
           botConfigStore,idempotencyKey:`dispatch-timeout-retry:${dispatchAttemptId}`,now,timeoutMinutes:1.5});}return result;}
     }),

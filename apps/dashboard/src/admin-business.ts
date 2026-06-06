@@ -84,7 +84,8 @@ interface AdminPageDefinition {
 const pageDefinitions: readonly AdminPageDefinition[] = [
   {
     id: 'orders', label: '订单', href: '/admin/orders', endpoint: '/api/v1/admin/orders', readPermission: 'order.read',
-    filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }], actions: []
+    filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }],
+    actions: [{ id: 'MANUAL_DISPATCH', label: '手动派单', permission: 'dispatch.execute', requiresReason: false, scope: 'ITEM' }]
   },
   {
     id: 'users', label: '用户', href: '/admin/users', endpoint: '/api/v1/admin/users', readPermission: 'user.read',
@@ -262,6 +263,10 @@ export function buildAdminActionRequest(input: {
   item?: Record<string, unknown>;
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
+  if (input.actionId === 'MANUAL_DISPATCH') {
+    const item = requireItem(input.item);
+    return { method: 'POST', path: `/api/v1/orders/${encodeURIComponent(item.id)}/dispatch`, body: { expectedVersion: item.version, trigger: 'MANUAL_RETRY' } };
+  }
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
