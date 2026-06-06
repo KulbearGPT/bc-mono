@@ -107,9 +107,8 @@ describe('M5-US-02 production Worker runtime', () => {
     const calls: Array<string | null> = [];
     const handler = createDispatchMessageHandler({
       store: {
-        getDispatchMessageId: async () => persistedMessageId,
-        recordDispatchMessageId: async ({ messageId }) => { persistedMessageId = messageId; },
-        replaceDispatchMessageId: async ({ messageId }) => { persistedMessageId = messageId; }
+        getReusableDispatchMessageId: async () => persistedMessageId,
+        saveDispatchMessageId: async ({ messageId }) => { persistedMessageId = messageId; }
       },
       discord: {
         upsertDispatchOffer: async (_payload, existingMessageId) => {
@@ -130,13 +129,37 @@ describe('M5-US-02 production Worker runtime', () => {
     expect(persistedMessageId).toBe('dispatch-message-1');
   });
 
-  test('persists a replacement id when a previously recorded dispatch message was deleted', async () => {
-    const replacements: Array<{ dispatchAttemptId: string; expectedMessageId: string; messageId: string }> = [];
+  test('reuses the previous round message for the same order instead of posting another offer', async () => {
+    let persisted = { dispatchAttemptId: 'attempt-1', orderId: 'order-1', messageId: 'dispatch-message-1' };
+    const calls: Array<string | null> = [];
     const handler = createDispatchMessageHandler({
       store: {
-        getDispatchMessageId: async () => 'deleted-message',
-        recordDispatchMessageId: async () => undefined,
-        replaceDispatchMessageId: async (input) => { replacements.push(input); }
+        getReusableDispatchMessageId: async ({ orderId }) => persisted.orderId === orderId ? persisted.messageId : null,
+        saveDispatchMessageId: async (input) => { persisted = { dispatchAttemptId: input.dispatchAttemptId, orderId: input.orderId, messageId: input.messageId }; }
+      },
+      discord: {
+        upsertDispatchOffer: async (_payload, existingMessageId) => {
+          calls.push(existingMessageId);
+          return { messageId: existingMessageId ?? 'unexpected-new-message', recreated: false };
+        }
+      }
+    });
+
+    await handler(fixtureJob({
+      type: 'DISPATCH_MESSAGE', aggregateType: 'dispatch_attempt', aggregateId: 'attempt-2',
+      payload: { dispatchAttemptId: 'attempt-2', dispatchChannelId: 'dispatch-channel-1', orderId: 'order-1', orderPublicId: 'P-1001', orderVersion: 3 }
+    }));
+
+    expect(calls).toEqual(['dispatch-message-1']);
+    expect(persisted).toEqual({ dispatchAttemptId: 'attempt-2', orderId: 'order-1', messageId: 'dispatch-message-1' });
+  });
+
+  test('persists a replacement id when a previously recorded dispatch message was deleted', async () => {
+    const replacements: Array<{ dispatchAttemptId: string; orderId: string; previousMessageId: string | null; messageId: string }> = [];
+    const handler = createDispatchMessageHandler({
+      store: {
+        getReusableDispatchMessageId: async () => 'deleted-message',
+        saveDispatchMessageId: async (input) => { replacements.push(input); }
       },
       discord: { upsertDispatchOffer: async () => ({ messageId: 'replacement-message', recreated: true }) }
     });
@@ -147,7 +170,7 @@ describe('M5-US-02 production Worker runtime', () => {
     }));
 
     expect(replacements).toEqual([{
-      dispatchAttemptId: 'attempt-1', expectedMessageId: 'deleted-message', messageId: 'replacement-message'
+      dispatchAttemptId: 'attempt-1', orderId: 'order-1', previousMessageId: 'deleted-message', messageId: 'replacement-message'
     }]);
   });
 

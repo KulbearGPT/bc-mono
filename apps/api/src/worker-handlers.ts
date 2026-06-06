@@ -1,14 +1,11 @@
 import type { OutboxHandler } from './worker-runtime.js';
 
 export interface DispatchMessageStore {
-  getDispatchMessageId(dispatchAttemptId: string): Promise<string | null>;
-  recordDispatchMessageId(input: {
+  getReusableDispatchMessageId(input: { dispatchAttemptId: string; orderId: string }): Promise<string | null>;
+  saveDispatchMessageId(input: {
     dispatchAttemptId: string;
-    messageId: string;
-  }): Promise<void>;
-  replaceDispatchMessageId(input: {
-    dispatchAttemptId: string;
-    expectedMessageId: string;
+    orderId: string;
+    previousMessageId: string | null;
     messageId: string;
   }): Promise<void>;
 }
@@ -38,20 +35,18 @@ export function createDispatchMessageHandler(input: {
       || payload.dispatchAttemptId !== job.aggregateId) {
       throw new Error('Dispatch message payload is invalid.');
     }
-    const existingMessageId = await input.store.getDispatchMessageId(payload.dispatchAttemptId);
+    if (typeof payload.orderId !== 'string') throw new Error('Dispatch message order id is invalid.');
+    const existingMessageId = await input.store.getReusableDispatchMessageId({
+      dispatchAttemptId: payload.dispatchAttemptId,
+      orderId: payload.orderId
+    });
     const result = await input.discord.upsertDispatchOffer(payload, existingMessageId, job.createdAt);
-    if (!existingMessageId) {
-      await input.store.recordDispatchMessageId({
-        dispatchAttemptId: payload.dispatchAttemptId,
-        messageId: result.messageId
-      });
-    } else if (result.recreated && result.messageId !== existingMessageId) {
-      await input.store.replaceDispatchMessageId({
-        dispatchAttemptId: payload.dispatchAttemptId,
-        expectedMessageId: existingMessageId,
-        messageId: result.messageId
-      });
-    }
+    await input.store.saveDispatchMessageId({
+      dispatchAttemptId: payload.dispatchAttemptId,
+      orderId: payload.orderId,
+      previousMessageId: existingMessageId,
+      messageId: result.messageId
+    });
   };
 }
 

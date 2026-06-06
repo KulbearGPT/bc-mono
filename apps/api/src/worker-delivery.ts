@@ -11,41 +11,32 @@ interface QueryClient {
 export class PostgresDispatchMessageStore implements DispatchMessageStore {
   constructor(private readonly client: QueryClient) {}
 
-  async getDispatchMessageId(dispatchAttemptId: string): Promise<string | null> {
+  async getReusableDispatchMessageId(input: { dispatchAttemptId: string; orderId: string }): Promise<string | null> {
     const result = await this.client.query<{ dispatch_message_id: string | null }>(
-      'SELECT dispatch_message_id FROM dispatch_attempts WHERE id = $1::uuid',
-      [dispatchAttemptId]
+      `SELECT dispatch_message_id
+         FROM dispatch_attempts
+        WHERE order_id = $2::uuid AND (id = $1::uuid OR dispatch_message_id IS NOT NULL)
+        ORDER BY (id = $1::uuid) DESC, round DESC
+        LIMIT 1`,
+      [input.dispatchAttemptId, input.orderId]
     );
-    if (!result.rows[0]) throw new Error('Dispatch attempt was not found.');
-    return result.rows[0].dispatch_message_id;
+    return result.rows[0]?.dispatch_message_id ?? null;
   }
 
-  async recordDispatchMessageId(input: { dispatchAttemptId: string; messageId: string }): Promise<void> {
+  async saveDispatchMessageId(input: { dispatchAttemptId: string; orderId: string; previousMessageId: string | null; messageId: string }): Promise<void> {
     const result = await this.client.query<{ id: string }>(
-      `UPDATE dispatch_attempts
-          SET dispatch_message_id = $2, updated_at = now()
-        WHERE id = $1::uuid AND dispatch_message_id IS NULL
+      `WITH released AS (
+         UPDATE dispatch_attempts
+            SET dispatch_message_id = NULL, updated_at = now()
+          WHERE order_id = $2::uuid AND id <> $1::uuid AND dispatch_message_id = $3
+       )
+       UPDATE dispatch_attempts
+          SET dispatch_message_id = $4, updated_at = now()
+        WHERE id = $1::uuid AND order_id = $2::uuid
       RETURNING id`,
-      [input.dispatchAttemptId, input.messageId]
+      [input.dispatchAttemptId, input.orderId, input.previousMessageId, input.messageId]
     );
-    if (!result.rows[0]) {
-      const existing = await this.getDispatchMessageId(input.dispatchAttemptId);
-      if (existing !== input.messageId) throw new Error('Dispatch message id was changed concurrently.');
-    }
-  }
-
-  async replaceDispatchMessageId(input: { dispatchAttemptId: string; expectedMessageId: string; messageId: string }): Promise<void> {
-    const result = await this.client.query<{ id: string }>(
-      `UPDATE dispatch_attempts
-          SET dispatch_message_id = $3, updated_at = now()
-        WHERE id = $1::uuid AND dispatch_message_id = $2
-      RETURNING id`,
-      [input.dispatchAttemptId, input.expectedMessageId, input.messageId]
-    );
-    if (!result.rows[0]) {
-      const existing = await this.getDispatchMessageId(input.dispatchAttemptId);
-      if (existing !== input.messageId) throw new Error('Dispatch message id was changed concurrently.');
-    }
+    if (!result.rows[0]) throw new Error('Dispatch attempt was not found for this order.');
   }
 }
 
