@@ -78,7 +78,7 @@ describe('M5-US-02 Worker delivery adapters', () => {
     expect(requests[2]!.body).not.toHaveProperty('enforce_nonce');
   });
 
-  test('persists a dispatch message id with an optimistic null-only update', async () => {
+  test('moves a reusable order message id to the latest dispatch attempt', async () => {
     const queries: Array<{ sql: string; values: unknown[] }> = [];
     const store = new PostgresDispatchMessageStore({
       query: async (sql: string, values: unknown[] = []) => {
@@ -88,11 +88,31 @@ describe('M5-US-02 Worker delivery adapters', () => {
       }
     });
 
-    expect(await store.getDispatchMessageId('attempt-1')).toBeNull();
-    await store.recordDispatchMessageId({ dispatchAttemptId: 'attempt-1', messageId: 'message-1' });
+    expect(await store.getReusableDispatchMessageId({ dispatchAttemptId: 'attempt-1', orderId: 'order-1' })).toBeNull();
+    expect(queries[0]!.sql).toContain('ORDER BY (dispatch_message_id IS NOT NULL) DESC');
+    await store.saveDispatchMessageId({ dispatchAttemptId: 'attempt-1', orderId: 'order-1', previousMessageId: null, messageId: 'message-1' });
 
-    expect(queries[1]!.sql).toContain('dispatch_message_id IS NULL');
-    expect(queries[1]!.values).toEqual(['attempt-1', 'message-1']);
+    expect(queries[1]!.sql).toContain('CASE WHEN id = $1::uuid THEN $4 ELSE NULL END');
+    expect(queries[1]!.values).toEqual(['attempt-1', 'order-1', null, 'message-1']);
+  });
+
+  test('edits an empty-candidate round into a waiting message without stale buttons', async () => {
+    let body: any;
+    const adapter = new DiscordRestDeliveryAdapter({
+      botToken: 'discord-token-value',
+      fetch: async (_url, init) => {
+        body = init?.body ? JSON.parse(String(init.body)) : null;
+        return new Response(JSON.stringify({ id: 'message-1' }), { status: 200 });
+      }
+    });
+
+    await adapter.upsertDispatchOffer({
+      dispatchAttemptId: 'attempt-2', dispatchChannelId: 'channel-1', orderId: 'order-1', orderVersion: 3,
+      orderPublicId: 'P-1001', game: 'VALORANT', service: 'FUN', expiresAt: '2026-07-19T00:00:00.000Z', candidatePlayerUserIds: []
+    }, 'message-1', '2026-07-18T23:00:00.000Z');
+
+    expect(body.content).toContain('正在等待合格陪玩');
+    expect(body.components).toEqual([]);
   });
 
   test('recreates a deleted dispatch offer with a stable nonce', async () => {

@@ -152,7 +152,8 @@ describe('M2-US-02 dispatch domain and API', () => {
     });
 
     expect(result.candidateCount).toBe(0);
-    expect(dispatchStore.outboxJobs.map((job) => job.type)).toEqual(['DISPATCH_TIMEOUT']);
+    expect(dispatchStore.outboxJobs.map((job) => job.type)).toEqual(['DISPATCH_MESSAGE', 'DISPATCH_TIMEOUT']);
+    expect(dispatchStore.outboxJobs[0]?.payload).toMatchObject({ candidatePlayerUserIds: [] });
   });
 
   test('dispatch API accepts only system-job actor and returns candidate count from unified API', async () => {

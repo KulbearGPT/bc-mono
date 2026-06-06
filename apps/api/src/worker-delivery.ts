@@ -16,7 +16,7 @@ export class PostgresDispatchMessageStore implements DispatchMessageStore {
       `SELECT dispatch_message_id
          FROM dispatch_attempts
         WHERE order_id = $2::uuid AND (id = $1::uuid OR dispatch_message_id IS NOT NULL)
-        ORDER BY (id = $1::uuid) DESC, round DESC
+        ORDER BY (dispatch_message_id IS NOT NULL) DESC, (id = $1::uuid) DESC, round DESC
         LIMIT 1`,
       [input.dispatchAttemptId, input.orderId]
     );
@@ -25,18 +25,15 @@ export class PostgresDispatchMessageStore implements DispatchMessageStore {
 
   async saveDispatchMessageId(input: { dispatchAttemptId: string; orderId: string; previousMessageId: string | null; messageId: string }): Promise<void> {
     const result = await this.client.query<{ id: string }>(
-      `WITH released AS (
-         UPDATE dispatch_attempts
-            SET dispatch_message_id = NULL, updated_at = now()
-          WHERE order_id = $2::uuid AND id <> $1::uuid AND dispatch_message_id = $3
-       )
-       UPDATE dispatch_attempts
-          SET dispatch_message_id = $4, updated_at = now()
-        WHERE id = $1::uuid AND order_id = $2::uuid
+      `UPDATE dispatch_attempts
+          SET dispatch_message_id = CASE WHEN id = $1::uuid THEN $4 ELSE NULL END,
+              updated_at = now()
+        WHERE order_id = $2::uuid
+          AND (id = $1::uuid OR dispatch_message_id = $3)
       RETURNING id`,
       [input.dispatchAttemptId, input.orderId, input.previousMessageId, input.messageId]
     );
-    if (!result.rows[0]) throw new Error('Dispatch attempt was not found for this order.');
+    if (!result.rows.some((row) => row.id === input.dispatchAttemptId)) throw new Error('Dispatch attempt was not found for this order.');
   }
 }
 
@@ -62,15 +59,16 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
     const channelId = requiredString(payload.dispatchChannelId, 'dispatchChannelId');
     const orderId = requiredString(payload.orderId, 'orderId');
     const orderVersion = requiredInteger(payload.orderVersion, 'orderVersion');
+    const hasCandidates = Array.isArray(payload.candidatePlayerUserIds) && payload.candidatePlayerUserIds.length > 0;
     const panel = {
-      content: formatDispatchOffer(payload),
-      components: [{
+      content: hasCandidates ? formatDispatchOffer(payload) : formatWaitingDispatch(payload),
+      components: hasCandidates ? [{
         type: 1,
         components: [
           { type: 2, style: 3, label: '接单', custom_id: `bc:dispatch:${dispatchAttemptId}:accept:${orderId}:v${orderVersion}` },
           { type: 2, style: 2, label: '无法接单', custom_id: `bc:dispatch:${dispatchAttemptId}:decline:${orderId}:v${orderVersion}` }
         ]
-      }]
+      }] : []
     };
     if (existingMessageId) {
       try {
@@ -231,6 +229,12 @@ function formatDispatchOffer(payload: Record<string, unknown>): string {
   const publicId = requiredString(payload.orderPublicId, 'orderPublicId');
   const fields = [payload.game, payload.service, payload.region].filter((value): value is string => typeof value === 'string');
   return `**新订单 ${publicId}**\n${fields.join(' · ')}\n接单截止：${requiredString(payload.expiresAt, 'expiresAt')}`;
+}
+
+function formatWaitingDispatch(payload: Record<string, unknown>): string {
+  const publicId = requiredString(payload.orderPublicId, 'orderPublicId');
+  const fields = [payload.game, payload.service, payload.region].filter((value): value is string => typeof value === 'string');
+  return `**订单 ${publicId} · 正在等待合格陪玩**\n${fields.join(' · ')}\n系统会继续自动匹配，无需重复提交订单。`;
 }
 
 function requiredString(value: unknown, field: string): string {
