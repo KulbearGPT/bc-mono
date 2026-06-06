@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { PolicyReader } from './operations.js';
 import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
-import { registerSecureWriteRoute } from './security.js';
+import { registerSecureReadRoute, registerSecureWriteRoute } from './security.js';
 import type { OutboxJob } from './outbox.js';
 import type { OrderRecord, OrderStatus, OrderStore } from './orders.js';
 import { calculatePlayerCompensation,type PlayerCompensationStore } from './player-compensation.js';
@@ -712,17 +712,18 @@ export async function dispatchOrder(input: {
   idempotencyKey: string;
   now: Date;
   timeoutMinutes?: number;
+  manualTargetDiscordUserIds?: string[];
+  requireManualCandidates?: boolean;
 }): Promise<DispatchResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
   const dispatchChannelId=await resolveBotConfigString(input.botConfigStore,order.guildId,'dispatch_channel_id',input.dispatchChannelId);
   const requirement = requireOrderRequirement(order);
   const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
   const eligibleCandidates = selectEligibleDispatchCandidates(pool, requirement);
-  const candidates = prioritizeDispatchCandidates(
-    eligibleCandidates,
-    order.preferredPlayerDiscordUserIds ?? [],
-    input.trigger
-  );
+  const candidates = input.trigger === 'MANUAL_RETRY'
+    ? selectManualDispatchCandidates(eligibleCandidates, input.manualTargetDiscordUserIds ?? [])
+    : prioritizeDispatchCandidates(eligibleCandidates, order.preferredPlayerDiscordUserIds ?? [], input.trigger);
+  if (input.requireManualCandidates && candidates.length === 0) throw new DispatchError('VALIDATION_ERROR', 'No eligible players are currently available for manual dispatch.');
   const round = await input.dispatchStore.nextRound(order.id);
   const attemptId = crypto.randomUUID();
   const expiresAt = new Date(input.now.getTime() + (input.timeoutMinutes ?? 5) * 60_000).toISOString();
@@ -770,6 +771,38 @@ export async function dispatchOrder(input: {
     candidateCount: candidateRecords.length,
     expiresAt
   };
+}
+
+export function selectManualDispatchCandidates(
+  eligibleCandidates: PlayerProfileRecord[],
+  targetDiscordUserIds: string[]
+): PlayerProfileRecord[] {
+  if (targetDiscordUserIds.length === 0) return eligibleCandidates;
+  if (targetDiscordUserIds.length > 3) throw new DispatchError('VALIDATION_ERROR', 'Manual dispatch supports at most three selected players.');
+  if (new Set(targetDiscordUserIds).size !== targetDiscordUserIds.length) throw new DispatchError('VALIDATION_ERROR', 'Manual dispatch contains a duplicate selected player.');
+  const byDiscordId = new Map(eligibleCandidates.map((candidate) => [candidate.discordUserId, candidate]));
+  const selected = targetDiscordUserIds.map((discordUserId) => byDiscordId.get(discordUserId));
+  if (selected.some((candidate) => !candidate)) throw new DispatchError('VALIDATION_ERROR', 'A selected player is no longer eligible.');
+  return selected as PlayerProfileRecord[];
+}
+
+export async function listManualDispatchCandidates(input: {
+  orderStore: OrderStore;
+  playerPool: DispatchPlayerPool;
+  orderId: string;
+}): Promise<{ items: Array<{ playerId: string; discordUserId: string; gameTags: string[]; serviceTags: string[] }> }> {
+  const order = await input.orderStore.findById(input.orderId);
+  if (!order) throw new DispatchError('NOT_FOUND', 'Order was not found.');
+  if (order.status !== 'PENDING_DISPATCH' || order.playerId) throw new DispatchError('CONFLICT', 'Order cannot be dispatched from its current state.');
+  const requirement = requireOrderRequirement(order);
+  const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
+  const items = selectEligibleDispatchCandidates(pool, requirement).map((candidate) => ({
+    playerId: candidate.playerId,
+    discordUserId: candidate.discordUserId,
+    gameTags: candidate.gameTags,
+    serviceTags: candidate.serviceTags
+  }));
+  return { items };
 }
 
 export function prioritizeDispatchCandidates(
@@ -912,15 +945,10 @@ export function registerDispatchRoutes(
     action: 'DISPATCH_ORDER',
     targetType: 'order',
     targetId: (request) => orderIdParam(request),
-    acceptedSources: ['SYSTEM_JOB', 'DASHBOARD'],
-    handler: async (request, actor) => {
+    acceptedSources: ['SYSTEM_JOB'],
+    handler: async (request) => {
       const body = parseDispatchOrderBody(request.body);
-      if (actor.actorSource === 'DASHBOARD' && body.trigger !== 'MANUAL_RETRY') {
-        throw new DispatchError('VALIDATION_ERROR', 'Dashboard dispatch must use MANUAL_RETRY.');
-      }
-      const timeoutMinutes = body.trigger === 'MANUAL_RETRY'
-        ? 1.5
-        : await options.policyReader?.getPolicyInteger('DISPATCH_TIMEOUT_MINUTES', 5) ?? 5;
+      const timeoutMinutes = await options.policyReader?.getPolicyInteger('DISPATCH_TIMEOUT_MINUTES', 5) ?? 5;
       return dispatchOrder({
         orderStore: options.orderStore,
         dispatchStore: options.dispatchStore,
@@ -937,6 +965,41 @@ export function registerDispatchRoutes(
     },
     mapError: mapDispatchError,
     fingerprintBody: (request) => parseDispatchOrderBody(request.body)
+  });
+
+  registerSecureReadRoute(server, security, {
+    method: 'GET',
+    url: '/api/v1/orders/:orderId/dispatch-candidates',
+    permission: 'dispatch.manual',
+    action: 'LIST_MANUAL_DISPATCH_CANDIDATES',
+    targetType: 'order',
+    targetId: (request) => orderIdParam(request),
+    acceptedSources: ['DASHBOARD'],
+    handler: (request) => listManualDispatchCandidates({ orderStore: options.orderStore, playerPool: options.playerPool, orderId: orderIdParam(request) }),
+    mapError: mapDispatchError
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/admin/orders/:orderId/manual-dispatch',
+    permission: 'dispatch.manual',
+    action: 'MANUAL_DISPATCH_ORDER',
+    targetType: 'order',
+    targetId: (request) => orderIdParam(request),
+    acceptedSources: ['DASHBOARD'],
+    handler: async (request) => {
+      const body = parseManualDispatchBody(request.body);
+      return dispatchOrder({
+        orderStore: options.orderStore, dispatchStore: options.dispatchStore, playerPool: options.playerPool,
+        orderId: orderIdParam(request), expectedVersion: body.expectedVersion, trigger: 'MANUAL_RETRY',
+        dispatchChannelId: options.dispatchChannelId, botConfigStore: options.botConfigStore,
+        idempotencyKey: idempotencyKey(request), now: now(), timeoutMinutes: 1.5,
+        manualTargetDiscordUserIds: body.targetDiscordUserIds
+        ,requireManualCandidates: true
+      });
+    },
+    mapError: mapDispatchError,
+    fingerprintBody: (request) => parseManualDispatchBody(request.body)
   });
 
   registerSecureWriteRoute(server, security, {
@@ -1171,6 +1234,15 @@ function parseDispatchOrderBody(body: unknown): { expectedVersion: number; trigg
   };
 }
 
+function parseManualDispatchBody(body: unknown): { expectedVersion: number; targetDiscordUserIds: string[] } {
+  const input = objectBody(body);
+  const values = input.targetDiscordUserIds === undefined ? [] : stringArray(input.targetDiscordUserIds, 'targetDiscordUserIds');
+  if (values.length > 3) throw new DispatchError('VALIDATION_ERROR', 'Manual dispatch supports at most three selected players.');
+  if (new Set(values).size !== values.length) throw new DispatchError('VALIDATION_ERROR', 'Manual dispatch contains duplicate players.');
+  if (values.some((value) => !/^\d{17,20}$/.test(value))) throw new DispatchError('VALIDATION_ERROR', 'Manual dispatch player IDs must be Discord Snowflakes.');
+  return { expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'), targetDiscordUserIds: values };
+}
+
 function parseAcceptOrderBody(body: unknown): { expectedVersion: number; dispatchAttemptId: string } {
   const input = objectBody(body);
   return {
@@ -1212,6 +1284,13 @@ function stringValue(value: unknown, field: string): string {
     throw new DispatchError('VALIDATION_ERROR', `${field} must be a non-empty string.`);
   }
   return value;
+}
+
+function stringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new DispatchError('VALIDATION_ERROR', `${field} must be an array of strings.`);
+  }
+  return value.map((item) => item.trim());
 }
 
 function orderIdParam(request: FastifyRequest): string {

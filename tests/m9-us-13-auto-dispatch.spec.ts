@@ -12,4 +12,13 @@ describe('M9-US-13 automatic 90-second dispatch rounds',()=>{
     {orderId:job.aggregateId,expectedVersion:5,trigger:'ORDER_SUBMITTED'},job);});
   test('submit persists DISPATCH_START atomically and worker uses 90-second rounds with timeout retry',async()=>{const orders=await readFile('apps/api/src/orders.ts','utf8');const worker=await readFile('apps/api/src/worker.ts','utf8');
     expect(orders).toContain("'DISPATCH_START'");expect(orders).toContain('dispatchStartJob');expect(worker).toContain('timeoutMinutes:1.5');expect(worker).toContain("trigger:'TIMEOUT_RETRY'");});
+  test('dispatch buttons acknowledge Discord before calling the API and always render API failures',async()=>{
+    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
+    const deferIndex=handler.indexOf('await interaction.deferReply({ ephemeral: true })');
+    const apiIndex=handler.indexOf('await api.acceptOrder(');
+    expect(deferIndex).toBeGreaterThan(-1);
+    expect(deferIndex).toBeLessThan(apiIndex);
+    expect(handler).toContain('error instanceof BotApiError');
+    expect(handler).toContain('await interaction.editReply(');
+  });
 });

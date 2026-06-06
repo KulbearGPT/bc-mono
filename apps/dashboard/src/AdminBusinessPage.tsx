@@ -22,6 +22,7 @@ export function AdminBusinessPage(props: {
   onNextTimeline?: (cursor: string) => void;
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
+  dispatchCandidateOptions?: Array<Record<string, unknown>>;
 }) {
   const { model } = props;
   if (model.kind === 'FORBIDDEN') {
@@ -55,7 +56,7 @@ export function AdminBusinessPage(props: {
       {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}
 
       {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
-       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions}
+       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} />}
 
       {model.pagination.hasNext && model.pagination.nextCursor && (
@@ -102,13 +103,14 @@ function AdminActionPanel(props: {
   onSubmit?: (action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) => void;
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
+  dispatchCandidateOptions?: Array<Record<string, unknown>>;
 }) {
   const action = props.active.action;
   return (
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={(event) => submitAction(event, props)}>
-        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} />
+        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions} />
         {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
@@ -120,7 +122,8 @@ function AdminActionPanel(props: {
   );
 }
 
-function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>> }) {
+function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
+  if(action.id==='MANUAL_DISPATCH')return <ManualDispatchFields candidates={dispatchCandidateOptions??[]}/>;
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
   if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
   if(action.id==='EDIT_PLAYER_COMPENSATION')return <PlayerCompensationFields offerings={serviceCatalogOptions??[]}/>;
@@ -143,6 +146,8 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions 
   </>;
   return null;
 }
+
+function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unknown>>}){const[selected,setSelected]=useState<string[]>([]);return <fieldset className="field field--full tag-checklist"><legend>选择派单范围（最多 3 人）</legend><p className="field-help">不勾选时发送给全部当前合格陪玩；勾选后仅通知指定人选。</p>{candidates.length===0?<p>当前没有符合订单要求且在线可接单的陪玩。</p>:candidates.map((candidate)=>{const id=textValue(candidate.discordUserId);const checked=selected.includes(id);return <label className="checkbox-field" key={id}><input type="checkbox" name="targetDiscordUserIds" value={id} checked={checked} disabled={!checked&&selected.length>=3} onChange={()=>setSelected((current)=>checked?current.filter((value)=>value!==id):[...current,id])}/><span>{`陪玩 ${textValue(candidate.playerId).slice(0,8)} · Discord ${id}`}</span></label>;})}<p className="field-help">已选 {selected.length}/3</p></fieldset>}
 
 function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){const[selected,setSelected]=useState('');const selectedOffering=offerings.find((item)=>item.serviceOfferingId===selected);const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;const[type,setType]=useState('PERCENT_BPS');return <>
   <label className="field field--full"><span>陪玩项目</span><select name="serviceOfferingId" required value={selected} onChange={(event)=>{const value=event.currentTarget.value;setSelected(value);const next=offerings.find((item)=>item.serviceOfferingId===value)?.compensationRule as Record<string,unknown>|undefined;setType(textValue(next?.type)||'PERCENT_BPS');}}><option value="" disabled>请选择项目</option>{offerings.map((item)=><option key={textValue(item.serviceOfferingId)} value={textValue(item.serviceOfferingId)}>{[item.game,item.service,item.region].filter(Boolean).join(' · ')}</option>)}</select></label>

@@ -85,7 +85,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   {
     id: 'orders', label: '订单', href: '/admin/orders', endpoint: '/api/v1/admin/orders', readPermission: 'order.read',
     filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }],
-    actions: [{ id: 'MANUAL_DISPATCH', label: '手动派单', permission: 'dispatch.execute', requiresReason: false, scope: 'ITEM' }]
+    actions: [{ id: 'MANUAL_DISPATCH', label: '客服派单', permission: 'dispatch.manual', requiresReason: false, scope: 'ITEM' }]
   },
   {
     id: 'users', label: '用户', href: '/admin/users', endpoint: '/api/v1/admin/users', readPermission: 'user.read',
@@ -265,7 +265,11 @@ export function buildAdminActionRequest(input: {
 }): AdminActionRequest {
   if (input.actionId === 'MANUAL_DISPATCH') {
     const item = requireItem(input.item);
-    return { method: 'POST', path: `/api/v1/orders/${encodeURIComponent(item.id)}/dispatch`, body: { expectedVersion: item.version, trigger: 'MANUAL_RETRY' } };
+    return { method: 'POST', path: `/api/v1/admin/orders/${encodeURIComponent(item.id)}/manual-dispatch`, body: {
+      expectedVersion: item.version,
+      trigger: 'MANUAL_RETRY',
+      targetDiscordUserIds: splitOptionalDiscordIds(input.fields.targetDiscordUserIds)
+    } };
   }
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
@@ -360,6 +364,8 @@ function requirePlayerItem(item:Record<string,unknown>|undefined):{id:string;ver
   if(!Number.isSafeInteger(item.version)||Number(item.version)<1)throw new TypeError('A valid player version is required.');return{id,version:Number(item.version)};}
 function splitTags(value:string|boolean|undefined):string[]{if(typeof value!=='string')throw new TypeError('Tags are required.');const tags=Array.from(new Set(value.split(',').map(item=>item.trim()).filter(Boolean)));
   if(!tags.length)throw new TypeError('At least one tag is required.');return tags;}
+function splitOptionalDiscordIds(value:string|boolean|undefined):string[]{if(value===undefined||value==='')return[];if(typeof value!=='string')throw new TypeError('Player selection is invalid.');const ids=value.split(',').map(item=>item.trim()).filter(Boolean);
+  if(ids.length>3)throw new TypeError('Manual dispatch supports at most three players.');if(new Set(ids).size!==ids.length)throw new TypeError('Player selection contains duplicates.');return ids;}
 
 function requireReasonCode(value: string | boolean | undefined): string {
   const reasonCode = requireText(value, 'reasonCode');

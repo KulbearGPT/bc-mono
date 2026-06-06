@@ -35,6 +35,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
+  const [dispatchCandidateOptions,setDispatchCandidateOptions]=useState<Array<Record<string,unknown>>>([]);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
@@ -188,6 +189,12 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
 
   async function openAction(action:AdminBusinessAction,item?:Record<string,unknown>){
     activeWrite.current=null;
+    if(action.id==='MANUAL_DISPATCH'&&item&&typeof item.id==='string'){
+      const response=await client.get(`/api/v1/orders/${encodeURIComponent(item.id)}/dispatch-candidates`);
+      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>};error?:{message?:string}}|null;
+      if(!response.ok){setActiveAction({action,item});setDispatchCandidateOptions([]);setActionError(`${body?.error?.message??'无法加载合格陪玩。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);setActionStatus('ERROR');return;}
+      setDispatchCandidateOptions(body?.data?.items??[]);
+    }
     if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
       const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
       const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
@@ -205,5 +212,5 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} />;
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions} />;
 }

@@ -18,14 +18,14 @@ describe('M9-US-15 automatic/manual dispatch mode', () => {
     ]);
     expect(worker.match(/auto_dispatch_enabled/gu)).toHaveLength(2);
     expect(adminBusiness).toContain('MANUAL_DISPATCH');
-    expect(route).toContain("acceptedSources: ['SYSTEM_JOB', 'DASHBOARD']");
-    expect(route).toContain("body.trigger === 'MANUAL_RETRY'");
+    expect(route).toContain("acceptedSources: ['SYSTEM_JOB']");
+    expect(route).toContain("url: '/api/v1/admin/orders/:orderId/manual-dispatch'");
   });
 
   test('maps the L4 order action to a single 90-second manual round', () => {
     const page = buildAdminBusinessPage({
       page: 'orders',
-      permissions: ['order.read', 'dispatch.execute'],
+      permissions: ['order.read', 'dispatch.manual'],
       status: 'READY',
       items: [{ id: 'order-1', version: 7, status: 'PENDING_DISPATCH' }]
     });
@@ -33,11 +33,11 @@ describe('M9-US-15 automatic/manual dispatch mode', () => {
     expect(buildAdminActionRequest({
       actionId: 'MANUAL_DISPATCH',
       item: { id: 'order-1', version: 7, status: 'PENDING_DISPATCH' },
-      fields: {}
+      fields: { targetDiscordUserIds: '' }
     })).toEqual({
       method: 'POST',
-      path: '/api/v1/orders/order-1/dispatch',
-      body: { expectedVersion: 7, trigger: 'MANUAL_RETRY' }
+      path: '/api/v1/admin/orders/order-1/manual-dispatch',
+      body: { expectedVersion: 7, trigger: 'MANUAL_RETRY', targetDiscordUserIds: [] }
     });
   });
 });
