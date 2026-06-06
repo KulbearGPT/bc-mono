@@ -76,8 +76,11 @@ export class DispatchButtonsHandler extends InteractionHandler {
         error
       });
       const requestId = error instanceof BotApiError ? error.requestId : 'local-dispatch-button-failed';
+      const message = error instanceof BotApiError && error.code === 'PLAYER_NOT_ELIGIBLE'
+        ? '当前账号不符合这张订单的接单条件，请在陪玩工作台检查可接单开关、在线状态和已批准项目。'
+        : '接单操作暂时失败，请刷新后重试。';
       await interaction.editReply({
-        content: `接单操作暂时失败，请刷新后重试。request_id: ${requestId}`
+        content: `${message} request_id: ${requestId}`
       });
     }
   }

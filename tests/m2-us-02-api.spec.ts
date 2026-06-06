@@ -137,6 +137,24 @@ describe('M2-US-02 dispatch domain and API', () => {
     });
   });
 
+  test('dispatchOrder does not publish an actionable offer when no player is eligible', async () => {
+    const dispatchStore = new InMemoryDispatchStore();
+    const result = await dispatchOrder({
+      orderStore: new InMemoryOrderStore({ orders: [pendingDispatchOrder()] }),
+      dispatchStore,
+      playerPool: new InMemoryDispatchPlayerPool({ profiles: [] }),
+      orderId,
+      expectedVersion: 3,
+      trigger: 'ORDER_SUBMITTED',
+      dispatchChannelId: '777777777777777777',
+      idempotencyKey: 'system:dispatch:empty:P-2001',
+      now
+    });
+
+    expect(result.candidateCount).toBe(0);
+    expect(dispatchStore.outboxJobs.map((job) => job.type)).toEqual(['DISPATCH_TIMEOUT']);
+  });
+
   test('dispatch API accepts only system-job actor and returns candidate count from unified API', async () => {
     const auditSink = new InMemoryAuditSink();
     const server = buildApiServer({

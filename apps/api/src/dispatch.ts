@@ -1085,14 +1085,14 @@ function buildDispatchOutboxJobs(input: {
     candidatePlayerUserIds: input.candidatePlayerUserIds
   };
   return [
-    buildOutboxJob({
+    ...(input.candidatePlayerUserIds.length > 0 ? [buildOutboxJob({
       type: 'DISPATCH_MESSAGE',
       aggregateId: input.attempt.id,
       dedupeKey: `${input.idempotencyKey}:message`,
       payload: basePayload,
       runAfter: input.now.toISOString(),
       now: input.now
-    }),
+    })] : []),
     buildOutboxJob({
       type: 'DISPATCH_TIMEOUT',
       aggregateId: input.attempt.id,
