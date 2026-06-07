@@ -49,6 +49,10 @@ describe('M2-US-03 Postgres accept-order concurrency', () => {
       '-f',
       'database/prisma/migrations/000001_p0_baseline/migration.sql'
     ]);
+    await execFile('psql', [
+      '-h', socketDir, '-p', String(port), '-d', 'blackcat_m2_accept', '-v', 'ON_ERROR_STOP=1',
+      '-f', 'database/prisma/migrations/000016_order_acceptance_payout_snapshot/migration.sql'
+    ]);
 
     pool = new Pool({
       host: socketDir,
@@ -184,6 +188,32 @@ RESTART IDENTITY CASCADE
 
     const order = await pool.query('SELECT status, player_id, row_version FROM orders WHERE id = $1', [orderId]);
     expect(order.rows[0]).toMatchObject({ status: 'PENDING_DISPATCH', player_id: null, row_version: 3 });
+  });
+
+  test('acceptance transaction may snapshot only the selected player payout fields', async () => {
+    const { dispatchAttemptId } = await createDispatchAttempt();
+    const orderStore = new PostgresOrderStore({ pool });
+    const playerPool = new PostgresDispatchPlayerPool({ pool });
+    const order = await orderStore.findById(orderId);
+    const player = (await playerPool.listProfiles({ guildId })).find((item) => item.discordUserId === '222222222222222222');
+    expect(order).toBeTruthy();
+    expect(player).toBeTruthy();
+
+    await new PostgresDispatchStore({ pool }).commitAcceptance({
+      orderStore,
+      order: { ...order!, playerUnitPayoutMinor: 3000, playerEarningMinor: 6000 },
+      expectedVersion: 3,
+      dispatchAttemptId,
+      player: player!,
+      outboxJobs: [],
+      now
+    });
+
+    const stored = await pool.query('SELECT status, customer_unit_price_minor, amount_minor, player_unit_payout_minor, expected_player_earning_minor FROM orders WHERE id = $1', [orderId]);
+    expect(stored.rows[0]).toMatchObject({
+      status: 'ACCEPTED', customer_unit_price_minor: '6000', amount_minor: '12000',
+      player_unit_payout_minor: '3000', expected_player_earning_minor: '6000'
+    });
   });
 
   test('decline only marks the current candidate and keeps the order pending dispatch', async () => {

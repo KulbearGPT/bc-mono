@@ -461,6 +461,7 @@ RETURNING player_user_id
         throw new DispatchError('PLAYER_NOT_ELIGIBLE', 'Player is not an active candidate for this dispatch attempt.');
       }
 
+      await transactionClient.query("SELECT set_config('app.order_acceptance_payout_update', 'approved', true)");
       const order = await transactionClient.query(
         `
 UPDATE orders
