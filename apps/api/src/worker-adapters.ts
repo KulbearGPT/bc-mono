@@ -36,6 +36,9 @@ SELECT orders.id AS order_id,
        orders.row_version,
        orders.channel_id,
        orders.panel_message_id,
+       orders.guild_id,
+       orders.voice_channel_id,
+       config.config_json,
        customer_discord.discord_user_id AS customer_discord_user_id,
        player_discord.discord_user_id AS player_discord_user_id,
        orders.amount_minor,
@@ -49,12 +52,22 @@ LEFT JOIN users AS player ON player.id = orders.player_id
 LEFT JOIN discord_accounts AS player_discord
   ON player_discord.user_id = player.id
  AND player_discord.guild_id = orders.guild_id
+LEFT JOIN guild_bot_configs AS config ON config.guild_id = orders.guild_id
 WHERE orders.id = $1
       `,
       [orderId]
     );
     const row = result.rows[0];
     return row ? mapProjection(row) : null;
+  }
+
+  async setVoiceChannelId(input: { orderId: string; voiceChannelId: string }): Promise<void> {
+    const result = await this.client.query(
+      `UPDATE orders SET voice_channel_id=$2, updated_at=now()
+       WHERE id=$1 AND (voice_channel_id IS NULL OR voice_channel_id=$2) RETURNING id`,
+      [input.orderId, input.voiceChannelId]
+    );
+    if (!result.rows[0]) throw new WorkerAdapterError('CONFLICT', 'Order voice channel changed concurrently.');
   }
 
   async replacePanelMessageId(input: {
@@ -99,7 +112,8 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     this.fetch = input.fetch ?? globalThis.fetch;
   }
 
-  async upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean }> {
+  async upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean; voiceChannelId?: string }> {
+    const voiceChannelId = projection.status === 'ACCEPTED' ? await this.ensureAcceptedCoordination(projection, notBefore) : projection.voiceChannelId ?? undefined;
     if (projection.playerDiscordUserId) {
       await this.request(
         `/channels/${encodeURIComponent(projection.channelId)}/permissions/${encodeURIComponent(projection.playerDiscordUserId)}`,
@@ -118,7 +132,7 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     );
     if (patch.ok) {
       const message = await readMessage(patch, projection.panelMessageId);
-      return { messageId: message.id, recreated: false };
+      return voiceChannelId ? { messageId: message.id, recreated: false, voiceChannelId } : { messageId: message.id, recreated: false };
     }
     if (patch.status !== 404) throw await discordFailure(patch);
 
@@ -137,7 +151,38 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
       }
     );
     if (!created.id) throw new WorkerAdapterError('DISCORD_ERROR', 'Discord returned an invalid replacement panel message.');
-    return { messageId: created.id, recreated: true };
+    return voiceChannelId ? { messageId: created.id, recreated: true, voiceChannelId } : { messageId: created.id, recreated: true };
+  }
+
+  private async ensureAcceptedCoordination(projection: OrderPanelProjection, notBefore: string): Promise<string | undefined> {
+    if (!projection.guildId || !projection.playerDiscordUserId || !projection.staffTaskChannelId) return projection.voiceChannelId ?? undefined;
+    let voiceChannelId = projection.voiceChannelId ?? null;
+    if (!voiceChannelId) {
+      const channelName = `order-${projection.publicId}`.toLowerCase().replace(/[^a-z0-9-]/gu, '-').slice(0, 90);
+      const channels = await this.request<Array<{ id: string; name: string; type: number; parent_id?: string | null }>>(`/guilds/${projection.guildId}/channels`, { method: 'GET' });
+      voiceChannelId = channels.find((channel) => channel.type === 2 && channel.name === channelName && channel.parent_id === projection.privateOrderCategoryId)?.id ?? null;
+      if (!voiceChannelId) {
+        const overwrites = [
+          { id: projection.guildId, type: 0, allow: '0', deny: String(VIEW_CHANNEL | CONNECT) },
+          ...[projection.customerDiscordUserId, projection.playerDiscordUserId].map((id) => ({ id, type: 1, allow: String(VIEW_CHANNEL | CONNECT | SPEAK), deny: '0' })),
+          ...(projection.staffRoleIds ?? []).map((id) => ({ id, type: 0, allow: String(VIEW_CHANNEL | CONNECT | SPEAK | MANAGE_CHANNELS | MOVE_MEMBERS), deny: '0' }))
+        ];
+        const created = await this.request<{ id: string }>(`/guilds/${projection.guildId}/channels`, { method: 'POST', body: JSON.stringify({
+          name: channelName, type: 2, parent_id: projection.privateOrderCategoryId ?? undefined, user_limit: 2, permission_overwrites: overwrites
+        }) });
+        voiceChannelId = text(created.id, 'voice_channel.id');
+      }
+    }
+    const voiceLink = `https://discord.com/channels/${projection.guildId}/${voiceChannelId}`;
+    await this.sendOnce(projection.channelId, `accepted-customer:${projection.orderId}`, `<@${projection.customerDiscordUserId}> 你的陪玩已匹配成功，协调语音房已创建：${voiceLink}`, notBefore, [projection.customerDiscordUserId]);
+    await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`, `订单 **${projection.publicId}** 已下单并匹配完成。客服协调语音房：${voiceLink}`, notBefore);
+    return voiceChannelId;
+  }
+
+  private async sendOnce(channelId: string, key: string, content: string, notBefore: string, users: string[] = []): Promise<void> {
+    const nonce = createHash('sha256').update(key).digest('hex').slice(0, 24);
+    if (await this.findMessageByNonce(channelId, nonce, notBefore)) return;
+    await this.request(`/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({ content, nonce, enforce_nonce: true, allowed_mentions: { users } }) });
   }
 
   private async findMessageByNonce(channelId: string, nonce: string, notBefore: string): Promise<string | null> {
@@ -184,8 +229,13 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
 
 const VIEW_CHANNEL = 1 << 10;
 const SEND_MESSAGES = 1 << 11;
+const MANAGE_CHANNELS = 1 << 4;
+const CONNECT = 1 << 20;
+const SPEAK = 1 << 21;
+const MOVE_MEMBERS = 1 << 24;
 
 function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
+  const config = row.config_json && typeof row.config_json === 'object' ? row.config_json as Record<string, unknown> : {};
   return {
     orderId: text(row.order_id, 'order_id'),
     publicId: text(row.public_id, 'public_id'),
@@ -197,11 +247,19 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     playerDiscordUserId: nullableText(row.player_discord_user_id, 'player_discord_user_id'),
     amountMinor: integer(row.amount_minor, 'amount_minor'),
     currency: text(row.currency, 'currency').trim()
+    ,guildId: text(row.guild_id, 'guild_id')
+    ,voiceChannelId: nullableText(row.voice_channel_id, 'voice_channel_id')
+    ,privateOrderCategoryId: nullableConfigText(config.private_order_category_id)
+    ,staffTaskChannelId: nullableConfigText(config.staff_task_channel_id)
+    ,staffRoleIds: ['staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].map((key)=>nullableConfigText(config[key])).filter((value):value is string=>Boolean(value))
   };
 }
 
+function nullableConfigText(value: unknown): string | null { return typeof value === 'string' && value ? value : null; }
+
 function renderOrderPanel(projection: OrderPanelProjection): {
   content: string;
+  embeds: never[];
   allowed_mentions: { parse: never[] };
   components: Array<{ type: 1; components: Array<{ type: 2; style: number; label: string; custom_id: string }> }>;
 } {
@@ -210,6 +268,7 @@ function renderOrderPanel(projection: OrderPanelProjection): {
     : `客户：<@${projection.customerDiscordUserId}>\n陪玩：待接单`;
   return {
     content: `**订单 ${projection.publicId}**\n状态：${projection.status}\n金额：${projection.currency} ${(projection.amountMinor / (projection.currency==='CAT'?10:100)).toFixed(projection.currency==='CAT'?1:2)}\n${participants}`,
+    embeds: [],
     allowed_mentions: { parse: [] },
     components: [{ type: 1, components: panelActions(projection) }]
   };

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
@@ -351,6 +352,26 @@ describe('M2-US-04 service lifecycle API', () => {
     expect(store.staffTasks).toHaveLength(1);
     expect(store.consumptionEntries).toHaveLength(0);
     expect(store.playerEarnings).toHaveLength(0);
+  });
+
+  test('persists a recoverable customer panel sync with the completion request transaction', async () => {
+    const source = await readFile('apps/api/src/service-lifecycle.ts', 'utf8');
+    const completionStart = source.indexOf('async commitCompletionRequest(input:');
+    const confirmationStart = source.indexOf('async commitOrderConfirmation(input:', completionStart);
+    const completionSource = source.slice(completionStart, confirmationStart);
+    expect(completionSource).toContain("'PANEL_SYNC'");
+    expect(completionSource).toContain('ORDER_COMPLETION_REQUESTED_CHANNEL_SYNC');
+    expect(completionSource.indexOf("'PANEL_SYNC'")).toBeLessThan(completionSource.indexOf("query('COMMIT')"));
+  });
+
+  test('persists a recoverable completed panel sync with the confirmation transaction', async () => {
+    const source = await readFile('apps/api/src/service-lifecycle.ts', 'utf8');
+    const confirmationStart = source.indexOf('async commitOrderConfirmation(input:');
+    const timeoutStart = source.indexOf('async commitCompletionTimeout(input:', confirmationStart);
+    const confirmationSource = source.slice(confirmationStart, timeoutStart);
+    expect(confirmationSource).toContain("'PANEL_SYNC'");
+    expect(confirmationSource).toContain('ORDER_COMPLETED_CHANNEL_SYNC');
+    expect(confirmationSource.indexOf("'PANEL_SYNC'")).toBeLessThan(confirmationSource.indexOf("query('COMMIT')"));
   });
 
   test('legacy single-party start endpoint is rejected and audited', async () => {

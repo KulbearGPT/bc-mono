@@ -630,6 +630,17 @@ RETURNING *
       if (!row) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      await transactionClient.query(
+        `INSERT INTO outbox_events (
+           id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
+           row_version,attempt_count,max_attempts,available_at,created_at,updated_at
+         ) VALUES (
+           gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
+         ) ON CONFLICT DO NOTHING`,
+        [input.orderId, `completion-request:${input.orderId}:v${row.row_version}:panel`, JSON.stringify({
+          kind: 'ORDER_COMPLETION_REQUESTED_CHANNEL_SYNC', orderId: input.orderId
+        }), input.now.toISOString()]
+      );
       await transactionClient.query('COMMIT');
       return {
         orderId: row.id,
@@ -741,6 +752,17 @@ RETURNING *
       if (!row) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      await transactionClient.query(
+        `INSERT INTO outbox_events (
+           id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
+           row_version,attempt_count,max_attempts,available_at,created_at,updated_at
+         ) VALUES (
+           gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
+         ) ON CONFLICT DO NOTHING`,
+        [input.orderId, `order-completed:${input.orderId}:v${row.row_version}:panel`, JSON.stringify({
+          kind: 'ORDER_COMPLETED_CHANNEL_SYNC', orderId: input.orderId
+        }), input.now.toISOString()]
+      );
       await transactionClient.query('COMMIT');
       return {
         orderId: row.id,

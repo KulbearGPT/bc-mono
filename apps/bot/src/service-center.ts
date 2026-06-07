@@ -1709,12 +1709,27 @@ export async function handleServiceLifecycleAction(input: {
 }): Promise<BotFlowResult> {
   try {
     if (input.action === 'ready') {
-      const result = await input.api.setOrderReadiness(
-        input.orderId,
-        { expectedVersion: input.expectedVersion, readiness: 'READY' },
-        input.actor,
-        input.idempotencyKey
-      );
+      let result;
+      try {
+        result = await input.api.setOrderReadiness(
+          input.orderId,
+          { expectedVersion: input.expectedVersion, readiness: 'READY' },
+          input.actor,
+          input.idempotencyKey
+        );
+      } catch (error) {
+        if (!isApiError(error, 'CONFLICT')) throw error;
+        const refreshed = await input.api.getOrder(input.orderId, input.actor);
+        if (refreshed.status !== 'ACCEPTED') {
+          return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(refreshed), notice: '订单状态已更新，面板已刷新。' };
+        }
+        result = await input.api.setOrderReadiness(
+          input.orderId,
+          { expectedVersion: refreshed.version, readiness: 'READY' },
+          input.actor,
+          `${input.idempotencyKey}:retry-v${refreshed.version}`
+        );
+      }
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildServiceLifecyclePanelMessage(result)

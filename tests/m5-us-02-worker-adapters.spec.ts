@@ -17,7 +17,12 @@ const projection: OrderPanelProjection = {
   customerDiscordUserId: '530000000000000003',
   playerDiscordUserId: '530000000000000004',
   amountMinor: 12_000,
-  currency: 'CAT'
+  currency: 'CAT',
+  guildId: '530000000000000000',
+  voiceChannelId: null,
+  privateOrderCategoryId: '530000000000000010',
+  staffTaskChannelId: '530000000000000011',
+  staffRoleIds: ['530000000000000012']
 };
 const notBefore = '2026-07-18T23:00:00.000Z';
 
@@ -34,6 +39,9 @@ describe('M5-US-02 Worker production adapters', () => {
       player_discord_user_id: projection.playerDiscordUserId,
       amount_minor: '12000',
       currency: projection.currency
+      ,guild_id: projection.guildId
+      ,voice_channel_id: null
+      ,config_json: { private_order_category_id: projection.privateOrderCategoryId, staff_task_channel_id: projection.staffTaskChannelId, staff_l1_role_id: projection.staffRoleIds?.[0] }
     }] });
     const store = new PostgresOrderPanelProjectionStore({ query });
 
@@ -121,11 +129,46 @@ describe('M5-US-02 Worker production adapters', () => {
     expect(panelBody.content).toContain('P-5301');
     expect(panelBody.content).toContain('IN_SERVICE');
     expect(panelBody.content).toContain('CAT 1200.0');
+    expect(panelBody.embeds).toEqual([]);
     expect(panelBody.allowed_mentions).toEqual({ parse: [] });
     expect(panelBody.components[0].components).toEqual(expect.arrayContaining([
       expect.objectContaining({ custom_id: `bc:service:request-completion:${projection.orderId}:v8` }),
       expect.objectContaining({ custom_id: `bc:service:support:${projection.orderId}:v8` })
     ]));
+  });
+
+  test('creates one private voice room and sends idempotent customer and staff coordination notices after acceptance', async () => {
+    const accepted = { ...projection, status: 'ACCEPTED', voiceChannelId: null };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(200, []))
+      .mockResolvedValueOnce(response(200, { id: '530000000000000020' }))
+      .mockResolvedValueOnce(response(200, []))
+      .mockResolvedValueOnce(response(200, { id: 'customer-notice' }))
+      .mockResolvedValueOnce(response(200, []))
+      .mockResolvedValueOnce(response(200, { id: 'staff-notice' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { id: projection.panelMessageId }));
+    const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
+
+    await expect(adapter.upsertOrderPanel(accepted, notBefore)).resolves.toEqual({
+      messageId: projection.panelMessageId, recreated: false, voiceChannelId: '530000000000000020'
+    });
+
+    const createVoice = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
+    expect(createVoice).toMatchObject({ type: 2, parent_id: projection.privateOrderCategoryId, user_limit: 2 });
+    expect(createVoice.permission_overwrites).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: projection.guildId, type: 0, deny: String((1 << 10) | (1 << 20)) }),
+      expect.objectContaining({ id: projection.customerDiscordUserId, type: 1 }),
+      expect.objectContaining({ id: projection.playerDiscordUserId, type: 1 }),
+      expect.objectContaining({ id: projection.staffRoleIds?.[0], type: 0 })
+    ]));
+    const customerNotice = JSON.parse(fetchMock.mock.calls[3]?.[1]?.body as string);
+    expect(customerNotice.content).toContain(`<@${projection.customerDiscordUserId}>`);
+    expect(customerNotice.content).toContain('/530000000000000020');
+    expect(customerNotice.allowed_mentions.users).toEqual([projection.customerDiscordUserId]);
+    const staffNotice = JSON.parse(fetchMock.mock.calls[5]?.[1]?.body as string);
+    expect(staffNotice.content).toContain('已下单并匹配完成');
+    expect(staffNotice.content).toContain('/530000000000000020');
   });
 
   test('posts a replacement only when the existing panel PATCH returns 404', async () => {

@@ -98,6 +98,11 @@ export interface OrderPanelProjection {
   playerDiscordUserId: string | null;
   amountMinor: number;
   currency: string;
+  guildId?: string;
+  voiceChannelId?: string | null;
+  privateOrderCategoryId?: string | null;
+  staffTaskChannelId?: string | null;
+  staffRoleIds?: string[];
 }
 
 export interface OrderPanelProjectionStore {
@@ -107,10 +112,11 @@ export interface OrderPanelProjectionStore {
     expectedPanelMessageId: string;
     panelMessageId: string;
   }): Promise<void>;
+  setVoiceChannelId?(input: { orderId: string; voiceChannelId: string }): Promise<void>;
 }
 
 export interface OrderPanelDiscordAdapter {
-  upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean }>;
+  upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean; voiceChannelId?: string }>;
 }
 
 export function createPanelSyncHandler(input: {
@@ -126,6 +132,9 @@ export function createPanelSyncHandler(input: {
     const projection = await input.store.getOrderPanelProjection(payload.orderId);
     if (!projection) throw new Error('Order panel projection was not found.');
     const result = await input.discord.upsertOrderPanel(projection, job.createdAt);
+    if (result.voiceChannelId && result.voiceChannelId !== projection.voiceChannelId) {
+      await input.store.setVoiceChannelId?.({ orderId: projection.orderId, voiceChannelId: result.voiceChannelId });
+    }
     if (result.recreated && result.messageId !== projection.panelMessageId) {
       await input.store.replacePanelMessageId({
         orderId: projection.orderId,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   HttpBotApiClient,
+  BotApiError,
   buildServiceLifecyclePanelMessage,
   handleServiceLifecycleAction,
   parseServiceCenterCustomId,
@@ -335,5 +336,26 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
     expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '已申请完成，等待用户确认。' });
     expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '订单已确认完成。扣款 1,200.0 CAT，陪玩收益已记录。' });
+  });
+
+  test('refreshes and retries readiness once when a timeout advanced the order version', async () => {
+    const setOrderReadiness = vi.fn()
+      .mockRejectedValueOnce(new BotApiError({ code: 'CONFLICT', message: 'Order version is stale.', requestId: 'req-stale-ready', statusCode: 409 }))
+      .mockResolvedValueOnce({ ...acceptedOrder, version: 8, readiness: { ...acceptedOrder.readiness, customer: 'READY' } });
+    const api = {
+      setOrderReadiness,
+      getOrder: vi.fn().mockResolvedValue({
+        id: acceptedOrder.orderId, publicId: acceptedOrder.publicId, status: 'ACCEPTED', version: 7,
+        game: 'VALORANT', service: 'FUN', region: null, billingUnitMinutes: 60, unitCount: 2,
+        amountMinor: 400, currency: 'CAT', notes: null, channelSpec: { channelId: 'channel', panelMessageId: 'panel', voiceChannelId: 'voice' }, matching: null
+      })
+    } as Partial<BotApiClient> as BotApiClient;
+
+    const result = await handleServiceLifecycleAction({ api, actor, orderId: acceptedOrder.orderId, action: 'ready', expectedVersion: 6,
+      idempotencyKey: 'discord:service:ready:stale' });
+
+    expect(setOrderReadiness).toHaveBeenNthCalledWith(2, acceptedOrder.orderId, { expectedVersion: 7, readiness: 'READY' }, actor,
+      'discord:service:ready:stale:retry-v7');
+    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
   });
 });
