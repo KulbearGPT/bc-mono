@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import {
   InMemoryPlayerCompensationStore,
   calculatePlayerCompensation,
@@ -7,6 +8,10 @@ import {
 import { buildAdminActionRequest } from '@blackcat/dashboard/admin-business';
 
 describe('M9-US-10 per-player service compensation', () => {
+  test('grants the API runtime role access to compensation rules', async () => {
+    const migration = await readFile('database/prisma/migrations/000017_player_compensation_runtime_grant/migration.sql', 'utf8');
+    expect(migration).toContain('GRANT SELECT, INSERT, UPDATE ON player_service_compensation_rules TO blackcat_app');
+  });
   test('uses the catalog default percentage when a player has no override', () => {
     expect(calculatePlayerCompensation({ customerUnitPriceMinor: 20, unitCount: 2, defaultPayoutBps: 6000, rule: null }))
       .toEqual({ unitPayoutMinor: 12, totalPayoutMinor: 24, source: 'CATALOG_DEFAULT' });
