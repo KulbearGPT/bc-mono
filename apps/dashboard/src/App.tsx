@@ -54,6 +54,13 @@ interface DashboardNavItem {
   href: string;
 }
 
+const dashboardNavigationGroups = [
+  { id: 'command', label: '指挥中心' },
+  { id: 'business', label: '业务运营' },
+  { id: 'finance', label: '财务控制' },
+  { id: 'governance', label: '系统治理' }
+] as const;
+
 interface DashboardChromeProps {
   appName: string;
   capabilities: DashboardCapabilities;
@@ -181,6 +188,9 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
 
 export function DashboardChrome(props: DashboardChromeProps) {
   const activeItem = props.navigation.find((item) => isActivePath(item.href, props.currentPath));
+  const groupedNavigation = dashboardNavigationGroups
+    .map((group) => ({ ...group, items: props.navigation.filter((item) => navigationGroupForPath(item.href) === group.id) }))
+    .filter((group) => group.items.length > 0);
   const environment = props.capabilities.businessEnvironment === 'SANDBOX'
     ? 'Sandbox 环境'
     : props.capabilities.businessEnvironment === 'PRODUCTION' ? '生产环境' : '环境待确认';
@@ -209,19 +219,25 @@ export function DashboardChrome(props: DashboardChromeProps) {
           <span><small>当前工作空间</small><strong>{environment}</strong></span>
         </div>
         <nav className="dashboard-nav" aria-label="管理导航">
-          <span className="dashboard-nav__label">工作区</span>
           <div className="dashboard-nav__items">
-            {props.navigation.map((item) => {
-              const Icon = iconForPath(item.href);
-              const active = isActivePath(item.href, props.currentPath);
-              return (
-                <a key={`${item.id}:${item.href}`} href={item.href} aria-current={active ? 'page' : undefined} onClick={routeClick(item.href)}>
-                  <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
-                  <span>{item.label}</span>
-                  {active && <span className="nav-active-dot" aria-hidden="true" />}
-                </a>
-              );
-            })}
+            {groupedNavigation.map((group) => (
+              <section className="dashboard-nav__group" aria-labelledby={`nav-group-${group.id}`} key={group.id}>
+                <h2 id={`nav-group-${group.id}`}>{group.label}</h2>
+                <div>
+                  {group.items.map((item) => {
+                    const Icon = iconForPath(item.href);
+                    const active = isActivePath(item.href, props.currentPath);
+                    return (
+                      <a key={`${item.id}:${item.href}`} href={item.href} aria-current={active ? 'page' : undefined} onClick={routeClick(item.href)}>
+                        <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
+                        <span>{item.label}</span>
+                        {active && <span className="nav-active-dot" aria-hidden="true" />}
+                      </a>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         </nav>
         <div className="sidebar-footer">
@@ -236,9 +252,11 @@ export function DashboardChrome(props: DashboardChromeProps) {
             <strong>{activeItem?.label ?? '运营概览'}</strong>
           </div>
           <div className="dashboard-topbar__meta">
-            <span className={`topbar-environment ${environmentClass}`}>{environment}</span>
-            <span className="sync-status"><span aria-hidden="true" /> 权限已同步</span>
-            {props.capabilities.displayRole && <span className="display-role">{props.capabilities.displayRole}</span>}
+            <div className="status-rail" aria-label="当前系统状态">
+              <span className="status-rail__item is-online"><Activity size={13} aria-hidden="true" /> API ONLINE</span>
+              <span className={`status-rail__item ${environmentClass}`}>{environment}</span>
+              <span className="status-rail__item">{props.capabilities.displayRole ?? 'STAFF'} / {formatLevel(props.capabilities.level)}</span>
+            </div>
             <span className="level-avatar" aria-label={`当前权限 ${formatLevel(props.capabilities.level)}`}>
               {levelInitial(props.capabilities.level)}
             </span>
@@ -350,6 +368,13 @@ function FeatureUnavailable() {
 
 function iconForPath(path: string): LucideIcon {
   return navigationIcons.find(([pattern]) => pattern.test(path))?.[1] ?? BriefcaseBusiness;
+}
+
+function navigationGroupForPath(path: string): typeof dashboardNavigationGroups[number]['id'] {
+  if (path === '/' || path.startsWith('/support')) return 'command';
+  if (/settlement|reports|commission|earning/u.test(path)) return 'finance';
+  if (/security|operations|access/u.test(path)) return 'governance';
+  return 'business';
 }
 
 function isActivePath(href: string, currentPath: string) {

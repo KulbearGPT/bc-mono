@@ -38,6 +38,10 @@ describe('M4-US-01 dashboard visual shell', () => {
     expect(html).toMatch(/aria-current="page"[^>]*href="\/support"|href="\/support"[^>]*aria-current="page"/u);
     expect(html).toContain('id="dashboard-main"');
     expect(html).toContain('aria-label="管理导航"');
+    expect(html).toContain('指挥中心');
+    expect(html).toContain('系统治理');
+    expect(html).toContain('class="status-rail"');
+    expect(html).toContain('API ONLINE');
   });
 
   test('uses real capability facts for the overview instead of invented business metrics', () => {
@@ -73,5 +77,9 @@ describe('M4-US-01 dashboard visual shell', () => {
     expect(css).toContain('min-height: 44px');
     expect(css).toContain('@media (max-width: 768px)');
     expect(css).toContain('--color-accent');
+    expect(css).toContain('--font-display');
+    expect(css).toContain('--font-mono');
+    expect(css).toMatch(/\.dashboard-nav__group/u);
+    expect(css).toMatch(/\.status-rail/u);
   });
 });

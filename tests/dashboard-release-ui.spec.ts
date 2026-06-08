@@ -76,4 +76,14 @@ describe('Dashboard release visual gate', () => {
     expect(styles).toContain('@keyframes brand-pulse');
     expect(styles).toContain('prefers-reduced-motion: reduce');
   });
+
+  test('extends the tactical operations language through daily workflow surfaces', () => {
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    expect(styles).toMatch(/\.dashboard-workspace\s*\{[\s\S]*#050812/u);
+    expect(styles).toMatch(/\.content-panel\s*\{[\s\S]*clip-path/u);
+    expect(styles).toMatch(/\.filter-bar::before\s*\{[\s\S]*QUERY FILTERS/u);
+    expect(styles).toMatch(/\.state-card::before\s*\{[\s\S]*QUERY RESULT/u);
+    expect(styles).toMatch(/\.dashboard-content table\s*\{[\s\S]*var\(--font-mono\)/u);
+    expect(styles).toMatch(/\.dashboard-content tbody tr:hover\s*\{[\s\S]*box-shadow:\s*inset 3px 0/u);
+  });
 });
