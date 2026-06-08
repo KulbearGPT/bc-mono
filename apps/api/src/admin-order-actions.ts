@@ -813,6 +813,10 @@ VALUES (
       });
       await insertAdminOrderEvent(client, input.event);
       await insertAdminAuditRecord(client, input.auditRecord);
+      await insertAdminOrderPanelSync(client, {
+        orderId: input.updatedOrder.id, version: input.updatedOrder.version,
+        kind: 'ORDER_RESOLVED_CHANNEL_SYNC', now: new Date(input.updatedOrder.updatedAt)
+      });
     });
   }
 
@@ -843,6 +847,10 @@ WHERE id = $1
       }
       await insertAdminOrderEvent(client, input.event);
       await insertAdminAuditRecord(client, input.auditRecord);
+      await insertAdminOrderPanelSync(client, {
+        orderId: input.updatedOrder.id, version: input.updatedOrder.version,
+        kind: 'ORDER_REASSIGNED_CHANNEL_SYNC', now: new Date(input.updatedOrder.updatedAt)
+      });
     });
   }
 
@@ -862,6 +870,22 @@ WHERE id = $1
       client.release();
     }
   }
+}
+
+async function insertAdminOrderPanelSync(client: PoolClient, input: {
+  orderId: string; version: number; kind: string; now: Date;
+}): Promise<void> {
+  await client.query(
+    `INSERT INTO outbox_events (
+       id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
+       row_version,attempt_count,max_attempts,available_at,created_at,updated_at
+     ) VALUES (
+       gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
+     ) ON CONFLICT DO NOTHING`,
+    [input.orderId, `order-panel:${input.kind}:${input.orderId}:v${input.version}`, JSON.stringify({
+      kind: input.kind, orderId: input.orderId
+    }), input.now]
+  );
 }
 
 function commitApproval(store: AdminRefundOrderStore, input: ApprovalCommitInput): Promise<void> | void {

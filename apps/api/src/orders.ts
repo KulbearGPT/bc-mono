@@ -945,6 +945,9 @@ WHERE order_id = $1
       if ((updated.rowCount ?? 0) !== 1) {
         throw new OrderError('CONFLICT', 'Order version is stale.');
       }
+      await insertOrderPanelSync(transactionClient, {
+        orderId: input.order.id, version: input.order.version, kind: 'ORDER_AUTOMATION_CHANNEL_SYNC', now: new Date(input.order.updatedAt)
+      });
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -995,6 +998,9 @@ WHERE order_id = $1
         (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
         VALUES ($1,'DISPATCH_START','order',$2,$2,$3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5)`,
       [input.dispatchStartJob.id,input.order.id,input.dispatchStartJob.dedupeKey,JSON.stringify(input.dispatchStartJob.payload),input.dispatchStartJob.runAfter]);
+      await insertOrderPanelSync(transactionClient, {
+        orderId: input.order.id, version: input.order.version, kind: 'ORDER_SUBMITTED_CHANNEL_SYNC', now: new Date(input.order.updatedAt)
+      });
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -1043,6 +1049,9 @@ WHERE order_id = $1
         await insertFundReservationEvent(transactionClient, input.reservationEvent);
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
+      await insertOrderPanelSync(transactionClient, {
+        orderId: input.order.id, version: input.order.version, kind: 'ORDER_CANCELLED_CHANNEL_SYNC', now: input.now
+      });
       await transactionClient.query(
         `UPDATE cancellation_previews SET status = 'APPLIED', applied_at = $2 WHERE id = $1 AND status = 'ISSUED'`,
         [input.previewId, input.now.toISOString()]
@@ -2714,6 +2723,22 @@ WHERE id = $1
       new Date(order.updatedAt),
       expectedVersion
     ]
+  );
+}
+
+async function insertOrderPanelSync(client: OrderQueryClient, input: {
+  orderId: string; version: number; kind: string; now: Date;
+}): Promise<void> {
+  await client.query(
+    `INSERT INTO outbox_events (
+       id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
+       row_version,attempt_count,max_attempts,available_at,created_at,updated_at
+     ) VALUES (
+       gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
+     ) ON CONFLICT DO NOTHING`,
+    [input.orderId, `order-panel:${input.kind}:${input.orderId}:v${input.version}`, JSON.stringify({
+      kind: input.kind, orderId: input.orderId
+    }), input.now]
   );
 }
 

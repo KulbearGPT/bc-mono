@@ -562,6 +562,9 @@ RETURNING *
       if (!row) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      await insertLifecyclePanelSync(transactionClient, {
+        orderId: input.orderId, version: row.row_version, kind: 'ORDER_READINESS_CHANNEL_SYNC', now: input.now
+      });
       await transactionClient.query('COMMIT');
       return toReadinessResult(mapOrderRow(row), actorRole);
     } catch (error) {
@@ -801,6 +804,9 @@ RETURNING *
         throw new ServiceLifecycleError('CONFLICT', 'Completion confirmation is not overdue.');
       }
       const staffTask = await insertOrGetCompletionReviewTask(transactionClient, { order: current, now: input.now });
+      await insertLifecyclePanelSync(transactionClient, {
+        orderId: current.id, version: current.version, kind: 'ORDER_COMPLETION_TIMEOUT_CHANNEL_SYNC', now: input.now
+      });
       await transactionClient.query('COMMIT');
       return {
         orderId: current.id,
@@ -870,6 +876,9 @@ RETURNING *
         );
         version = updated.rows[0]?.row_version ?? current.version;
       }
+      await insertLifecyclePanelSync(transactionClient, {
+        orderId: current.id, version, kind: 'ORDER_READINESS_TIMEOUT_CHANNEL_SYNC', now: input.now
+      });
       await transactionClient.query('COMMIT');
       return {
         outcome: 'ESCALATED',
@@ -1230,6 +1239,22 @@ function mapLifecycleError(error: unknown): { statusCode: number; code: string; 
     return { statusCode: 403, code: error.code, message: error.message };
   }
   return { statusCode: 422, code: error.code, message: error.message };
+}
+
+async function insertLifecyclePanelSync(client: ServiceLifecycleQueryClient, input: {
+  orderId: string; version: number; kind: string; now: Date;
+}): Promise<void> {
+  await client.query(
+    `INSERT INTO outbox_events (
+       id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
+       row_version,attempt_count,max_attempts,available_at,created_at,updated_at
+     ) VALUES (
+       gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
+     ) ON CONFLICT DO NOTHING`,
+    [input.orderId, `order-panel:${input.kind}:${input.orderId}:v${input.version}`, JSON.stringify({
+      kind: input.kind, orderId: input.orderId
+    }), input.now.toISOString()]
+  );
 }
 
 async function lockOrder(client: ServiceLifecycleQueryClient, orderId: string): Promise<ServiceLifecycleOrderRecord | null> {

@@ -137,6 +137,21 @@ describe('M5-US-02 Worker production adapters', () => {
     ]));
   });
 
+  test('keeps recovery controls when synchronizing a pending-dispatch panel', async () => {
+    const pending = { ...projection, status: 'PENDING_DISPATCH', playerDiscordUserId: null };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, { id: projection.panelMessageId }));
+    const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
+
+    await adapter.upsertOrderPanel(pending, notBefore);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(body.components[0].components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:submit:v8` }),
+      expect.objectContaining({ label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v8` }),
+      expect.objectContaining({ label: '联系客服' })
+    ]));
+  });
+
   test('creates one private voice room and sends idempotent customer and staff coordination notices after acceptance', async () => {
     const accepted = { ...projection, status: 'ACCEPTED', voiceChannelId: null };
     const fetchMock = vi.fn()
