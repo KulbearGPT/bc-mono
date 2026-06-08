@@ -54,10 +54,10 @@ function OperationsSection(props: { title: string; kind: ViewKind; error: ErrorV
 function DataTable<T extends object>(props: { rows: ReadonlyArray<T>; actions?: (row: T) => React.ReactNode }) {
   const columns = Array.from(new Set(props.rows.flatMap((row) => Object.keys(row)))).filter((key) => key !== 'readOnly' && key !== 'retry' && key !== 'edit');
   return <div className="table-scroll"><table className="data-table">
-    <thead><tr>{columns.map((column) => <th key={column} scope="col">{column}</th>)}{props.actions && <th scope="col">操作</th>}</tr></thead>
+    <thead><tr>{columns.map((column) => <th className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column} scope="col">{column}</th>)}{props.actions && <th className="data-column--actions" scope="col">操作</th>}</tr></thead>
     <tbody>{props.rows.map((row, index) => <tr key={typeof (row as Record<string, unknown>).id === 'string' ? String((row as Record<string, unknown>).id) : index}>
-      {columns.map((column) => <td key={column}>{display((row as Record<string, unknown>)[column])}</td>)}
-      {props.actions && <td className="table-actions">{props.actions(row)}</td>}
+      {columns.map((column) => <td className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column}>{display((row as Record<string, unknown>)[column])}</td>)}
+      {props.actions && <td className="table-actions"><div className="table-actions__group">{props.actions(row)}</div></td>}
     </tr>)}</tbody>
   </table></div>;
 }

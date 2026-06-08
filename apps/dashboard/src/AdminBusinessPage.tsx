@@ -78,14 +78,16 @@ function AdminBusinessTable(props: {
   return (
     <div className="table-scroll content-panel content-panel--flush">
       <table className="data-table">
-        <thead><tr>{hasOperations && <th scope="col">操作</th>}{columns.map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead>
+        <thead><tr>{hasOperations && <th className="data-column--actions" scope="col">操作</th>}{columns.map((column) => <th className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column} scope="col">{column}</th>)}</tr></thead>
         <tbody>{props.model.items.map((item, index) => (
           <tr key={typeof item.id === 'string' ? item.id : index}>
             {hasOperations && <td className="table-actions">
-              {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-              {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+              <div className="table-actions__group">
+                {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
+                {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+              </div>
             </td>}
-            {columns.map((column) => <td key={column}>{displayValue(column, item[column], item.currency)}</td>)}
+            {columns.map((column) => <td className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column}>{displayValue(column, item[column], item.currency)}</td>)}
           </tr>
         ))}</tbody>
       </table>

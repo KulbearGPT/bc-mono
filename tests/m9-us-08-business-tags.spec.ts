@@ -67,6 +67,7 @@ describe('M9-US-08 unified business tags', () => {
     expect(html).toContain('class="tag-row__identity"');
     expect(html).toContain('class="tag-row__actions"');
     expect(styles).toMatch(/\.tag-type-grid\s*\{[\s\S]*width:\s*100%[\s\S]*min-width:\s*0[\s\S]*margin-top:\s*18px/u);
+    expect(styles).toMatch(/\.tag-type-grid\s*>\s*\.content-panel\s*\{[\s\S]*margin-top:\s*0/u);
     expect(styles).toMatch(/\.tag-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*\.8fr\)\s+minmax\(0,\s*1.4fr\)\s+minmax\(74px,\s*90px\)\s+minmax\(156px,\s*\.9fr\)/u);
     expect(styles).toMatch(/\.tag-row__actions\s*\{[\s\S]*white-space:\s*nowrap/u);
   });

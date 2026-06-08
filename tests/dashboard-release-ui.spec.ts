@@ -86,4 +86,16 @@ describe('Dashboard release visual gate', () => {
     expect(styles).toMatch(/\.dashboard-content table\s*\{[\s\S]*var\(--font-mono\)/u);
     expect(styles).toMatch(/\.dashboard-content tbody tr:hover\s*\{[\s\S]*box-shadow:\s*inset 3px 0/u);
   });
+
+  test('keeps action cells in the native table formatting context', () => {
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    for (const file of ['AdminBusinessPage.tsx', 'OperationsPage.tsx', 'SettlementPage.tsx']) {
+      const source = readFileSync(`apps/dashboard/src/${file}`, 'utf8');
+      expect(source, file).toContain('table-actions__group');
+    }
+    expect(styles).toMatch(/td\.table-actions\s*\{[\s\S]*display:\s*table-cell[\s\S]*vertical-align:\s*middle/u);
+    expect(styles).toMatch(/\.table-actions__group\s*\{[\s\S]*display:\s*flex/u);
+    expect(styles).toMatch(/\.data-column--id\s*\{[\s\S]*width:\s*260px/u);
+    expect(styles).toMatch(/\.data-column--actions\s*\{[\s\S]*width:\s*190px/u);
+  });
 });

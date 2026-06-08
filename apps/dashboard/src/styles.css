@@ -685,7 +685,6 @@ textarea:focus-visible {
 .page-actions,
 .form-actions,
 .inline-actions,
-.table-actions,
 .pagination-bar,
 .segmented-control {
   display: flex;
@@ -2784,6 +2783,35 @@ textarea:hover {
 .tag-type-grid > .content-panel {
   width: 100%;
   min-width: 0;
+  margin-top: 0;
+}
+
+/* Table cells must retain native row sizing; flex belongs on their inner group. */
+td.table-actions {
+  display: table-cell;
+  width: 190px;
+  min-width: 190px;
+  vertical-align: middle;
+  white-space: normal;
+}
+
+.table-actions__group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.data-column--actions {
+  width: 190px;
+  min-width: 190px;
+}
+
+.data-column--id {
+  width: 260px;
+  min-width: 260px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tag-row {
