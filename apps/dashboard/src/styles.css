@@ -2709,3 +2709,66 @@ textarea:hover {
     clip-path: none;
   }
 }
+
+/* Business tag rows use a bounded four-track layout so actions cannot push the
+   card beyond its parent when the taxonomy grid is dense. */
+.tag-row {
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) minmax(90px, auto) minmax(170px, auto);
+}
+
+.tag-row__identity {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+}
+
+.tag-row__identity code,
+.tag-row__identity small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-row > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.tag-row > .status-pill {
+  min-width: 90px;
+  white-space: nowrap;
+}
+
+.tag-row__actions {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.tag-row__actions button {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 1120px) {
+  .tag-type-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .tag-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+
+  .tag-row > input {
+    grid-column: 1 / -1;
+  }
+
+  .tag-row > .status-pill {
+    align-self: center;
+  }
+}

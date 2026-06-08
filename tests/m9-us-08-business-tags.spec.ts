@@ -51,6 +51,25 @@ describe('M9-US-08 unified business tags', () => {
     });
   });
 
+  test('keeps tag rows inside their card grid at dense desktop widths', async () => {
+    const html = renderToStaticMarkup(createElement(BusinessTagsPage, {
+      model: {
+        kind: 'READY',
+        requestId: null,
+        items: [{ id: 'g1', type: 'GAME', code: 'VALORANT', displayName: '无畏契约', enabled: true, version: 1 }]
+      },
+      onCreate: () => undefined,
+      onUpdate: () => undefined,
+      onRefresh: () => undefined
+    }));
+    const { readFile } = await import('node:fs/promises');
+    const styles = await readFile('apps/dashboard/src/styles.css', 'utf8');
+    expect(html).toContain('class="tag-row__identity"');
+    expect(html).toContain('class="tag-row__actions"');
+    expect(styles).toMatch(/\.tag-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*\.8fr\)\s+minmax\(0,\s*1.4fr\)\s+minmax\(90px,\s*auto\)\s+minmax\(170px,\s*auto\)/u);
+    expect(styles).toMatch(/\.tag-row__actions\s*\{[\s\S]*white-space:\s*nowrap/u);
+  });
+
   test('replaces free-text service, companion and gift classification fields with selects', async () => {
     const source = await import('node:fs').then(({ readFileSync }) => readFileSync('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8'));
     expect(source).toContain('businessTagOptions');
