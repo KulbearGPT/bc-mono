@@ -2772,3 +2772,32 @@ textarea:hover {
     align-self: center;
   }
 }
+
+/* Keep the taxonomy matrix and every row bounded by the page content box. */
+.tag-type-grid {
+  width: 100%;
+  min-width: 0;
+  margin-top: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.tag-type-grid > .content-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.tag-row {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) minmax(74px, 90px) minmax(156px, .9fr);
+}
+
+.tag-row__actions button {
+  flex: 1 1 0;
+}
+
+@media (max-width: 1120px) {
+  .tag-type-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
