@@ -210,7 +210,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
       actor(),
       'discord:create-order:777777777777777777'
     );
-    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' });
+    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户还没有准备好，请联系猫舍前台协助开通。' });
   });
 
   test('create order returns existing active channel without planning a second submittable order', async () => {
@@ -247,7 +247,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
 
     expect(result).toEqual({
       kind: 'CHANNEL_CREATION_FAILED',
-      message: expect.stringMatching(/^订单频道创建失败，请稍后重试或联系客服。request_id: req_/)
+      message: expect.stringMatching(/^暂时没有成功创建订单频道，请稍后再试或联系猫舍前台。request_id: req_/)
     });
   });
 
@@ -321,7 +321,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
     expect(client.getOrder).toHaveBeenCalledWith(orderId, actor());
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
     expect(result.message.body).toContain('旧版本已刷新');
-    expect(result.notice).toBe('订单已被其他操作更新，已刷新最新内容。request_id: req-conflict');
+    expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-conflict');
   });
 });
 

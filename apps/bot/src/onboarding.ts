@@ -1,4 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Guild, type MessageEditOptions } from 'discord.js';
+import { BOT_COPY } from './bot-copy.js';
 
 export const REGISTER_PLAYER_CUSTOM_ID = 'onboarding:register-player:v1';
 export const APPLY_COMPANION_CUSTOM_ID = 'onboarding:apply-companion:v1';
@@ -31,9 +32,9 @@ export class HttpOnboardingApiClient {
     const headers:Record<string,string>={authorization:`Bearer ${this.input.botServiceToken}`,'x-client-source':'DISCORD_BOT'};
     if(input.body!==undefined)headers['content-type']='application/json';if(input.idempotencyKey)headers['idempotency-key']=input.idempotencyKey;
     if(input.actor){headers['x-actor-guild-id']=input.actor.guildId;headers['x-actor-discord-user-id']=input.actor.discordUserId;headers['x-discord-interaction-id']=input.actor.interactionId;}
-    let response:Response;try{response=await(this.input.fetch??fetch)(`${this.baseUrl}${path}`,{method:input.method,headers,body:input.body===undefined?undefined:JSON.stringify(input.body)});}catch{throw new OnboardingApiError('SERVICE_UNAVAILABLE','bot-api-unreachable','统一 API 暂时不可用。');}
+    let response:Response;try{response=await(this.input.fetch??fetch)(`${this.baseUrl}${path}`,{method:input.method,headers,body:input.body===undefined?undefined:JSON.stringify(input.body)});}catch{throw new OnboardingApiError('SERVICE_UNAVAILABLE','bot-api-unreachable',BOT_COPY.onboarding.apiUnavailable);}
     const envelope=await response.json().catch(()=>null) as {requestId?:string;data?:T;error?:{code?:string;message?:string}}|null;
-    if(!response.ok||!envelope||!('data'in envelope))throw new OnboardingApiError(envelope?.error?.code??'SERVICE_UNAVAILABLE',envelope?.requestId??'unknown',envelope?.error?.message??'统一 API 请求失败。');
+    if(!response.ok||!envelope||!('data'in envelope))throw new OnboardingApiError(envelope?.error?.code??'SERVICE_UNAVAILABLE',envelope?.requestId??'unknown',envelope?.error?.message??BOT_COPY.onboarding.apiFailed);
     return envelope.data as T;
   }
 }
@@ -47,7 +48,7 @@ export async function reconcileProductRoleTasks(input:{guild:Guild;api:HttpOnboa
 }
 
 export function buildOnboardingMessage():MessageEditOptions{
-  return {content:'**欢迎来到 Blackcat Companion**\n\n点击「注册为玩家」创建账户；点击「开始找陪玩」即可创建订单。你也可以申请成为陪玩，陪玩仍然保留玩家身份。',
+  return {content:BOT_COPY.onboarding.welcome,
     components:[new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId(REGISTER_PLAYER_CUSTOM_ID).setLabel('注册为玩家').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(APPLY_COMPANION_CUSTOM_ID).setLabel('申请成为陪玩').setStyle(ButtonStyle.Secondary),
@@ -56,7 +57,7 @@ export function buildOnboardingMessage():MessageEditOptions{
 }
 
 export async function ensureOnboardingMessage(input:{guild:Guild;channelId:string;api:HttpOnboardingApiClient}):Promise<{messageId:string;created:boolean}>{
-  const channel=await input.guild.channels.fetch(input.channelId);if(!channel||!channel.isTextBased()||!('messages'in channel))throw new Error('新人入口频道必须是 Bot 可读写的文字频道。');
+  const channel=await input.guild.channels.fetch(input.channelId);if(!channel||!channel.isTextBased()||!('messages'in channel))throw new Error(BOT_COPY.onboarding.invalidEntryChannel);
   const projection=await input.api.getMessage(input.guild.id);const payload=buildOnboardingMessage();let message=null;
   if(projection?.channelId===input.channelId&&projection.messageId){message=await channel.messages.fetch(projection.messageId).catch(()=>null);}
   const created=!message;if(message)await message.edit(payload);else message=await channel.send({content:payload.content??undefined,components:payload.components,allowedMentions:payload.allowedMentions});

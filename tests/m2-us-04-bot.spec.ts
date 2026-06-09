@@ -162,7 +162,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
 
     expect(message.title).toBe('订单 #P-4401 · 客服处理中');
     expect(message.body).toContain('客服任务已创建');
-    expect(message.body).toContain('不会自动取消、退款或扣罚');
+    expect(message.body).toContain('不会自动取消、退款或扣罚任何一方');
     expect(JSON.stringify(message)).not.toContain('已取消');
   });
 
@@ -334,8 +334,8 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       'discord:service:confirm:888'
     );
     expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
-    expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '已申请完成，等待用户确认。' });
-    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: '订单已确认完成。扣款 1,200.0 CAT，陪玩收益已记录。' });
+    expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('现在等待客人确认') });
+    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('已扣除 1,200.0 CAT，陪玩收益也已记录') });
   });
 
   test('refreshes and retries readiness once when a timeout advanced the order version', async () => {

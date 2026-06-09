@@ -1,4 +1,5 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
+import { botCopy } from '../../bot-copy.js';
 import type { ButtonInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
@@ -54,7 +55,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
           actor,
           buildDiscordIdempotencyKey('dispatch:accept', interaction.id)
         );
-        await interaction.editReply({ content: '接单成功，订单已分配给你。' });
+        await interaction.editReply({ content: botCopy.dispatch.accepted });
         return;
       }
 
@@ -64,7 +65,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
         actor,
         buildDiscordIdempotencyKey('dispatch:decline', interaction.id)
       );
-      await interaction.editReply({ content: '已记录本轮暂不接单。' });
+      await interaction.editReply({ content: botCopy.dispatch.declined });
     } catch (error) {
       interaction.client.logger.error({
         event: 'dispatch.button_failed',
@@ -77,8 +78,8 @@ export class DispatchButtonsHandler extends InteractionHandler {
       });
       const requestId = error instanceof BotApiError ? error.requestId : 'local-dispatch-button-failed';
       const message = error instanceof BotApiError && error.code === 'PLAYER_NOT_ELIGIBLE'
-        ? '当前账号不符合这张订单的接单条件，请在陪玩工作台检查可接单开关、在线状态和已批准项目。'
-        : '接单操作暂时失败，请刷新后重试。';
+        ? botCopy.dispatch.ineligible
+        : botCopy.dispatch.failed;
       await interaction.editReply({
         content: `${message} request_id: ${requestId}`
       });

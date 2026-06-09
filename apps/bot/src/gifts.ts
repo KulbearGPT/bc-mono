@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { BOT_COPY, botCopy } from './bot-copy.js';
 import type { BotActorContext, MessageSpec } from './service-center.js';
 import {
   customerWalletLabel,
@@ -67,9 +68,9 @@ export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, tok
   return {
     title: data.canAfford && !data.stale ? '确认礼物' : data.stale ? `${walletLabel}需要刷新` : `${walletLabel}余额不足`,
     body: data.canAfford && !data.stale
-      ? `${formatGiftAmount(data.priceMinor, data.currency)} 可赠送。请基于当前价格确认。`
-      : data.stale ? '当前余额已过期，请刷新后再确认。'
-        : `还差 ${formatGiftAmount(data.shortfallMinor, data.currency)}。${data.topUpInstructions}`,
+      ? botCopy.gifts.affordable(formatGiftAmount(data.priceMinor, data.currency))
+      : data.stale ? BOT_COPY.gifts.staleBalance
+        : botCopy.gifts.shortfall(formatGiftAmount(data.shortfallMinor, data.currency), data.topUpInstructions),
     visibility: 'EPHEMERAL',
     components: [
       ...confirmationRow,
@@ -90,12 +91,12 @@ export function buildGiftCatalogMessage(data: GiftPanelData, orderVersion: numbe
       giftCatalogVersionId: item.id, catalogVersion: item.version, priceMinor: item.priceMinor }, actor, secret, now)),
     label: `${item.name} · ${formatGiftAmount(item.priceMinor, item.currency)}`, disabled: false
   }));
-  return { title: `订单 ${data.orderPublicId} · 赠送礼物`, body: `赠送对象：${data.receiver.displayName}`,
+  return { title: `订单 ${data.orderPublicId} · 赠送礼物`, body: botCopy.gifts.catalogTarget(data.receiver.displayName),
     visibility: 'EPHEMERAL', components: chunk(buttons, 5).map((components) => ({ type: 'ACTION_ROW', components })) };
 }
 
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {
-  return { title: '送礼请求已提交', body: `${data.gift.name} 已预留 ${formatGiftAmount(data.reservation.amountMinor, data.reservation.currency)}，等待客服核对。`,
+  return { title: '送礼请求已提交', body: botCopy.gifts.requestSubmitted(data.gift.name, formatGiftAmount(data.reservation.amountMinor, data.reservation.currency)),
     visibility: 'EPHEMERAL', components: [] };
 }
 

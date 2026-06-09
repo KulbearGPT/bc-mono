@@ -1,4 +1,5 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
+import { BOT_COPY, botCopy } from '../../bot-copy.js';
 import type { Interaction } from 'discord.js';
 import { toDiscordReply } from '../../discord-renderer.js';
 import {
@@ -52,7 +53,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
-      await interaction.editReply({ content: '订单选项更新失败，请刷新订单面板。', components: [] });
+      await interaction.editReply({ content: BOT_COPY.orders.optionUpdateFailed, components: [] });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-order-select-failed';
       try {
@@ -60,9 +61,9 @@ export default class OrderSelectHandler extends InteractionHandler {
           .getOrder(parsedData.orderId, actor);
         const reply = toDiscordReply(buildOrderPanelMessage(order));
         await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
-        await interaction.followUp({ content: `这个选项暂时无法保存，订单菜单已恢复。request_id: ${requestId}`, ephemeral: true });
+        await interaction.followUp({ content: botCopy.orders.optionSaveFailed(requestId), ephemeral: true });
       } catch {
-        await interaction.followUp({ content: `订单菜单恢复失败，请联系客服。request_id: ${requestId}`, ephemeral: true });
+        await interaction.followUp({ content: botCopy.orders.menuRecoveryFailed(requestId), ephemeral: true });
       }
     }
   }

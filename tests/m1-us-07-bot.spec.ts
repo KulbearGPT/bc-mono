@@ -219,7 +219,7 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
     expect(result.message.title).toBe('订单 #P-1042');
     expect(result.message.body).toContain('已刷新');
-    expect(result.notice).toBe('订单已被其他操作更新，已刷新最新内容。request_id: req-stale');
+    expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-stale');
   });
 
   test('routes confirmation custom id with only order id, action and expected version metadata', () => {

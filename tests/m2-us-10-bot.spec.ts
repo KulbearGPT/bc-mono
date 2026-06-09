@@ -64,7 +64,7 @@ describe('M2-US-10 Bot cancellation preview flow', () => {
       api: staleApi, actor, orderId, previewId, expectedVersion: 3, idempotencyKey: 'discord:cancel-confirm:stale'
     });
     expect(stale).toMatchObject({ kind: 'EPHEMERAL_MESSAGE' });
-    expect(stale.kind === 'EPHEMERAL_MESSAGE' ? stale.message : '').toContain('请刷新取消预览');
+    expect(stale.kind === 'EPHEMERAL_MESSAGE' ? stale.message : '').toContain('请刷新取消说明');
   });
 
   test('parses a confirmation id containing both order and preview versions', () => {

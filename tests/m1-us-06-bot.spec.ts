@@ -162,7 +162,7 @@ describe('M1-US-06 private service center Discord flow', () => {
       actor: actor()
     });
 
-    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' });
+    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户还没有准备好，请联系猫舍前台协助开通。' });
   });
 });
 

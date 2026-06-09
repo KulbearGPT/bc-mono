@@ -1,6 +1,7 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { ChannelType, PermissionFlagsBits, type ButtonInteraction, type Interaction } from 'discord.js';
 import { botConfigCache } from '../../bot-config.js';
+import { botCopy } from '../../bot-copy.js';
 import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
 import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftRequestMessage,
   createGiftContinuationToken, readGiftContinuationToken } from '../../gifts.js';
@@ -127,10 +128,10 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       if(result.kind==='CREATE_PRIVATE_CHANNEL'){
         const catalog=await api.listServices(actor);const first=catalog.items[0];
         const order=first?await api.updateOrder(result.order.id,{expectedVersion:result.order.version,serviceCatalogId:first.id,unitCount:first.minimumUnits},actor,buildDiscordIdempotencyKey('order:initialize',interaction.id)):result.order;
-        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(`订单频道已创建：${channel}`);return;}
-      if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(`你已有进行中的订单：<#${result.channelId}>`);return;}
+        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
+      if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(botCopy.entry.existingOrder(result.channelId));return;}
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
-    }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(`订单频道创建失败，请稍后重试。request_id: ${requestId}`);}
+    }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(botCopy.orders.channelCreationFailed(requestId));}
   }
 
   private async handleServiceLifecycleButton(
@@ -178,7 +179,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-profile-fallback';
-      await interaction.reply({ content: `个人中心暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
+      await interaction.reply({ content: botCopy.common.featureUnavailable('个人中心', requestId), ephemeral: true });
     }
   }
 
@@ -194,7 +195,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
-      await interaction.reply({ content: `我的周报暂时不可用，请稍后重试。request_id: ${requestId}`, ephemeral: true });
+      await interaction.reply({ content: botCopy.common.featureUnavailable('我的周报', requestId), ephemeral: true });
     }
   }
 

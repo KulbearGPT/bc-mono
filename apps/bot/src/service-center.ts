@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { BOT_COPY, botCopy } from './bot-copy.js';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 import {
   customerWalletLabel,
@@ -895,7 +896,7 @@ export type ServiceCenterRoute =
 export function buildPublicServiceEntryMessage(): MessageSpec {
   return {
     title: '陪玩服务中心',
-    body: '每位用户同一时间只能有一个进行中的订单。已有订单会自动回到原频道。',
+    body: BOT_COPY.orders.publicEntryIntroduction,
     visibility: 'PUBLIC',
     components: [
       {
@@ -1049,9 +1050,9 @@ function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
   return {
     title: `订单 #${order.publicId} · 客服处理中`,
     body: [
-      '自动派单和超时处理已暂停。',
-      '客服正在核对订单，请等待处理结果。',
-      order.automation?.expiresAt ? `预计复核时间：${order.automation.expiresAt}` : null
+      BOT_COPY.orders.reviewPaused,
+      BOT_COPY.orders.reviewInProgress,
+      order.automation?.expiresAt ? botCopy.orders.reviewExpectedAt(order.automation.expiresAt) : null
     ].filter(Boolean).join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [{
@@ -1069,7 +1070,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
   if (!matching) {
     return {
       title: `订单 #${order.publicId}`,
-      body: '匹配状态暂不可用，请稍后刷新。',
+      body: BOT_COPY.orders.matchingUnavailable,
       visibility: 'PRIVATE_CHANNEL',
       components: []
     };
@@ -1469,7 +1470,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     }
     return {
       title: `订单 #${order.publicId} · 等待用户确认`,
-      body: '陪玩已申请完成，等待用户确认或联系客服处理。',
+      body: BOT_COPY.orders.completionPending,
       visibility: 'PRIVATE_CHANNEL',
       components: [{ type: 'ACTION_ROW', components }]
     };
@@ -1481,7 +1482,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         order.readiness.staffTaskId
           ? `客服任务已创建：${order.readiness.staffTaskId}`
           : '客服任务已创建，等待客服核对。',
-        '客服会核对订单、语音频道和双方说明；不会自动取消、退款或扣罚。'
+        BOT_COPY.orders.staffReviewScope
       ].join('\n'),
       visibility: 'PRIVATE_CHANNEL',
       components: [
@@ -1570,8 +1571,8 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
       `预留状态：${input.reservation.status}`,
       `提交后可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
-      '当前只预留金额，不产生正式消费。',
-      '系统正在通知符合条件且在线可接单的陪玩；服务开始前取消会释放预留。'
+      BOT_COPY.orders.reservationOnly,
+      BOT_COPY.orders.dispatchStarted
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [
@@ -1654,14 +1655,14 @@ export async function handleOpenOrderConfirmation(input: {
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildOrderPanelMessage(order),
-        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+        notice: botCopy.orders.conflictRefreshed(requestId(error))
       };
     }
     if (isApiError(error, 'BUSINESS_RULE_VIOLATION')) {
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildIncompleteConfirmationMessage(order),
-        notice: `订单信息还不完整，请补齐后再确认。request_id: ${requestId(error)}`
+        notice: botCopy.orders.incomplete(requestId(error))
       };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开确认面板失败') };
@@ -1692,7 +1693,7 @@ export async function handleSubmitFinalOrder(input: {
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildOrderPanelMessage(refreshed),
-        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+        notice: botCopy.orders.conflictRefreshed(requestId(error))
       };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '提交订单失败') };
@@ -1721,7 +1722,7 @@ export async function handleServiceLifecycleAction(input: {
         if (!isApiError(error, 'CONFLICT')) throw error;
         const refreshed = await input.api.getOrder(input.orderId, input.actor);
         if (refreshed.status !== 'ACCEPTED') {
-          return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(refreshed), notice: '订单状态已更新，面板已刷新。' };
+          return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(refreshed), notice: BOT_COPY.orders.stateRefreshed };
         }
         result = await input.api.setOrderReadiness(
           input.orderId,
@@ -1742,7 +1743,7 @@ export async function handleServiceLifecycleAction(input: {
         input.actor,
         input.idempotencyKey
       );
-      return { kind: 'EPHEMERAL_MESSAGE', message: '已申请完成，等待用户确认。' };
+      return { kind: 'EPHEMERAL_MESSAGE', message: BOT_COPY.orders.completionRequested };
     }
     if (input.action === 'confirm') {
       const result = await input.api.confirmOrder(
@@ -1753,13 +1754,13 @@ export async function handleServiceLifecycleAction(input: {
       );
       return {
         kind: 'EPHEMERAL_MESSAGE',
-        message: `订单已确认完成。扣款 ${formatCustomerMoney(result.capturedMinor, result.currency)}，陪玩收益已记录。`
+        message: botCopy.lifecycle.completionConfirmed(formatCustomerMoney(result.capturedMinor, result.currency))
       };
     }
     const task = await input.api.createOrderAppeal(input.orderId, {
       type: 'ORDER_ASSIST', reasonCode: 'CUSTOMER_DISPUTE', note: '用户从订单常驻菜单发起申诉。', voiceChannelId: null
     }, input.actor, input.idempotencyKey);
-    return { kind: 'EPHEMERAL_MESSAGE', message: `申诉已提交，客服任务：${task.publicId}` };
+    return { kind: 'EPHEMERAL_MESSAGE', message: botCopy.lifecycle.appealSubmitted(task.publicId) };
   } catch (error) {
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '订单状态操作失败') };
   }
@@ -1790,7 +1791,7 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
+      return { kind: 'EPHEMERAL_MESSAGE', message: BOT_COPY.orders.accountUnavailable };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '打开服务中心失败') };
   }
@@ -1845,11 +1846,11 @@ export async function handleConfirmCancellation(input: {
     );
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: result.staffTaskId ? '已提交客服处理，请留意订单频道更新。' : '订单已取消，相关预留已释放。'
+      message: result.staffTaskId ? BOT_COPY.orders.cancellationEscalated : BOT_COPY.orders.cancellationCompleted
     };
   } catch (error) {
     if (error instanceof BotApiError && error.code === 'CANCELLATION_PREVIEW_STALE') {
-      return { kind: 'EPHEMERAL_MESSAGE', message: `取消条件已变化，请刷新取消预览后重试。request_id: ${error.requestId}` };
+      return { kind: 'EPHEMERAL_MESSAGE', message: botCopy.orders.cancellationChanged(error.requestId) };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '取消订单失败') };
   }
@@ -1878,7 +1879,7 @@ export async function handleCreateOrderFromPublicEntry(input: {
     }
     return {
       kind: 'CHANNEL_CREATION_FAILED',
-      message: `订单频道创建失败，请稍后重试或联系客服。request_id: ${requestId}${reported ? '' : '；故障记录上报失败，请向客服提供此编号。'}`
+      message: botCopy.orders.channelCreationFailed(requestId, !reported)
     };
   }
 
@@ -1904,7 +1905,7 @@ export async function handleCreateOrderFromPublicEntry(input: {
     };
   } catch (error) {
     if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return { kind: 'EPHEMERAL_MESSAGE', message: '账户暂不可用，请联系客服协助开通。' };
+      return { kind: 'EPHEMERAL_MESSAGE', message: BOT_COPY.orders.accountUnavailable };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '创建订单失败') };
   }
@@ -1960,7 +1961,7 @@ export async function handleOrderNotesSubmit(input: {
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildOrderPanelMessage(refreshed),
-        notice: `订单已被其他操作更新，已刷新最新内容。request_id: ${requestId(error)}`
+        notice: botCopy.orders.conflictRefreshed(requestId(error))
       };
     }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '保存备注失败') };
