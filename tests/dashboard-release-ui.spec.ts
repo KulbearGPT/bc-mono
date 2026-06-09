@@ -98,4 +98,24 @@ describe('Dashboard release visual gate', () => {
     expect(styles).toMatch(/\.data-column--id\s*\{[\s\S]*width:\s*260px/u);
     expect(styles).toMatch(/\.data-column--actions\s*\{[\s\S]*width:\s*190px/u);
   });
+
+  test('offers a persistent floating cute-theme preview without changing business behavior', () => {
+    const source = readFileSync('apps/dashboard/src/App.tsx', 'utf8');
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    expect(source).toContain("const dashboardThemeStorageKey = 'blackcat-dashboard-theme'");
+    expect(source).toContain('className="theme-switcher"');
+    expect(source).toContain('aria-pressed={theme === \'cute\'}');
+    expect(source).toContain('data-theme={theme}');
+    expect(styles).toMatch(/\.dashboard-app\[data-theme="cute"\]\s*\{[\s\S]*--surface-app:[\s\S]*--accent-electric:/u);
+    expect(source).toContain('<h2>工作台已就绪</h2>');
+    expect(source).not.toContain('今晚的运营节奏');
+    expect(source).not.toContain('capabilities 裁剪');
+    expect(styles).toMatch(/\.theme-switcher\s*\{[\s\S]*width:\s*40px[\s\S]*height:\s*40px/u);
+    expect(styles).not.toMatch(/\.theme-switcher\s*\{[\s\S]*position:\s*fixed/u);
+    expect(styles).toContain('.dashboard-app[data-theme="cute"] .content-panel');
+    expect(styles).toContain('.dashboard-app[data-theme="cute"] .overview-hero');
+    expect(styles).toContain('.dashboard-app[data-theme="cute"] .workspace-card strong');
+    expect(styles).toContain('.dashboard-app[data-theme="cute"] .dashboard-content table');
+    expect(styles).toMatch(/\.dashboard-app\[data-theme="cute"\]\s+\.content-panel::before\s*\{[\s\S]*display:\s*none/u);
+  });
 });

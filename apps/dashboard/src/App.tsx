@@ -6,8 +6,10 @@ import {
   BookOpenText,
   BriefcaseBusiness,
   ChartNoAxesCombined,
+  Cat,
   ChevronRight,
   CircleDollarSign,
+  Cpu,
   ClipboardCheck,
   FileClock,
   Gift,
@@ -60,6 +62,9 @@ const dashboardNavigationGroups = [
   { id: 'finance', label: '财务控制' },
   { id: 'governance', label: '系统治理' }
 ] as const;
+
+type DashboardTheme = 'tech' | 'cute';
+const dashboardThemeStorageKey = 'blackcat-dashboard-theme';
 
 interface DashboardChromeProps {
   appName: string;
@@ -187,6 +192,7 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
 }
 
 export function DashboardChrome(props: DashboardChromeProps) {
+  const [theme, setTheme] = useState<DashboardTheme>(readDashboardTheme);
   const activeItem = props.navigation.find((item) => isActivePath(item.href, props.currentPath));
   const groupedNavigation = dashboardNavigationGroups
     .map((group) => ({ ...group, items: props.navigation.filter((item) => navigationGroupForPath(item.href) === group.id) }))
@@ -203,8 +209,16 @@ export function DashboardChrome(props: DashboardChromeProps) {
     props.onNavigate(href);
   };
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(dashboardThemeStorageKey, theme);
+    } catch {
+      // The theme remains usable when storage is disabled by the browser.
+    }
+  }, [theme]);
+
   return (
-    <div className="dashboard-app">
+    <div className="dashboard-app" data-theme={theme}>
       <a className="skip-link" href="#dashboard-main">跳到主要内容</a>
       <aside className="dashboard-sidebar" aria-label={props.appName}>
         <a className="brand-lockup" href="/" aria-label="BlackCat 运营台首页" onClick={routeClick('/')}>
@@ -257,6 +271,16 @@ export function DashboardChrome(props: DashboardChromeProps) {
               <span className={`status-rail__item ${environmentClass}`}>{environment}</span>
               <span className="status-rail__item">{props.capabilities.displayRole ?? 'STAFF'} / {formatLevel(props.capabilities.level)}</span>
             </div>
+            <button
+              className="theme-switcher"
+              type="button"
+              aria-label={theme === 'cute' ? '切换到科技主题' : '切换到可爱主题'}
+              aria-pressed={theme === 'cute'}
+              title={theme === 'cute' ? '切换到科技主题' : '切换到可爱主题'}
+              onClick={() => setTheme((current) => current === 'cute' ? 'tech' : 'cute')}
+            >
+              {theme === 'cute' ? <Cpu size={19} aria-hidden="true" /> : <Cat size={20} aria-hidden="true" />}
+            </button>
             <span className="level-avatar" aria-label={`当前权限 ${formatLevel(props.capabilities.level)}`}>
               {levelInitial(props.capabilities.level)}
             </span>
@@ -293,13 +317,13 @@ export function DashboardOverview(props: {
       <div className="overview-hero">
         <div className="overview-hero__glow" aria-hidden="true" />
         <div className="overview-hero__copy">
-          <span className="hero-kicker"><ShieldCheck size={16} aria-hidden="true" /> 服务端能力已就绪</span>
-          <h2>今晚的运营节奏，<br /><span>由一套可信权限掌控。</span></h2>
-          <p>页面与操作均由统一业务 API 返回的 capabilities 裁剪。当前视图不在浏览器中推断角色、金额或对象归属。</p>
+          <span className="hero-kicker"><ShieldCheck size={16} aria-hidden="true" /> 当前状态正常</span>
+          <h2>工作台已就绪</h2>
+          <p>选择下方工作区开始处理任务。</p>
           <div className="hero-tags" aria-label="当前会话特征">
             <span>{formatLevel(props.capabilities.level)}</span>
             <span>{props.capabilities.businessEnvironment === 'SANDBOX' ? 'Sandbox' : props.capabilities.businessEnvironment === 'PRODUCTION' ? 'Production' : 'Environment pending'}</span>
-            <span>API scoped</span>
+            <span>安全会话</span>
           </div>
         </div>
         <div className="overview-session-card" aria-label="当前会话快照">
@@ -394,4 +418,13 @@ function formatLevel(level?: string) {
 
 function levelInitial(level?: string) {
   return level?.match(/^L[1-4]/u)?.[0] ?? 'BC';
+}
+
+function readDashboardTheme(): DashboardTheme {
+  if (typeof window === 'undefined') return 'tech';
+  try {
+    return window.localStorage.getItem(dashboardThemeStorageKey) === 'cute' ? 'cute' : 'tech';
+  } catch {
+    return 'tech';
+  }
 }

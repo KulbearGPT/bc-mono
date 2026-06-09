@@ -70,6 +70,8 @@ describe('M9-US-08 unified business tags', () => {
     expect(styles).toMatch(/\.tag-type-grid\s*>\s*\.content-panel\s*\{[\s\S]*margin-top:\s*0/u);
     expect(styles).toMatch(/\.tag-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*\.8fr\)\s+minmax\(0,\s*1.4fr\)\s+minmax\(74px,\s*90px\)\s+minmax\(156px,\s*\.9fr\)/u);
     expect(styles).toMatch(/\.tag-row__actions\s*\{[\s\S]*white-space:\s*nowrap/u);
+    expect(styles).toMatch(/\.dashboard-app\[data-theme="cute"\]\s+\.tag-row\s*\{[\s\S]*background:\s*#fff8fa/u);
+    expect(styles).toContain('.dashboard-app[data-theme="cute"] .tag-row > .status-pill.is-active');
   });
 
   test('replaces free-text service, companion and gift classification fields with selects', async () => {

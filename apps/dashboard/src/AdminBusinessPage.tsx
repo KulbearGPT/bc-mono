@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel } from './admin-business.js';
 import { formatMinorCurrency, readAdminOrderTimeline } from './admin-business.js';
 import type { BusinessTagGroups, BusinessTagRecord } from './business-tags.js';
+import { dashboardFieldLabel } from './table-labels.js';
 
 export function AdminBusinessPage(props: {
   model: AdminBusinessPageModel;
@@ -78,7 +79,7 @@ function AdminBusinessTable(props: {
   return (
     <div className="table-scroll content-panel content-panel--flush">
       <table className="data-table">
-        <thead><tr>{hasOperations && <th className="data-column--actions" scope="col">操作</th>}{columns.map((column) => <th className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column} scope="col">{column}</th>)}</tr></thead>
+        <thead><tr>{hasOperations && <th className="data-column--actions" scope="col" title="actions">操作</th>}{columns.map((column) => <th className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column} scope="col" title={column}>{dashboardFieldLabel(column)}</th>)}</tr></thead>
         <tbody>{props.model.items.map((item, index) => (
           <tr key={typeof item.id === 'string' ? item.id : index}>
             {hasOperations && <td className="table-actions">

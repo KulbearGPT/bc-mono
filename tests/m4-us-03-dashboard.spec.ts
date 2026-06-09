@@ -306,7 +306,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
   test('renders the operations column before business data columns', () => {
     const model = buildAdminBusinessPage({ page: 'serviceCatalog', permissions: ['catalog.read', 'catalog.manage'], status: 'READY', items: [{ id: 'service-1', version: 1, game: 'VALORANT' }] });
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, onAction: () => undefined }));
-    expect(html.indexOf('<th scope="col">操作</th>')).toBeLessThan(html.indexOf('<th scope="col">id</th>'));
+    expect(html.indexOf('>操作</th>')).toBeLessThan(html.indexOf('>编号</th>'));
     expect(html.indexOf('class="table-actions"')).toBeLessThan(html.indexOf('>service-1</td>'));
   });
 
