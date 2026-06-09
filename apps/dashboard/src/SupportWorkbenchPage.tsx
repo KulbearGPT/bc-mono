@@ -29,13 +29,21 @@ interface DashboardMetrics {
 interface DashboardSummaryData { windowStart:string;windowEnd:string;timeZone:string;currency:string;metrics:DashboardMetrics }
 export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:string|null;data:DashboardSummaryData|null};
 
+export function DashboardMetricSummaryLoader(){
+  const [state,setState]=useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
+  const client=useMemo(()=>createDashboardApiClient(),[]);
+  useEffect(()=>{void client.get('/api/v1/admin/dashboard/summary').then(async(response)=>{const payload=await response.json().catch(()=>null) as {requestId?:string;data?:DashboardSummaryData}|null;
+    setState(response.ok&&payload?.data?{kind:'READY',requestId:payload.requestId??null,data:payload.data}:{kind:'ERROR',requestId:payload?.requestId??null,data:null});
+  }).catch(()=>setState({kind:'ERROR',requestId:null,data:null}));},[client]);
+  return <DashboardMetricSummary state={state}/>;
+}
+
 export function SupportWorkbenchPage({ capabilities }: { capabilities: DashboardCapabilities }) {
   const [tasks, setTasks] = useState<StaffTaskPayload[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
-  const [metricState, setMetricState] = useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
   const client = useMemo(() => createDashboardApiClient(), []);
   const load = useCallback(async () => {
     const response = await client.get('/api/v1/admin/staff-tasks');
@@ -54,11 +62,6 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   }, [client]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    void client.get('/api/v1/admin/dashboard/summary').then(async(response)=>{const payload=await response.json().catch(()=>null) as {requestId?:string;data?:DashboardSummaryData}|null;
-      setMetricState(response.ok&&payload?.data?{kind:'READY',requestId:payload.requestId??null,data:payload.data}:{kind:'ERROR',requestId:payload?.requestId??null,data:null});
-    }).catch(()=>setMetricState({kind:'ERROR',requestId:null,data:null}));
-  }, [client]);
 
   const view = buildSupportWorkbench({
     guildId: '',
@@ -107,7 +110,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     <section className="dashboard-page" aria-labelledby="support-title">
       <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div></header>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-      <DashboardMetricSummary state={metricState}/>
+      <DashboardMetricSummaryLoader/>
       <div className="segmented-control support-filters" role="tablist" aria-label="任务筛选">
         {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
       </div>
@@ -151,13 +154,28 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   if(state.kind==='LOADING')return <section className="state-card state-card--compact" aria-label="运营指标" aria-busy="true">正在载入运营指标...</section>;
   if(state.kind==='ERROR'||!state.data)return <section className="state-card state-card--compact state-card--error" aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` request_id: ${state.requestId}`:''}</p></section>;
   const {metrics,currency,timeZone}=state.data;
-  const values:Array<[string,string|number]>=[
-    ['今日订单',metrics.todayOrderCount],['进行中订单',metrics.inProgressOrderCount],['待处理任务',metrics.pendingStaffTaskCount],
-    ['已完成净消费',moneyOrHidden(metrics.completedOrderNetConsumptionMinor,currency)],['礼物净消费',moneyOrHidden(metrics.giftNetConsumptionMinor,currency)],
-    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency)],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`],['异常数',metrics.exceptionCount]
+  const values:Array<[string,string|number,string]>=[
+    ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结'],
+    ['已完成净消费',moneyOrHidden(metrics.completedOrderNetConsumptionMinor,currency),'当前业务日'],['礼物净消费',moneyOrHidden(metrics.giftNetConsumptionMinor,currency),'当前业务日'],
+    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency),'当前有效'],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`,'有效派单轮次'],['异常数',metrics.exceptionCount,'尚未关闭']
   ];
-  return <section className="content-panel metric-section" aria-label="运营指标"><div className="metric-heading"><h2>运营概览</h2><small>{timeZone}</small></div>
-    <div className="metric-grid">{values.map(([label,value])=><div className="metric-card" key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
+  const money=[
+    ['已完成净消费',metrics.completedOrderNetConsumptionMinor],['礼物净消费',metrics.giftNetConsumptionMinor],['有效预留',metrics.activeReservedMinor]
+  ] as const;
+  const moneyMax=Math.max(1,...money.map(([,value])=>value??0));
+  const dispatchPercent=metrics.dispatchSuccessRateBps/100;
+  return <section className="operations-dashboard" aria-label="运营指标"><div className="metric-heading"><div><span className="page-eyebrow">TODAY OVERVIEW</span><h2>今日运营数据</h2></div><small>{timeZone} · 当前业务日</small></div>
+    <div className="operations-kpi-grid">{values.map(([label,value,caption])=><article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
+    <div className="operations-chart-grid">
+      <article className="operations-chart-card operations-money-chart"><div className="chart-card-heading"><div><small>资金健康</small><h3>资金构成</h3></div><span>{currency}</span></div>
+        <div className="money-bars" role="img" aria-label="资金构成图">{money.map(([label,value],index)=><div className="money-bar" key={label}><div><span>{label}</span><strong>{moneyOrHidden(value,currency)}</strong></div><svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect className="money-bar__track" width="100" height="8" rx="4"/><rect className={`money-bar__value money-bar__value--${index+1}`} width={value===null?0:Math.max(2,value*100/moneyMax)} height="8" rx="4"/></svg></div>)}</div>
+      </article>
+      <article className="operations-chart-card dispatch-chart"><div className="chart-card-heading"><div><small>派单健康</small><h3>派单成功率</h3></div></div><div className="dispatch-chart__body">
+        <div className="dispatch-ring"><svg viewBox="0 0 120 120" role="img" aria-label={`派单成功率 ${dispatchPercent.toFixed(2)}%`}><circle className="dispatch-ring__track" cx="60" cy="60" r="46" pathLength="100"/><circle className="dispatch-ring__value" cx="60" cy="60" r="46" pathLength="100" strokeDasharray={`${dispatchPercent} 100`}/></svg><strong>{dispatchPercent.toFixed(2)}%</strong></div>
+        <div><span>当前业务日</span><p>按已接受的有效派单轮次计算，零轮次固定显示 0%。</p></div></div>
+      </article>
+      <article className="operations-chart-card attention-chart"><div className="chart-card-heading"><div><small>需要关注</small><h3>待办健康度</h3></div></div><dl><div><dt>待处理任务</dt><dd>{metrics.pendingStaffTaskCount}</dd></div><div><dt>未关闭异常</dt><dd>{metrics.exceptionCount}</dd></div><div><dt>进行中订单</dt><dd>{metrics.inProgressOrderCount}</dd></div></dl></article>
+    </div>
   </section>;
 }
 

@@ -44,15 +44,13 @@ describe('M4-US-01 dashboard visual shell', () => {
     expect(html).toContain('API ONLINE');
   });
 
-  test('uses real capability facts for the overview instead of invented business metrics', () => {
+  test('loads the authorized metric projection for the overview instead of inventing business metrics', () => {
     const html = renderToStaticMarkup(createElement(DashboardOverview, {
-      capabilities,
       navigation
     }));
 
     expect(html).toContain('运营控制台');
-    expect(html).toContain('可用工作区');
-    expect(html).toContain('3');
+    expect(html).toContain('正在载入运营指标');
     expect(html).toContain('客服工作台');
     expect(html).not.toContain('今日订单 12');
   });

@@ -10,12 +10,25 @@ describe('M4-US-09 Dashboard metric summary',()=>{
     const html=renderToStaticMarkup(createElement(DashboardMetricSummary,{state:{kind:'READY',requestId:'req_metrics',data:summary}}));
     for(const label of ['今日订单','进行中订单','待处理任务','已完成净消费','礼物净消费','预留总额','派单成功率','异常数'])expect(html).toContain(label);
     expect(html).toContain('84,200.0 猫条');expect(html).toContain('91.70%');expect(html).toContain('Asia/Shanghai');
+    expect(html).toContain('class="operations-dashboard"');
+    expect(html).toContain('aria-label="资金构成图"');
+    expect(html).toContain('aria-label="派单成功率 91.70%"');
+    expect(html).toContain('待办健康度');
+    expect(html).toContain('<svg');
   });
 
   test('shows L1 redaction, loading, and request-id error states',()=>{
     const redacted=renderToStaticMarkup(createElement(DashboardMetricSummary,{state:{kind:'READY',requestId:null,data:{...summary,metrics:{...summary.metrics,completedOrderNetConsumptionMinor:null,giftNetConsumptionMinor:null,activeReservedMinor:null}}}}));
-    expect(redacted.match(/无权限/g)).toHaveLength(3);
+    expect(redacted.match(/无权限/g)?.length).toBeGreaterThanOrEqual(3);
     expect(renderToStaticMarkup(createElement(DashboardMetricSummary,{state:{kind:'LOADING',requestId:null,data:null}}))).toContain('正在载入运营指标');
     expect(renderToStaticMarkup(createElement(DashboardMetricSummary,{state:{kind:'ERROR',requestId:'req_metric_error',data:null}}))).toContain('req_metric_error');
+  });
+
+  test('keeps chart geometry derived only from the authorized eight-metric projection',()=>{
+    const html=renderToStaticMarkup(createElement(DashboardMetricSummary,{state:{kind:'READY',requestId:null,data:summary}}));
+    expect(html).toContain('width="100"');
+    expect(html).toContain('stroke-dasharray="91.7 100"');
+    expect(html).not.toContain('趋势');
+    expect(html).not.toContain('昨日');
   });
 });

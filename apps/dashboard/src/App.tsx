@@ -33,7 +33,7 @@ import {
   dashboardSessionExpiredEvent,
   type DashboardCapabilities
 } from './dashboard-shell.js';
-import { SupportWorkbenchPage } from './SupportWorkbenchPage.js';
+import { DashboardMetricSummaryLoader, SupportWorkbenchPage } from './SupportWorkbenchPage.js';
 import { AdminBusinessRoute } from './AdminBusinessRoute.js';
 import { buildAdminBusinessNavigation, resolveAdminBusinessPage } from './admin-business.js';
 import { SecurityPage } from './SecurityPage.js';
@@ -174,7 +174,7 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     ? <AccessManagementRoute capabilities={result!.capabilities!} />
     : currentPath === '/business-tags'
     ? <BusinessTagsRoute />
-    : <DashboardOverview capabilities={result!.capabilities!} navigation={navigation} />;
+    : <DashboardOverview navigation={navigation} />;
 
   return (
     <DashboardChrome
@@ -297,11 +297,9 @@ export function DashboardChrome(props: DashboardChromeProps) {
 }
 
 export function DashboardOverview(props: {
-  capabilities: DashboardCapabilities;
   navigation: DashboardNavItem[];
 }) {
   const nextWorkspace = props.navigation.find((item) => item.href !== '/');
-  const enabledFeatureCount = props.capabilities.enabledFeatures?.length ?? 0;
 
   return (
     <section className="dashboard-page dashboard-overview" aria-labelledby="overview-title">
@@ -314,28 +312,7 @@ export function DashboardOverview(props: {
         {nextWorkspace && <a className="button button-primary" href={nextWorkspace.href}>进入工作区 <ChevronRight size={17} aria-hidden="true" /></a>}
       </header>
 
-      <div className="overview-hero">
-        <div className="overview-hero__glow" aria-hidden="true" />
-        <div className="overview-hero__copy">
-          <span className="hero-kicker"><ShieldCheck size={16} aria-hidden="true" /> 当前状态正常</span>
-          <h2>工作台已就绪</h2>
-          <p>选择下方工作区开始处理任务。</p>
-          <div className="hero-tags" aria-label="当前会话特征">
-            <span>{formatLevel(props.capabilities.level)}</span>
-            <span>{props.capabilities.businessEnvironment === 'SANDBOX' ? 'Sandbox' : props.capabilities.businessEnvironment === 'PRODUCTION' ? 'Production' : 'Environment pending'}</span>
-            <span>安全会话</span>
-          </div>
-        </div>
-        <div className="overview-session-card" aria-label="当前会话快照">
-          <span className="overview-session-card__label">SESSION SNAPSHOT</span>
-          <dl>
-            <div><dt>可用工作区</dt><dd>{props.navigation.length}</dd></div>
-            <div><dt>权限能力</dt><dd>{props.capabilities.permissions.length}</dd></div>
-            <div><dt>Pilot 功能</dt><dd>{enabledFeatureCount}</dd></div>
-          </dl>
-          <div className="session-secure"><BadgeCheck size={17} aria-hidden="true" /> 权限版本由服务端校验</div>
-        </div>
-      </div>
+      <DashboardMetricSummaryLoader />
 
       <section className="overview-section" aria-labelledby="workspace-links-title">
         <div className="section-heading">

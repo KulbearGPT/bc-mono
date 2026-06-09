@@ -107,7 +107,7 @@ describe('Dashboard release visual gate', () => {
     expect(source).toContain('aria-pressed={theme === \'cute\'}');
     expect(source).toContain('data-theme={theme}');
     expect(styles).toMatch(/\.dashboard-app\[data-theme="cute"\]\s*\{[\s\S]*--surface-app:[\s\S]*--accent-electric:/u);
-    expect(source).toContain('<h2>工作台已就绪</h2>');
+    expect(source).toContain('<DashboardMetricSummaryLoader />');
     expect(source).not.toContain('今晚的运营节奏');
     expect(source).not.toContain('capabilities 裁剪');
     expect(styles).toMatch(/\.theme-switcher\s*\{[\s\S]*width:\s*40px[\s\S]*height:\s*40px/u);
