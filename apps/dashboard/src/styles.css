@@ -2527,7 +2527,12 @@ textarea:hover {
 .filter-bar::before {
   position: absolute;
   top: 11px;
+  right: auto;
   left: 13px;
+  width: auto;
+  height: auto;
+  background: none;
+  box-shadow: none;
   color: #62728a;
   content: "QUERY FILTERS";
   font-family: var(--font-mono);
@@ -2535,6 +2540,19 @@ textarea:hover {
   font-weight: 700;
   letter-spacing: .13em;
   white-space: nowrap;
+}
+
+.filter-bar::after {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  right: clamp(18px, 4vw, 58px);
+  width: 68px;
+  height: 2px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent-electric), var(--accent-neon-cyan), transparent);
+  box-shadow: 0 0 9px rgb(121 104 255 / 20%);
+  content: "";
 }
 
 .field,
@@ -3289,6 +3307,10 @@ textarea:hover {
 }
 
 .dashboard-app[data-theme="cute"] .content-panel::before {
+  display: none;
+}
+
+.dashboard-app[data-theme="cute"] .filter-bar::after {
   display: none;
 }
 
