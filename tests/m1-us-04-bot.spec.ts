@@ -124,10 +124,10 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
   });
 
   test('order panel renders structured message selects and current draft summary without leaking player payout', () => {
-    const message = buildOrderPanelMessage(draftOrder(), [{ id: '00000000-0000-0000-0000-00000000c104', game: '无畏契约', service: '娱乐陪玩', region: '北美', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }]);
+    const message = buildOrderPanelMessage(draftOrder(), [{ id: '00000000-0000-0000-0000-00000000c104', game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'FUN', serviceDisplayName: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }]);
 
     expect(message.title).toBe('订单 #P-1042');
-    expect(message.body).toContain('无畏契约');
+    expect(message.body).toContain('瓦洛兰特');
     expect(message.body).toContain('娱乐陪玩');
     expect(message.body).toContain('1,200.0 CAT');
     expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
@@ -138,6 +138,8 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
       ])
     );
     expect(message.components).toHaveLength(4);
+    expect(JSON.stringify(message.components)).toContain('瓦洛兰特 · 娱乐陪玩 · NA');
+    expect(JSON.stringify(message.components)).not.toContain('VALORANT · FUN');
     expect(message.components.every((row) => {
       const selects = row.components.filter((component) => component.type === 'SELECT');
       return selects.length === 0 || (selects.length === 1 && row.components.length === 1);

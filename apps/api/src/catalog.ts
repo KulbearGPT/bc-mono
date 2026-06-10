@@ -24,7 +24,9 @@ export interface ServiceCatalogRecord {
   offeringKey: string;
   serviceOfferingId?: string | null;
   game: string;
+  gameDisplayName?: string;
   service: string;
+  serviceDisplayName?: string;
   region: string | null;
   billingUnitMinutes: number;
   minimumUnits: number;
@@ -44,7 +46,9 @@ export interface ServiceCatalogRecord {
 export interface PublicServiceCatalog {
   id: string;
   game: string;
+  gameDisplayName: string;
   service: string;
+  serviceDisplayName: string;
   region: string | null;
   billingUnitMinutes: number;
   minimumUnits: number;
@@ -791,7 +795,9 @@ function toPublicCatalog(record: ServiceCatalogRecord & { customerUnitPriceMinor
   return {
     id: record.id,
     game: record.game,
+    gameDisplayName: record.gameDisplayName ?? record.game,
     service: record.service,
+    serviceDisplayName: record.serviceDisplayName ?? record.service,
     region: record.region,
     billingUnitMinutes: record.billingUnitMinutes,
     minimumUnits: record.minimumUnits,
@@ -960,7 +966,9 @@ function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
     offeringKey: `${row.game_code}|${row.service_code}|${row.region_code ?? ''}`,
     serviceOfferingId: row.service_offering_id,
     game: row.game_code,
+    gameDisplayName: row.game_name,
     service: row.service_code,
+    serviceDisplayName: row.service_name,
     region: row.region_code,
     billingUnitMinutes: row.billing_unit_minutes,
     minimumUnits: row.minimum_units,

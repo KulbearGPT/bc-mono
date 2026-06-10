@@ -53,7 +53,7 @@ export interface OrderSummary {
 }
 
 export interface PublicServiceSummary {
-  id: string; game: string; service: string; region: string | null; billingUnitMinutes: number;
+  id: string; game: string; gameDisplayName?: string; service: string; serviceDisplayName?: string; region: string | null; billingUnitMinutes: number;
   minimumUnits: number; customerUnitPriceMinor: number; currency: string; version: number;
 }
 
@@ -994,8 +994,9 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
     return buildMatchingProgressMessage(order);
   }
   const title = `订单 #${order.publicId}`;
+  const selectedService = services.find((service) => service.id === order.serviceCatalogId);
   const body = [
-    `${formatGame(order.game)} · ${formatService(order.service)}`,
+    `${selectedService?.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? formatService(order.service)}`,
     `${formatRegion(order.region)} · ${formatDuration(order)}`,
     `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
     `优先陪玩：${order.preferredPlayerDiscordUserIds?.length ?? 0}/3（可选）`,
@@ -2076,7 +2077,7 @@ function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
 
 function serviceOptions(order: OrderSummary, services: PublicServiceSummary[]): Array<{ label: string; value: string }> {
   const options = services.slice(0, 25).map((item) => ({
-    label: `${item.game} · ${item.service}${item.region ? ` · ${item.region}` : ''}`.slice(0, 100), value: item.id
+    label: `${item.gameDisplayName ?? item.game} · ${item.serviceDisplayName ?? item.service}${item.region ? ` · ${item.region}` : ''}`.slice(0, 100), value: item.id
   }));
   if (options.length) return options;
   if (order.serviceCatalogId) return [{ label: `${order.game ?? '陪玩'} · ${order.service ?? '服务'}`.slice(0, 100), value: order.serviceCatalogId }];
