@@ -3,6 +3,7 @@ import { Listener } from '@sapphire/framework';
 import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
+  buildDiscordSourceEventId,
   type BotActorContext,
   type DiscordPresenceSummary
 } from '../../service-center.js';
@@ -20,7 +21,7 @@ export default class PresenceUpdateListener extends Listener<typeof Events.Prese
     }
 
     const observedAt = new Date().toISOString();
-    const sourceEventId = `presence:${guildId}:${discordUserId}:${observedAt}`;
+    const sourceEventId = buildDiscordSourceEventId('presence');
     const actor: BotActorContext = {
       guildId,
       discordUserId,

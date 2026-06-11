@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BOT_COPY, botCopy } from './bot-copy.js';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 import {
@@ -14,6 +14,11 @@ export interface BotActorContext {
   discordUserId: string;
   interactionId: string;
   clientSource: ClientSource;
+}
+
+export function buildDiscordSourceEventId(kind: 'presence'): string {
+  const compactId = randomUUID().replaceAll('-', '');
+  return `${kind}:${compactId.slice(0, 32 - kind.length - 1)}`;
 }
 
 export interface OrderChannelSpec {

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import {
   HttpBotApiClient,
+  buildDiscordSourceEventId,
   buildDiscordIdempotencyKey,
   type BotActorContext
 } from '@blackcat/bot/service-center';
@@ -21,6 +22,15 @@ function actor(): BotActorContext {
 }
 
 describe('M2-US-01 Bot Discord presence sync', () => {
+  test('creates distinct source event ids that fit the audit interaction id contract', () => {
+    const first = buildDiscordSourceEventId('presence');
+    const second = buildDiscordSourceEventId('presence');
+
+    expect(first).not.toBe(second);
+    expect(first.length).toBeLessThanOrEqual(32);
+    expect(first).toMatch(/^[A-Za-z0-9:_-]+$/);
+  });
+
   test('HttpBotApiClient posts presence signals to the reusable unified API endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -85,7 +95,9 @@ describe('M2-US-01 Bot Discord presence sync', () => {
     );
     expect(source).toContain('Events.PresenceUpdate');
     expect(source).toContain('syncDiscordPresence');
+    expect(source).toContain("buildDiscordSourceEventId('presence')");
     expect(source).toContain('buildDiscordIdempotencyKey');
+    expect(source).not.toContain('`${observedAt}`');
     expect(source).not.toMatch(/updateAvailability|setPlayerAvailability/);
   });
 });
