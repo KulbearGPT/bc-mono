@@ -9,7 +9,7 @@ describe('M0-US-01 local workspace skeleton', () => {
   test('root dev command starts all prototype processes with checked-in defaults', async () => {
     const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 
-    expect(packageJson.scripts.dev).toContain('dotenv -e .env.example');
+    expect(packageJson.scripts.dev).toContain('dotenv -e .env -e .env.example');
     expect(packageJson.scripts.dev).toContain('@blackcat/api');
     expect(packageJson.scripts.dev).toContain('@blackcat/bot');
     expect(packageJson.scripts.dev).toContain('@blackcat/dashboard');
