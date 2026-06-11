@@ -28,7 +28,7 @@ const workbench: PlayerWorkbenchSummary = {
     nextAction: 'ACCEPT_OR_DECLINE',
     order: {
       id: '00000000-0000-0000-0000-00000000b001', publicId: 'P-1042', status: 'PENDING_DISPATCH', version: 5,
-      game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', durationMinutes: 120, playerEarningMinor: 8_000,
+      game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'ENTERTAINMENT', serviceDisplayName: '娱乐陪玩', region: 'NA', regionDisplayName: '北美', durationMinutes: 120, playerEarningMinor: 8_000,
       currency: 'CAT', requirements: ['中文交流'], voiceChannelId: null
     }
   }],
@@ -39,6 +39,8 @@ const workbench: PlayerWorkbenchSummary = {
 describe('M2-US-08 Sapphire player workbench', () => {
   test('renders the API projection without recomputing eligibility or actions in the Bot', () => {
     const message = buildPlayerWorkbenchMessage(workbench);
+    expect(message.body).toContain('瓦洛兰特 / 娱乐陪玩');
+    expect(message.body).not.toContain('VALORANT / ENTERTAINMENT');
     expect(message.visibility).toBe('EPHEMERAL');
     expect(message.body).toContain('准入状态：可接单');
     expect(message.body).toContain('Discord 在线状态：ONLINE');

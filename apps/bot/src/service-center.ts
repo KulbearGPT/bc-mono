@@ -29,8 +29,11 @@ export interface OrderSummary {
   version: number;
   serviceCatalogId?: string | null;
   game: string | null;
+  gameDisplayName?: string | null;
   service: string | null;
+  serviceDisplayName?: string | null;
   region: string | null;
+  regionDisplayName?: string | null;
   billingUnitMinutes: number | null;
   unitCount: number | null;
   amountMinor: number;
@@ -53,7 +56,7 @@ export interface OrderSummary {
 }
 
 export interface PublicServiceSummary {
-  id: string; game: string; gameDisplayName?: string; service: string; serviceDisplayName?: string; region: string | null; billingUnitMinutes: number;
+  id: string; game: string; gameDisplayName?: string; service: string; serviceDisplayName?: string; region: string | null; regionDisplayName?: string | null; billingUnitMinutes: number;
   minimumUnits: number; customerUnitPriceMinor: number; currency: string; version: number;
 }
 
@@ -232,8 +235,11 @@ export interface PlayerWorkbenchOrderSummary {
   status: string;
   version: number;
   game: string | null;
+  gameDisplayName?: string | null;
   service: string | null;
+  serviceDisplayName?: string | null;
   region: string | null;
+  regionDisplayName?: string | null;
   durationMinutes: number | null;
   playerEarningMinor: number;
   currency: string;
@@ -996,8 +1002,8 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
   const title = `订单 #${order.publicId}`;
   const selectedService = services.find((service) => service.id === order.serviceCatalogId);
   const body = [
-    `${selectedService?.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? formatService(order.service)}`,
-    `${formatRegion(order.region)} · ${formatDuration(order)}`,
+    `${selectedService?.gameDisplayName ?? order.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? order.serviceDisplayName ?? formatService(order.service)}`,
+    `${selectedService?.regionDisplayName ?? order.regionDisplayName ?? formatRegion(order.region)} · ${formatDuration(order)}`,
     `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
     `优先陪玩：${order.preferredPlayerDiscordUserIds?.length ?? 0}/3（可选）`,
     order.notes ? `备注：${order.notes}` : '备注：未填写'
@@ -1276,7 +1282,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     : '当前订单：暂无';
   const matchingLines = workbench.matchingOrders.length > 0
     ? workbench.matchingOrders.map((match) => [
-      `待接订单：#${match.order.publicId} · ${formatGame(match.order.game)} / ${formatService(match.order.service)}`,
+      `待接订单：#${match.order.publicId} · ${match.order.gameDisplayName ?? formatGame(match.order.game)} / ${match.order.serviceDisplayName ?? formatService(match.order.service)}`,
       `需求：${match.order.requirements.join('、') || '无额外要求'} · 剩余 ${match.secondsRemaining} 秒`,
       `预计收益：${formatPlatformMoney(match.order.playerEarningMinor, match.order.currency)}`
     ].join('\n')).join('\n')
@@ -2077,7 +2083,7 @@ function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
 
 function serviceOptions(order: OrderSummary, services: PublicServiceSummary[]): Array<{ label: string; value: string }> {
   const options = services.slice(0, 25).map((item) => ({
-    label: `${item.gameDisplayName ?? item.game} · ${item.serviceDisplayName ?? item.service}${item.region ? ` · ${item.region}` : ''}`.slice(0, 100), value: item.id
+    label: `${item.gameDisplayName ?? item.game} · ${item.serviceDisplayName ?? item.service}${item.region ? ` · ${item.regionDisplayName ?? item.region}` : ''}`.slice(0, 100), value: item.id
   }));
   if (options.length) return options;
   if (order.serviceCatalogId) return [{ label: `${order.game ?? '陪玩'} · ${order.service ?? '服务'}`.slice(0, 100), value: order.serviceCatalogId }];

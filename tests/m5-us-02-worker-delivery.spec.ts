@@ -62,7 +62,7 @@ describe('M5-US-02 Worker delivery adapters', () => {
       }
     });
     const payload = { dispatchAttemptId: 'attempt-1', dispatchChannelId: 'channel-1', orderId: 'order-1', orderVersion: 3, orderPublicId: 'P-1001',
-      game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA', expiresAt: '2026-07-19T00:00:00.000Z' };
+      game: '瓦洛兰特', service: '娱乐陪玩', region: '北美', expiresAt: '2026-07-19T00:00:00.000Z' };
 
     await adapter.upsertDispatchOffer(payload, null, '2026-07-18T23:00:00.000Z');
     await adapter.upsertDispatchOffer(payload, 'message-1', '2026-07-18T23:00:00.000Z');

@@ -48,8 +48,11 @@ export interface PlayerWorkbenchOrder {
   status: string;
   version: number;
   game: string | null;
+  gameDisplayName: string | null;
   service: string | null;
+  serviceDisplayName: string | null;
   region: string | null;
+  regionDisplayName: string | null;
   durationMinutes: number | null;
   playerEarningMinor: number;
   currency: string;
@@ -1122,8 +1125,11 @@ interface PlayerWorkbenchOrderRow {
   status: string;
   row_version: number;
   game_code: string | null;
+  game_name: string | null;
   service_code: string | null;
+  service_name: string | null;
   region_code: string | null;
+  region_name: string | null;
   billing_unit_minutes: number | null;
   unit_count: number | null;
   player_earning_minor: string | number | null;
@@ -1150,8 +1156,11 @@ SELECT orders.id AS order_id,
        orders.status,
        orders.row_version,
        orders.game_code_snapshot AS game_code,
+       orders.game_name_snapshot AS game_name,
        orders.service_code_snapshot AS service_code,
+       orders.service_name_snapshot AS service_name,
        orders.region_code_snapshot AS region_code,
+       orders.region_name_snapshot AS region_name,
        orders.billing_unit_minutes,
        orders.unit_count,
        orders.expected_player_earning_minor AS player_earning_minor,
@@ -1169,8 +1178,11 @@ SELECT attempt.id AS dispatch_attempt_id,
        orders.status,
        orders.row_version,
        orders.game_code_snapshot AS game_code,
+       orders.game_name_snapshot AS game_name,
        orders.service_code_snapshot AS service_code,
+       orders.service_name_snapshot AS service_name,
        orders.region_code_snapshot AS region_code,
+       orders.region_name_snapshot AS region_name,
        orders.billing_unit_minutes,
        orders.unit_count,
        orders.expected_player_earning_minor AS player_earning_minor,
@@ -1189,8 +1201,11 @@ function mapWorkbenchOrder(row: PlayerWorkbenchOrderRow): PlayerWorkbenchOrder {
     status: row.status,
     version: row.row_version,
     game: row.game_code,
+    gameDisplayName: row.game_name ?? row.game_code,
     service: row.service_code,
+    serviceDisplayName: row.service_name ?? row.service_code,
     region: row.region_code,
+    regionDisplayName: row.region_name ?? row.region_code,
     durationMinutes: row.billing_unit_minutes && row.unit_count ? row.billing_unit_minutes * row.unit_count : null,
     playerEarningMinor: Number(row.player_earning_minor ?? 0),
     currency: row.currency ?? 'CAT',

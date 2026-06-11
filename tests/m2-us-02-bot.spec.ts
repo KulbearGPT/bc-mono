@@ -28,9 +28,9 @@ function offer(overrides: Partial<DispatchOfferSummary> = {}): DispatchOfferSumm
     orderId,
     orderPublicId: 'P-2001',
     orderVersion: 3,
-    game: 'VALORANT',
-    service: 'ENTERTAINMENT',
-    region: 'NA',
+    game: '瓦洛兰特',
+    service: '娱乐陪玩',
+    region: '北美',
     durationLabel: '2 小时',
     playerEarningMinor: 8400,
     currency: 'CAT',
@@ -47,7 +47,8 @@ describe('M2-US-02 Bot dispatch card', () => {
 
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
     expect(message.title).toBe('新订单 #P-2001');
-    expect(message.body).toContain('VALORANT · ENTERTAINMENT');
+    expect(message.body).toContain('瓦洛兰特 · 娱乐陪玩');
+    expect(message.body).not.toContain('VALORANT · ENTERTAINMENT');
     expect(message.body).toContain('预计收益：840.0 CAT');
     expect(message.body).toContain('语音频道：666666666666666666');
     expect(message.body).not.toMatch(/余额|用户账户|内部定价/);

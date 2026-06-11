@@ -1181,6 +1181,7 @@ model Order {
   serviceCodeSnapshot        String?     @map("service_code_snapshot") @db.VarChar(80)
   serviceNameSnapshot        String?     @map("service_name_snapshot") @db.VarChar(100)
   regionCodeSnapshot         String?     @map("region_code_snapshot") @db.VarChar(80)
+  regionNameSnapshot         String?     @map("region_name_snapshot") @db.VarChar(100)
   billingUnitMinutes         Int?        @map("billing_unit_minutes")
   unitCount                  Int?        @map("unit_count")
   customerUnitPriceMinor     BigInt?     @map("customer_unit_price_minor")

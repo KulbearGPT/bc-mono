@@ -28,6 +28,7 @@ export interface ServiceCatalogRecord {
   service: string;
   serviceDisplayName?: string;
   region: string | null;
+  regionDisplayName?: string | null;
   billingUnitMinutes: number;
   minimumUnits: number;
   customerUnitPriceMinor: number | null;
@@ -50,6 +51,7 @@ export interface PublicServiceCatalog {
   service: string;
   serviceDisplayName: string;
   region: string | null;
+  regionDisplayName: string | null;
   billingUnitMinutes: number;
   minimumUnits: number;
   customerUnitPriceMinor: number;
@@ -226,7 +228,9 @@ export class PostgresServiceCatalogStore implements ServiceCatalogStore {
   async list(): Promise<ServiceCatalogRecord[]> {
     const result = await this.client.query<ServiceCatalogRow>(`
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
+       offering.service_code, offering.service_name, offering.region_code,
+       (SELECT tag.display_name FROM skill_tags AS tag WHERE tag.type = 'REGION' AND tag.code = offering.region_code) AS region_name,
+       offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -243,7 +247,9 @@ ORDER BY offering.game_code ASC, offering.service_code ASC, offering.region_code
     const result = await this.client.query<ServiceCatalogRow>(
       `
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
+       offering.service_code, offering.service_name, offering.region_code,
+       (SELECT tag.display_name FROM skill_tags AS tag WHERE tag.type = 'REGION' AND tag.code = offering.region_code) AS region_name,
+       offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -264,7 +270,9 @@ LIMIT $3
     const result = await this.client.query<ServiceCatalogRow>(
       `
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
-       offering.service_code, offering.service_name, offering.region_code, offering.archived_at,
+       offering.service_code, offering.service_name, offering.region_code,
+       (SELECT tag.display_name FROM skill_tags AS tag WHERE tag.type = 'REGION' AND tag.code = offering.region_code) AS region_name,
+       offering.archived_at,
        version.billing_unit_minutes, version.minimum_units,
        version.customer_unit_price_minor, version.player_unit_payout_minor, version.default_player_payout_bps,
        version.currency, version.status, version.version,
@@ -799,6 +807,7 @@ function toPublicCatalog(record: ServiceCatalogRecord & { customerUnitPriceMinor
     service: record.service,
     serviceDisplayName: record.serviceDisplayName ?? record.service,
     region: record.region,
+    regionDisplayName: record.regionDisplayName ?? record.region,
     billingUnitMinutes: record.billingUnitMinutes,
     minimumUnits: record.minimumUnits,
     customerUnitPriceMinor: record.customerUnitPriceMinor,
@@ -945,6 +954,7 @@ interface ServiceCatalogRow {
   service_code: string;
   service_name: string;
   region_code: string | null;
+  region_name: string | null;
   billing_unit_minutes: number;
   minimum_units: number;
   customer_unit_price_minor: number | string | bigint | null;
@@ -970,6 +980,7 @@ function mapServiceCatalogRow(row: ServiceCatalogRow): ServiceCatalogRecord {
     service: row.service_code,
     serviceDisplayName: row.service_name,
     region: row.region_code,
+    regionDisplayName: row.region_name ?? row.region_code,
     billingUnitMinutes: row.billing_unit_minutes,
     minimumUnits: row.minimum_units,
     customerUnitPriceMinor: toNullableNumber(row.customer_unit_price_minor),

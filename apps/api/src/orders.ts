@@ -74,8 +74,11 @@ export interface OrderRecord {
   serviceCatalogId: string | null;
   catalogVersion: number | null;
   game: string | null;
+  gameDisplayName?: string | null;
   service: string | null;
+  serviceDisplayName?: string | null;
   region: string | null;
+  regionDisplayName?: string | null;
   billingUnitMinutes: number | null;
   unitCount: number | null;
   customerUnitPriceMinor: number | null;
@@ -446,7 +449,9 @@ export interface OrderApiRecord {
   amountMinor: number;
   playerEarningMinor: number;
   game: string | null;
+  gameDisplayName: string | null;
   service: string | null;
+  serviceDisplayName: string | null;
   matching: OrderMatchingProgress | null;
   fundReservation: FundReservationSummary | null;
   readiness: {
@@ -470,6 +475,7 @@ export interface OrderApiRecord {
   };
   playerId: string | null;
   region: string | null;
+  regionDisplayName: string | null;
   notes: string | null;
   preferredPlayerDiscordUserIds: string[];
   channelSpec: ChannelSpec;
@@ -2127,8 +2133,13 @@ function applyServiceSnapshot(input: {
     serviceCatalogId: input.service.id,
     catalogVersion: input.service.version,
     game: input.service.game,
+    gameDisplayName: input.service.gameDisplayName ?? input.service.game,
     service: input.service.service,
+    serviceDisplayName: input.service.serviceDisplayName ?? input.service.service,
     region: input.region,
+    regionDisplayName: input.region === input.service.region
+      ? input.service.regionDisplayName ?? input.region
+      : input.region,
     billingUnitMinutes: input.service.billingUnitMinutes,
     unitCount: input.unitCount,
     customerUnitPriceMinor: input.service.customerUnitPriceMinor,
@@ -2306,7 +2317,9 @@ function toApiOrder(
     amountMinor: order.amountMinor,
     playerEarningMinor: order.playerEarningMinor,
     game: order.game,
+    gameDisplayName: order.gameDisplayName ?? order.game,
     service: order.service,
+    serviceDisplayName: order.serviceDisplayName ?? order.service,
     matching,
     fundReservation: reservation ? toApiReservationSummary(reservation) : null,
     readiness: {
@@ -2330,6 +2343,7 @@ function toApiOrder(
     },
     playerId: order.playerId,
     region: order.region,
+    regionDisplayName: order.regionDisplayName ?? order.region,
     notes: order.notes,
     preferredPlayerDiscordUserIds: [...(order.preferredPlayerDiscordUserIds ?? [])],
     channelSpec: clone(order.channelSpec),
@@ -2620,7 +2634,7 @@ INSERT INTO orders (
   id, public_id, customer_id, player_id, active_customer_slot_id, active_player_slot_id,
   status, row_version, service_catalog_version_id, catalog_version,
   game_code_snapshot, game_name_snapshot, service_code_snapshot, service_name_snapshot,
-  region_code_snapshot, billing_unit_minutes, unit_count,
+  region_code_snapshot, region_name_snapshot, billing_unit_minutes, unit_count,
   customer_unit_price_minor, player_unit_payout_minor, amount_minor, expected_player_earning_minor,
   currency, customer_note, guild_id, channel_id, panel_message_id, voice_channel_id,
   created_at, updated_at
@@ -2629,10 +2643,10 @@ VALUES (
   $1, $2, $3, $4, $5, $6,
   $7::"OrderStatus", $8, $9, $10,
   $11, $12, $13, $14,
-  $15, $16, $17,
-  $18, $19, $20, $21,
-  $22, $23, $24, $25, $26, $27,
-  $28, $29
+  $15, $16, $17, $18,
+  $19, $20, $21, $22,
+  $23, $24, $25, $26, $27, $28,
+  $29, $30
 )
     `,
     [
@@ -2647,10 +2661,11 @@ VALUES (
       order.serviceCatalogId,
       order.catalogVersion,
       order.game,
-      order.game,
+      order.gameDisplayName ?? order.game,
       order.service,
-      order.service,
+      order.serviceDisplayName ?? order.service,
       order.region,
+      order.regionDisplayName ?? order.region,
       order.billingUnitMinutes,
       order.unitCount,
       order.customerUnitPriceMinor,
@@ -2685,20 +2700,21 @@ SET row_version = $2,
     service_code_snapshot = $7,
     service_name_snapshot = $8,
     region_code_snapshot = $9,
-    billing_unit_minutes = $10,
-    unit_count = $11,
-    customer_unit_price_minor = $12,
-    player_unit_payout_minor = $13,
-    amount_minor = $14,
-    expected_player_earning_minor = $15,
-    currency = $16,
-    customer_note = $17,
-    voice_channel_id = $18,
-    requirement_snapshot = $19::jsonb,
-    updated_at = $20
+    region_name_snapshot = $10,
+    billing_unit_minutes = $11,
+    unit_count = $12,
+    customer_unit_price_minor = $13,
+    player_unit_payout_minor = $14,
+    amount_minor = $15,
+    expected_player_earning_minor = $16,
+    currency = $17,
+    customer_note = $18,
+    voice_channel_id = $19,
+    requirement_snapshot = $20::jsonb,
+    updated_at = $21
 WHERE id = $1
   AND status = 'DRAFT'
-  AND row_version = $21
+  AND row_version = $22
     `,
     [
       order.id,
@@ -2706,10 +2722,11 @@ WHERE id = $1
       order.serviceCatalogId,
       order.catalogVersion,
       order.game,
-      order.game,
+      order.gameDisplayName ?? order.game,
       order.service,
-      order.service,
+      order.serviceDisplayName ?? order.service,
       order.region,
+      order.regionDisplayName ?? order.region,
       order.billingUnitMinutes,
       order.unitCount,
       order.customerUnitPriceMinor,
@@ -3032,8 +3049,11 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     serviceCatalogId: row.service_catalog_version_id,
     catalogVersion: row.catalog_version,
     game: row.game_code_snapshot,
+    gameDisplayName: row.game_name_snapshot,
     service: row.service_code_snapshot,
+    serviceDisplayName: row.service_name_snapshot,
     region: row.region_code_snapshot,
+    regionDisplayName: row.region_name_snapshot,
     billingUnitMinutes: row.billing_unit_minutes,
     unitCount: row.unit_count,
     customerUnitPriceMinor: toNullableNumber(row.customer_unit_price_minor),
@@ -3150,8 +3170,11 @@ interface OrderRow {
   service_catalog_version_id: string | null;
   catalog_version: number | null;
   game_code_snapshot: string | null;
+  game_name_snapshot: string | null;
   service_code_snapshot: string | null;
+  service_name_snapshot: string | null;
   region_code_snapshot: string | null;
+  region_name_snapshot: string | null;
   billing_unit_minutes: number | null;
   unit_count: number | null;
   customer_unit_price_minor: number | string | bigint | null;

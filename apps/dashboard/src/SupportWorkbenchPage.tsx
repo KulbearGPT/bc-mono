@@ -9,7 +9,7 @@ interface StaffTaskPayload extends SupportTaskCardInput {
 }
 
 interface OrderContext {
-  order: { publicId: string; status: string; game: string | null; service: string | null; amountMinor: number; currency: string };
+  order: { publicId: string; status: string; game: string | null; gameDisplayName?: string | null; service: string | null; serviceDisplayName?: string | null; amountMinor: number; currency: string };
   readiness: { customer: string; player: string; bothReady: boolean };
   automation: { state: string; reasonCode: string | null };
   matching: { stage: string; nextStep: string } | null;
@@ -143,7 +143,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       {selectedOrder && (
         <aside className="action-panel order-preview">
           <div className="panel-heading"><div><span className="page-eyebrow">ORDER CONTEXT</span><h2>订单 {selectedOrder.order.publicId}</h2></div></div>
-          <dl className="definition-list"><div><dt>服务</dt><dd>{selectedOrder.order.game} · {selectedOrder.order.service}</dd></div><div><dt>订单状态</dt><dd>{selectedOrder.order.status}</dd></div><div><dt>准备状态</dt><dd>用户 {selectedOrder.readiness.customer} / 陪玩 {selectedOrder.readiness.player}</dd></div><div><dt>匹配状态</dt><dd>{selectedOrder.matching?.stage ?? '不适用'}</dd></div><div><dt>自动流程</dt><dd>{selectedOrder.automation.state}</dd></div></dl>
+          <dl className="definition-list"><div><dt>服务</dt><dd>{String(selectedOrder.order.gameDisplayName ?? selectedOrder.order.game)} · {String(selectedOrder.order.serviceDisplayName ?? selectedOrder.order.service)}</dd></div><div><dt>订单状态</dt><dd>{selectedOrder.order.status}</dd></div><div><dt>准备状态</dt><dd>用户 {selectedOrder.readiness.customer} / 陪玩 {selectedOrder.readiness.player}</dd></div><div><dt>匹配状态</dt><dd>{selectedOrder.matching?.stage ?? '不适用'}</dd></div><div><dt>自动流程</dt><dd>{selectedOrder.automation.state}</dd></div></dl>
         </aside>
       )}
     </section>

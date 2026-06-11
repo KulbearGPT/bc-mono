@@ -54,7 +54,7 @@ export function AdminBusinessPage(props: {
         <div className="state-card state-card--error" role="alert"><p>数据暂时无法载入。{model.requestId ? ` request_id: ${model.requestId}` : ''}</p><button type="button" onClick={props.onRetry}>重试</button></div>
       )}
       {model.kind === 'EMPTY' && <div className="state-card"><p>当前筛选下没有记录。</p><button type="button" onClick={props.onClearFilters}>清除筛选</button></div>}
-      {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}
+      {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />}
 
       {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
        {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
@@ -71,6 +71,7 @@ function AdminBusinessTable(props: {
   model: AdminBusinessPageModel;
   onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
   onOpenDetail?: (item: Record<string, unknown>) => void;
+  businessTagOptions?: BusinessTagGroups;
 }) {
   const columns = collectColumns(props.model.items);
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
@@ -88,7 +89,7 @@ function AdminBusinessTable(props: {
                 {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
               </div>
             </td>}
-            {columns.map((column) => <td className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column}>{displayValue(column, item[column], item.currency)}</td>)}
+            {columns.map((column) => <td className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column}>{displayValue(column, item[column], item.currency, props.businessTagOptions)}</td>)}
           </tr>
         ))}</tbody>
       </table>
@@ -153,7 +154,7 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
 function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unknown>>}){const[selected,setSelected]=useState<string[]>([]);return <fieldset className="field field--full tag-checklist"><legend>选择派单范围（最多 3 人）</legend><p className="field-help">不勾选时发送给全部当前合格陪玩；勾选后仅通知指定人选。</p>{candidates.length===0?<p>当前没有符合订单要求且在线可接单的陪玩。</p>:candidates.map((candidate)=>{const id=textValue(candidate.discordUserId);const checked=selected.includes(id);return <label className="checkbox-field" key={id}><input type="checkbox" name="targetDiscordUserIds" value={id} checked={checked} disabled={!checked&&selected.length>=3} onChange={()=>setSelected((current)=>checked?current.filter((value)=>value!==id):[...current,id])}/><span>{`陪玩 ${textValue(candidate.playerId).slice(0,8)} · Discord ${id}`}</span></label>;})}<p className="field-help">已选 {selected.length}/3</p></fieldset>}
 
 function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){const[selected,setSelected]=useState('');const selectedOffering=offerings.find((item)=>item.serviceOfferingId===selected);const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;const[type,setType]=useState('PERCENT_BPS');return <>
-  <label className="field field--full"><span>陪玩项目</span><select name="serviceOfferingId" required value={selected} onChange={(event)=>{const value=event.currentTarget.value;setSelected(value);const next=offerings.find((item)=>item.serviceOfferingId===value)?.compensationRule as Record<string,unknown>|undefined;setType(textValue(next?.type)||'PERCENT_BPS');}}><option value="" disabled>请选择项目</option>{offerings.map((item)=><option key={textValue(item.serviceOfferingId)} value={textValue(item.serviceOfferingId)}>{[item.game,item.service,item.region].filter(Boolean).join(' · ')}</option>)}</select></label>
+    <label className="field field--full"><span>陪玩项目</span><select name="serviceOfferingId" required value={selected} onChange={(event)=>{const value=event.currentTarget.value;setSelected(value);const next=offerings.find((item)=>item.serviceOfferingId===value)?.compensationRule as Record<string,unknown>|undefined;setType(textValue(next?.type)||'PERCENT_BPS');}}><option value="" disabled>请选择项目</option>{offerings.map((item)=><option key={textValue(item.serviceOfferingId)} value={textValue(item.serviceOfferingId)}>{[item.gameDisplayName??item.game,item.serviceDisplayName??item.service,item.regionDisplayName??item.region].filter(Boolean).join(' · ')}</option>)}</select></label>
   <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
   <label className="field"><span>分成方式</span><select name="compensationType" value={type} onChange={(event)=>setType(event.currentTarget.value)}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
   {type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input key={`${selected}:percent`} name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" defaultValue={rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?rule.value/100:undefined}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input key={`${selected}:fixed`} name="fixedAmountMinor" type="number" required min="1" step="1" defaultValue={rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?rule.value:undefined}/></label>}
@@ -257,9 +258,14 @@ function collectColumns(items: ReadonlyArray<Record<string, unknown>>): string[]
   return Array.from(new Set(items.flatMap((item) => Object.keys(item)))).filter((column) => !column.toLowerCase().includes('idempotency'));
 }
 
-function displayValue(column: string, value: unknown, currency: unknown): string {
+function displayValue(column: string, value: unknown, currency: unknown, tags?: BusinessTagGroups): string {
   if (column.endsWith('Minor') && typeof value === 'number' && typeof currency === 'string') return formatMinorCurrency(value, currency);
   if (value === null || value === undefined) return '-';
+  const tagType = column === 'gameTags' ? 'GAME' : column === 'serviceTags' ? 'SERVICE' : column === 'languageTags' ? 'LANGUAGE' : null;
+  if (tagType && Array.isArray(value)) {
+    const names = new Map((tags?.[tagType] ?? []).map((tag) => [tag.code, tag.displayName]));
+    return value.map((code) => names.get(String(code)) ?? String(code)).join(', ');
+  }
   if (Array.isArray(value)) return value.map(String).join(', ');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
