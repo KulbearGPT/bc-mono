@@ -116,6 +116,33 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(buildAdminBusinessPage({ ...base, permissions: [], status: 'READY' })).toMatchObject({ kind: 'FORBIDDEN', items: [] });
   });
 
+  test('renders orders as approachable discussion cards with essential facts', () => {
+    const model = buildAdminBusinessPage({
+      page: 'orders',
+      permissions: ['order.read'],
+      status: 'READY',
+      items: [{
+        id: 'order-uuid-1', publicId: 'P-CAT001', status: 'PENDING_DISPATCH',
+        game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'FUN', serviceDisplayName: '娱乐陪玩',
+        region: 'NA', regionDisplayName: '北美', billingUnitMinutes: 60, unitCount: 2,
+        customerId: 'customer-uuid-1', playerId: null, amountMinor: 200, currency: 'CAT',
+        createdAt: '2026-08-03T12:00:00.000Z'
+      }]
+    });
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, onOpenDetail: () => undefined }));
+
+    expect(html).toContain('class="order-discussion-grid"');
+    expect(html).toContain('订单 P-CAT001');
+    expect(html).toContain('瓦洛兰特');
+    expect(html).toContain('娱乐陪玩');
+    expect(html).toContain('老板 ID');
+    expect(html).toContain('customer-uuid-1');
+    expect(html).toContain('陪玩 ID');
+    expect(html).toContain('待接单');
+    expect(html).toContain('20.0 猫条');
+    expect(html).not.toContain('<table');
+  });
+
   test('renders a clear action panel with mandatory reasonCode', () => {
     const item = { id: 'user-1', version: 3, displayName: 'Customer A' };
     const model = buildAdminBusinessPage({

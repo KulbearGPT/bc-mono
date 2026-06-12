@@ -54,7 +54,9 @@ export function AdminBusinessPage(props: {
         <div className="state-card state-card--error" role="alert"><p>数据暂时无法载入。{model.requestId ? ` request_id: ${model.requestId}` : ''}</p><button type="button" onClick={props.onRetry}>重试</button></div>
       )}
       {model.kind === 'EMPTY' && <div className="state-card"><p>当前筛选下没有记录。</p><button type="button" onClick={props.onClearFilters}>清除筛选</button></div>}
-      {model.kind === 'READY' && <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />}
+      {model.kind === 'READY' && (model.page === 'orders'
+        ? <OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
+        : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
 
       {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
        {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
@@ -65,6 +67,78 @@ export function AdminBusinessPage(props: {
       )}
     </section>
   );
+}
+
+function OrderDiscussionGrid(props: {
+  model: AdminBusinessPageModel;
+  onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
+  onOpenDetail?: (item: Record<string, unknown>) => void;
+}) {
+  const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
+  return <div className="order-discussion-grid">{props.model.items.map((item, index) => {
+    const publicId = textValue(item.publicId) || `#${index + 1}`;
+    const game = textValue(item.gameDisplayName) || textValue(item.game) || '未指定游戏';
+    const service = textValue(item.serviceDisplayName) || textValue(item.service) || '未指定服务';
+    const region = textValue(item.regionDisplayName) || textValue(item.region);
+    const billing = orderBillingSummary(item);
+    const status = textValue(item.status);
+    return <article className="order-discussion-card" key={textValue(item.id) || publicId}>
+      <header className="order-discussion-card__header">
+        <div><span className="order-discussion-card__label">订单 {publicId}</span><h2>{game} · {service}</h2></div>
+        <span className={`order-status order-status--${status.toLowerCase()}`}>{orderStatusLabel(status)}</span>
+      </header>
+      <div className="order-discussion-card__summary">
+        <p>{[region, billing].filter(Boolean).join(' · ') || '项目资料待补充'}</p>
+      </div>
+      <dl className="order-discussion-card__facts">
+        <OrderFact label="老板 ID" value={textValue(item.customerId) || '—'} />
+        <OrderFact label="陪玩 ID" value={textValue(item.playerId) || '待接单'} muted={!item.playerId} />
+        <OrderFact label="订单价格" value={orderPrice(item)} strong />
+        <OrderFact label="创建时间" value={formatOrderDate(item.createdAt)} />
+      </dl>
+      <footer className="order-discussion-card__footer">
+        <span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span>
+        <div className="order-discussion-card__actions">
+          {props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
+          {itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+        </div>
+      </footer>
+    </article>;
+  })}</div>;
+}
+
+function OrderFact({ label, value, muted = false, strong = false }: { label: string; value: string; muted?: boolean; strong?: boolean }) {
+  return <div><dt>{label}</dt><dd className={`${muted ? 'is-muted' : ''}${strong ? ' is-strong' : ''}`.trim()} title={value}>{value}</dd></div>;
+}
+
+function orderBillingSummary(item: Record<string, unknown>): string {
+  const minutes = numberValue(item.billingUnitMinutes);
+  const units = numberValue(item.unitCount);
+  if (minutes && units) return `${units} 个计费单位 · 共 ${minutes * units} 分钟`;
+  if (minutes) return `每单位 ${minutes} 分钟`;
+  if (units) return `${units} 个计费单位`;
+  return '';
+}
+
+function orderPrice(item: Record<string, unknown>): string {
+  return typeof item.amountMinor === 'number' && typeof item.currency === 'string'
+    ? formatMinorCurrency(item.amountMinor, item.currency)
+    : '待确认';
+}
+
+function compactIdentifier(value: unknown): string {
+  const id = textValue(value);
+  return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id || '—';
+}
+
+function formatOrderDate(value: unknown): string {
+  if (typeof value !== 'string') return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function orderStatusLabel(status: string): string {
+  return ({ DRAFT: '草稿', PENDING_DISPATCH: '等待接单', ACCEPTED: '已接单', IN_SERVICE: '服务中', PENDING_CONFIRMATION: '等待确认', COMPLETED: '已完成', CANCELLED: '已取消', EXCEPTION: '需要处理' } as Record<string, string>)[status] ?? (status || '未知状态');
 }
 
 function AdminBusinessTable(props: {
