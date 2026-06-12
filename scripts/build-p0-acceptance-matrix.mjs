@@ -53,7 +53,7 @@ export async function buildAcceptanceMatrix(root) {
     readFile(resolve(root, externalResultsPath), 'utf8')
   ]);
   const acceptance = parseCsv(acceptanceText);
-  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-9]-US-[0-9]{2}$/u.test(row.item_id));
+  const backlog = parseCsv(backlogText).filter((row) => row.item_type === 'USER_STORY' && /^M[0-9]+-US-[0-9]{2}$/u.test(row.item_id));
   const implementedBacklog = backlog;
   const knownOperations = new Set([...openApiText.matchAll(/^\s+operationId:\s*([^\s]+)\s*$/gmu)].map((match) => match[1]));
   const byAcceptance = new Map();

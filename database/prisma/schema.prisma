@@ -84,6 +84,23 @@ enum PlayerCompensationType {
   FIXED_MINOR
 }
 
+enum OrderParticipantStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum CompensationSource {
+  PLAYER_OVERRIDE
+  CATALOG_DEFAULT
+}
+
+enum OrderParticipantEventType {
+  ADDED
+  PRICE_CHANGED
+  READY_CONFIRMED
+  REMOVED
+}
+
 enum StaffLevel {
   L1_SUPPORT
   L2_SUPERVISOR
@@ -507,6 +524,7 @@ model User {
   staffAccount         StaffAccount?
   customerOrders       Order[]               @relation("OrderCustomer")
   playerOrders         Order[]               @relation("OrderPlayer")
+  orderParticipations  OrderParticipant[]    @relation("OrderParticipantPlayer")
   activeCustomerOrders Order[]               @relation("ActiveOrderCustomer")
   activePlayerOrders   Order[]               @relation("ActiveOrderPlayer")
   acceptedDispatches   DispatchAttempt[]     @relation("DispatchAcceptedPlayer")
@@ -1224,7 +1242,8 @@ model Order {
   externalTransaction ExternalTransaction?
   refunds             Refund[]
   consumptionEntries  ConsumptionEntry[]
-  playerEarning       PlayerEarning?
+  playerEarnings      PlayerEarning[]
+  participants        OrderParticipant[]
   riskEvents          RiskEvent[]
   outboxEvents        OutboxEvent[]
   channelMessageEvents OrderChannelMessageEvent[]
@@ -1235,6 +1254,60 @@ model Order {
   @@index([status, readinessDueAt])
   @@index([serviceCatalogVersionId])
   @@map("orders")
+}
+
+/// Mutable pre-capture projection for one player line. History is preserved by OrderParticipantEvent.
+/// There is intentionally no order-level participant count limit.
+model OrderParticipant {
+  id                         String                 @id @default(uuid()) @db.Uuid
+  orderId                    String                 @map("order_id") @db.Uuid
+  playerId                   String                 @map("player_id") @db.Uuid
+  status                     OrderParticipantStatus @default(ACTIVE)
+  rowVersion                 Int                    @default(1) @map("row_version")
+  playerDisplayNameSnapshot  String                 @map("player_display_name_snapshot") @db.VarChar(100)
+  linePriceMinor             BigInt                 @map("line_price_minor")
+  compensationTypeSnapshot   PlayerCompensationType @map("compensation_type_snapshot")
+  compensationValueSnapshot  BigInt                 @map("compensation_value_snapshot")
+  compensationSource         CompensationSource     @map("compensation_source")
+  expectedEarningMinor       BigInt                 @map("expected_earning_minor")
+  readyAt                    DateTime?              @map("ready_at") @db.Timestamptz(3)
+  addedByStaffId             String                 @map("added_by_staff_id") @db.Uuid
+  removedByStaffId           String?                @map("removed_by_staff_id") @db.Uuid
+  removedReasonCode          String?                @map("removed_reason_code") @db.VarChar(100)
+  removedAt                  DateTime?              @map("removed_at") @db.Timestamptz(3)
+  createdAt                  DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order    Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player   User                        @relation("OrderParticipantPlayer", fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events   OrderParticipantEvent[]
+  earning  PlayerEarning?
+
+  @@index([orderId, status, createdAt])
+  @@index([playerId, status, createdAt])
+  @@map("order_participants")
+}
+
+/// Append-only record of participant membership, readiness, and price changes.
+model OrderParticipantEvent {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  orderParticipantId String                    @map("order_participant_id") @db.Uuid
+  sequence           Int
+  eventType          OrderParticipantEventType @map("event_type")
+  participantVersion Int                       @map("participant_version")
+  orderVersion       Int                       @map("order_version")
+  actorStaffId       String?                   @map("actor_staff_id") @db.Uuid
+  actorUserId        String?                   @map("actor_user_id") @db.Uuid
+  reasonCode         String?                   @map("reason_code") @db.VarChar(100)
+  snapshot           Json                      @db.JsonB
+  idempotencyKey     String                    @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  participant OrderParticipant @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([orderParticipantId, sequence])
+  @@index([orderParticipantId, createdAt])
+  @@map("order_participant_events")
 }
 
 enum OrderChannelMessageEventType {
@@ -1774,7 +1847,8 @@ model ConsumptionEntry {
 
 model PlayerEarning {
   id                 String              @id @default(uuid()) @db.Uuid
-  orderId            String              @unique @map("order_id") @db.Uuid
+  orderId            String              @map("order_id") @db.Uuid
+  orderParticipantId String              @unique @map("order_participant_id") @db.Uuid
   playerUserId       String              @map("player_user_id") @db.Uuid
   baseUnits          Int                 @map("base_units")
   unitPayoutMinor    BigInt              @map("unit_payout_minor")
@@ -1789,12 +1863,14 @@ model PlayerEarning {
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order       Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  participant OrderParticipant          @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   player      User                      @relation("EarningPlayer", fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   confirmedBy StaffAccount?             @relation("EarningConfirmedBy", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   adjustments PlayerEarningAdjustment[]
   settlementEntries SettlementItemEntry[]
 
   @@index([playerUserId, status, createdAt])
+  @@index([orderId, createdAt])
   @@map("player_earnings")
 }
 
