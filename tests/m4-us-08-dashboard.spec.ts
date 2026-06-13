@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFile } from 'node:fs/promises';
 import { AdminBusinessPage } from '../apps/dashboard/src/AdminBusinessPage.js';
 import { buildAdminBusinessPage, buildAdminOrderTimelineRequest, readAdminOrderTimeline } from '@blackcat/dashboard/admin-business';
 
@@ -10,9 +11,17 @@ const timeline = { items: [
 ], nextCursor:'signed-next' };
 
 describe('M4-US-08 Dashboard transaction timeline',()=>{
+  test('mounts overlays through a body portal so layout ancestors cannot clip them', async()=>{
+    const source=await readFile('apps/dashboard/src/AdminBusinessPage.tsx','utf8');
+    expect(source).toContain("createPortal(overlay, document.body)");
+  });
+
   test('renders a dedicated read-only timeline with direction, adjustments and pagination',()=>{
     const model=buildAdminBusinessPage({page:'orders',permissions:['order.read'],status:'READY',items:[{id:'order-1'}]});
     const html=renderToStaticMarkup(createElement(AdminBusinessPage,{model,detail:{kind:'READY',page:'orders',requestId:'req_detail',data:{order:{id:'order-1',publicId:'P-1',status:'COMPLETED',amountMinor:12000,currency:'CAT',updatedAt:'2026-07-18T21:00:00Z'},timeline}}}));
+    expect(html).toContain('class="dashboard-overlay"');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-label="业务对象详情"');
     expect(html).toContain('交易时间线');
     expect(html).toContain('COMMISSION_ADJUSTMENT');
     expect(html).toContain('加载更多记录');

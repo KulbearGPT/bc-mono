@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel } from './admin-business.js';
 import { formatMinorCurrency, readAdminOrderTimeline } from './admin-business.js';
 import type { BusinessTagGroups, BusinessTagRecord } from './business-tags.js';
@@ -58,15 +59,41 @@ export function AdminBusinessPage(props: {
         ? <OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
         : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
 
-      {props.detail && <AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} />}
-       {props.activeAction && <AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
-        onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} />}
+      {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} /></DashboardOverlay>}
+      {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
+        onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} /></DashboardOverlay>}
 
       {model.pagination.hasNext && model.pagination.nextCursor && (
         <div className="pagination-bar"><button type="button" onClick={() => props.onNextPage?.(model.pagination.nextCursor!)}>下一页</button></div>
       )}
     </section>
   );
+}
+
+function DashboardOverlay(props: { label: string; onClose?: () => void; children: ReactNode }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') props.onClose?.();
+    };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+    dialogRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [props.onClose]);
+
+  const overlay = <div className="dashboard-overlay" onMouseDown={(event) => {
+    if (event.target === event.currentTarget) props.onClose?.();
+  }}>
+    <div ref={dialogRef} className="dashboard-overlay__dialog" role="dialog" aria-modal="true" aria-label={props.label} tabIndex={-1}>
+      {props.children}
+    </div>
+  </div>;
+  return typeof document === 'undefined' ? overlay : createPortal(overlay, document.body);
 }
 
 function OrderDiscussionGrid(props: {

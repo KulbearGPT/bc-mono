@@ -161,6 +161,9 @@ describe('M4-US-03 Dashboard business object pages', () => {
     }));
 
     expect(html).toContain('更新运营状态操作表单');
+    expect(html).toContain('class="dashboard-overlay"');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
     expect(html).toContain('name="reasonCode"');
     expect(html).toContain('required=""');
     expect(html).toContain('name="status"');
