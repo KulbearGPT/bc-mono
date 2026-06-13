@@ -1155,6 +1155,7 @@ model ServiceCatalogVersion {
   createdBy       StaffAccount                     @relation("ServiceVersionCreatedBy", fields: [createdByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   requirements    ServiceVersionSkillRequirement[]
   orders          Order[]
+  orderParticipants OrderParticipant[]
 
   @@unique([serviceOfferingId, version])
   @@index([status, serviceOfferingId])
@@ -1262,9 +1263,19 @@ model OrderParticipant {
   id                         String                 @id @default(uuid()) @db.Uuid
   orderId                    String                 @map("order_id") @db.Uuid
   playerId                   String                 @map("player_id") @db.Uuid
+  serviceCatalogVersionId    String                 @map("service_catalog_version_id") @db.Uuid
   status                     OrderParticipantStatus @default(ACTIVE)
   rowVersion                 Int                    @default(1) @map("row_version")
   playerDisplayNameSnapshot  String                 @map("player_display_name_snapshot") @db.VarChar(100)
+  gameCodeSnapshot           String                 @map("game_code_snapshot") @db.VarChar(80)
+  gameDisplayNameSnapshot    String                 @map("game_display_name_snapshot") @db.VarChar(100)
+  serviceCodeSnapshot        String                 @map("service_code_snapshot") @db.VarChar(80)
+  serviceDisplayNameSnapshot String                 @map("service_display_name_snapshot") @db.VarChar(100)
+  regionCodeSnapshot         String?                @map("region_code_snapshot") @db.VarChar(80)
+  regionDisplayNameSnapshot  String?                @map("region_display_name_snapshot") @db.VarChar(100)
+  billingUnitMinutesSnapshot Int                    @map("billing_unit_minutes_snapshot")
+  unitCount                  Int                    @map("unit_count")
+  customerUnitPriceMinorSnapshot BigInt             @map("customer_unit_price_minor_snapshot")
   linePriceMinor             BigInt                 @map("line_price_minor")
   compensationTypeSnapshot   PlayerCompensationType @map("compensation_type_snapshot")
   compensationValueSnapshot  BigInt                 @map("compensation_value_snapshot")
@@ -1280,11 +1291,13 @@ model OrderParticipant {
 
   order    Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   player   User                        @relation("OrderParticipantPlayer", fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceCatalogVersion ServiceCatalogVersion       @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   events   OrderParticipantEvent[]
   earning  PlayerEarning?
 
   @@index([orderId, status, createdAt])
   @@index([playerId, status, createdAt])
+  @@index([serviceCatalogVersionId])
   @@map("order_participants")
 }
 

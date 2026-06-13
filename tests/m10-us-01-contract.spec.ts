@@ -29,7 +29,7 @@ describe('M10-US-01 multi-player order contract', () => {
     expect(outputsTodo).toContain('M10-US-01');
   });
 
-  test('freezes unlimited participants, derived totals, all-player readiness, and gift recipient derivation', async () => {
+  test('freezes independent participant projects, derived totals, all-player readiness, and gift recipient derivation', async () => {
     const [spec, openapi, prisma, backlog, acceptance, matrixBuilder] = await Promise.all([
       readFile(resolve(root, 'outputs/Discord陪玩业务Bot最小原型设计开发文档.html'), 'utf8'),
       readFile(resolve(root, 'outputs/P0开发交付包/02-API/openapi.yaml'), 'utf8'),
@@ -41,11 +41,15 @@ describe('M10-US-01 multi-player order contract', () => {
 
     expect(spec).toContain('订单多陪玩与多接收人礼物补充合同');
     expect(spec).toContain('不设业务人数上限');
+    expect(spec).toContain('每位陪玩独立绑定一个服务目录版本');
     expect(openapi).toContain('operationId: addAdminOrderParticipant');
     expect(openapi).toContain('operationId: updateAdminOrderParticipant');
+    expect(openapi).toMatch(/OrderParticipant:[\s\S]*?serviceCatalogVersionId:[\s\S]*?gameDisplayName:[\s\S]*?serviceDisplayName:/u);
     expect(openapi).toContain('participantIds:');
     expect(openapi).not.toContain('maxItems: 4');
     expect(prisma).toContain('model OrderParticipant');
+    expect(prisma).toContain('serviceCatalogVersionId');
+    expect(prisma).toContain('serviceDisplayNameSnapshot');
     expect(prisma).toContain('linePriceMinor');
     expect(backlog).toContain('M10-US-01');
     expect(matrixBuilder).toContain('/^M[0-9]+-US-[0-9]{2}$/u');
