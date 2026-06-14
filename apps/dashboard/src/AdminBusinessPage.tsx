@@ -25,6 +25,10 @@ export function AdminBusinessPage(props: {
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
   dispatchCandidateOptions?: Array<Record<string, unknown>>;
+  participantPlayerOptions?: Array<Record<string,unknown>>;
+  participantMutationError?: string|null;
+  onAddOrderParticipant?: (fields:Record<string,unknown>)=>void;
+  onUpdateOrderParticipant?: (fields:Record<string,unknown>)=>void;
 }) {
   const { model } = props;
   if (model.kind === 'FORBIDDEN') {
@@ -59,7 +63,7 @@ export function AdminBusinessPage(props: {
         ? <OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
         : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
 
-      {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} /></DashboardOverlay>}
+      {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions} participantPlayerOptions={props.participantPlayerOptions} participantMutationError={props.participantMutationError} onAddOrderParticipant={props.onAddOrderParticipant} onUpdateOrderParticipant={props.onUpdateOrderParticipant} /></DashboardOverlay>}
       {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} /></DashboardOverlay>}
 
@@ -104,14 +108,16 @@ function OrderDiscussionGrid(props: {
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
   return <div className="order-discussion-grid">{props.model.items.map((item, index) => {
     const publicId = textValue(item.publicId) || `#${index + 1}`;
-    const game = textValue(item.gameDisplayName) || textValue(item.game) || '未指定游戏';
-    const service = textValue(item.serviceDisplayName) || textValue(item.service) || '未指定服务';
-    const region = textValue(item.regionDisplayName) || textValue(item.region);
-    const billing = orderBillingSummary(item);
+    const participants=Array.isArray(item.participants)?item.participants.filter((value):value is Record<string,unknown>=>Boolean(value&&typeof value==='object'&&!Array.isArray(value))&&value.status!=='REMOVED'):[];
+    const firstParticipant=participants[0];
+    const game = textValue(firstParticipant?.gameDisplayName) || textValue(firstParticipant?.game) || textValue(item.gameDisplayName) || textValue(item.game) || '未指定游戏';
+    const service = textValue(firstParticipant?.serviceDisplayName) || textValue(firstParticipant?.service) || textValue(item.serviceDisplayName) || textValue(item.service) || '未指定服务';
+    const region = participants.length?Array.from(new Set(participants.map((participant)=>textValue(participant.regionDisplayName)||textValue(participant.region)||'不限区服'))).join('、'):textValue(item.regionDisplayName) || textValue(item.region);
+    const billing = participants.length?participants.map((participant)=>`${textValue(participant.displayName)||'陪玩'} ${textValue(participant.unitCount)||'—'} 单位`).join(' · '):orderBillingSummary(item);
     const status = textValue(item.status);
     return <article className="order-discussion-card" key={textValue(item.id) || publicId}>
       <header className="order-discussion-card__header">
-        <div><span className="order-discussion-card__label">订单 {publicId}</span><h2>{game} · {service}</h2></div>
+        <div><span className="order-discussion-card__label">订单 {publicId}</span><h2>{game} · {service}{participants.length>1?` +${participants.length-1} 个项目`:''}</h2></div>
         <span className={`order-status order-status--${status.toLowerCase()}`}>{orderStatusLabel(status)}</span>
       </header>
       <div className="order-discussion-card__summary">
@@ -119,7 +125,7 @@ function OrderDiscussionGrid(props: {
       </div>
       <dl className="order-discussion-card__facts">
         <OrderFact label="老板 ID" value={textValue(item.customerId) || '—'} />
-        <OrderFact label="陪玩 ID" value={textValue(item.playerId) || '待接单'} muted={!item.playerId} />
+        <OrderFact label="陪玩 ID" value={participants.length?participants.map((participant)=>textValue(participant.playerId)).filter(Boolean).join('、'):textValue(item.playerId) || '待接单'} muted={!item.playerId&&participants.length===0} />
         <OrderFact label="订单价格" value={orderPrice(item)} strong />
         <OrderFact label="创建时间" value={formatOrderDate(item.createdAt)} />
       </dl>
@@ -311,7 +317,7 @@ function submitAction(event: FormEvent<HTMLFormElement>, props: Parameters<typeo
   props.onSubmit?.(props.active.action, props.active.item, fields);
 }
 
-function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: () => void; onNextConsumptions?: (cursor: string) => void; onNextTimeline?: (cursor: string) => void }) {
+function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: () => void; onNextConsumptions?: (cursor: string) => void; onNextTimeline?: (cursor: string) => void;serviceCatalogOptions?:Array<Record<string,unknown>>;participantPlayerOptions?:Array<Record<string,unknown>>;participantMutationError?:string|null;onAddOrderParticipant?:(fields:Record<string,unknown>)=>void;onUpdateOrderParticipant?:(fields:Record<string,unknown>)=>void }) {
   const { detail } = props;
   return (
     <aside className="content-panel detail-panel" aria-label="业务对象详情">
@@ -319,20 +325,35 @@ function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: 
       {detail.kind === 'LOADING' && <p aria-busy="true">正在载入详情...</p>}
       {detail.kind === 'FORBIDDEN' && <p role="alert">{detail.page === 'orders' ? '当前订单不在你的任务权限范围内。' : '当前账号无权查看此详情。'}{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
       {detail.kind === 'ERROR' && <p role="alert">详情暂时无法载入。{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
-      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
+      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions??[]} participantPlayerOptions={props.participantPlayerOptions??[]} mutationError={props.participantMutationError} onAdd={props.onAddOrderParticipant} onUpdate={props.onUpdateOrderParticipant} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
     </aside>
   );
 }
 
-function OrderTimelineRegion(props:{data:Record<string,unknown>;pageState?:AdminBusinessDetailState['timelinePage'];onNext?:(cursor:string)=>void}) {
-  const timeline=readAdminOrderTimeline(props.data);const order=props.data.order as Record<string,unknown>|undefined;
-  return <><dl className="definition-list">{order&&Object.entries(order).filter(([key])=>['publicId','status','amountMinor','currency','updatedAt'].includes(key)).map(([key,value])=><div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key,value,order.currency)}</dd></div>)}</dl>
+function OrderTimelineRegion(props:{data:Record<string,unknown>;pageState?:AdminBusinessDetailState['timelinePage'];onNext?:(cursor:string)=>void;serviceCatalogOptions:Array<Record<string,unknown>>;participantPlayerOptions:Array<Record<string,unknown>>;mutationError?:string|null;onAdd?:(fields:Record<string,unknown>)=>void;onUpdate?:(fields:Record<string,unknown>)=>void}) {
+  const timeline=readAdminOrderTimeline(props.data);const order=props.data.order as Record<string,unknown>|undefined;const participantPage=props.data.participants as {items?:Array<Record<string,unknown>>;derivedTotalMinor?:unknown}|undefined;const participants=participantPage?.items??[];
+  return <><section className="order-detail-summary" aria-label="订单基础信息"><h3>订单基础信息</h3><dl className="definition-list">{order&&Object.entries(order).filter(([key])=>['publicId','status','customerId','amountMinor','currency','notes','createdAt','updatedAt'].includes(key)).map(([key,value])=><div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key,value,order.currency)}</dd></div>)}</dl></section>
+    <OrderParticipantEditor participants={participants} order={order} derivedTotalMinor={participantPage?.derivedTotalMinor} serviceCatalogOptions={props.serviceCatalogOptions} playerOptions={props.participantPlayerOptions} error={props.mutationError} onAdd={props.onAdd} onUpdate={props.onUpdate}/>
     <section className="subsection" aria-label="交易时间线"><h3>交易时间线</h3>
       {timeline.items.length===0?<p>暂无交易记录。</p>:<div className="table-scroll"><table className="data-table"><thead><tr><th scope="col">时间</th><th scope="col">类型</th><th scope="col">方向</th><th scope="col">金额</th><th scope="col">状态</th></tr></thead><tbody>{timeline.items.map((item)=><tr key={item.id}><td>{item.occurredAt}</td><td>{item.type}</td><td>{item.direction}</td><td>{item.amountMinor===null?'—':displayValue('amountMinor',item.amountMinor,item.currency)}</td><td>{item.status}</td></tr>)}</tbody></table></div>}
       {props.pageState?.kind==='ERROR'&&<p role="alert">后续交易记录暂时无法载入。{props.pageState.requestId?` request_id: ${props.pageState.requestId}`:''}</p>}
       {timeline.nextCursor&&<button type="button" disabled={props.pageState?.kind==='LOADING'} onClick={()=>props.onNext?.(timeline.nextCursor!)}>加载更多记录</button>}
     </section></>;
 }
+
+function OrderParticipantEditor(props:{participants:Array<Record<string,unknown>>;order?:Record<string,unknown>;derivedTotalMinor:unknown;serviceCatalogOptions:Array<Record<string,unknown>>;playerOptions:Array<Record<string,unknown>>;error?:string|null;onAdd?:(fields:Record<string,unknown>)=>void;onUpdate?:(fields:Record<string,unknown>)=>void}){
+  const[editing,setEditing]=useState<string|null>(null);const currency=typeof props.order?.currency==='string'?props.order.currency:'CAT';
+  return <section className="subsection order-participant-editor" aria-label="订单陪玩与项目"><div className="subsection-heading"><div><h3>陪玩与项目</h3><p>每位陪玩独立绑定项目、计费数量、价格和分成。</p></div><strong>合计 {typeof props.derivedTotalMinor==='number'?formatMinorCurrency(props.derivedTotalMinor,currency):'—'}</strong></div>
+    {props.participants.length===0?<p>尚未添加陪玩明细。</p>:<div className="participant-card-grid">{props.participants.map((participant)=><article className={`participant-detail-card participant-detail-card--${String(participant.status??'').toLowerCase()}`} key={String(participant.id)}><header><div><span>{String(participant.displayName??'未命名陪玩')}</span><h4>{String(participant.gameDisplayName??participant.game??'未指定游戏')} · {String(participant.serviceDisplayName??participant.service??'未指定服务')}</h4></div><span>{participant.status==='REMOVED'?'已移除':participant.readiness==='READY'?'已就绪':'未就绪'}</span></header><dl><OrderFact label="陪玩 ID" value={String(participant.playerId??'—')}/><OrderFact label="服务目录版本" value={String(participant.serviceCatalogVersionId??'—')}/><OrderFact label="区服" value={String(participant.regionDisplayName??participant.region??'不限')}/><OrderFact label="计费" value={`${String(participant.unitCount??'—')} 单位 · ${String(participant.billingUnitMinutes??'—')} 分钟/单位`}/><OrderFact label="客户价格" value={typeof participant.linePriceMinor==='number'?formatMinorCurrency(participant.linePriceMinor,currency):'—'} strong/><OrderFact label="陪玩分成" value={compensationLabel(participant,currency)}/><OrderFact label="预计收益" value={typeof participant.expectedEarningMinor==='number'?formatMinorCurrency(participant.expectedEarningMinor,currency):'—'} strong/><OrderFact label="明细版本" value={String(participant.version??'—')}/></dl>{participant.status==='ACTIVE'&&props.onUpdate&&<button type="button" onClick={()=>setEditing(editing===String(participant.id)?null:String(participant.id))}>{editing===String(participant.id)?'收起编辑':'编辑明细'}</button>}{editing===String(participant.id)&&<ParticipantUpdateForm participant={participant} catalogs={props.serviceCatalogOptions} onSubmit={(fields)=>props.onUpdate?.({...fields,participantId:participant.id,expectedParticipantVersion:participant.version})}/>}</article>)}</div>}
+    {props.error&&<p className="form-message form-message--error" role="alert">{props.error}</p>}
+    {props.onAdd&&<ParticipantAddForm players={props.playerOptions} catalogs={props.serviceCatalogOptions} onSubmit={props.onAdd}/>}</section>;
+}
+
+function ParticipantAddForm(props:{players:Array<Record<string,unknown>>;catalogs:Array<Record<string,unknown>>;onSubmit:(fields:Record<string,unknown>)=>void}){return <form className="participant-inline-form" onSubmit={(event)=>{event.preventDefault();props.onSubmit(formRecord(event.currentTarget));}}><h4>添加陪玩明细</h4><label><span>陪玩</span><select name="playerId" required><option value="">请选择</option>{props.players.map((player)=><option key={String(player.playerId)} value={String(player.playerId)}>{String(player.displayName??player.discordTag??player.playerId)}</option>)}</select></label><CatalogSelect catalogs={props.catalogs}/><label><span>计费单位数</span><input name="unitCount" type="number" min="1" required/></label><label><span>明细价格（CAT 最小单位）</span><input name="linePriceMinor" type="number" min="1" required/></label><label><span>原因码</span><input name="reasonCode" defaultValue="ADD_ORDER_PLAYER" pattern="[A-Z0-9_]{3,100}" required/></label><button className="button-primary" type="submit">添加陪玩</button></form>;}
+function ParticipantUpdateForm(props:{participant:Record<string,unknown>;catalogs:Array<Record<string,unknown>>;onSubmit:(fields:Record<string,unknown>)=>void}){return <form className="participant-inline-form" onSubmit={(event)=>{event.preventDefault();props.onSubmit(formRecord(event.currentTarget));}}><label><span>操作</span><select name="action" defaultValue="CHANGE_PRICE"><option value="CHANGE_PRICE">修改价格</option><option value="CHANGE_PROJECT">更换项目</option><option value="REMOVE">移除陪玩</option></select></label><CatalogSelect catalogs={props.catalogs} defaultValue={String(props.participant.serviceCatalogVersionId??'')}/><label><span>计费单位数</span><input name="unitCount" type="number" min="1" defaultValue={Number(props.participant.unitCount??1)}/></label><label><span>明细价格</span><input name="linePriceMinor" type="number" min="1" defaultValue={Number(props.participant.linePriceMinor??1)}/></label><label><span>原因码</span><input name="reasonCode" defaultValue="UPDATE_ORDER_PLAYER" pattern="[A-Z0-9_]{3,100}" required/></label><button type="submit">保存明细</button></form>;}
+function CatalogSelect({catalogs,defaultValue}:{catalogs:Array<Record<string,unknown>>;defaultValue?:string}){return <label><span>服务项目</span><select name="serviceCatalogVersionId" required defaultValue={defaultValue??''}><option value="">请选择</option>{catalogs.map((catalog)=><option key={String(catalog.id)} value={String(catalog.id)}>{`${String(catalog.gameDisplayName??catalog.game)} · ${String(catalog.serviceDisplayName??catalog.service)}${catalog.regionDisplayName?` · ${String(catalog.regionDisplayName)}`:''}`}</option>)}</select></label>;}
+function formRecord(form:HTMLFormElement){return Object.fromEntries(Array.from(new FormData(form).entries()).filter((entry):entry is [string,string]=>typeof entry[1]==='string'));}
+function compensationLabel(participant:Record<string,unknown>,currency:string){if(participant.compensationType==='PERCENT_BPS'&&typeof participant.compensationValue==='number')return `${(participant.compensationValue/100).toFixed(2)}% · ${participant.compensationSource==='PLAYER_OVERRIDE'?'个人规则':'项目默认'}`;if(typeof participant.compensationValue==='number')return `${formatMinorCurrency(participant.compensationValue,currency)}/单位 · ${participant.compensationSource==='PLAYER_OVERRIDE'?'个人规则':'项目默认'}`;return '—';}
 
 function UserConsumptionRegion(props: { consumptions: NonNullable<AdminBusinessDetailState['consumptions']>; onNext?: (cursor: string) => void }) {
   const { consumptions } = props;

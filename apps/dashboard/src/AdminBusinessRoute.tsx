@@ -6,6 +6,8 @@ import {
   buildAdminBusinessPage,
   buildAdminDetailRequest,
   buildAdminOrderTimelineRequest,
+  buildAddOrderParticipantRequest,
+  buildUpdateOrderParticipantRequest,
   buildAdminResourceQuery,
   buildAdminUserConsumptionRequest,
   type AdminBusinessAction,
@@ -36,6 +38,8 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
   const [dispatchCandidateOptions,setDispatchCandidateOptions]=useState<Array<Record<string,unknown>>>([]);
+  const [participantPlayerOptions,setParticipantPlayerOptions]=useState<Array<Record<string,unknown>>>([]);
+  const [participantMutationError,setParticipantMutationError]=useState<string|null>(null);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
@@ -115,7 +119,15 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
         return;
       }
       if (page !== 'users') {
-        setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data: body.data,
+        let data=body.data;
+        if(page==='orders'&&typeof item.id==='string'){
+          const participantResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participants?limit=100`);
+          const participantBody=await participantResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if(!participantResponse.ok||!participantBody?.data){setDetail({kind:participantResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:participantBody?.requestId??null,data:null});return;}
+          const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(candidateResponse.ok){const candidates=candidateBody?.data?.items??[];setParticipantPlayerOptions(candidates);const projects=new Map<string,Record<string,unknown>>();for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}setServiceCatalogOptions(Array.from(projects.values()));}
+          data={...body.data,participants:participantBody.data};
+        }
+        setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data,
           timelinePage: page === 'orders' ? { kind: 'READY', requestId: null } : undefined });
         return;
       }
@@ -129,6 +141,13 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     } catch {
       setDetail({ kind: 'ERROR', page, requestId: null, data: null });
     }
+  }
+
+  async function mutateParticipant(kind:'ADD'|'UPDATE',fields:Record<string,unknown>){
+    if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;
+    const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;
+    try{setParticipantMutationError(null);const request=kind==='ADD'?buildAddOrderParticipantRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildAddOrderParticipantRequest>[1]):buildUpdateOrderParticipantRequest(order.id,String(fields.participantId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateOrderParticipantRequest>[2]);const response=request.method==='POST'?await client.post(request.path,request.body,`dashboard:${crypto.randomUUID()}`):await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'陪玩明细未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}
+    catch(error){setParticipantMutationError(error instanceof Error?error.message:'陪玩明细表单无效。');}
   }
 
   async function loadUserConsumptions(userId: string, cursor: string | null, append: boolean) {
@@ -212,5 +231,6 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions} />;
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
+    participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} />;
 }

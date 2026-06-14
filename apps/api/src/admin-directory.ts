@@ -9,14 +9,16 @@ import {
   type ActorContext,
   type AuditRecord,
   type AuditSink
+  ,type StaffLevel
 } from './security.js';
 import { PostgresOrderStore, type OrderRecord } from './orders.js';
 import { TransactionTimelineError, type TransactionTimelineStore } from './transaction-timeline.js';
 import type { CustomerProfileScope } from './customer-profiles.js';
 import type { PilotFeature } from './pilot-features.js';
 import type { BusinessTagStore } from './business-tags.js';
+import { PostgresOrderParticipantStore,type OrderParticipantRecord } from './order-participants.js';
 
-export type AdminOrderListItem = OrderRecord;
+export type AdminOrderListItem = OrderRecord & { participants?: OrderParticipantRecord[] };
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 export interface AdminUserRecord { id: string; displayName: string; status: string; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number }
 export interface AdminPlayerRecord { playerId: string; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; languageTags?: string[]; activeOrderId: string | null; version: number }
@@ -30,7 +32,7 @@ interface StagedAdminWrite<T> {
 }
 
 export interface AdminDirectoryStore {
-  listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string }): Promise<Page<AdminOrderListItem>> | Page<AdminOrderListItem>;
+  listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string; guildId?: string }): Promise<Page<AdminOrderListItem>> | Page<AdminOrderListItem>;
   listUsers(input: PageInput & { query?: string }): Promise<Page<AdminUserRecord>> | Page<AdminUserRecord>;
   getUser(userId: string): Promise<AdminUserRecord | null> | AdminUserRecord | null;
   listUserConsumptions(input: PageInput & { userId: string; guildId?: string; type?: AdminConsumptionMirrorType }): Promise<Page<AdminConsumptionRecord>> | Page<AdminConsumptionRecord>;
@@ -74,7 +76,7 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
     this.visibleGiftRequestIdsByStaffId = clone(input.visibleGiftRequestIdsByStaffId ?? {});
   }
 
-  listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string }) {
+  listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string; guildId?: string }) {
     const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleOrderIdsByStaffId[input.actorStaffId] ?? []) : null;
     return page(this.orders.filter((item) => (!visibleIds || visibleIds.has(item.id)) && (!input.status || item.status === input.status) && (!input.query || `${item.publicId} ${item.id}`.toLowerCase().includes(input.query.toLowerCase()))), input, 'orders', orderCursorKeys);
   }
@@ -160,22 +162,27 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
 
 export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
   private readonly orders: PostgresOrderStore;
+  private readonly participants: PostgresOrderParticipantStore;
 
-  constructor(private readonly pool: Pool) { this.orders = new PostgresOrderStore({ pool }); }
+  constructor(private readonly pool: Pool) { this.orders = new PostgresOrderStore({ pool }); this.participants=new PostgresOrderParticipantStore(pool); }
 
-  async listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string }) {
+  async listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string; guildId?: string }) {
     const keys = cursorKeys(input.cursor, 'orders');
     const rows = await this.pool.query<{ id: string }>(`SELECT id FROM orders
-      WHERE ($1::text IS NULL OR status::text = $1) AND ($2::text IS NULL OR public_id ILIKE '%' || $2 || '%' OR id::text = $2)
+      WHERE ($8::text IS NULL OR guild_id=$8) AND ($1::text IS NULL OR status::text = $1) AND ($2::text IS NULL OR public_id ILIKE '%' || $2 || '%' OR id::text = $2)
       AND ($3::timestamptz IS NULL OR (created_at, id) < ($3::timestamptz, $4::uuid))
       AND ($6::text <> 'L1_SUPPORT' OR EXISTS (
         SELECT 1 FROM staff_tasks task WHERE task.order_id = orders.id AND task.claimed_by_staff_id = $7::uuid
         AND task.status IN ('CLAIMED', 'VERIFIED', 'PENDING_APPROVAL')
       ))
-      ORDER BY created_at DESC, id DESC LIMIT $5`, [input.status ?? null, input.query ?? null, keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1, input.actorLevel, input.actorStaffId]);
+      ORDER BY created_at DESC, id DESC LIMIT $5`, [input.status ?? null, input.query ?? null, keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1, input.actorLevel, input.actorStaffId,input.guildId]);
     const records = await Promise.all(rows.rows.map((row) => this.orders.findById(row.id)));
-    return pageFromRows(records.filter((record): record is OrderRecord => record !== null), input, 'orders', orderCursorKeys);
+    const visible=records.filter((record): record is OrderRecord => record !== null);
+    const withParticipants=await Promise.all(visible.map(async(record)=>({...record,participants:await this.listOrderParticipants(record,input)})));
+    return pageFromRows(withParticipants, input, 'orders', orderCursorKeys);
   }
+
+  private async listOrderParticipants(record:OrderRecord,input:{actorStaffId:string;actorLevel:string}){if(!record.guildId)return[];try{return(await this.participants.list({orderId:record.id,actorStaffId:input.actorStaffId,actorLevel:input.actorLevel as StaffLevel,guildId:record.guildId,cursor:null,limit:100})).items;}catch(error){if((error as {code?:string})?.code==='42P01')return[];throw error;}}
 
   async listUsers(input: PageInput & { query?: string }) {
     const keys = cursorKeys(input.cursor, 'users');
@@ -350,7 +357,7 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
       return handler(request, actor);
     }, mapError
   });
-  read('/api/v1/admin/orders', 'order.read', 'LIST_ADMIN_ORDERS', 'order', (request, actor) => options.store.listOrders({ ...pageQuery(request), status: enumQuery(request, 'status', ['DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION']), query: queryString(request, 'query'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }));
+  read('/api/v1/admin/orders', 'order.read', 'LIST_ADMIN_ORDERS', 'order', (request, actor) => options.store.listOrders({ ...pageQuery(request), status: enumQuery(request, 'status', ['DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION']), query: queryString(request, 'query'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId! }));
   if (options.timelineStore) read('/api/v1/admin/orders/:orderId', 'staff_task.read', 'GET_ADMIN_ORDER', 'order', async (request, actor) => {
     try { return required(await options.timelineStore!.getAdminOrder({ orderId: param(request, 'orderId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, cursor: timelineCursor(request), limit: timelineLimit(request) }), 'Order'); }
     catch (error) { if (error instanceof TransactionTimelineError) throw new AdminDirectoryError('VALIDATION_ERROR', error.message); throw error; }

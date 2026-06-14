@@ -29,6 +29,10 @@ export interface AdminActionRequest {
   body: Record<string, unknown>;
 }
 
+export function buildAddOrderParticipantRequest(orderId:string,fields:{playerId:unknown;serviceCatalogVersionId:unknown;unitCount:unknown;linePriceMinor:unknown;expectedOrderVersion:unknown;reasonCode:unknown}):AdminActionRequest{return{method:'POST',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants`,body:{playerId:requireText(fields.playerId,'playerId'),serviceCatalogVersionId:requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'),unitCount:requirePositiveInteger(fields.unitCount,'unitCount'),linePriceMinor:requirePositiveInteger(fields.linePriceMinor,'linePriceMinor'),expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),reasonCode:requireReasonCode(fields.reasonCode)}};}
+
+export function buildUpdateOrderParticipantRequest(orderId:string,participantId:string,fields:{action:unknown;serviceCatalogVersionId?:unknown;unitCount?:unknown;linePriceMinor?:unknown;expectedOrderVersion:unknown;expectedParticipantVersion:unknown;reasonCode:unknown}):AdminActionRequest{const action=requireEnum(fields.action,['CHANGE_PROJECT','CHANGE_PRICE','REMOVE'],'action');return{method:'PATCH',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants/${encodeURIComponent(requireText(participantId,'participantId'))}`,body:{expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),expectedParticipantVersion:requirePositiveInteger(fields.expectedParticipantVersion,'expectedParticipantVersion'),action,serviceCatalogVersionId:action==='CHANGE_PROJECT'?requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'):null,unitCount:action==='CHANGE_PROJECT'?requirePositiveInteger(fields.unitCount,'unitCount'):null,linePriceMinor:action==='REMOVE'?null:requirePositiveInteger(fields.linePriceMinor,'linePriceMinor'),reasonCode:requireReasonCode(fields.reasonCode)}};}
+
 export interface AdminBusinessDetailState {
   kind: 'LOADING' | 'READY' | 'ERROR' | 'FORBIDDEN';
   page: 'orders' | 'users' | 'players' | 'giftRequests';
@@ -367,7 +371,7 @@ function splitTags(value:string|boolean|undefined):string[]{if(typeof value!=='s
 function splitOptionalDiscordIds(value:string|boolean|undefined):string[]{if(value===undefined||value==='')return[];if(typeof value!=='string')throw new TypeError('Player selection is invalid.');const ids=value.split(',').map(item=>item.trim()).filter(Boolean);
   if(ids.length>3)throw new TypeError('Manual dispatch supports at most three players.');if(new Set(ids).size!==ids.length)throw new TypeError('Player selection contains duplicates.');return ids;}
 
-function requireReasonCode(value: string | boolean | undefined): string {
+function requireReasonCode(value: unknown): string {
   const reasonCode = requireText(value, 'reasonCode');
   if (!/^[A-Z0-9_]{3,100}$/.test(reasonCode)) throw new TypeError('reasonCode must contain 3-100 uppercase letters, numbers, or underscores.');
   return reasonCode;
@@ -382,13 +386,13 @@ function optionalText(value: string | boolean | undefined): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function requireEnum<T extends string>(value: string | boolean | undefined, allowed: readonly T[], field: string): T {
+function requireEnum<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) throw new TypeError(`${field} is invalid.`);
   return value as T;
 }
 
-function requirePositiveInteger(value: string | boolean | undefined, field: string): number {
-  const parsed = typeof value === 'string' ? Number(value) : Number.NaN;
+function requirePositiveInteger(value: unknown, field: string): number {
+  const parsed = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new TypeError(`${field} must be a positive integer.`);
   return parsed;
 }
