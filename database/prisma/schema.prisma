@@ -92,10 +92,12 @@ enum OrderParticipantStatus {
 enum CompensationSource {
   PLAYER_OVERRIDE
   CATALOG_DEFAULT
+  LEGACY_ORDER_SNAPSHOT
 }
 
 enum OrderParticipantEventType {
   ADDED
+  PROJECT_CHANGED
   PRICE_CHANGED
   READY_CONFIRMED
   REMOVED
@@ -1282,7 +1284,7 @@ model OrderParticipant {
   compensationSource         CompensationSource     @map("compensation_source")
   expectedEarningMinor       BigInt                 @map("expected_earning_minor")
   readyAt                    DateTime?              @map("ready_at") @db.Timestamptz(3)
-  addedByStaffId             String                 @map("added_by_staff_id") @db.Uuid
+  addedByStaffId             String?                @map("added_by_staff_id") @db.Uuid
   removedByStaffId           String?                @map("removed_by_staff_id") @db.Uuid
   removedReasonCode          String?                @map("removed_reason_code") @db.VarChar(100)
   removedAt                  DateTime?              @map("removed_at") @db.Timestamptz(3)
@@ -1861,7 +1863,7 @@ model ConsumptionEntry {
 model PlayerEarning {
   id                 String              @id @default(uuid()) @db.Uuid
   orderId            String              @map("order_id") @db.Uuid
-  orderParticipantId String              @unique @map("order_participant_id") @db.Uuid
+  orderParticipantId String?             @unique @map("order_participant_id") @db.Uuid
   playerUserId       String              @map("player_user_id") @db.Uuid
   baseUnits          Int                 @map("base_units")
   unitPayoutMinor    BigInt              @map("unit_payout_minor")
@@ -1876,7 +1878,7 @@ model PlayerEarning {
   updatedAt          DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order       Order                     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  participant OrderParticipant          @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  participant OrderParticipant?         @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   player      User                      @relation("EarningPlayer", fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   confirmedBy StaffAccount?             @relation("EarningConfirmedBy", fields: [confirmedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   adjustments PlayerEarningAdjustment[]

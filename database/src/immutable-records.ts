@@ -1,6 +1,7 @@
 export const IMMUTABLE_RECORD_TABLES = [
   'orders',
   'order_events',
+  'order_participant_events',
   'order_resolutions',
   'external_transactions',
   'refunds',
@@ -28,6 +29,7 @@ const immutableRecordTableSet = new Set<string>(IMMUTABLE_RECORD_TABLES);
 const statusImmutableTableSet = new Set<string>([
   'audit_logs',
   'order_events',
+  'order_participant_events',
   'fund_reservation_events',
   'commission_adjustments',
   'player_earning_adjustments',
