@@ -42,18 +42,27 @@ describe('M10-US-01 multi-player order contract', () => {
     expect(spec).toContain('订单多陪玩与多接收人礼物补充合同');
     expect(spec).toContain('不设业务人数上限');
     expect(spec).toContain('每位陪玩独立绑定一个服务目录版本');
+    expect(spec).toContain('客户草稿中的“想找什么”使用订单需求项表达');
+    expect(spec).not.toContain('每个订单一名陪玩');
+    expect(openapi).toContain('operationId: listOrderRequirements');
+    expect(openapi).toContain('operationId: addOrderRequirement');
+    expect(openapi).toContain('operationId: updateOrderRequirement');
+    expect(openapi).toMatch(/OrderRequirement:[\s\S]*?requestedPlayerCount:[\s\S]*?estimatedLinePriceMinor:/u);
     expect(openapi).toContain('operationId: addAdminOrderParticipant');
     expect(openapi).toContain('operationId: updateAdminOrderParticipant');
     expect(openapi).toMatch(/OrderParticipant:[\s\S]*?serviceCatalogVersionId:[\s\S]*?gameDisplayName:[\s\S]*?serviceDisplayName:/u);
     expect(openapi).toContain('participantIds:');
     expect(openapi).not.toContain('maxItems: 4');
     expect(prisma).toContain('model OrderParticipant');
+    expect(prisma).toContain('model OrderRequirement');
+    expect(prisma).toContain('model OrderRequirementEvent');
+    expect(prisma).toContain('orderRequirementId');
     expect(prisma).toContain('serviceCatalogVersionId');
     expect(prisma).toContain('serviceDisplayNameSnapshot');
     expect(prisma).toContain('linePriceMinor');
     expect(backlog).toContain('M10-US-01');
     expect(matrixBuilder).toContain('/^M[0-9]+-US-[0-9]{2}$/u');
-    for (const id of ['AT-MULTI-001', 'AT-MULTI-002', 'AT-MULTI-003', 'AT-MULTI-004', 'AT-MULTI-005']) {
+    for (const id of ['AT-MULTI-001', 'AT-MULTI-002', 'AT-MULTI-003', 'AT-MULTI-004', 'AT-MULTI-005', 'AT-MULTI-006', 'AT-MULTI-007']) {
       expect(acceptance).toContain(id);
     }
   });

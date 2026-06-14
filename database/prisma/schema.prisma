@@ -103,6 +103,18 @@ enum OrderParticipantEventType {
   REMOVED
 }
 
+enum OrderRequirementStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum OrderRequirementEventType {
+  ADDED
+  PROJECT_CHANGED
+  QUANTITY_CHANGED
+  REMOVED
+}
+
 enum StaffLevel {
   L1_SUPPORT
   L2_SUPERVISOR
@@ -1160,6 +1172,7 @@ model ServiceCatalogVersion {
   requirements    ServiceVersionSkillRequirement[]
   orders          Order[]
   orderParticipants OrderParticipant[]
+  orderRequirements OrderRequirement[]
 
   @@unique([serviceOfferingId, version])
   @@index([status, serviceOfferingId])
@@ -1249,6 +1262,7 @@ model Order {
   consumptionEntries  ConsumptionEntry[]
   playerEarnings      PlayerEarning[]
   participants        OrderParticipant[]
+  requirements        OrderRequirement[]
   riskEvents          RiskEvent[]
   outboxEvents        OutboxEvent[]
   channelMessageEvents OrderChannelMessageEvent[]
@@ -1266,6 +1280,7 @@ model Order {
 model OrderParticipant {
   id                         String                 @id @default(uuid()) @db.Uuid
   orderId                    String                 @map("order_id") @db.Uuid
+  orderRequirementId         String?                @map("order_requirement_id") @db.Uuid
   playerId                   String                 @map("player_id") @db.Uuid
   serviceCatalogVersionId    String                 @map("service_catalog_version_id") @db.Uuid
   status                     OrderParticipantStatus @default(ACTIVE)
@@ -1294,6 +1309,7 @@ model OrderParticipant {
   updatedAt                  DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order    Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requirement OrderRequirement?        @relation(fields: [orderRequirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   player   User                        @relation("OrderParticipantPlayer", fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   serviceCatalogVersion ServiceCatalogVersion       @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   events   OrderParticipantEvent[]
@@ -1302,7 +1318,59 @@ model OrderParticipant {
   @@index([orderId, status, createdAt])
   @@index([playerId, status, createdAt])
   @@index([serviceCatalogVersionId])
+  @@index([orderRequirementId])
   @@map("order_participants")
+}
+
+/// Customer-authored draft demand. It never identifies the eventual player and is removed by status/event only.
+model OrderRequirement {
+  id                         String                 @id @default(uuid()) @db.Uuid
+  orderId                    String                 @map("order_id") @db.Uuid
+  serviceCatalogVersionId    String                 @map("service_catalog_version_id") @db.Uuid
+  status                     OrderRequirementStatus @default(ACTIVE)
+  rowVersion                 Int                    @default(1) @map("row_version")
+  gameCodeSnapshot           String                 @map("game_code_snapshot") @db.VarChar(80)
+  gameDisplayNameSnapshot    String                 @map("game_display_name_snapshot") @db.VarChar(100)
+  serviceCodeSnapshot        String                 @map("service_code_snapshot") @db.VarChar(80)
+  serviceDisplayNameSnapshot String                 @map("service_display_name_snapshot") @db.VarChar(100)
+  regionCodeSnapshot         String?                @map("region_code_snapshot") @db.VarChar(80)
+  regionDisplayNameSnapshot  String?                @map("region_display_name_snapshot") @db.VarChar(100)
+  billingUnitMinutesSnapshot Int                    @map("billing_unit_minutes_snapshot")
+  unitCount                  Int                    @map("unit_count")
+  requestedPlayerCount       Int                    @map("requested_player_count")
+  customerUnitPriceMinorSnapshot BigInt             @map("customer_unit_price_minor_snapshot")
+  estimatedLinePriceMinor    BigInt                 @map("estimated_line_price_minor")
+  removedAt                  DateTime?              @map("removed_at") @db.Timestamptz(3)
+  createdAt                  DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order                 Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceCatalogVersion ServiceCatalogVersion       @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  participants          OrderParticipant[]
+  events                OrderRequirementEvent[]
+
+  @@index([orderId, status, createdAt])
+  @@index([serviceCatalogVersionId])
+  @@map("order_requirements")
+}
+
+model OrderRequirementEvent {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  orderRequirementId String                    @map("order_requirement_id") @db.Uuid
+  sequence           Int
+  eventType          OrderRequirementEventType @map("event_type")
+  requirementVersion Int                       @map("requirement_version")
+  orderVersion       Int                       @map("order_version")
+  actorUserId        String?                   @map("actor_user_id") @db.Uuid
+  snapshot           Json                      @db.JsonB
+  idempotencyKey     String                    @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  requirement OrderRequirement @relation(fields: [orderRequirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([orderRequirementId, sequence])
+  @@index([orderRequirementId, createdAt])
+  @@map("order_requirement_events")
 }
 
 /// Append-only record of participant membership, readiness, and price changes.
