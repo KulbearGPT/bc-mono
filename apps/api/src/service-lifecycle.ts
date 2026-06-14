@@ -32,6 +32,18 @@ export interface ServiceLifecycleOrderRecord {
   automationState?: 'RUNNING' | 'PAUSED';
   automationScope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
   updatedAt: string;
+  participants?: ServiceLifecycleParticipant[];
+}
+export interface ServiceLifecycleParticipant {
+  id: string;
+  playerId: string;
+  displayName: string;
+  readyAt: string | null;
+  unitCount: number;
+  expectedEarningMinor: number;
+  customerUnitPriceMinor: number;
+  linePriceMinor: number;
+  version: number;
 }
 
 export interface ServiceLifecycleDiscordAccount {
@@ -50,6 +62,8 @@ export interface OrderReadinessResult {
     customer: ReadinessValue;
     player: ReadinessValue;
     bothReady: boolean;
+    participants: Array<{ participantId: string; playerId: string; displayName: string; readiness: ReadinessValue }>;
+    allActivePlayersReady: boolean;
     readyDeadlineAt: string | null;
     startedAt: string | null;
     staffTaskId: string | null;
@@ -177,7 +191,13 @@ export class ServiceLifecycleError extends Error {
 export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
   readonly orders: ServiceLifecycleOrderRecord[];
   readonly consumptionEntries: Array<{ orderId: string; amountMinor: number; currency: string }> = [];
-  readonly playerEarnings: Array<{ orderId: string; playerUserId: string; amountMinor: number; currency: string }> = [];
+  readonly playerEarnings: Array<{
+    orderId: string;
+    orderParticipantId?: string;
+    playerUserId: string;
+    amountMinor: number;
+    currency: string;
+  }> = [];
   readonly staffTasks: ServiceLifecycleStaffTask[] = [];
   readonly commissions: Array<{
     orderId: string;
@@ -232,14 +252,27 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     }
     const actorRole = requireParticipantRole(order, input.actorUserId);
     const readyAt = input.readiness === 'READY' ? input.now.toISOString() : null;
+    const participant = order.participants?.find((item) => item.playerId === input.actorUserId);
+    if (order.participants?.length && !participant) {
+      throw new ServiceLifecycleError('PERMISSION_DENIED', 'Actor is not an active player on this order.');
+    }
+    const participants = order.participants?.map((item) => item.id === participant?.id
+      ? { ...item, readyAt, version: item.version + 1 }
+      : item);
+    const allPlayersReady = participants?.every((item) => Boolean(item.readyAt)) ?? false;
     const updated: ServiceLifecycleOrderRecord = {
       ...order,
       version: order.version + 1,
-      customerReadyAt: actorRole === 'CUSTOMER' ? readyAt : order.customerReadyAt,
-      playerReadyAt: actorRole === 'PLAYER' ? readyAt : order.playerReadyAt,
+      customerReadyAt: participants?.length
+        ? (allPlayersReady ? order.customerReadyAt ?? input.now.toISOString() : order.customerReadyAt)
+        : actorRole === 'CUSTOMER' ? readyAt : order.customerReadyAt,
+      playerReadyAt: participants?.length
+        ? (allPlayersReady ? input.now.toISOString() : null)
+        : actorRole === 'PLAYER' ? readyAt : order.playerReadyAt,
+      participants,
       updatedAt: input.now.toISOString()
     };
-    if (updated.customerReadyAt && updated.playerReadyAt) {
+    if (participants?.length ? allPlayersReady : updated.customerReadyAt && updated.playerReadyAt) {
       updated.status = 'IN_SERVICE';
       updated.serviceStartedAt = input.now.toISOString();
     }
@@ -312,6 +345,9 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     if (actorRole !== 'CUSTOMER') {
       throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
     }
+    if (order.participants?.some((participant) => !participant.readyAt)) {
+      throw new ServiceLifecycleError('CONFLICT', 'Every active player must be ready before completion can be captured.');
+    }
     const updated: ServiceLifecycleOrderRecord = {
       ...order,
       status: 'COMPLETED',
@@ -320,12 +356,24 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     };
     this.orders[index] = updated;
     this.consumptionEntries.push({ orderId: order.id, amountMinor: order.amountMinor, currency: order.currency });
-    this.playerEarnings.push({
-      orderId: order.id,
-      playerUserId: order.playerId,
-      amountMinor: order.playerEarningMinor,
-      currency: order.currency
-    });
+    if (order.participants?.length) {
+      for (const participant of order.participants) {
+        this.playerEarnings.push({
+          orderId: order.id,
+          orderParticipantId: participant.id,
+          playerUserId: participant.playerId,
+          amountMinor: participant.expectedEarningMinor,
+          currency: order.currency
+        });
+      }
+    } else {
+      this.playerEarnings.push({
+        orderId: order.id,
+        playerUserId: order.playerId,
+        amountMinor: order.playerEarningMinor,
+        currency: order.currency
+      });
+    }
     for (const attribution of (input.referralsEnabled !== false ? this.referralAttributions : []).filter((candidate) => {
       return candidate.referredUserId === order.customerId
         && candidate.currency === order.currency
@@ -464,7 +512,12 @@ LIMIT 1
       `,
       [orderId]
     );
-    return result.rows[0] ? mapOrderRow(result.rows[0]) : null;
+    if (!result.rows[0]) {
+      return null;
+    }
+    const order = mapOrderRow(result.rows[0]);
+    order.participants = await loadActiveLifecycleParticipants(this.client, orderId);
+    return order;
   }
 
   async resolveDiscordUser(input: { guildId: string; discordUserId: string }): Promise<string | null> {
@@ -503,6 +556,80 @@ LIMIT 1
       }
       if (current.version !== input.expectedVersion) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
+      }
+      const participants = await loadActiveLifecycleParticipants(transactionClient, input.orderId, true);
+      if (participants.length > 0) {
+        const participant = participants.find((candidate) => candidate.playerId === input.actorUserId);
+        if (!participant) {
+          throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only an active player on this order can confirm readiness.');
+        }
+        const readyAt = readinessTimestamp(input.readiness, input.now);
+        const updatedParticipant = await transactionClient.query<{ row_version: number }>(
+          `UPDATE order_participants
+           SET ready_at=$3,row_version=row_version+1,updated_at=$4
+           WHERE id=$1 AND row_version=$2 AND status='ACTIVE'
+           RETURNING row_version`,
+          [participant.id, participant.version, readyAt, input.now.toISOString()]
+        );
+        if (!updatedParticipant.rows[0]) {
+          throw new ServiceLifecycleError('CONFLICT', 'Order participant version is stale.');
+        }
+        participant.readyAt = readyAt;
+        participant.version = updatedParticipant.rows[0].row_version;
+        await insertOrderParticipantReadinessEvent(transactionClient, {
+          orderId: input.orderId,
+          orderParticipantId: participant.id,
+          participantVersion: participant.version,
+          orderVersion: current.version + 1,
+          actorUserId: input.actorUserId,
+          readiness: input.readiness,
+          now: input.now
+        });
+        const shouldStart = participants.every((candidate) => Boolean(candidate.readyAt));
+        const sequence = await nextOrderEventSequence(transactionClient, input.orderId);
+        await insertOrderEvent(transactionClient, {
+          orderId: input.orderId,
+          sequence,
+          eventType: 'PLAYER_READY_CONFIRMED',
+          fromStatus: current.status,
+          toStatus: current.status,
+          actorUserId: input.actorUserId,
+          now: input.now,
+          payload: { readiness: input.readiness, actorRole: 'PLAYER', orderParticipantId: participant.id }
+        });
+        if (shouldStart) {
+          await insertOrderEvent(transactionClient, {
+            orderId: input.orderId,
+            sequence: sequence + 1,
+            eventType: 'SERVICE_STARTED',
+            fromStatus: 'ACCEPTED',
+            toStatus: 'IN_SERVICE',
+            actorUserId: input.actorUserId,
+            now: input.now,
+            payload: { activeParticipantIds: participants.map((candidate) => candidate.id) }
+          });
+        }
+        const updated = await transactionClient.query<ServiceLifecycleOrderRow>(
+          `UPDATE orders
+           SET status=CASE WHEN $4 THEN 'IN_SERVICE'::"OrderStatus" ELSE status END,
+               row_version=row_version+1,
+               customer_ready_at=CASE WHEN $4 THEN COALESCE(customer_ready_at,$3) ELSE customer_ready_at END,
+               player_ready_at=CASE WHEN $4 THEN $3 ELSE NULL END,
+               service_started_at=CASE WHEN $4 THEN COALESCE(service_started_at,$3) ELSE service_started_at END,
+               updated_at=$3
+           WHERE id=$1 AND status='ACCEPTED' AND row_version=$2
+           RETURNING *`,
+          [input.orderId, input.expectedVersion, input.now.toISOString(), shouldStart]
+        );
+        const row = updated.rows[0];
+        if (!row) {
+          throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
+        }
+        await insertLifecyclePanelSync(transactionClient, {
+          orderId: input.orderId, version: row.row_version, kind: 'ORDER_READINESS_CHANNEL_SYNC', now: input.now
+        });
+        await transactionClient.query('COMMIT');
+        return toReadinessResult({ ...mapOrderRow(row), participants }, 'PLAYER', participants);
       }
       const actorRole = requireParticipantRole(current, input.actorUserId);
       const nextCustomerReadyAt = actorRole === 'CUSTOMER' ? readinessTimestamp(input.readiness, input.now) : current.customerReadyAt;
@@ -599,6 +726,7 @@ RETURNING *
       if (current.version !== input.expectedVersion) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      current.participants = await loadActiveLifecycleParticipants(transactionClient, input.orderId, true);
       const actorRole = requireParticipantRole(current, input.actorUserId);
       if (actorRole !== 'PLAYER') {
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the assigned player can request completion.');
@@ -685,9 +813,13 @@ RETURNING *
       if (current.version !== input.expectedVersion) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
+      current.participants = await loadActiveLifecycleParticipants(transactionClient, input.orderId, true);
       const actorRole = requireParticipantRole(current, input.actorUserId);
       if (actorRole !== 'CUSTOMER') {
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
+      }
+      if (current.participants.some((participant) => !participant.readyAt)) {
+        throw new ServiceLifecycleError('CONFLICT', 'Every active player must be ready before completion can be captured.');
       }
       const reservation = await requireActiveOrderReservation(transactionClient, input.orderId);
       await insertOrderWalletCapture(transactionClient, { reservation, idempotencyKey: `${input.idempotencyKey}:wallet`, now: input.now });
@@ -710,10 +842,13 @@ RETURNING *
         idempotencyKey: `${input.idempotencyKey}:consumption`,
         now: input.now
       });
-      await insertPlayerEarning(transactionClient, {
-        order: current,
-        now: input.now
-      });
+      if (current.participants.length > 0) {
+        for (const participant of current.participants) {
+          await insertParticipantPlayerEarning(transactionClient, { order: current, participant, now: input.now });
+        }
+      } else {
+        await insertPlayerEarning(transactionClient, { order: current, now: input.now });
+      }
       if (input.referralsEnabled !== false) {
         await insertEligibleReferralCommission(transactionClient, {
           order: current,
@@ -1141,13 +1276,13 @@ function requireParticipantRole(order: ServiceLifecycleOrderRecord, actorUserId:
   if (actorUserId === order.customerId) {
     return 'CUSTOMER';
   }
-  if (actorUserId === order.playerId) {
+  if (actorUserId === order.playerId || order.participants?.some((participant)=>participant.playerId===actorUserId)) {
     return 'PLAYER';
   }
   throw new ServiceLifecycleError('PERMISSION_DENIED', 'Actor is not a participant of this order.');
 }
 
-function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderParticipantRole): OrderReadinessResult {
+function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderParticipantRole,participants:ServiceLifecycleParticipant[]=order.participants??[]): OrderReadinessResult {
   return {
     orderId: order.id,
     publicId: order.publicId,
@@ -1158,6 +1293,8 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
       customer: order.customerReadyAt ? 'READY' : 'NOT_READY',
       player: order.playerReadyAt ? 'READY' : 'NOT_READY',
       bothReady: Boolean(order.customerReadyAt && order.playerReadyAt),
+      participants:participants.map((participant)=>({participantId:participant.id,playerId:participant.playerId,displayName:participant.displayName,readiness:participant.readyAt?'READY':'NOT_READY'})),
+      allActivePlayersReady:participants.length>0?participants.every((participant)=>Boolean(participant.readyAt)):Boolean(order.customerReadyAt&&order.playerReadyAt),
       readyDeadlineAt: order.readinessDueAt,
       startedAt: order.serviceStartedAt,
       staffTaskId: null
@@ -1268,6 +1405,78 @@ FOR UPDATE
     [orderId]
   );
   return result.rows[0] ? mapOrderRow(result.rows[0]) : null;
+}
+
+interface ServiceLifecycleParticipantRow {
+  id: string;
+  player_id: string;
+  player_display_name_snapshot: string;
+  ready_at: Date | string | null;
+  unit_count: number;
+  expected_earning_minor: number | string | bigint;
+  customer_unit_price_minor_snapshot: number | string | bigint;
+  line_price_minor: number | string | bigint;
+  row_version: number;
+}
+
+async function loadActiveLifecycleParticipants(
+  client: ServiceLifecycleQueryClient,
+  orderId: string,
+  lock = false
+): Promise<ServiceLifecycleParticipant[]> {
+  const result = await client.query<ServiceLifecycleParticipantRow>(
+    `SELECT id,player_id,player_display_name_snapshot,ready_at,unit_count,
+            expected_earning_minor,customer_unit_price_minor_snapshot,line_price_minor,row_version
+     FROM order_participants
+     WHERE order_id=$1 AND status='ACTIVE'
+     ORDER BY created_at,id
+     ${lock ? 'FOR UPDATE' : ''}`,
+    [orderId]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    playerId: row.player_id,
+    displayName: row.player_display_name_snapshot,
+    readyAt: toIsoOrNull(row.ready_at),
+    unitCount: row.unit_count,
+    expectedEarningMinor: Number(row.expected_earning_minor),
+    customerUnitPriceMinor: Number(row.customer_unit_price_minor_snapshot),
+    linePriceMinor: Number(row.line_price_minor),
+    version: row.row_version
+  }));
+}
+
+async function insertOrderParticipantReadinessEvent(
+  client: ServiceLifecycleQueryClient,
+  input: {
+    orderId: string;
+    orderParticipantId: string;
+    participantVersion: number;
+    orderVersion: number;
+    actorUserId: string;
+    readiness: ReadinessValue;
+    now: Date;
+  }
+): Promise<void> {
+  await client.query(
+    `INSERT INTO order_participant_events (
+       id,order_participant_id,sequence,event_type,participant_version,order_version,
+       actor_staff_id,actor_user_id,reason_code,snapshot,idempotency_key,created_at
+     ) VALUES (
+       gen_random_uuid(),$1,
+       (SELECT COALESCE(MAX(sequence),0)+1 FROM order_participant_events WHERE order_participant_id=$1),
+       'READY_CONFIRMED',$2,$3,NULL,$4,NULL,$5::jsonb,$6,$7
+     )`,
+    [
+      input.orderParticipantId,
+      input.participantVersion,
+      input.orderVersion,
+      input.actorUserId,
+      JSON.stringify({ readiness: input.readiness, orderId: input.orderId }),
+      `participant-readiness:${input.orderParticipantId}:v${input.participantVersion}`,
+      input.now.toISOString()
+    ]
+  );
 }
 
 function readinessTimestamp(readiness: ReadinessValue, now: Date): string | null {
@@ -1506,6 +1715,30 @@ VALUES (
       input.order.unitCount ?? 1,
       input.order.playerUnitPayoutMinor ?? input.order.playerEarningMinor,
       input.order.playerEarningMinor,
+      input.order.currency,
+      input.now.toISOString()
+    ]
+  );
+}
+
+async function insertParticipantPlayerEarning(
+  client: ServiceLifecycleQueryClient,
+  input: { order: ServiceLifecycleOrderRecord; participant: ServiceLifecycleParticipant; now: Date }
+): Promise<void> {
+  await client.query(
+    `INSERT INTO player_earnings (
+       id,order_id,order_participant_id,player_user_id,base_units,unit_payout_minor,amount_minor,
+       currency,status,row_version,confirmed_by_staff_id,confirmed_at,paid_at,created_at,updated_at
+     ) VALUES (
+       gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,'PENDING',1,NULL,NULL,NULL,$8,$8
+     )`,
+    [
+      input.order.id,
+      input.participant.id,
+      input.participant.playerId,
+      input.participant.unitCount,
+      Math.floor(input.participant.expectedEarningMinor / input.participant.unitCount),
+      input.participant.expectedEarningMinor,
       input.order.currency,
       input.now.toISOString()
     ]

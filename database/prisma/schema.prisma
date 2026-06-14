@@ -277,6 +277,8 @@ enum FundReservationEventType {
   DISPUTE_RESOLVED
   EXPIRED
   FAILED
+  INCREASED
+  DECREASED
 }
 
 enum CancellationPreviewStatus {

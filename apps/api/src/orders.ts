@@ -55,7 +55,7 @@ export type OrderEventType =
   | 'EXCEPTION_RECOVERED'
   | 'RESOLVED'
   | 'PANEL_SYNC_REQUESTED';
-export type FundReservationEventType = 'CREATED' | 'ACTIVATED' | 'CAPTURED' | 'RELEASED' | 'DISPUTED' | 'DISPUTE_RESOLVED' | 'EXPIRED' | 'FAILED';
+export type FundReservationEventType = 'CREATED' | 'ACTIVATED' | 'CAPTURED' | 'RELEASED' | 'DISPUTED' | 'DISPUTE_RESOLVED' | 'EXPIRED' | 'FAILED' | 'INCREASED' | 'DECREASED';
 
 export interface ChannelSpec {
   channelId: string;
