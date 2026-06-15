@@ -9,6 +9,11 @@ import { buildApiServer } from '@blackcat/api/server';
 import { PostgresOrderParticipantStore } from '@blackcat/api/order-participants';
 import { PostgresOrderRequirementStore } from '@blackcat/api/order-requirements';
 import { PostgresAuditSink, type StaffDirectory } from '@blackcat/api/security';
+import { PostgresAccountStore } from '@blackcat/api/accounts';
+import { PostgresServiceCatalogStore } from '@blackcat/api/catalog';
+import { PostgresOrderStore } from '@blackcat/api/orders';
+import { PostgresWalletStore } from '@blackcat/api/wallet';
+import { PostgresDispatchPlayerPool,PostgresDispatchStore,acceptOrder,dispatchOrder } from '@blackcat/api/dispatch';
 
 const execFile = promisify(execFileCallback);
 let root = ''; let data = ''; let port = 0; let pool: Pool;
@@ -26,6 +31,8 @@ const discordId = '222222222222222222';
 const requirementOrderId='00000000-0000-0000-0000-000000010021';
 const requirementCustomerId='00000000-0000-0000-0000-000000010022';
 const requirementDiscordId='333333333333333333';
+const secondPlayerId='00000000-0000-0000-0000-000000010030';
+const thirdPlayerId='00000000-0000-0000-0000-000000010031';
 const env = { NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'token' };
 
 describe('M10-US-03 PostgreSQL participant transaction', () => {
@@ -76,14 +83,47 @@ describe('M10-US-03 PostgreSQL participant transaction', () => {
     const facts=await pool.query(`SELECT orders.amount_minor::text,orders.row_version,requirement.requested_player_count,requirement.estimated_line_price_minor::text,event.event_type::text,audit.permission_code FROM orders JOIN order_requirements requirement ON requirement.order_id=orders.id JOIN order_requirement_events event ON event.order_requirement_id=requirement.id JOIN audit_logs audit ON audit.request_id=$2 WHERE orders.id=$1`,[requirementOrderId,added.json().requestId]);expect(facts.rows[0]).toEqual({amount_minor:'600',row_version:2,requested_player_count:3,estimated_line_price_minor:'600',event_type:'ADDED',permission_code:'order.update'});
     await server.close();
   });
+
+  test('submits requirement pricing and atomically fills only the selected dispatch slot',async()=>{
+    const orderStore=new PostgresOrderStore({pool});const accountStore=new PostgresAccountStore({pool});const catalogStore=new PostgresServiceCatalogStore({pool});const wallet=new PostgresWalletStore({pool,businessEnvironment:'SANDBOX'});
+    const server=buildApiServer({env,security:{auditSink:new PostgresAuditSink({client:pool})},order:{orderStore,accountStore,catalogStore,walletFunding:wallet}});
+    const submitted=await server.inject({method:'POST',url:`/api/v1/orders/${requirementOrderId}/submit`,headers:{authorization:'Bearer token','x-client-source':'DISCORD_BOT','x-actor-discord-user-id':requirementDiscordId,'x-actor-guild-id':guildId,'x-discord-interaction-id':'555555555555555555','idempotency-key':'m10:requirement:submit:0002'},payload:{expectedVersion:2}});expect(submitted.statusCode,submitted.body).toBe(200);expect(submitted.json().data).toMatchObject({status:'PENDING_DISPATCH',version:3,reservation:{amountMinor:600}});
+    const dispatchStore=new PostgresDispatchStore({pool});const playerPool=new PostgresDispatchPlayerPool({pool});const dispatched=await dispatchOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:3,trigger:'ORDER_SUBMITTED',dispatchChannelId:'777777777777777777',idempotencyKey:'m10:slot:dispatch:0003',now:new Date('2026-08-04T12:04:00Z')});
+    const requirement=(await orderStore.getNextOpenRequirement(requirementOrderId))!;expect(requirement.requestedPlayerCount).toBe(3);
+    const accepted=await acceptOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:3,dispatchAttemptId:dispatched.dispatchAttemptId,orderRequirementId:requirement.id,actor:{guildId,discordUserId:'444444444444444444'},idempotencyKey:'m10:slot:accept:0004',now:new Date('2026-08-04T12:04:10Z')});expect(accepted.status).toBe('PENDING_DISPATCH');
+    const facts=await pool.query(`SELECT orders.status::text,orders.row_version,participant.order_requirement_id,participant.player_id,attempt.order_requirement_id attempt_requirement_id FROM orders JOIN order_participants participant ON participant.order_id=orders.id JOIN dispatch_attempts attempt ON attempt.id=$2 WHERE orders.id=$1`,[requirementOrderId,dispatched.dispatchAttemptId]);expect(facts.rows[0]).toMatchObject({status:'PENDING_DISPATCH',row_version:4,order_requirement_id:requirement.id,player_id:playerId,attempt_requirement_id:requirement.id});
+
+    const secondDispatch=await dispatchOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:4,trigger:'ORDER_SUBMITTED',dispatchChannelId:'777777777777777777',idempotencyKey:'m10:slot:dispatch:0005',now:new Date('2026-08-04T12:05:00Z')});
+    const race=await Promise.allSettled([
+      acceptOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:4,dispatchAttemptId:secondDispatch.dispatchAttemptId,actor:{guildId,discordUserId:'555555555555555555'},idempotencyKey:'m10:slot:race:a',now:new Date('2026-08-04T12:05:10Z')}),
+      acceptOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:4,dispatchAttemptId:secondDispatch.dispatchAttemptId,actor:{guildId,discordUserId:'666666666666666666'},idempotencyKey:'m10:slot:race:b',now:new Date('2026-08-04T12:05:10Z')})
+    ]);
+    expect(race.filter((result)=>result.status==='fulfilled')).toHaveLength(1);
+    expect(race.filter((result)=>result.status==='rejected')).toHaveLength(1);
+    expect((race.find((result)=>result.status==='fulfilled') as PromiseFulfilledResult<{status:string}>).value.status).toBe('PENDING_DISPATCH');
+
+    const thirdDispatch=await dispatchOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:5,trigger:'ORDER_SUBMITTED',dispatchChannelId:'777777777777777777',idempotencyKey:'m10:slot:dispatch:0006',now:new Date('2026-08-04T12:06:00Z')});
+    const remainingDiscordId=race[0]?.status==='fulfilled'?'666666666666666666':'555555555555555555';
+    const finalAccepted=await acceptOrder({orderStore,dispatchStore,playerPool,orderId:requirementOrderId,expectedVersion:5,dispatchAttemptId:thirdDispatch.dispatchAttemptId,actor:{guildId,discordUserId:remainingDiscordId},idempotencyKey:'m10:slot:accept:0007',now:new Date('2026-08-04T12:06:10Z')});
+    expect(finalAccepted.status).toBe('ACCEPTED');
+    const completed=await pool.query(`SELECT orders.status::text,orders.row_version,COUNT(participant.id)::int participant_count,COUNT(DISTINCT participant.order_requirement_id)::int requirement_count FROM orders JOIN order_participants participant ON participant.order_id=orders.id AND participant.status='ACTIVE' WHERE orders.id=$1 GROUP BY orders.id`,[requirementOrderId]);
+    expect(completed.rows[0]).toEqual({status:'ACCEPTED',row_version:6,participant_count:3,requirement_count:1});
+    await server.close();
+  });
 });
 
 async function seed(){await pool.query(`
   INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES
-    ('${staffUserId}','主管','ACTIVE',1,now(),now()),('${playerId}','奶糖','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010006','老板','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010010','另一位老板','ACTIVE',1,now(),now()),('${fundedCustomerId}','已充值老板','ACTIVE',1,now(),now()),('${requirementCustomerId}','多项目老板','ACTIVE',1,now(),now());
+    ('${staffUserId}','主管','ACTIVE',1,now(),now()),('${playerId}','奶糖','ACTIVE',1,now(),now()),('${secondPlayerId}','团子','ACTIVE',1,now(),now()),('${thirdPlayerId}','芝麻','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010006','老板','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010010','另一位老板','ACTIVE',1,now(),now()),('${fundedCustomerId}','已充值老板','ACTIVE',1,now(),now()),('${requirementCustomerId}','多项目老板','ACTIVE',1,now(),now());
   INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010023','${requirementCustomerId}','${guildId}','${requirementDiscordId}',now(),now());
+  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010024','${playerId}','${guildId}','444444444444444444',now(),now());
+  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010032','${secondPlayerId}','${guildId}','555555555555555555',now(),now()),('00000000-0000-0000-0000-000000010033','${thirdPlayerId}','${guildId}','666666666666666666',now(),now());
   INSERT INTO staff_accounts(id,user_id,level,status,role_source,permissions_version,created_at,updated_at) VALUES('${staffId}','${staffUserId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
   INSERT INTO player_profiles(id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010007','${playerId}','ACTIVE',1,'AVAILABLE','ONLINE',now(),now());
+  INSERT INTO player_profiles(id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010034','${secondPlayerId}','ACTIVE',1,'AVAILABLE','ONLINE',now(),now()),('00000000-0000-0000-0000-000000010035','${thirdPlayerId}','ACTIVE',1,'AVAILABLE','ONLINE',now(),now());
+  INSERT INTO skill_tags(id,type,code,display_name,enabled,row_version,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010025','GAME','VALORANT','瓦洛兰特',true,1,now(),now()),('00000000-0000-0000-0000-000000010026','SERVICE','TECH','技术陪玩',true,1,now(),now());
+  INSERT INTO player_skills(player_profile_id,skill_tag_id,created_at) VALUES('00000000-0000-0000-0000-000000010007','00000000-0000-0000-0000-000000010025',now()),('00000000-0000-0000-0000-000000010007','00000000-0000-0000-0000-000000010026',now());
+  INSERT INTO player_skills(player_profile_id,skill_tag_id,created_at) VALUES('00000000-0000-0000-0000-000000010034','00000000-0000-0000-0000-000000010025',now()),('00000000-0000-0000-0000-000000010034','00000000-0000-0000-0000-000000010026',now()),('00000000-0000-0000-0000-000000010035','00000000-0000-0000-0000-000000010025',now()),('00000000-0000-0000-0000-000000010035','00000000-0000-0000-0000-000000010026',now());
   INSERT INTO service_offerings(id,code,game_code,game_name,service_code,service_name,region_code,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010008','VAL-TECH-NA','VALORANT','瓦洛兰特','TECH','技术陪玩','NA',now(),now());
   INSERT INTO service_catalog_versions(id,service_offering_id,version,status,billing_unit_minutes,minimum_units,customer_unit_price_minor,player_unit_payout_minor,default_player_payout_bps,currency,created_by_staff_id,created_at) VALUES('${catalogId}','00000000-0000-0000-0000-000000010008',1,'ACTIVE',60,1,100,60,6000,'CAT','${staffId}',now());
   INSERT INTO orders(id,public_id,customer_id,active_customer_slot_id,status,row_version,amount_minor,expected_player_earning_minor,currency,guild_id,channel_id,panel_message_id,created_at,updated_at) VALUES
@@ -92,7 +132,9 @@ async function seed(){await pool.query(`
     ('${fundedOrderId}','P-M10-FUNDED','${fundedCustomerId}','${fundedCustomerId}','PENDING_DISPATCH',1,100,60,'CAT','${guildId}','111111111111111113','222222222222222225',now(),now()),
     ('${requirementOrderId}','P-M10-REQ','${requirementCustomerId}','${requirementCustomerId}','DRAFT',1,0,0,'CAT','${guildId}','111111111111111114','222222222222222226',now(),now());
   INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010013','${fundedCustomerId}','CAT','ACTIVE',1,now(),now());
+  INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010027','${requirementCustomerId}','CAT','ACTIVE',1,now(),now());
   INSERT INTO wallet_entries(id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at) VALUES('00000000-0000-0000-0000-000000010014','00000000-0000-0000-0000-000000010013','TOP_UP_CREDIT','CREDIT',1000,'CAT','TOP_UP','00000000-0000-0000-0000-000000010015','seed:wallet:credit',now(),now());
+  INSERT INTO wallet_entries(id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at) VALUES('00000000-0000-0000-0000-000000010028','00000000-0000-0000-0000-000000010027','TOP_UP_CREDIT','CREDIT',1000,'CAT','TOP_UP','00000000-0000-0000-0000-000000010029','seed:requirement:wallet',now(),now());
   INSERT INTO fund_reservations(id,user_id,source_type,order_id,mode,amount_minor,currency,status,row_version,idempotency_key,expires_at,activated_at,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010016','${fundedCustomerId}','ORDER','${fundedOrderId}','LOCAL_RESERVATION',100,'CAT','ACTIVE',1,'seed:reservation',now()+interval '30 minutes',now(),now(),now());
   INSERT INTO fund_reservation_events(id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_source,created_at) VALUES('00000000-0000-0000-0000-000000010017','00000000-0000-0000-0000-000000010016',1,'CREATED',NULL,'ACTIVE',100,1,'seed:reservation:event','SYSTEM_JOB',now());
 `);}

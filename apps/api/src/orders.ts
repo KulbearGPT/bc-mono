@@ -371,6 +371,8 @@ export interface OrderStore {
   findActiveReservationByOrder?(orderId: string): Promise<FundReservationRecord | null>;
   getMatchingProgress?(orderId: string): Promise<OrderMatchingProgress | null>;
   getActiveRequirementEstimate?(orderId: string): Promise<{ count: number; amountMinor: number }>;
+  getNextOpenRequirement?(orderId: string): Promise<OrderDispatchRequirement | null>;
+  getDispatchRequirement?(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null>;
   issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
   findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
   applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
@@ -412,6 +414,22 @@ export interface OrderStore {
     previewId: string;
     now: Date;
   }): Promise<void>;
+}
+
+export interface OrderDispatchRequirement {
+  id: string;
+  serviceCatalogVersionId: string;
+  serviceOfferingId: string;
+  game: string;
+  service: string;
+  region: string | null;
+  billingUnitMinutes: number;
+  unitCount: number;
+  requestedPlayerCount: number;
+  filledPlayerCount: number;
+  customerUnitPriceMinor: number;
+  linePriceMinorPerPlayer: number;
+  defaultPlayerPayoutBps: number;
 }
 
 export interface OrderMatchingProgress {
@@ -870,6 +888,53 @@ WHERE o.id = $1
       count: Number(result.rows[0]?.requirement_count ?? 0),
       amountMinor: Number(result.rows[0]?.amount_minor ?? 0)
     };
+  }
+
+  async getNextOpenRequirement(orderId: string): Promise<OrderDispatchRequirement | null> {
+    const result = await this.client.query<{
+      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;
+      service_code_snapshot:string;region_code_snapshot:string|null;billing_unit_minutes_snapshot:number;
+      unit_count:number;requested_player_count:number;filled_player_count:string;customer_unit_price_minor_snapshot:string;
+      default_player_payout_bps:number;
+    }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
+      requirement.game_code_snapshot,requirement.service_code_snapshot,requirement.region_code_snapshot,
+      requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.requested_player_count,
+      COUNT(participant.id)::text filled_player_count,requirement.customer_unit_price_minor_snapshot::text,
+      version.default_player_payout_bps
+      FROM order_requirements requirement
+      JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
+      LEFT JOIN order_participants participant ON participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'
+      WHERE requirement.order_id=$1 AND requirement.status='ACTIVE'
+      GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps
+      HAVING COUNT(participant.id)<requirement.requested_player_count
+      ORDER BY requirement.created_at,requirement.id LIMIT 1`, [orderId]);
+    const row=result.rows[0];if(!row)return null;
+    const unitPrice=Number(row.customer_unit_price_minor_snapshot);
+    return {id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,
+      game:row.game_code_snapshot,service:row.service_code_snapshot,region:row.region_code_snapshot,
+      billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,
+      filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:unitPrice,linePriceMinorPerPlayer:unitPrice*row.unit_count,
+      defaultPlayerPayoutBps:row.default_player_payout_bps};
+  }
+
+  async getDispatchRequirement(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null> {
+    const next = await this.client.query<{
+      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;service_code_snapshot:string;
+      region_code_snapshot:string|null;billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;
+      filled_player_count:string;customer_unit_price_minor_snapshot:string;default_player_payout_bps:number;
+    }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
+      requirement.game_code_snapshot,requirement.service_code_snapshot,requirement.region_code_snapshot,
+      requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.requested_player_count,
+      COUNT(participant.id)::text filled_player_count,requirement.customer_unit_price_minor_snapshot::text,version.default_player_payout_bps
+      FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
+      LEFT JOIN order_participants participant ON participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'
+      WHERE requirement.order_id=$1 AND requirement.id=$2 AND requirement.status='ACTIVE'
+      GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps`,[orderId,requirementId]);
+    const row=next.rows[0];if(!row)return null;const price=Number(row.customer_unit_price_minor_snapshot);
+    return{id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,game:row.game_code_snapshot,
+      service:row.service_code_snapshot,region:row.region_code_snapshot,billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,
+      requestedPlayerCount:row.requested_player_count,filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:price,
+      linePriceMinorPerPlayer:price*row.unit_count,defaultPlayerPayoutBps:row.default_player_payout_bps};
   }
 
   async nextEventSequence(orderId: string): Promise<number> {

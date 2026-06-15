@@ -5,7 +5,7 @@ import type { PolicyReader } from './operations.js';
 import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { registerSecureReadRoute, registerSecureWriteRoute } from './security.js';
 import type { OutboxJob } from './outbox.js';
-import type { OrderRecord, OrderStatus, OrderStore } from './orders.js';
+import type { OrderDispatchRequirement, OrderRecord, OrderStatus, OrderStore } from './orders.js';
 import { calculatePlayerCompensation,type PlayerCompensationStore } from './player-compensation.js';
 import {
   selectEligibleDispatchCandidates,
@@ -23,6 +23,7 @@ export type DispatchTrigger = 'ORDER_SUBMITTED' | 'MANUAL_RETRY' | 'TIMEOUT_RETR
 export interface DispatchAttemptRecord {
   id: string;
   orderId: string;
+  orderRequirementId?: string | null;
   round: number;
   status: DispatchStatus;
   dispatchChannelId: string;
@@ -70,7 +71,7 @@ export interface DispatchTimeoutResult {
 export interface AcceptedOrderResult {
   id: string;
   publicId: string;
-  status: 'ACCEPTED';
+  status: 'PENDING_DISPATCH' | 'ACCEPTED';
   version: number;
   playerId: string;
   channelSpec: OrderRecord['channelSpec'];
@@ -89,6 +90,7 @@ export interface DispatchStore {
     order: OrderRecord;
     expectedVersion: number;
     dispatchAttemptId: string;
+    orderRequirement: OrderDispatchRequirement | null;
     player: PlayerProfileRecord;
     outboxJobs: OutboxJob[];
     now: Date;
@@ -165,6 +167,7 @@ export class InMemoryDispatchStore implements DispatchStore {
     order: OrderRecord;
     expectedVersion: number;
     dispatchAttemptId: string;
+    orderRequirement: OrderDispatchRequirement | null;
     player: PlayerProfileRecord;
     outboxJobs: OutboxJob[];
     now: Date;
@@ -330,15 +333,16 @@ LIMIT 1
       await transactionClient.query(
         `
 INSERT INTO dispatch_attempts (
-  id, order_id, round, status, dispatch_channel_id, dispatch_message_id,
+  id, order_id, order_requirement_id, round, status, dispatch_channel_id, dispatch_message_id,
   candidate_criteria, accepted_player_id, started_at, expires_at,
   accepted_at, finished_at, created_at, updated_at
 )
-VALUES ($1, $2, $3, $4::"DispatchStatus", $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5::"DispatchStatus", $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15)
         `,
         [
           input.attempt.id,
           input.attempt.orderId,
+          input.attempt.orderRequirementId,
           input.attempt.round,
           input.attempt.status,
           input.attempt.dispatchChannelId,
@@ -422,6 +426,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::"OutboxStatus", $10, $11, $12
     order: OrderRecord;
     expectedVersion: number;
     dispatchAttemptId: string;
+    orderRequirement: OrderDispatchRequirement | null;
     player: PlayerProfileRecord;
     outboxJobs: OutboxJob[];
     now: Date;
@@ -461,8 +466,65 @@ RETURNING player_user_id
         throw new DispatchError('PLAYER_NOT_ELIGIBLE', 'Player is not an active candidate for this dispatch attempt.');
       }
 
-      await transactionClient.query("SELECT set_config('app.order_acceptance_payout_update', 'approved', true)");
-      const order = await transactionClient.query(
+      let allRequirementsFilled = true;
+      if (input.orderRequirement) {
+        if (attemptRow.order_requirement_id !== input.orderRequirement.id) {
+          throw new DispatchError('CONFLICT', 'Dispatch attempt does not match the selected requirement.');
+        }
+        const requirement = await transactionClient.query<{
+          id:string;service_catalog_version_id:string;requested_player_count:number;unit_count:number;
+          customer_unit_price_minor_snapshot:string;game_code_snapshot:string;game_display_name_snapshot:string;
+          service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;
+          region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;default_player_payout_bps:number;
+          service_offering_id:string;display_name:string;compensation_type:'PERCENT_BPS'|'FIXED_MINOR'|null;compensation_value:string|null;
+        }>(`SELECT requirement.*,version.default_player_payout_bps,version.service_offering_id,users.display_name,
+          rule.type::text compensation_type,rule.value::text compensation_value
+          FROM order_requirements requirement
+          JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
+          JOIN users ON users.id=$3
+          JOIN player_profiles profile ON profile.user_id=users.id
+          LEFT JOIN player_service_compensation_rules rule ON rule.player_id=profile.id AND rule.service_offering_id=version.service_offering_id
+          WHERE requirement.id=$1 AND requirement.order_id=$2 AND requirement.status='ACTIVE' FOR UPDATE OF requirement`,
+        [input.orderRequirement.id,input.order.id,input.player.userId]);
+        const facts=requirement.rows[0];if(!facts)throw new DispatchError('CONFLICT','Order requirement is no longer active.');
+        const occupied=await transactionClient.query<{count:string}>(`SELECT COUNT(*)::text count FROM order_participants WHERE order_requirement_id=$1 AND status='ACTIVE'`,[facts.id]);
+        if(Number(occupied.rows[0]?.count??0)>=facts.requested_player_count)throw new DispatchError('CONFLICT','Order requirement slot is already filled.');
+        const linePrice=Number(facts.customer_unit_price_minor_snapshot)*facts.unit_count;
+        const compensationType=facts.compensation_type??'PERCENT_BPS';
+        const compensationValue=Number(facts.compensation_value??facts.default_player_payout_bps);
+        const expectedEarning=compensationType==='PERCENT_BPS'?Math.floor(linePrice*compensationValue/10000):compensationValue*facts.unit_count;
+        if (!Number.isSafeInteger(expectedEarning) || expectedEarning < 0 || expectedEarning > linePrice) {
+          throw new DispatchError('VALIDATION_ERROR', 'Player compensation must be a non-negative amount no greater than the requirement line price.');
+        }
+        const participantId=crypto.randomUUID();
+        await transactionClient.query(`INSERT INTO order_participants (
+          id,order_id,order_requirement_id,player_id,service_catalog_version_id,status,row_version,player_display_name_snapshot,
+          game_code_snapshot,game_display_name_snapshot,service_code_snapshot,service_display_name_snapshot,region_code_snapshot,
+          region_display_name_snapshot,billing_unit_minutes_snapshot,unit_count,customer_unit_price_minor_snapshot,line_price_minor,
+          compensation_type_snapshot,compensation_value_snapshot,compensation_source,expected_earning_minor,created_at,updated_at
+        ) VALUES ($1,$2,$3,$4,$5,'ACTIVE',1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$21)`,
+        [participantId,input.order.id,facts.id,input.player.userId,facts.service_catalog_version_id,facts.display_name,facts.game_code_snapshot,
+          facts.game_display_name_snapshot,facts.service_code_snapshot,facts.service_display_name_snapshot,facts.region_code_snapshot,
+          facts.region_display_name_snapshot,facts.billing_unit_minutes_snapshot,facts.unit_count,Number(facts.customer_unit_price_minor_snapshot),linePrice,
+          compensationType,compensationValue,facts.compensation_type?'PLAYER_OVERRIDE':'CATALOG_DEFAULT',expectedEarning,input.now.toISOString()]);
+        await transactionClient.query(`INSERT INTO order_participant_events (
+          id,order_participant_id,sequence,event_type,participant_version,order_version,actor_user_id,snapshot,idempotency_key,created_at
+        ) VALUES (gen_random_uuid(),$1,1,'ADDED',1,$2,$3,$4::jsonb,$5,$6)`,
+        [participantId,input.expectedVersion+1,input.player.userId,JSON.stringify({orderRequirementId:facts.id,source:'DISPATCH_ACCEPTANCE'}),`dispatch:participant:${input.dispatchAttemptId}`,input.now.toISOString()]);
+        const open=await transactionClient.query<{count:string}>(`SELECT COUNT(*)::text count FROM order_requirements requirement WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' AND
+          (SELECT COUNT(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE')<requirement.requested_player_count`,[input.order.id]);
+        allRequirementsFilled=Number(open.rows[0]?.count??0)===0;
+        await transactionClient.query("SELECT set_config('app.order_acceptance_payout_update', 'approved', true)");
+        const order=await transactionClient.query(`UPDATE orders SET status=CASE WHEN $4 THEN 'ACCEPTED'::"OrderStatus" ELSE status END,
+          player_id=COALESCE(player_id,$3),active_player_slot_id=CASE WHEN $4 THEN COALESCE(player_id,$3) ELSE active_player_slot_id END,
+          row_version=row_version+1,accepted_at=CASE WHEN $4 THEN $5 ELSE accepted_at END,
+          readiness_due_at=CASE WHEN $4 THEN $6 ELSE readiness_due_at END,updated_at=$5
+          WHERE id=$1 AND status='PENDING_DISPATCH' AND row_version=$2 RETURNING id`,
+        [input.order.id,input.expectedVersion,input.player.userId,allRequirementsFilled,input.now.toISOString(),new Date(input.now.getTime()+10*60_000).toISOString()]);
+        if((order.rowCount??0)!==1)throw new DispatchError('CONFLICT','Order version is stale.');
+      } else {
+        await transactionClient.query("SELECT set_config('app.order_acceptance_payout_update', 'approved', true)");
+        const order = await transactionClient.query(
         `
 UPDATE orders
 SET status = 'ACCEPTED',
@@ -502,6 +564,7 @@ RETURNING id
       if ((order.rowCount ?? 0) !== 1) {
         throw new DispatchError('CONFLICT', 'Order has already been accepted.');
       }
+      }
 
       await transactionClient.query(
         `
@@ -527,11 +590,21 @@ WHERE id = $1
         `,
         [input.dispatchAttemptId, input.player.userId, input.now.toISOString()]
       );
-      for (const job of input.outboxJobs) {
+      for (const job of input.outboxJobs.filter((job) => allRequirementsFilled || job.type !== 'READINESS_TIMEOUT')) {
         await insertOutboxJob(transactionClient, job, {
           orderId: input.order.id,
           dispatchAttemptId: input.dispatchAttemptId
         });
+      }
+      if (input.orderRequirement && !allRequirementsFilled) {
+        await insertOutboxJob(transactionClient, buildOutboxJob({
+          type: 'DISPATCH_START',
+          aggregateId: input.order.id,
+          dedupeKey: `requirement-slot-next:${input.dispatchAttemptId}`,
+          payload: { orderId: input.order.id, expectedVersion: input.expectedVersion + 1, trigger: 'ORDER_SUBMITTED' },
+          runAfter: input.now.toISOString(),
+          now: input.now
+        }), { orderId: input.order.id, dispatchAttemptId: input.dispatchAttemptId });
       }
       await transactionClient.query('COMMIT');
     } catch (error) {
@@ -674,7 +747,12 @@ SELECT profile.id AS player_id,
        (
          SELECT active_order.id
          FROM orders AS active_order
-         WHERE active_order.active_player_slot_id = profile.user_id
+         WHERE (active_order.active_player_slot_id = profile.user_id OR EXISTS (
+             SELECT 1 FROM order_participants active_participant
+             WHERE active_participant.order_id=active_order.id
+               AND active_participant.player_id=profile.user_id
+               AND active_participant.status='ACTIVE'
+           ))
            AND active_order.status = ANY($1::"OrderStatus"[])
          ORDER BY active_order.created_at DESC
          LIMIT 1
@@ -718,7 +796,8 @@ export async function dispatchOrder(input: {
 }): Promise<DispatchResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
   const dispatchChannelId=await resolveBotConfigString(input.botConfigStore,order.guildId,'dispatch_channel_id',input.dispatchChannelId);
-  const requirement = requireOrderRequirement(order);
+  const openRequirement = await input.orderStore.getNextOpenRequirement?.(order.id) ?? null;
+  const requirement = openRequirement ? { game: openRequirement.game, service: openRequirement.service } : requireOrderRequirement(order);
   const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
   const eligibleCandidates = selectEligibleDispatchCandidates(pool, requirement);
   const candidates = input.trigger === 'MANUAL_RETRY'
@@ -731,6 +810,7 @@ export async function dispatchOrder(input: {
   const attempt: DispatchAttemptRecord = {
     id: attemptId,
     orderId: order.id,
+    orderRequirementId: openRequirement?.id ?? null,
     round,
     status: 'ACTIVE',
     dispatchChannelId,
@@ -760,6 +840,7 @@ export async function dispatchOrder(input: {
   const outboxJobs = buildDispatchOutboxJobs({
     attempt,
     order,
+    orderRequirement: openRequirement,
     candidatePlayerUserIds: candidateRecords.map((candidate) => candidate.playerUserId),
     idempotencyKey: input.idempotencyKey,
     now: input.now
@@ -861,14 +942,28 @@ export async function acceptOrder(input: {
   orderId: string;
   expectedVersion: number;
   dispatchAttemptId: string;
+  orderRequirementId?: string | null;
   actor: { guildId: string; discordUserId: string };
   idempotencyKey: string;
   now: Date;
   compensationStore?: PlayerCompensationStore;
 }): Promise<AcceptedOrderResult> {
   const order = await requireDispatchableOrder(input.orderStore, input.orderId, input.expectedVersion);
+  const attempt = await input.dispatchStore.findAttempt(input.dispatchAttemptId);
+  if (!attempt || attempt.orderId !== order.id || (input.orderRequirementId && attempt.orderRequirementId !== input.orderRequirementId)) {
+    throw new DispatchError('CONFLICT', 'Dispatch attempt does not match the selected requirement.');
+  }
+  const selectedRequirementId = input.orderRequirementId ?? attempt.orderRequirementId ?? null;
+  const orderRequirement = selectedRequirementId
+    ? await input.orderStore.getDispatchRequirement?.(order.id, selectedRequirementId) ?? null
+    : null;
+  if (attempt.orderRequirementId && (!orderRequirement || orderRequirement.filledPlayerCount >= orderRequirement.requestedPlayerCount)) {
+    throw new DispatchError('CONFLICT', 'The selected requirement has no open player slot.');
+  }
   const player = await requireActorPlayer(input.playerPool, input.actor);
-  if (!isPlayerEligibleForOrder(player, order)) {
+  if (orderRequirement
+    ? selectEligibleDispatchCandidates([player], { game: orderRequirement.game, service: orderRequirement.service }).length !== 1
+    : !isPlayerEligibleForOrder(player, order)) {
     throw new DispatchError('PLAYER_NOT_ELIGIBLE', 'Player is not eligible for this order.');
   }
   let acceptedOrder=order;
@@ -878,6 +973,7 @@ export async function acceptOrder(input: {
     order:acceptedOrder,
     expectedVersion: input.expectedVersion,
     dispatchAttemptId: input.dispatchAttemptId,
+    orderRequirement,
     player,
     outboxJobs: [
       buildAcceptedOrderOutboxJob({
@@ -891,10 +987,12 @@ export async function acceptOrder(input: {
     ],
     now: input.now
   });
+  const allFilled = !orderRequirement || orderRequirement.filledPlayerCount + 1 >= orderRequirement.requestedPlayerCount
+    && !(await input.orderStore.getNextOpenRequirement?.(order.id));
   return {
     id: order.id,
     publicId: order.publicId,
-    status: 'ACCEPTED',
+    status: allFilled ? 'ACCEPTED' : 'PENDING_DISPATCH',
     version: order.version + 1,
     playerId: player.userId,
     channelSpec: order.channelSpec
@@ -1023,6 +1121,7 @@ export function registerDispatchRoutes(
         orderId: orderIdParam(request),
         expectedVersion: body.expectedVersion,
         dispatchAttemptId: body.dispatchAttemptId,
+        orderRequirementId: body.orderRequirementId,
         actor: { guildId: actor.guildId, discordUserId: actor.discordUserId },
         idempotencyKey: idempotencyKey(request),
         now: now()
@@ -1064,6 +1163,7 @@ export function registerDispatchRoutes(
 function buildDispatchOutboxJobs(input: {
   attempt: DispatchAttemptRecord;
   order: OrderRecord;
+  orderRequirement: OrderDispatchRequirement | null;
   candidatePlayerUserIds: string[];
   idempotencyKey: string;
   now: Date;
@@ -1074,10 +1174,11 @@ function buildDispatchOutboxJobs(input: {
     orderId: input.order.id,
     orderPublicId: input.order.publicId,
     orderVersion: input.order.version,
-    game: input.order.gameDisplayName ?? input.order.game,
-    service: input.order.serviceDisplayName ?? input.order.service,
-    region: input.order.regionDisplayName ?? input.order.region,
-    durationLabel: formatDuration(input.order),
+    orderRequirementId: input.orderRequirement?.id ?? null,
+    game: input.orderRequirement?.game ?? input.order.gameDisplayName ?? input.order.game,
+    service: input.orderRequirement?.service ?? input.order.serviceDisplayName ?? input.order.service,
+    region: input.orderRequirement?.region ?? input.order.regionDisplayName ?? input.order.region,
+    durationLabel: input.orderRequirement ? `${input.orderRequirement.billingUnitMinutes * input.orderRequirement.unitCount} 分钟` : formatDuration(input.order),
     playerEarningMinor: input.order.playerEarningMinor,
     currency: input.order.currency,
     notes: input.order.notes,
@@ -1106,7 +1207,7 @@ function buildDispatchOutboxJobs(input: {
 }
 
 function buildOutboxJob(input: {
-  type: 'DISPATCH_MESSAGE' | 'DISPATCH_TIMEOUT';
+  type: 'DISPATCH_MESSAGE' | 'DISPATCH_TIMEOUT' | 'DISPATCH_START';
   aggregateId: string;
   dedupeKey: string;
   payload: unknown;
@@ -1206,7 +1307,10 @@ async function requireDispatchableOrder(
   if (!order) {
     throw new DispatchError('NOT_FOUND', 'Order was not found.');
   }
-  if (order.status !== 'PENDING_DISPATCH' || order.version !== expectedVersion || order.playerId) {
+  const hasOpenMultiRequirement = orderStore.getNextOpenRequirement
+    ? Boolean(await orderStore.getNextOpenRequirement(order.id))
+    : false;
+  if (order.status !== 'PENDING_DISPATCH' || order.version !== expectedVersion || (order.playerId && !hasOpenMultiRequirement)) {
     throw new DispatchError('CONFLICT', 'Order cannot be dispatched from its current state.');
   }
   if (isDispatchAutomationPaused(order)) {
@@ -1244,11 +1348,14 @@ function parseManualDispatchBody(body: unknown): { expectedVersion: number; targ
   return { expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'), targetDiscordUserIds: values };
 }
 
-function parseAcceptOrderBody(body: unknown): { expectedVersion: number; dispatchAttemptId: string } {
+function parseAcceptOrderBody(body: unknown): { expectedVersion: number; dispatchAttemptId: string; orderRequirementId: string | null } {
   const input = objectBody(body);
   return {
     expectedVersion: positiveInteger(input.expectedVersion, 'expectedVersion'),
-    dispatchAttemptId: stringValue(input.dispatchAttemptId, 'dispatchAttemptId')
+    dispatchAttemptId: stringValue(input.dispatchAttemptId, 'dispatchAttemptId'),
+    orderRequirementId: input.orderRequirementId === undefined || input.orderRequirementId === null
+      ? null
+      : stringValue(input.orderRequirementId, 'orderRequirementId')
   };
 }
 
@@ -1422,6 +1529,7 @@ function mapDispatchAttemptRow(row: DispatchAttemptRow): DispatchAttemptRecord {
   return {
     id: row.id,
     orderId: row.order_id,
+    orderRequirementId: row.order_requirement_id,
     round: row.round,
     status: row.status,
     dispatchChannelId: row.dispatch_channel_id,
@@ -1464,6 +1572,7 @@ function mapPlayerProfileRow(row: PlayerProfileRow): PlayerProfileRecord {
 interface DispatchAttemptRow {
   id: string;
   order_id: string;
+  order_requirement_id: string | null;
   round: number;
   status: DispatchStatus;
   dispatch_channel_id: string;
