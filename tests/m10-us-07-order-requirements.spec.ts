@@ -26,10 +26,10 @@ describe('M10-US-07 multi-project order requirement contract', () => {
   });
 
   test('provides a complete append-only migration for demand and participant linkage', async () => {
-    const migration = await readFile(
-      'database/prisma/migrations/000022_order_requirements/migration.sql',
-      'utf8'
-    );
+    const [migration, dispatchMigration] = await Promise.all([
+      readFile('database/prisma/migrations/000022_order_requirements/migration.sql', 'utf8'),
+      readFile('database/prisma/migrations/000023_requirement_slot_dispatch/migration.sql', 'utf8')
+    ]);
 
     expect(migration).toContain('CREATE TABLE order_requirements');
     expect(migration).toContain('CREATE TABLE order_requirement_events');
@@ -37,6 +37,8 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     expect(migration).toContain('requested_player_count > 0');
     expect(migration).toContain('estimated_line_price_minor > 0');
     expect(migration).toContain('deny_append_only_mutation');
+    expect(dispatchMigration).toContain('dispatch_attempts_order_requirement_id_fkey');
+    expect(dispatchMigration).toContain('order_participants_one_player_requirement_idx');
   });
 
   test('derives every line and order estimate without accepting client money', async () => {
