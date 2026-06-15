@@ -370,6 +370,7 @@ export interface OrderStore {
   findById(orderId: string): Promise<OrderRecord | null>;
   findActiveReservationByOrder?(orderId: string): Promise<FundReservationRecord | null>;
   getMatchingProgress?(orderId: string): Promise<OrderMatchingProgress | null>;
+  getActiveRequirementEstimate?(orderId: string): Promise<{ count: number; amountMinor: number }>;
   issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
   findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
   applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
@@ -857,6 +858,20 @@ WHERE o.id = $1
     };
   }
 
+  async getActiveRequirementEstimate(orderId: string): Promise<{ count: number; amountMinor: number }> {
+    const result = await this.client.query<{ requirement_count: string; amount_minor: string }>(
+      `SELECT COUNT(*)::text requirement_count,
+              COALESCE(SUM(estimated_line_price_minor),0)::text amount_minor
+       FROM order_requirements
+       WHERE order_id=$1 AND status='ACTIVE'`,
+      [orderId]
+    );
+    return {
+      count: Number(result.rows[0]?.requirement_count ?? 0),
+      amountMinor: Number(result.rows[0]?.amount_minor ?? 0)
+    };
+  }
+
   async nextEventSequence(orderId: string): Promise<number> {
     const result = await this.client.query<{ next_sequence: string }>(
       `
@@ -1284,8 +1299,15 @@ export async function prepareSubmitOrder(input: {
   const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
   validateSubmitOrderInput(input.input);
   validateDraftOrderVersion(order, input.input.expectedVersion);
-  validateSubmittableDraft(order);
-  await validateCurrentCatalogSnapshot(input.catalogStore, order);
+  const requirementEstimate = await input.orderStore.getActiveRequirementEstimate?.(order.id) ?? null;
+  if (requirementEstimate?.count) {
+    if (requirementEstimate.amountMinor !== order.amountMinor || order.amountMinor <= 0) {
+      throw new OrderError('CONFLICT', 'Order requirement estimate is stale.');
+    }
+  } else {
+    validateSubmittableDraft(order);
+    await validateCurrentCatalogSnapshot(input.catalogStore, order);
+  }
 
   if (order.currency !== 'CAT') throw new OrderError('VALIDATION_ERROR', 'Orders must use USD.');
   const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
@@ -2821,6 +2843,40 @@ FOR UPDATE
 }
 
 async function validateCatalogSnapshotForCommit(client: OrderQueryClient, order: OrderRecord): Promise<void> {
+  const requirements = await client.query<{
+    estimated_line_price_minor: string;
+    current_line_price_minor: string;
+    snapshot_billing_minutes: number;
+    current_billing_minutes: number;
+    catalog_status: string;
+    archived_at: Date | string | null;
+  }>(
+    `SELECT requirement.estimated_line_price_minor::text,
+            (version.customer_unit_price_minor*requirement.unit_count*requirement.requested_player_count)::text current_line_price_minor,
+            requirement.billing_unit_minutes_snapshot snapshot_billing_minutes,
+            version.billing_unit_minutes current_billing_minutes,
+            version.status::text catalog_status,
+            offering.archived_at
+     FROM order_requirements requirement
+     JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
+     JOIN service_offerings offering ON offering.id=version.service_offering_id
+     WHERE requirement.order_id=$1 AND requirement.status='ACTIVE'
+     FOR SHARE OF requirement,version,offering`,
+    [order.id]
+  );
+  if (requirements.rows.length > 0) {
+    if (requirements.rows.some((requirement) => requirement.catalog_status !== 'ACTIVE'
+      || requirement.archived_at !== null
+      || requirement.snapshot_billing_minutes !== requirement.current_billing_minutes
+      || requirement.estimated_line_price_minor !== requirement.current_line_price_minor)) {
+      throw new OrderError('SERVICE_NOT_AVAILABLE', 'One or more order requirement projects are no longer available.');
+    }
+    const total = requirements.rows.reduce((sum, requirement) => sum + Number(requirement.estimated_line_price_minor), 0);
+    if (!Number.isSafeInteger(total) || total !== order.amountMinor) {
+      throw new OrderError('CONFLICT', 'Order requirement estimate is stale.');
+    }
+    return;
+  }
   if (!order.serviceCatalogId) {
     throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order draft is missing a service catalog snapshot.');
   }
