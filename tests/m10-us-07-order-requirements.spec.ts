@@ -30,6 +30,7 @@ describe('M10-US-07 multi-project order requirement contract', () => {
 
     expect(openapi).toContain('operationId: addOrderRequirement');
     expect(openapi).toContain('operationId: updateOrderRequirement');
+    expect(openapi).toContain('operationId: listAdminOrderRequirements');
     expect(openapi).toContain('required: [expectedVersion]\n      properties:\n        expectedVersion: {$ref: \'#/components/schemas/Version\'}\n    CancellationPreviewRequest:');
     expect(openapi).not.toContain('required: [expectedVersion, acceptedAmount]');
     expect(prisma).toContain('model OrderRequirement');
@@ -107,6 +108,11 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     const denied = await server.inject({ method: 'GET', url: `/api/v1/orders/${orderId}/requirements`, headers: botHeaders('requirement:denied', '222222222222222222') });
     expect(denied.statusCode).toBe(403);
     await server.close();
+  });
+
+  test('exposes the same requirement and fill facts to claimed Dashboard staff',async()=>{
+    const orderId='00000000-0000-0000-0000-000000107009';const staffId='00000000-0000-0000-0000-000000107099';const item={...requirementPage(orderId,2).items[0]!,orderId};const store=new InMemoryOrderRequirementStore({orders:[{id:orderId,guildId:'999999999999999999',customerDiscordUserId:'111111111111111111',status:'DRAFT',version:2,amountMinor:400}],catalogs:[],requirements:[item],claimedOrderIdsByStaffId:{[staffId]:[orderId]}});const server=buildApiServer({env:{NODE_ENV:'development',DATABASE_URL:'',API_PORT:'0',API_BASE_URL:'http://localhost',BOT_SERVICE_TOKEN:'valid-bot-token'},security:{staffDirectory:{resolveByDiscord:()=>({staffId,userId:'00000000-0000-0000-0000-000000107098',level:'L1_SUPPORT',permissionsVersion:1,status:'ACTIVE'})}},orderRequirements:{store}});
+    const response=await server.inject({method:'GET',url:`/api/v1/admin/orders/${orderId}/requirements?limit=25`,headers:{authorization:'Bearer valid-bot-token','x-client-source':'DASHBOARD','x-actor-discord-user-id':'777777777777777777','x-actor-guild-id':'999999999999999999'}});expect(response.statusCode,response.body).toBe(200);expect(response.json().data).toMatchObject({orderVersion:2,items:[{id:item.id,requestedPlayerCount:1,filledPlayerCount:0}]});await server.close();
   });
 
   test('renders a restart-safe multi-project basket with independent quantity and player controls', () => {

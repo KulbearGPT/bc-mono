@@ -111,6 +111,8 @@ describe('M10-US-03 PostgreSQL participant transaction', () => {
     expect(finalAccepted.status).toBe('ACCEPTED');
     const completed=await pool.query(`SELECT orders.status::text,orders.row_version,COUNT(participant.id)::int participant_count,COUNT(DISTINCT participant.order_requirement_id)::int requirement_count FROM orders JOIN order_participants participant ON participant.order_id=orders.id AND participant.status='ACTIVE' WHERE orders.id=$1 GROUP BY orders.id`,[requirementOrderId]);
     expect(completed.rows[0]).toEqual({status:'ACCEPTED',row_version:7,participant_count:3,requirement_count:1});
+    const dashboardParticipants=await new PostgresOrderParticipantStore(pool).list({orderId:requirementOrderId,actorStaffId:staffId,actorLevel:'L2_SUPERVISOR',guildId,cursor:null,limit:100});expect(dashboardParticipants.items[0]).toMatchObject({orderRequirementId:requirement.id,discordUserId:'444444444444444444',discordTag:'奶糖#2048'});
+    const dashboardRequirements=await new PostgresOrderRequirementStore(pool).listAdmin!({orderId:requirementOrderId,actorStaffId:staffId,actorLevel:'L2_SUPERVISOR',guildId,cursor:null,limit:100});expect(dashboardRequirements.items[0]).toMatchObject({id:requirement.id,requestedPlayerCount:3,filledPlayerCount:3});
     await server.close();
   });
 });
@@ -118,8 +120,8 @@ describe('M10-US-03 PostgreSQL participant transaction', () => {
 async function seed(){await pool.query(`
   INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES
     ('${staffUserId}','主管','ACTIVE',1,now(),now()),('${playerId}','奶糖','ACTIVE',1,now(),now()),('${secondPlayerId}','团子','ACTIVE',1,now(),now()),('${thirdPlayerId}','芝麻','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010006','老板','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010010','另一位老板','ACTIVE',1,now(),now()),('${fundedCustomerId}','已充值老板','ACTIVE',1,now(),now()),('${requirementCustomerId}','多项目老板','ACTIVE',1,now(),now());
-  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010023','${requirementCustomerId}','${guildId}','${requirementDiscordId}',now(),now());
-  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010024','${playerId}','${guildId}','444444444444444444',now(),now());
+  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,username,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010023','${requirementCustomerId}','${guildId}','${requirementDiscordId}','老板猫#1024',now(),now());
+  INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,username,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010024','${playerId}','${guildId}','444444444444444444','奶糖#2048',now(),now());
   INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010032','${secondPlayerId}','${guildId}','555555555555555555',now(),now()),('00000000-0000-0000-0000-000000010033','${thirdPlayerId}','${guildId}','666666666666666666',now(),now());
   INSERT INTO staff_accounts(id,user_id,level,status,role_source,permissions_version,created_at,updated_at) VALUES('${staffId}','${staffUserId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
   INSERT INTO player_profiles(id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010007','${playerId}','ACTIVE',1,'AVAILABLE','ONLINE',now(),now());

@@ -8,7 +8,8 @@ import {
   registerSecureWriteRoute,
   type AuditRecord,
   type AuditSink,
-  type ActorContext
+  type ActorContext,
+  type StaffLevel
 } from './security.js';
 
 export type OrderRequirementStatus = 'ACTIVE' | 'REMOVED';
@@ -101,6 +102,7 @@ export interface OrderRequirementStore {
   list(input: RequirementScope & { cursor: string | null; limit: number }): Promise<RequirementPage> | RequirementPage;
   add(input: AddRequirementInput): Promise<StagedRequirementWrite> | StagedRequirementWrite;
   update(input: UpdateRequirementInput): Promise<StagedRequirementWrite> | StagedRequirementWrite;
+  listAdmin?(input: { orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number }): Promise<RequirementPage> | RequirementPage;
 }
 
 export class OrderRequirementError extends Error {
@@ -125,12 +127,18 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
   private readonly catalogs: RequirementCatalog[];
   private readonly auditSink: AuditSink;
   private readonly eventKeys = new Set<string>();
+  private readonly claimedOrderIdsByStaffId: Record<string,string[]>;
 
-  constructor(input: { orders: RequirementOrder[]; catalogs: RequirementCatalog[]; requirements?: OrderRequirementRecord[]; auditSink?: AuditSink }) {
+  constructor(input: { orders: RequirementOrder[]; catalogs: RequirementCatalog[]; requirements?: OrderRequirementRecord[]; auditSink?: AuditSink;claimedOrderIdsByStaffId?:Record<string,string[]> }) {
     this.orders = clone(input.orders);
     this.catalogs = clone(input.catalogs);
     this.requirements = clone(input.requirements ?? []);
     this.auditSink = input.auditSink ?? new InMemoryAuditSink();
+    this.claimedOrderIdsByStaffId=clone(input.claimedOrderIdsByStaffId??{});
+  }
+
+  listAdmin(input:{orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number}):RequirementPage{
+    const order=this.orders.find((item)=>item.id===input.orderId&&item.guildId===input.guildId);if(!order)throw new OrderRequirementError('NOT_FOUND','Order was not found.');if(input.actorLevel==='L1_SUPPORT'&&!(this.claimedOrderIdsByStaffId[input.actorStaffId]??[]).includes(order.id))throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the claimed task scope.');const offset=decodeCursor(input.cursor);const all=this.requirements.filter((item)=>item.orderId===order.id&&item.status==='ACTIVE').sort(sortCreated);return{orderId:order.id,orderVersion:order.version,derivedTotalMinor:deriveTotal(all),currency:'CAT',items:clone(all.slice(offset,offset+input.limit)),nextCursor:offset+input.limit<all.length?encodeCursor(offset+input.limit):null};
   }
 
   list(input: RequirementScope & { cursor: string | null; limit: number }): RequirementPage {
@@ -228,6 +236,9 @@ export class PostgresOrderRequirementStore implements OrderRequirementStore {
     const total = await requirementTotal(this.pool, input.orderId);
     return { orderId: input.orderId, orderVersion: order.row_version, derivedTotalMinor: total, currency: 'CAT', items, nextCursor: result.rows.length > input.limit ? encodeCursor(offset + input.limit) : null };
   }
+  async listAdmin(input:{orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number}):Promise<RequirementPage>{
+    const scoped=await this.pool.query<{row_version:number}>(`SELECT orders.row_version FROM orders WHERE orders.id=$1 AND orders.guild_id=$2 AND ($3::text<>'L1_SUPPORT' OR EXISTS(SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$4 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')))`,[input.orderId,input.guildId,input.actorLevel,input.actorStaffId]);if(!scoped.rows[0])throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the current staff scope.');const offset=decodeCursor(input.cursor);const result=await this.pool.query<RequirementRow>(`${requirementSelect} WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`,[input.orderId,offset,input.limit+1]);const items=result.rows.slice(0,input.limit).map(mapRequirement);return{orderId:input.orderId,orderVersion:scoped.rows[0].row_version,derivedTotalMinor:await requirementTotal(this.pool,input.orderId),currency:'CAT',items,nextCursor:result.rows.length>input.limit?encodeCursor(offset+input.limit):null};
+  }
 
   add(input: AddRequirementInput): Promise<StagedRequirementWrite> { return this.prepare(input, null); }
   update(input: UpdateRequirementInput): Promise<StagedRequirementWrite> { return this.prepare(input, input.requirementId); }
@@ -268,6 +279,7 @@ export function registerOrderRequirementRoutes(server: FastifyInstance, options:
     return { orderId: parameter(request, 'orderId'), actorGuildId: actor.guildId, actorDiscordUserId: actor.discordUserId };
   };
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/orders/:orderId/requirements', permission: 'order.read', action: 'LIST_ORDER_REQUIREMENTS', targetType: 'order', acceptedSources: ['DISCORD_BOT', 'DASHBOARD'], handler: (request, actor) => options.store.list({ ...scope(request, actor), ...pageInput(request) }), mapError });
+  if(options.store.listAdmin)registerSecureReadRoute(server,security,{method:'GET',url:'/api/v1/admin/orders/:orderId/requirements',permission:'order.participants.manage',action:'LIST_ADMIN_ORDER_REQUIREMENTS',targetType:'order',acceptedSources:['DASHBOARD','DISCORD_BOT'],handler:(request,actor)=>{if(!actor.actorStaffId||!actor.actorLevel||!actor.guildId)throw new OrderRequirementError('PERMISSION_DENIED','Active staff and Guild context are required.');return options.store.listAdmin!({orderId:parameter(request,'orderId'),actorStaffId:actor.actorStaffId,actorLevel:actor.actorLevel,guildId:actor.guildId,...pageInput(request)});},mapError});
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/orders/:orderId/requirements', permission: 'order.update', action: 'ADD_ORDER_REQUIREMENT', targetType: 'order_requirement', successStatusCode: 201, acceptedSources: ['DISCORD_BOT'], handler: (request, actor) => options.store.add({ ...scope(request, actor), ...parseAdd(request.body), idempotencyKey: requestIdempotencyKey(request), now: now() }), mapError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/orders/:orderId/requirements/:requirementId', permission: 'order.update', action: 'UPDATE_ORDER_REQUIREMENT', targetType: 'order_requirement', targetId: (request) => parameter(request, 'requirementId'), acceptedSources: ['DISCORD_BOT'], handler: (request, actor) => options.store.update({ ...scope(request, actor), requirementId: parameter(request, 'requirementId'), ...parseUpdate(request.body), idempotencyKey: requestIdempotencyKey(request), now: now() }), mapError });
 }

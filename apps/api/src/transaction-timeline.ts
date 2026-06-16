@@ -23,7 +23,7 @@ export interface TransactionTimelineItem {
 }
 
 export interface AdminOrderTimelineDetail {
-  order: OrderRecord;
+  order: OrderRecord & {customerDiscordUserId?:string|null;customerDiscordTag?:string|null;customerDisplayName?:string|null};
   fundReservation: Record<string, unknown> | null;
   transactions: Array<Record<string, unknown>>;
   resolutions: Array<Record<string, unknown>>;
@@ -72,7 +72,8 @@ export class PostgresTransactionTimelineStore implements TransactionTimelineStor
     }
     const order = await this.orders.findById(input.orderId);
     if (!order) return null;
-    const [reservation, transactions, resolutions, events, timelineRows] = await Promise.all([
+    const [identity,reservation, transactions, resolutions, events, timelineRows] = await Promise.all([
+      this.pool.query<{discord_user_id:string|null;discord_tag:string|null;display_name:string|null}>(`SELECT account.discord_user_id,account.username discord_tag,users.display_name FROM orders JOIN users ON users.id=orders.customer_id LEFT JOIN discord_accounts account ON account.user_id=orders.customer_id AND account.guild_id=orders.guild_id WHERE orders.id=$1 LIMIT 1`,[input.orderId]),
       this.pool.query(`SELECT fr.id,fr.user_id,fr.source_type::text,fr.order_id,fr.amount_minor,fr.currency,fr.status::text,fr.mode::text,fr.provider_hold_ref,fr.row_version,fr.expires_at,fr.created_at,fr.updated_at,
         COALESCE(sum(fre.amount_minor) FILTER (WHERE fre.event_type='CAPTURED'),0) AS captured_minor,
         COALESCE(sum(fre.amount_minor) FILTER (WHERE fre.event_type IN ('RELEASED','EXPIRED')),0) AS released_minor
@@ -86,7 +87,7 @@ export class PostgresTransactionTimelineStore implements TransactionTimelineStor
     ]);
     const raw = timelineRows.rows.map(mapTimelineRow);
     return {
-      order,
+      order:{...order,customerDiscordUserId:identity.rows[0]?.discord_user_id??null,customerDiscordTag:identity.rows[0]?.discord_tag??null,customerDisplayName:identity.rows[0]?.display_name??null},
       fundReservation: reservation.rows[0] ? mapReservation(reservation.rows[0] as Record<string, unknown>) : null,
       transactions: transactions.rows.map((row) => mapRecord(row as Record<string, unknown>)),
       resolutions: resolutions.rows.map((row) => mapRecord(row as Record<string, unknown>)),
