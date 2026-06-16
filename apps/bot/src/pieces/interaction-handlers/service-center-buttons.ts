@@ -9,6 +9,8 @@ import {
   HttpBotApiClient,
   BotApiError,
   buildOrderPanelMessage,
+  buildMultiProjectOrderPanelMessage,
+  buildOrderNotesModal,
   buildCurrentPlayerWeeklyReportDetailMessage,
   buildCurrentPlayerWeeklyReportListMessage,
   buildCurrentUserConsumptionsMessage,
@@ -16,6 +18,7 @@ import {
   buildCurrentUserProfileMessage,
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
+  handleOrderRequirementAction,
   handleOpenCancellationPreview,
   handleConfirmCancellation,
   handleCreateOrderFromPublicEntry,
@@ -38,7 +41,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area === 'order-notes-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
       ? this.some(route)
       : this.none();
   }
@@ -84,6 +87,13 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await this.confirmCancellation(interaction, parsedData);
       return;
     }
+    if(parsedData.area==='order-notes-open'){await interaction.showModal(toDiscordModal(buildOrderNotesModal({orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion})));return;}
+
+    if(parsedData.area==='order-requirement-action'){
+      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内修改订单。request_id: local-guild-required',ephemeral:true});return;}
+      try{const result=await handleOrderRequirementAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,requirementId:parsedData.action==='remove'?parsedData.requirementId:undefined,expectedRequirementVersion:parsedData.action==='remove'?parsedData.expectedRequirementVersion:undefined,cursor:parsedData.action==='page'?parsedData.cursor:undefined,idempotencyKey:buildDiscordIdempotencyKey(`requirement:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){const reply=toDiscordReply(result.message);await interaction.update({content:null,embeds:reply.embeds,components:reply.components});return;}}
+      catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-requirement-action';await interaction.reply({content:`订单项目刚刚发生变化，请刷新后重试。request_id: ${requestId}`,ephemeral:true});return;}
+    }
 
     if (parsedData.area !== 'order-action') {
       if (parsedData.area === 'service-action') {
@@ -126,9 +136,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const api=createBotApiClient();
       const result=await handleCreateOrderFromPublicEntry({api,actor,provisionalChannel:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:null},idempotencyKey:buildDiscordIdempotencyKey('order:create',interaction.id)});
       if(result.kind==='CREATE_PRIVATE_CHANNEL'){
-        const catalog=await api.listServices(actor);const first=catalog.items[0];
-        const order=first?await api.updateOrder(result.order.id,{expectedVersion:result.order.version,serviceCatalogId:first.id,unitCount:first.minimumUnits},actor,buildDiscordIdempotencyKey('order:initialize',interaction.id)):result.order;
-        const reply=toDiscordReply(buildOrderPanelMessage(order,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
+        const [catalog,requirements]=await Promise.all([api.listServices(actor),api.listOrderRequirements(result.order.id,actor,undefined,10)]);
+        const reply=toDiscordReply(buildMultiProjectOrderPanelMessage(result.order,requirements,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
       if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(botCopy.entry.existingOrder(result.channelId));return;}
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
     }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(botCopy.orders.channelCreationFailed(requestId));}

@@ -799,7 +799,8 @@ export async function dispatchOrder(input: {
   const openRequirement = await input.orderStore.getNextOpenRequirement?.(order.id) ?? null;
   const requirement = openRequirement ? { game: openRequirement.game, service: openRequirement.service } : requireOrderRequirement(order);
   const pool = await input.playerPool.listProfiles({ guildId: order.guildId ?? null });
-  const eligibleCandidates = selectEligibleDispatchCandidates(pool, requirement);
+  const assignedPlayerIds=new Set(await input.orderStore.getActiveParticipantPlayerIds?.(order.id)??[]);
+  const eligibleCandidates = selectEligibleDispatchCandidates(pool, requirement).filter((candidate)=>!assignedPlayerIds.has(candidate.userId));
   const candidates = input.trigger === 'MANUAL_RETRY'
     ? selectManualDispatchCandidates(eligibleCandidates, input.manualTargetDiscordUserIds ?? [])
     : prioritizeDispatchCandidates(eligibleCandidates, order.preferredPlayerDiscordUserIds ?? [], input.trigger);

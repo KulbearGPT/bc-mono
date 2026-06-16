@@ -65,6 +65,45 @@ export interface PublicServiceSummary {
   minimumUnits: number; customerUnitPriceMinor: number; currency: string; version: number;
 }
 
+export interface OrderRequirementSummary {
+  id: string;
+  orderId: string;
+  serviceCatalogVersionId: string;
+  game: string;
+  gameDisplayName: string;
+  service: string;
+  serviceDisplayName: string;
+  region: string | null;
+  regionDisplayName: string | null;
+  billingUnitMinutes: number;
+  unitCount: number;
+  requestedPlayerCount: number;
+  customerUnitPriceMinor: number;
+  estimatedLinePriceMinor: number;
+  filledPlayerCount: number;
+  status: 'ACTIVE' | 'REMOVED';
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderRequirementPageSummary {
+  orderId: string;
+  orderVersion: number;
+  derivedTotalMinor: number;
+  currency: 'CAT';
+  items: OrderRequirementSummary[];
+  nextCursor: string | null;
+}
+
+export interface OrderRequirementMutationSummary {
+  orderId: string;
+  orderVersion: number;
+  derivedTotalMinor: number;
+  currency: 'CAT';
+  requirement: OrderRequirementSummary;
+}
+
 export interface CurrentUserSummary {
   user: {
     id: string;
@@ -323,6 +362,20 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<OrderSummary>;
+  listOrderRequirements?(orderId: string, actor: BotActorContext, cursor?: string, limit?: number): Promise<OrderRequirementPageSummary>;
+  addOrderRequirement?(
+    orderId: string,
+    input: { expectedOrderVersion: number; serviceCatalogVersionId: string; unitCount: number; requestedPlayerCount: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderRequirementMutationSummary>;
+  updateOrderRequirement?(
+    orderId: string,
+    requirementId: string,
+    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderRequirementMutationSummary>;
   getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary>;
   getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary>;
   getCurrentUserProfileSummary(actor: BotActorContext): Promise<CurrentUserProfileSummary>;
@@ -481,6 +534,31 @@ export class HttpBotApiClient implements BotApiClient {
       idempotencyKey,
       body: input
     });
+  }
+
+  public async listOrderRequirements(orderId: string, actor: BotActorContext, cursor?: string, limit = 10): Promise<OrderRequirementPageSummary> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set('cursor', cursor);
+    return this.request<OrderRequirementPageSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/requirements?${query.toString()}`, { method: 'GET', actor });
+  }
+
+  public async addOrderRequirement(
+    orderId: string,
+    input: { expectedOrderVersion: number; serviceCatalogVersionId: string; unitCount: number; requestedPlayerCount: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderRequirementMutationSummary> {
+    return this.request<OrderRequirementMutationSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/requirements`, { method: 'POST', actor, idempotencyKey, body: input });
+  }
+
+  public async updateOrderRequirement(
+    orderId: string,
+    requirementId: string,
+    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderRequirementMutationSummary> {
+    return this.request<OrderRequirementMutationSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/requirements/${encodeURIComponent(requirementId)}`, { method: 'PATCH', actor, idempotencyKey, body: input });
   }
 
   public async getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary> {
@@ -894,9 +972,16 @@ export type ServiceCenterRoute =
   | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
   | { area: 'cancellation-action'; action: 'confirm'; orderId: string; previewId: string; expectedVersion: number }
   | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration' | 'preferred-players'; expectedVersion: number }
+  | { area: 'order-requirement-select'; orderId: string; action: 'add'; requirementId?: undefined; expectedVersion: number }
+  | { area: 'order-requirement-select'; orderId: string; action: 'edit'; requirementId?: undefined; expectedVersion: number; cursor?: string }
+  | { area: 'order-requirement-select'; orderId: string; action: 'units' | 'players'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
+  | { area: 'order-requirement-action'; orderId: string; action: 'back'; expectedVersion: number }
+  | { area: 'order-requirement-action'; orderId: string; action: 'page'; expectedVersion: number; cursor?: string }
+  | { area: 'order-requirement-action'; orderId: string; action: 'remove'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
+  | { area: 'order-notes-open'; orderId: string; expectedVersion: number }
   | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
   | { area: 'reports'; action: 'list'; cursor?: string }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
@@ -1055,6 +1140,60 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
         ]
       }
     ]
+  };
+}
+
+export function buildMultiProjectOrderPanelMessage(
+  order: OrderSummary,
+  page: OrderRequirementPageSummary,
+  services: PublicServiceSummary[],
+  selectedRequirementId?: string,
+  cursor?: string
+): MessageSpec {
+  const requirements = page.items.filter((item) => item.status === 'ACTIVE');
+  const selected = requirements.find((item) => item.id === selectedRequirementId);
+  const lines = requirements.length
+    ? requirements.map((item, index) => [
+        `**${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName ? ` · ${item.regionDisplayName}` : ''}**`,
+        `${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, page.currency)}`
+      ].join('\n')).join('\n\n')
+    : '清单还是空的。请先从下方选择一个陪玩项目，我们会把它放进本次订单。';
+  const components: ActionRowSpec[] = [
+    { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:add:v${page.orderVersion}`, '添加一个陪玩项目', serviceOptions(order, services))] },
+    { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
+  ];
+  if (selected) {
+    components.push(
+      { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:units:v${page.orderVersion}:r${selected.version}`, `时长：${formatRequirementDuration(selected)}`, integerOptions(1, 12, selected.unitCount, (value) => `${value * selected.billingUnitMinutes / 60} 小时`))] },
+      { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:players:v${page.orderVersion}:r${selected.version}`, `需要 ${selected.requestedPlayerCount} 位陪玩`, integerOptions(1, 10, selected.requestedPlayerCount, (value) => `${value} 位陪玩`))] }
+    );
+  } else {
+    components.push({ type: 'ACTION_ROW', components: [{
+      type: 'USER_SELECT', customId: `bc:select:order:${order.id}:preferred-players:v${page.orderVersion}`,
+      placeholder: `优先陪玩（已选 ${order.preferredPlayerDiscordUserIds?.length ?? 0}/3）`, minValues: 0, maxValues: 3
+    }] });
+    components.push({ type: 'ACTION_ROW', components: [
+      { type: 'BUTTON', style: 'SECONDARY', customId: `bc:modal-open:order-notes:${order.id}:v${page.orderVersion}`, label: '补充备注' },
+      ...(cursor ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:req:${order.id}:page:first:v${page.orderVersion}`, label: '返回首页' }] : []),
+      ...(page.nextCursor ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:req:${order.id}:page:${page.nextCursor}:v${page.orderVersion}`, label: '下一页' }] : [])
+    ] });
+  }
+  components.push({ type: 'ACTION_ROW', components: selected ? [
+    { type: 'BUTTON', style: 'DANGER', customId: `bc:req:${order.id}:${selected.id}:remove:v${page.orderVersion}:r${selected.version}`, label: '删除此项目' },
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:req:${order.id}:back:v${page.orderVersion}`, label: '返回清单' },
+    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单' },
+    { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' }
+  ] : [
+    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单', disabled: requirements.length === 0 },
+    { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' },
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${page.orderVersion}`, label: '我要申诉' }
+  ] });
+
+  return {
+    title: `订单 #${order.publicId} · 陪玩清单`,
+    body: [lines, `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`, `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`, order.notes ? `备注：${order.notes}` : '备注：未填写'].join('\n\n'),
+    visibility: 'PRIVATE_CHANNEL',
+    components
   };
 }
 
@@ -1570,6 +1709,23 @@ export function buildOrderConfirmationMessage(input: {
   };
 }
 
+export function buildMultiProjectOrderConfirmationMessage(input: {
+  order: OrderSummary;
+  requirements: OrderRequirementPageSummary;
+  balance: BalanceSummary;
+}): MessageSpec {
+  const active = input.requirements.items.filter((item)=>item.status==='ACTIVE');
+  const currencyMismatch=input.requirements.currency!==input.balance.currency;
+  const deficitMinor=Math.max(0,input.requirements.derivedTotalMinor-input.balance.availableMinor);
+  const canSubmit=active.length>0&&!currencyMismatch&&deficitMinor===0;
+  const lines=active.map((item,index)=>`${index+1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName?` · ${item.regionDisplayName}`:''}\n   ${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor,input.requirements.currency)}`).join('\n');
+  return {title:`订单 #${input.order.publicId} · 最后确认`,body:[lines||'还没有添加陪玩项目。',input.order.notes?`备注：${input.order.notes}`:'备注：未填写',`订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor,input.requirements.currency)}`,`可用余额：${formatCustomerMoney(input.balance.availableMinor,input.balance.currency)}`,canSubmit?'状态：可以提交。提交时 API 会再次复核项目、价格、余额和订单版本。':currencyMismatch?'订单币种与钱包币种不一致。':active.length===0?'请先添加至少一个陪玩项目。':`可用余额还差 ${formatCustomerMoney(deficitMinor,input.requirements.currency)}。`].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[
+    {type:'BUTTON',style:'PRIMARY',customId:`bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,label:'确认提交并预留',disabled:!canSubmit},
+    {type:'BUTTON',style:'SECONDARY',customId:`bc:req:${input.order.id}:back:v${input.requirements.orderVersion}`,label:'返回修改'},
+    {type:'BUTTON',style:'DANGER',customId:`bc:order:${input.order.id}:cancel:v${input.requirements.orderVersion}`,label:'取消订单'}
+  ]}]};
+}
+
 function readinessLabel(value: 'READY' | 'NOT_READY'): string {
   return value === 'READY' ? '已就绪' : '未就绪';
 }
@@ -1649,6 +1805,13 @@ export async function handleOpenOrderConfirmation(input: {
     return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(order) };
   }
   try {
+    if (input.api.listOrderRequirements) {
+      const [requirements,balance]=await Promise.all([
+        input.api.listOrderRequirements(input.orderId,input.actor,undefined,25),
+        input.api.getCurrentBalance(input.actor)
+      ]);
+      return {kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderConfirmationMessage({order,requirements,balance})};
+    }
     const [estimate, balance] = await Promise.all([
       input.api.estimateOrder(
         input.orderId,
@@ -1933,6 +2096,11 @@ export async function handleOrderSelectSubmit(input: {
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
   const [order, catalog] = await Promise.all([input.api.getOrder(input.orderId, input.actor), input.api.listServices(input.actor)]);
+  if(input.field==='preferred-players'){
+    const updated=await input.api.updateOrder(input.orderId,{expectedVersion:input.expectedVersion,preferredPlayerDiscordUserIds:Array.isArray(input.value)?input.value:[input.value]},input.actor,input.idempotencyKey);
+    if(input.api.listOrderRequirements){const page=await input.api.listOrderRequirements(input.orderId,input.actor,undefined,10);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(updated,page,catalog.items)};}
+    return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(updated,catalog.items)};
+  }
   const selected = input.field === 'catalog'
     ? catalog.items.find((item) => item.id === input.value)
     : catalog.items.find((item) => item.id === order.serviceCatalogId);
@@ -1942,13 +2110,87 @@ export async function handleOrderSelectSubmit(input: {
     serviceCatalogId: selected.id,
     unitCount: input.field === 'duration' ? Number.parseInt(String(input.value), 10) : Math.max(order.unitCount ?? 0, selected.minimumUnits)
   };
-  if (input.field === 'preferred-players' || order.preferredPlayerDiscordUserIds?.length) {
-    payload.preferredPlayerDiscordUserIds = input.field === 'preferred-players'
-      ? (Array.isArray(input.value) ? input.value : [input.value])
-      : order.preferredPlayerDiscordUserIds;
+  if (order.preferredPlayerDiscordUserIds?.length) {
+    payload.preferredPlayerDiscordUserIds = order.preferredPlayerDiscordUserIds;
   }
   const updated = await input.api.updateOrder(input.orderId, payload, input.actor, input.idempotencyKey);
   return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated, catalog.items) };
+}
+
+export async function handleOrderRequirementSelectSubmit(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  action: 'add' | 'edit' | 'units' | 'players';
+  requirementId?: string;
+  expectedRequirementVersion?: number;
+  cursor?: string;
+  value: string;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  const requirementApi = requireOrderRequirementApi(input.api);
+  const [order, page, catalog] = await Promise.all([
+    input.api.getOrder(input.orderId, input.actor),
+    requirementApi.list(input.orderId, input.actor, input.cursor, 10),
+    input.api.listServices(input.actor)
+  ]);
+  let selectedRequirementId = input.action === 'edit' ? input.value : input.requirementId;
+  let changedRequirement: OrderRequirementMutationSummary | null = null;
+  if (input.action === 'add') {
+    const service = catalog.items.find((item) => item.id === input.value);
+    if (!service) throw new Error('The selected service catalog is unavailable.');
+    const created = await requirementApi.add(input.orderId, {
+      expectedOrderVersion: input.expectedVersion,
+      serviceCatalogVersionId: service.id,
+      unitCount: service.minimumUnits,
+      requestedPlayerCount: 1
+    }, input.actor, input.idempotencyKey);
+    selectedRequirementId = created.requirement.id;
+  } else if (input.action === 'units' || input.action === 'players') {
+    const requirement = page.items.find((item) => item.id === input.requirementId && item.status === 'ACTIVE');
+    const requirementVersion=requirement?.version??input.expectedRequirementVersion;
+    if (!input.requirementId||!requirementVersion) throw new Error('The selected order requirement is unavailable.');
+    const quantity = Number.parseInt(input.value, 10);
+    if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('The selected quantity is invalid.');
+    const changed=await requirementApi.update(input.orderId, input.requirementId, {
+      expectedOrderVersion: input.expectedVersion,
+      expectedRequirementVersion: requirementVersion,
+      action: 'CHANGE_QUANTITY',
+      unitCount: input.action === 'units' ? quantity : null,
+      requestedPlayerCount: input.action === 'players' ? quantity : null
+    }, input.actor, input.idempotencyKey);
+    changedRequirement=changed;
+  }
+  const [refreshedOrder, refreshedPage] = await Promise.all([
+    input.api.getOrder(input.orderId, input.actor),
+    requirementApi.list(input.orderId, input.actor, input.cursor, 10)
+  ]);
+  if(changedRequirement&&selectedRequirementId&&!refreshedPage.items.some((item)=>item.id===selectedRequirementId)){
+    refreshedPage.items=[changedRequirement.requirement];refreshedPage.orderVersion=changedRequirement.orderVersion;refreshedPage.derivedTotalMinor=changedRequirement.derivedTotalMinor;refreshedPage.nextCursor=null;
+  }
+  return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildMultiProjectOrderPanelMessage(refreshedOrder, refreshedPage, catalog.items, selectedRequirementId, input.cursor) };
+}
+
+export async function handleOrderRequirementAction(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  expectedVersion: number;
+  action: 'back' | 'remove' | 'page';
+  cursor?: string;
+  requirementId?: string;
+  expectedRequirementVersion?: number;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  const requirementApi=requireOrderRequirementApi(input.api);
+  if(input.action==='remove'){
+    if(!input.requirementId||!input.expectedRequirementVersion)throw new Error('Requirement identity and version are required.');
+    await requirementApi.update(input.orderId,input.requirementId,{expectedOrderVersion:input.expectedVersion,expectedRequirementVersion:input.expectedRequirementVersion,action:'REMOVE'},input.actor,input.idempotencyKey);
+  }
+  const cursor=input.action==='page'?input.cursor:undefined;
+  const [order,page,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),requirementApi.list(input.orderId,input.actor,cursor,10),input.api.listServices(input.actor)]);
+  return {kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,page,services.items,undefined,cursor)};
 }
 
 export async function handleOrderNotesSubmit(input: {
@@ -1966,6 +2208,7 @@ export async function handleOrderNotesSubmit(input: {
       input.actor,
       input.idempotencyKey
     );
+    if(input.api.listOrderRequirements){const [page,services]=await Promise.all([input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(updated,page,services.items)};}
     return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(updated) };
   } catch (error) {
     if (isApiError(error, 'CONFLICT')) {
@@ -2035,6 +2278,21 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
     };
   }
 
+  const requirementAdd = /^bc:req:([0-9a-f-]{36}):add:v([1-9][0-9]*)$/u.exec(customId);
+  if (requirementAdd) return {area:'order-requirement-select',orderId:requirementAdd[1]!,action:'add',expectedVersion:Number(requirementAdd[2])};
+  const requirementEdit = /^bc:req:([0-9a-f-]{36}):edit:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
+  if (requirementEdit) return {area:'order-requirement-select',orderId:requirementEdit[1]!,action:'edit',cursor:requirementEdit[2]==='first'?undefined:requirementEdit[2],expectedVersion:Number(requirementEdit[3])};
+  const requirementQuantity = /^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):(units|players):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
+  if (requirementQuantity) {
+    return { area: 'order-requirement-select', orderId: requirementQuantity[1]!, requirementId: requirementQuantity[2]!, action: requirementQuantity[3] as 'units'|'players', expectedVersion: Number(requirementQuantity[4]),expectedRequirementVersion:Number(requirementQuantity[5]) };
+  }
+  const requirementRemove=/^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):remove:v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
+  if(requirementRemove)return{area:'order-requirement-action',orderId:requirementRemove[1]!,requirementId:requirementRemove[2]!,action:'remove',expectedVersion:Number(requirementRemove[3]),expectedRequirementVersion:Number(requirementRemove[4])};
+  const requirementBack=/^bc:req:([0-9a-f-]{36}):back:v([1-9][0-9]*)$/u.exec(customId);
+  if(requirementBack)return{area:'order-requirement-action',orderId:requirementBack[1]!,action:'back',expectedVersion:Number(requirementBack[2])};
+  const requirementPage=/^bc:req:([0-9a-f-]{36}):page:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
+  if(requirementPage)return{area:'order-requirement-action',orderId:requirementPage[1]!,action:'page',cursor:requirementPage[2]==='first'?undefined:requirementPage[2],expectedVersion:Number(requirementPage[3])};
+
   const notesModal = /^bc:modal:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
   if (notesModal) {
     return {
@@ -2043,6 +2301,8 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       expectedVersion: Number.parseInt(notesModal[2], 10)
     };
   }
+  const notesOpen=/^bc:modal-open:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
+  if(notesOpen)return{area:'order-notes-open',orderId:notesOpen[1]!,expectedVersion:Number(notesOpen[2])};
 
   const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
   if (orderAction) {
@@ -2074,9 +2334,32 @@ export function buildDiscordIdempotencyKey(action: string, interactionId: string
 function select(
   customId: string,
   placeholder: string,
-  options: Array<{ label: string; value: string }>
+  options: Array<{ label: string; value: string }>,
+  disabled = false
 ): ComponentSpec {
-  return { type: 'STRING_SELECT', customId, placeholder, options };
+  return { type: 'STRING_SELECT', customId, placeholder, options, disabled };
+}
+
+function requirementOptions(requirements: OrderRequirementSummary[]): Array<{label:string;value:string}> {
+  if (!requirements.length) return [{ label: '还没有项目', value: 'unavailable' }];
+  return requirements.slice(0, 25).map((item, index) => ({ label: `${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName} · ${item.unitCount} 单位 × ${item.requestedPlayerCount} 位`.slice(0, 100), value: item.id }));
+}
+
+function integerOptions(min: number, max: number, current: number, label: (value:number)=>string): Array<{label:string;value:string}> {
+  const values = new Set<number>();
+  for (let value=min; value<=max; value+=1) values.add(value);
+  values.add(current);
+  return [...values].sort((a,b)=>a-b).slice(0,25).map((value)=>({label: `${label(value)}${value===current?' · 当前':''}`.slice(0,100),value:String(value)}));
+}
+
+function formatRequirementDuration(requirement: Pick<OrderRequirementSummary, 'unitCount'|'billingUnitMinutes'>): string {
+  const minutes = requirement.unitCount * requirement.billingUnitMinutes;
+  return minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
+}
+
+function requireOrderRequirementApi(api: BotApiClient) {
+  if (!api.listOrderRequirements || !api.addOrderRequirement || !api.updateOrderRequirement) throw new Error('Order requirement API is unavailable.');
+  return { list: api.listOrderRequirements.bind(api), add: api.addOrderRequirement.bind(api), update: api.updateOrderRequirement.bind(api) };
 }
 
 function orderMenuControls(orderId: string, version: number): ComponentSpec[] {

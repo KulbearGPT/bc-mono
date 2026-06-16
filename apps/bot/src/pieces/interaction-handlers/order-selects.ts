@@ -7,6 +7,8 @@ import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   buildOrderPanelMessage,
+  buildMultiProjectOrderPanelMessage,
+  handleOrderRequirementSelectSubmit,
   handleOrderSelectSubmit,
   parseServiceCenterCustomId,
   type BotActorContext,
@@ -23,11 +25,11 @@ export default class OrderSelectHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-select' ? this.some(route) : this.none();
+    return route.area === 'order-select' || route.area === 'order-requirement-select' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || parsedData?.area !== 'order-select') {
+    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select')) {
       return;
     }
 
@@ -39,8 +41,20 @@ export default class OrderSelectHandler extends InteractionHandler {
       clientSource: 'DISCORD_BOT'
     };
     try {
-      const result = await handleOrderSelectSubmit({
-        api: new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' }),
+      const api = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
+      const result = parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
+        api,
+        actor,
+        orderId: parsedData.orderId,
+        expectedVersion: parsedData.expectedVersion,
+        action: parsedData.action,
+        requirementId: parsedData.requirementId,
+        expectedRequirementVersion: parsedData.action === 'units' || parsedData.action === 'players' ? parsedData.expectedRequirementVersion : undefined,
+        cursor: parsedData.action === 'edit' ? parsedData.cursor : undefined,
+        value: interaction.values[0] ?? '',
+        idempotencyKey: buildDiscordIdempotencyKey(`requirement:${parsedData.action}`, interaction.id)
+      }) : await handleOrderSelectSubmit({
+        api,
         actor,
         orderId: parsedData.orderId,
         expectedVersion: parsedData.expectedVersion,
@@ -57,9 +71,13 @@ export default class OrderSelectHandler extends InteractionHandler {
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-order-select-failed';
       try {
-        const order = await new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' })
-          .getOrder(parsedData.orderId, actor);
-        const reply = toDiscordReply(buildOrderPanelMessage(order));
+        const recoveryApi = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
+        const [order, requirements, services] = await Promise.all([
+          recoveryApi.getOrder(parsedData.orderId, actor),
+          recoveryApi.listOrderRequirements(parsedData.orderId, actor, undefined, 10),
+          recoveryApi.listServices(actor)
+        ]);
+        const reply = toDiscordReply(buildMultiProjectOrderPanelMessage(order, requirements, services.items));
         await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
         await interaction.followUp({ content: botCopy.orders.optionSaveFailed(requestId), ephemeral: true });
       } catch {

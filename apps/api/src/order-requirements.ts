@@ -136,7 +136,7 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
   list(input: RequirementScope & { cursor: string | null; limit: number }): RequirementPage {
     const order = this.requireOrder(input);
     const offset = decodeCursor(input.cursor);
-    const all = this.requirements.filter((item) => item.orderId === order.id).sort(sortCreated);
+    const all = this.requirements.filter((item) => item.orderId === order.id && item.status === 'ACTIVE').sort(sortCreated);
     return {
       orderId: order.id,
       orderVersion: order.version,
@@ -223,7 +223,7 @@ export class PostgresOrderRequirementStore implements OrderRequirementStore {
     const order = await scopedOrder(this.pool, input, false);
     const offset = decodeCursor(input.cursor);
     const result = await this.pool.query<RequirementRow>(`${requirementSelect}
-      WHERE requirement.order_id=$1 ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`, [input.orderId, offset, input.limit + 1]);
+      WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`, [input.orderId, offset, input.limit + 1]);
     const items = result.rows.slice(0, input.limit).map(mapRequirement);
     const total = await requirementTotal(this.pool, input.orderId);
     return { orderId: input.orderId, orderVersion: order.row_version, derivedTotalMinor: total, currency: 'CAT', items, nextCursor: result.rows.length > input.limit ? encodeCursor(offset + input.limit) : null };

@@ -125,8 +125,8 @@ export interface CreateOrderInput {
 
 export interface UpdateOrderInput {
   expectedVersion: number;
-  serviceCatalogId: string;
-  unitCount: number;
+  serviceCatalogId?: string;
+  unitCount?: number;
   region?: string | null;
   notes?: string | null;
   voiceChannelId?: string | null;
@@ -373,6 +373,7 @@ export interface OrderStore {
   getActiveRequirementEstimate?(orderId: string): Promise<{ count: number; amountMinor: number }>;
   getNextOpenRequirement?(orderId: string): Promise<OrderDispatchRequirement | null>;
   getDispatchRequirement?(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null>;
+  getActiveParticipantPlayerIds?(orderId: string): Promise<string[]>;
   issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
   findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
   applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
@@ -937,6 +938,11 @@ WHERE o.id = $1
       linePriceMinorPerPlayer:price*row.unit_count,defaultPlayerPayoutBps:row.default_player_payout_bps};
   }
 
+  async getActiveParticipantPlayerIds(orderId: string): Promise<string[]> {
+    const result=await this.client.query<{player_id:string}>(`SELECT player_id FROM order_participants WHERE order_id=$1 AND status='ACTIVE' ORDER BY created_at,id`,[orderId]);
+    return result.rows.map((row)=>row.player_id);
+  }
+
   async nextEventSequence(orderId: string): Promise<number> {
     const result = await this.client.query<{ next_sequence: string }>(
       `
@@ -1279,22 +1285,15 @@ export async function prepareUpdateOrder(input: {
   const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
   validateDraftOrderVersion(order, input.input.expectedVersion);
   validateUpdateOrderInput(input.input);
-  const service = await input.catalogStore.getById(input.input.serviceCatalogId);
-  assertAvailableService(service);
-  if (input.input.unitCount < service.minimumUnits) {
-    throw new OrderError('VALIDATION_ERROR', 'unitCount must be at least the service minimum.');
+  let updated: OrderRecord;
+  if (input.input.serviceCatalogId && input.input.unitCount) {
+    const service = await input.catalogStore.getById(input.input.serviceCatalogId);
+    assertAvailableService(service);
+    if (input.input.unitCount < service.minimumUnits) throw new OrderError('VALIDATION_ERROR', 'unitCount must be at least the service minimum.');
+    updated = applyServiceSnapshot({order,service,unitCount:input.input.unitCount,region:input.input.region ?? service.region,notes:input.input.notes ?? order.notes,voiceChannelId:input.input.voiceChannelId ?? order.channelSpec.voiceChannelId,preferredPlayerDiscordUserIds:input.input.preferredPlayerDiscordUserIds ?? order.preferredPlayerDiscordUserIds ?? [],now:input.now});
+  } else {
+    updated={...clone(order),version:order.version+1,notes:input.input.notes===undefined?order.notes:input.input.notes,preferredPlayerDiscordUserIds:input.input.preferredPlayerDiscordUserIds??order.preferredPlayerDiscordUserIds??[],channelSpec:{...order.channelSpec,voiceChannelId:input.input.voiceChannelId===undefined?order.channelSpec.voiceChannelId:input.input.voiceChannelId},updatedAt:input.now.toISOString()};
   }
-
-  const updated = applyServiceSnapshot({
-    order,
-    service,
-    unitCount: input.input.unitCount,
-    region: input.input.region ?? service.region,
-    notes: input.input.notes ?? null,
-    voiceChannelId: input.input.voiceChannelId ?? order.channelSpec.voiceChannelId,
-    preferredPlayerDiscordUserIds: input.input.preferredPlayerDiscordUserIds ?? order.preferredPlayerDiscordUserIds ?? [],
-    now: input.now
-  });
   return {
     data: toApiOrder(updated),
     order: updated,
@@ -2325,12 +2324,10 @@ function validateUpdateOrderInput(input: UpdateOrderInput): void {
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
   }
-  if (!isUuid(input.serviceCatalogId)) {
-    throw new OrderError('VALIDATION_ERROR', 'serviceCatalogId must be a uuid.');
-  }
-  if (!Number.isInteger(input.unitCount) || input.unitCount < 1 || input.unitCount > 1440) {
-    throw new OrderError('VALIDATION_ERROR', 'unitCount must be between 1 and 1440.');
-  }
+  if ((input.serviceCatalogId===undefined)!==(input.unitCount===undefined)) throw new OrderError('VALIDATION_ERROR','serviceCatalogId and unitCount must be supplied together.');
+  if (input.serviceCatalogId!==undefined&&!isUuid(input.serviceCatalogId)) throw new OrderError('VALIDATION_ERROR', 'serviceCatalogId must be a uuid.');
+  if (input.unitCount!==undefined&&(!Number.isInteger(input.unitCount)||input.unitCount<1||input.unitCount>1440)) throw new OrderError('VALIDATION_ERROR', 'unitCount must be between 1 and 1440.');
+  if(input.serviceCatalogId===undefined&&input.notes===undefined&&input.voiceChannelId===undefined&&input.preferredPlayerDiscordUserIds===undefined)throw new OrderError('VALIDATION_ERROR','At least one draft field must be supplied.');
   if (input.region !== undefined && input.region !== null && typeof input.region !== 'string') {
     throw new OrderError('VALIDATION_ERROR', 'region must be a string or null.');
   }
