@@ -30,6 +30,7 @@ export interface RequirementCatalog {
 export interface OrderRequirementRecord {
   id: string;
   orderId: string;
+  sourcePackageSlotId?: string | null;
   serviceCatalogVersionId: string;
   game: string;
   gameDisplayName: string;
@@ -43,6 +44,7 @@ export interface OrderRequirementRecord {
   customerUnitPriceMinor: number;
   estimatedLinePriceMinor: number;
   filledPlayerCount: number;
+  customerNote?: string | null;
   status: OrderRequirementStatus;
   version: number;
   createdAt: string;
@@ -85,10 +87,11 @@ export interface UpdateRequirementInput extends RequirementScope {
   requirementId: string;
   expectedOrderVersion: number;
   expectedRequirementVersion: number;
-  action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'REMOVE';
+  action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'CHANGE_NOTE' | 'REMOVE';
   serviceCatalogVersionId: string | null;
   unitCount: number | null;
   requestedPlayerCount: number | null;
+  customerNote?: string | null;
   idempotencyKey: string;
   now: Date;
 }
@@ -119,6 +122,8 @@ export interface RequirementOrder {
   status: string;
   version: number;
   amountMinor: number;
+  sourcePackageVersionId?: string | null;
+  compositionMode?: 'PACKAGE_DEFAULT' | 'CUSTOMIZED' | null;
 }
 
 export class InMemoryOrderRequirementStore implements OrderRequirementStore {
@@ -168,6 +173,7 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
       this.requirements.push(clone(requirement));
       current.version += 1;
       current.amountMinor = total;
+      if(current.sourcePackageVersionId)current.compositionMode='CUSTOMIZED';
       this.eventKeys.add(input.idempotencyKey);
     } };
   }
@@ -190,6 +196,7 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
       this.requirements[index] = clone(next);
       current.version += 1;
       current.amountMinor = total;
+      if(current.sourcePackageVersionId)current.compositionMode='CUSTOMIZED';
       this.eventKeys.add(input.idempotencyKey);
     } };
   }
@@ -197,10 +204,11 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
   private changeRequirement(existing: OrderRequirementRecord, input: UpdateRequirementInput): OrderRequirementRecord {
     const timestamp = input.now.toISOString();
     if (input.action === 'REMOVE') return { ...clone(existing), status: 'REMOVED', version: existing.version + 1, updatedAt: timestamp };
+    if (input.action === 'CHANGE_NOTE') return {...clone(existing),customerNote:input.customerNote??null,version:existing.version+1,updatedAt:timestamp};
     const catalog = input.action === 'CHANGE_PROJECT'
       ? this.requireCatalog(requiredString(input.serviceCatalogVersionId, 'serviceCatalogVersionId'))
       : this.requireCatalog(existing.serviceCatalogVersionId);
-    return buildRequirement({ id: existing.id, orderId: existing.orderId, catalog, unitCount: input.unitCount ?? existing.unitCount, requestedPlayerCount: input.requestedPlayerCount ?? existing.requestedPlayerCount, version: existing.version + 1, now: input.now, createdAt: existing.createdAt });
+    return buildRequirement({ id: existing.id, orderId: existing.orderId, catalog, unitCount: input.unitCount ?? existing.unitCount, requestedPlayerCount: input.requestedPlayerCount ?? existing.requestedPlayerCount, version: existing.version + 1, now: input.now, createdAt: existing.createdAt, sourcePackageSlotId: existing.sourcePackageSlotId ?? null, customerNote: existing.customerNote ?? null });
   }
 
   private requireOrder(input: RequirementScope): RequirementOrder {
@@ -309,17 +317,19 @@ async function applyUpdate(client: PoolClient, input: UpdateRequirementInput): P
   let next: OrderRequirementRecord;
   if (input.action === 'REMOVE') {
     next = { ...existing, status: 'REMOVED', version: existing.version + 1, updatedAt: input.now.toISOString() };
+  } else if(input.action==='CHANGE_NOTE'){
+    next={...existing,customerNote:input.customerNote??null,version:existing.version+1,updatedAt:input.now.toISOString()};
   } else {
     const catalog = input.action === 'CHANGE_PROJECT' ? await catalogFacts(client, requiredString(input.serviceCatalogVersionId, 'serviceCatalogVersionId')) : await catalogFacts(client, existing.serviceCatalogVersionId);
-    next = buildRequirement({ id: existing.id, orderId: existing.orderId, catalog, unitCount: input.unitCount ?? existing.unitCount, requestedPlayerCount: input.requestedPlayerCount ?? existing.requestedPlayerCount, version: existing.version + 1, now: input.now, createdAt: existing.createdAt });
+    next = buildRequirement({ id: existing.id, orderId: existing.orderId, catalog, unitCount: input.unitCount ?? existing.unitCount, requestedPlayerCount: input.requestedPlayerCount ?? existing.requestedPlayerCount, version: existing.version + 1, now: input.now, createdAt: existing.createdAt, sourcePackageSlotId: existing.sourcePackageSlotId ?? null, customerNote: existing.customerNote ?? null });
   }
   await client.query(`UPDATE order_requirements SET service_catalog_version_id=$2,status=$3,row_version=$4,
     game_code_snapshot=$5,game_display_name_snapshot=$6,service_code_snapshot=$7,service_display_name_snapshot=$8,
     region_code_snapshot=$9,region_display_name_snapshot=$10,billing_unit_minutes_snapshot=$11,unit_count=$12,
-    requested_player_count=$13,customer_unit_price_minor_snapshot=$14,estimated_line_price_minor=$15,
-    removed_at=CASE WHEN $3='REMOVED' THEN $16 ELSE NULL END,updated_at=$16 WHERE id=$1`,
-  [next.id,next.serviceCatalogVersionId,next.status,next.version,next.game,next.gameDisplayName,next.service,next.serviceDisplayName,next.region,next.regionDisplayName,next.billingUnitMinutes,next.unitCount,next.requestedPlayerCount,next.customerUnitPriceMinor,next.estimatedLinePriceMinor,input.now.toISOString()]);
-  return finishMutation(client, input, next, input.action === 'REMOVE' ? 'REMOVED' : input.action === 'CHANGE_PROJECT' ? 'PROJECT_CHANGED' : 'QUANTITY_CHANGED');
+    requested_player_count=$13,customer_unit_price_minor_snapshot=$14,estimated_line_price_minor=$15,customer_note=$16,
+    removed_at=CASE WHEN $3='REMOVED' THEN $17 ELSE NULL END,updated_at=$17 WHERE id=$1`,
+  [next.id,next.serviceCatalogVersionId,next.status,next.version,next.game,next.gameDisplayName,next.service,next.serviceDisplayName,next.region,next.regionDisplayName,next.billingUnitMinutes,next.unitCount,next.requestedPlayerCount,next.customerUnitPriceMinor,next.estimatedLinePriceMinor,next.customerNote,input.now.toISOString()]);
+  return finishMutation(client, input, next, input.action === 'REMOVE' ? 'REMOVED' : input.action === 'CHANGE_PROJECT' ? 'PROJECT_CHANGED' : input.action==='CHANGE_NOTE'?'NOTE_CHANGED':'QUANTITY_CHANGED');
 }
 
 async function finishMutation(client: PoolClient, input: AddRequirementInput | UpdateRequirementInput, requirement: OrderRequirementRecord, eventType: string): Promise<RequirementMutationResult> {
@@ -331,20 +341,20 @@ async function finishMutation(client: PoolClient, input: AddRequirementInput | U
     (SELECT user_id FROM discord_accounts WHERE guild_id=$5 AND discord_user_id=$6),$7::jsonb,$8,$9)`,
   [requirement.id,eventType,requirement.version,version,input.actorGuildId,input.actorDiscordUserId,JSON.stringify(requirement),input.idempotencyKey,input.now.toISOString()]);
   await client.query(`SELECT set_config('app.order_draft_amount_update','approved',true)`);
-  const updated = await client.query<{ row_version: number }>(`UPDATE orders SET amount_minor=$3,row_version=row_version+1,updated_at=$4
+  const updated = await client.query<{ row_version: number }>(`UPDATE orders SET amount_minor=$3,composition_mode=CASE WHEN source_package_version_id IS NOT NULL THEN 'CUSTOMIZED'::"OrderCompositionMode" ELSE composition_mode END,row_version=row_version+1,updated_at=$4
     WHERE id=$1 AND row_version=$2 AND status='DRAFT' RETURNING row_version`, [input.orderId,input.expectedOrderVersion,total,input.now.toISOString()]);
   if (!updated.rows[0]) throw new OrderRequirementError('CONFLICT', 'Order version is stale.');
   return { orderId: input.orderId, orderVersion: updated.rows[0].row_version, derivedTotalMinor: total, currency: 'CAT', requirement };
 }
 
-function buildRequirement(input: { id: string; orderId: string; catalog: RequirementCatalog; unitCount: number; requestedPlayerCount: number; version: number; now: Date; createdAt?: string }): OrderRequirementRecord {
+function buildRequirement(input: { id: string; orderId: string; catalog: RequirementCatalog; unitCount: number; requestedPlayerCount: number; version: number; now: Date; createdAt?: string; sourcePackageSlotId?: string | null; customerNote?: string | null }): OrderRequirementRecord {
   const units = positiveInteger(input.unitCount, 'unitCount');
   const players = positiveInteger(input.requestedPlayerCount, 'requestedPlayerCount');
   const price = positiveInteger(input.catalog.customerUnitPriceMinor, 'customerUnitPriceMinor');
   const estimate = price * units * players;
   if (!Number.isSafeInteger(estimate)) throw new OrderRequirementError('VALIDATION_ERROR', 'Derived requirement estimate is outside the supported range.');
   const timestamp = input.now.toISOString();
-  return { id: input.id, orderId: input.orderId, serviceCatalogVersionId: input.catalog.id, game: input.catalog.game, gameDisplayName: input.catalog.gameDisplayName, service: input.catalog.service, serviceDisplayName: input.catalog.serviceDisplayName, region: input.catalog.region, regionDisplayName: input.catalog.regionDisplayName, billingUnitMinutes: input.catalog.billingUnitMinutes, unitCount: units, requestedPlayerCount: players, customerUnitPriceMinor: price, estimatedLinePriceMinor: estimate, filledPlayerCount: 0, status: 'ACTIVE', version: input.version, createdAt: input.createdAt ?? timestamp, updatedAt: timestamp };
+  return { id: input.id, orderId: input.orderId, sourcePackageSlotId: input.sourcePackageSlotId ?? null, serviceCatalogVersionId: input.catalog.id, game: input.catalog.game, gameDisplayName: input.catalog.gameDisplayName, service: input.catalog.service, serviceDisplayName: input.catalog.serviceDisplayName, region: input.catalog.region, regionDisplayName: input.catalog.regionDisplayName, billingUnitMinutes: input.catalog.billingUnitMinutes, unitCount: units, requestedPlayerCount: players, customerUnitPriceMinor: price, estimatedLinePriceMinor: estimate, filledPlayerCount: 0, customerNote: input.customerNote ?? null, status: 'ACTIVE', version: input.version, createdAt: input.createdAt ?? timestamp, updatedAt: timestamp };
 }
 
 async function scopedOrder(client: Pick<Pool, 'query'> | PoolClient, input: RequirementScope, lock: boolean): Promise<OrderScopeRow> {
@@ -380,7 +390,7 @@ function mutationResult(order: RequirementOrder, requirement: OrderRequirementRe
 function deriveTotal(items: OrderRequirementRecord[]): number { const total = items.filter((item) => item.status === 'ACTIVE').reduce((sum, item) => sum + item.estimatedLinePriceMinor, 0); if (!Number.isSafeInteger(total)) throw new OrderRequirementError('VALIDATION_ERROR', 'Derived order estimate is outside the supported range.'); return total; }
 function sortCreated(a: OrderRequirementRecord, b: OrderRequirementRecord): number { return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id); }
 function parseAdd(value: unknown): Omit<AddRequirementInput, keyof RequirementScope | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','serviceCatalogVersionId','unitCount','requestedPlayerCount']); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), serviceCatalogVersionId: uuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: positiveInteger(body.unitCount,'unitCount'), requestedPlayerCount: positiveInteger(body.requestedPlayerCount,'requestedPlayerCount') }; }
-function parseUpdate(value: unknown): Omit<UpdateRequirementInput, keyof RequirementScope | 'requirementId' | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','expectedRequirementVersion','action','serviceCatalogVersionId','unitCount','requestedPlayerCount']); if (body.action !== 'CHANGE_PROJECT' && body.action !== 'CHANGE_QUANTITY' && body.action !== 'REMOVE') throw new OrderRequirementError('VALIDATION_ERROR','action is invalid.'); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), expectedRequirementVersion: positiveInteger(body.expectedRequirementVersion,'expectedRequirementVersion'), action: body.action, serviceCatalogVersionId: nullableUuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: nullablePositiveInteger(body.unitCount,'unitCount'), requestedPlayerCount: nullablePositiveInteger(body.requestedPlayerCount,'requestedPlayerCount') }; }
+function parseUpdate(value: unknown): Omit<UpdateRequirementInput, keyof RequirementScope | 'requirementId' | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','expectedRequirementVersion','action','serviceCatalogVersionId','unitCount','requestedPlayerCount','customerNote']); if (body.action !== 'CHANGE_PROJECT' && body.action !== 'CHANGE_QUANTITY' && body.action !== 'CHANGE_NOTE' && body.action !== 'REMOVE') throw new OrderRequirementError('VALIDATION_ERROR','action is invalid.'); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), expectedRequirementVersion: positiveInteger(body.expectedRequirementVersion,'expectedRequirementVersion'), action: body.action, serviceCatalogVersionId: nullableUuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: nullablePositiveInteger(body.unitCount,'unitCount'), requestedPlayerCount: nullablePositiveInteger(body.requestedPlayerCount,'requestedPlayerCount'),customerNote:nullableNote(body.customerNote) }; }
 function strictObject(value: unknown, allowed: string[]): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OrderRequirementError('VALIDATION_ERROR','Object payload is required.'); const body=value as Record<string,unknown>; const extra=Object.keys(body).filter((key)=>!allowed.includes(key)); if(extra.length)throw new OrderRequirementError('VALIDATION_ERROR',`Unexpected fields: ${extra.join(', ')}.`); return body; }
 function pageInput(request: FastifyRequest) { const query=request.query as Record<string,unknown>; const limit=query.limit===undefined?25:positiveInteger(Number(query.limit),'limit'); if(limit>100)throw new OrderRequirementError('VALIDATION_ERROR','limit cannot exceed 100.'); return { cursor: typeof query.cursor==='string'&&query.cursor?query.cursor:null, limit }; }
 function requestIdempotencyKey(request: FastifyRequest): string { const value=request.headers['idempotency-key']; return Array.isArray(value)?value[0]??'':value??''; }
@@ -389,6 +399,7 @@ function positiveInteger(value: unknown, field: string): number { if (!Number.is
 function nullablePositiveInteger(value: unknown, field: string): number | null { return value === undefined || value === null ? null : positiveInteger(value, field); }
 function uuid(value: unknown, field: string): string { if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value)) throw new OrderRequirementError('VALIDATION_ERROR',`${field} is invalid.`); return value; }
 function nullableUuid(value: unknown, field: string): string | null { return value === undefined || value === null ? null : uuid(value,field); }
+function nullableNote(value:unknown):string|null{if(value===undefined||value===null||value==='')return null;if(typeof value!=='string'||value.length>500)throw new OrderRequirementError('VALIDATION_ERROR','customerNote must be at most 500 characters.');return value;}
 function requiredString(value: string | null, field: string): string { if (!value) throw new OrderRequirementError('VALIDATION_ERROR',`${field} is required.`); return value; }
 function encodeCursor(offset: number): string { return Buffer.from(JSON.stringify({v:1,offset})).toString('base64url'); }
 function decodeCursor(cursor: string | null): number { if (!cursor) return 0; try { const parsed=JSON.parse(Buffer.from(cursor,'base64url').toString()) as {v?:unknown;offset?:unknown}; if(parsed.v!==1||!Number.isSafeInteger(parsed.offset)||Number(parsed.offset)<0)throw new Error(); return Number(parsed.offset); } catch { throw new OrderRequirementError('VALIDATION_ERROR','Cursor is invalid.'); } }
@@ -397,12 +408,12 @@ function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; 
 function mapError(error: unknown) { if (!(error instanceof OrderRequirementError)) return null; return { statusCode: error.code==='NOT_FOUND'?404:error.code==='PERMISSION_DENIED'?403:error.code==='CONFLICT'?409:error.code==='BUSINESS_RULE_ERROR'?422:400, code:error.code, message:error.message }; }
 function normalizeError(error: unknown): unknown { if(error instanceof OrderRequirementError)return error; const code=(error as {code?:string})?.code; if(code==='23505')return new OrderRequirementError('CONFLICT','Idempotency key was already used.'); if(code==='23503')return new OrderRequirementError('BUSINESS_RULE_ERROR','Referenced order requirement data is invalid.'); return error; }
 function requirementValues(r: OrderRequirementRecord): unknown[] { return [r.id,r.orderId,r.serviceCatalogVersionId,r.game,r.gameDisplayName,r.service,r.serviceDisplayName,r.region,r.regionDisplayName,r.billingUnitMinutes,r.unitCount,r.requestedPlayerCount,r.customerUnitPriceMinor,r.estimatedLinePriceMinor,r.createdAt]; }
-function mapRequirement(row: RequirementRow): OrderRequirementRecord { return { id:row.id,orderId:row.order_id,serviceCatalogVersionId:row.service_catalog_version_id,game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,customerUnitPriceMinor:safeMinor(row.customer_unit_price_minor_snapshot),estimatedLinePriceMinor:safeMinor(row.estimated_line_price_minor),filledPlayerCount:Number(row.filled_player_count),status:row.status,version:row.row_version,createdAt:new Date(row.created_at).toISOString(),updatedAt:new Date(row.updated_at).toISOString() }; }
+function mapRequirement(row: RequirementRow): OrderRequirementRecord { return { id:row.id,orderId:row.order_id,sourcePackageSlotId:row.source_package_slot_id,customerNote:row.customer_note,serviceCatalogVersionId:row.service_catalog_version_id,game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,customerUnitPriceMinor:safeMinor(row.customer_unit_price_minor_snapshot),estimatedLinePriceMinor:safeMinor(row.estimated_line_price_minor),filledPlayerCount:Number(row.filled_player_count),status:row.status,version:row.row_version,createdAt:new Date(row.created_at).toISOString(),updatedAt:new Date(row.updated_at).toISOString() }; }
 
 interface OrderScopeRow { id: string; row_version: number; status: string }
 interface CatalogRow { id:string;status:string;billing_unit_minutes:number;customer_unit_price_minor:string|number|bigint;game_code:string;game_name:string;service_code:string;service_name:string;region_code:string|null }
-interface RequirementRow { id:string;order_id:string;service_catalog_version_id:string;status:OrderRequirementStatus;row_version:number;game_code_snapshot:string;game_display_name_snapshot:string;service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;customer_unit_price_minor_snapshot:string|number|bigint;estimated_line_price_minor:string|number|bigint;filled_player_count:string|number;created_at:string|Date;updated_at:string|Date }
-const requirementSelect = `SELECT requirement.id,requirement.order_id,requirement.service_catalog_version_id,requirement.status::text,requirement.row_version,
+interface RequirementRow { id:string;order_id:string;source_package_slot_id:string|null;customer_note:string|null;service_catalog_version_id:string;status:OrderRequirementStatus;row_version:number;game_code_snapshot:string;game_display_name_snapshot:string;service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;customer_unit_price_minor_snapshot:string|number|bigint;estimated_line_price_minor:string|number|bigint;filled_player_count:string|number;created_at:string|Date;updated_at:string|Date }
+const requirementSelect = `SELECT requirement.id,requirement.order_id,requirement.source_package_slot_id,requirement.customer_note,requirement.service_catalog_version_id,requirement.status::text,requirement.row_version,
   requirement.game_code_snapshot,requirement.game_display_name_snapshot,requirement.service_code_snapshot,requirement.service_display_name_snapshot,
   requirement.region_code_snapshot,requirement.region_display_name_snapshot,requirement.billing_unit_minutes_snapshot,requirement.unit_count,
   requirement.requested_player_count,requirement.customer_unit_price_minor_snapshot,requirement.estimated_line_price_minor,

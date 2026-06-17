@@ -113,6 +113,12 @@ enum OrderRequirementEventType {
   PROJECT_CHANGED
   QUANTITY_CHANGED
   REMOVED
+  NOTE_CHANGED
+}
+
+enum OrderCompositionMode {
+  PACKAGE_DEFAULT
+  CUSTOMIZED
 }
 
 enum StaffLevel {
@@ -1173,10 +1179,64 @@ model ServiceCatalogVersion {
   orders          Order[]
   orderParticipants OrderParticipant[]
   orderRequirements OrderRequirement[]
+  packageSlots      ServicePackageSlot[]
 
   @@unique([serviceOfferingId, version])
   @@index([status, serviceOfferingId])
   @@map("service_catalog_versions")
+}
+
+model ServicePackage {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique @db.VarChar(100)
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  versions ServicePackageVersion[]
+
+  @@map("service_packages")
+}
+
+model ServicePackageVersion {
+  id                        String               @id @default(uuid()) @db.Uuid
+  servicePackageId          String               @map("service_package_id") @db.Uuid
+  version                   Int
+  status                    CatalogVersionStatus @default(DRAFT)
+  activePackageKey          String?              @unique @map("active_package_key") @db.Uuid
+  displayName               String               @map("display_name") @db.VarChar(100)
+  description               String               @db.VarChar(1000)
+  defaultCustomerPriceMinor BigInt?              @map("default_customer_price_minor")
+  currency                  String               @db.Char(3)
+  createdByStaffId          String               @map("created_by_staff_id") @db.Uuid
+  activatedAt               DateTime?            @map("activated_at") @db.Timestamptz(3)
+  retiredAt                 DateTime?             @map("retired_at") @db.Timestamptz(3)
+  createdAt                 DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  servicePackage ServicePackage       @relation(fields: [servicePackageId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  slots          ServicePackageSlot[]
+  sourceOrders   Order[]
+
+  @@unique([servicePackageId, version])
+  @@index([status, servicePackageId])
+  @@map("service_package_versions")
+}
+
+model ServicePackageSlot {
+  id                      String @id @default(uuid()) @db.Uuid
+  servicePackageVersionId String @map("service_package_version_id") @db.Uuid
+  serviceCatalogVersionId String @map("service_catalog_version_id") @db.Uuid
+  position                Int
+  unitCount               Int    @map("unit_count")
+  customerNoteTemplate    String? @map("customer_note_template") @db.VarChar(500)
+
+  packageVersion ServicePackageVersion @relation(fields: [servicePackageVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceVersion ServiceCatalogVersion @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requirements   OrderRequirement[]
+
+  @@unique([servicePackageVersionId, position])
+  @@index([serviceCatalogVersionId])
+  @@map("service_package_slots")
 }
 
 model ServiceVersionSkillRequirement {
@@ -1226,6 +1286,8 @@ model Order {
   expectedPlayerEarningMinor BigInt?     @map("expected_player_earning_minor")
   currency                   String?     @db.Char(3)
   requirementSnapshot        Json?       @map("requirement_snapshot") @db.JsonB
+  sourcePackageVersionId     String?      @map("source_package_version_id") @db.Uuid
+  compositionMode            OrderCompositionMode? @map("composition_mode")
   customerNote               String?     @map("customer_note") @db.VarChar(1000)
   guildId                    String?     @map("guild_id") @db.VarChar(32)
   channelId                  String?     @unique @map("channel_id") @db.VarChar(32)
@@ -1250,6 +1312,7 @@ model Order {
   activeCustomer      User?                  @relation("ActiveOrderCustomer", fields: [activeCustomerSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   activePlayer        User?                  @relation("ActiveOrderPlayer", fields: [activePlayerSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   serviceVersion      ServiceCatalogVersion? @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourcePackageVersion ServicePackageVersion? @relation(fields: [sourcePackageVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   events              OrderEvent[]
   resolutions         OrderResolution[]
   dispatchAttempts    DispatchAttempt[]
@@ -1272,6 +1335,7 @@ model Order {
   @@index([status, createdAt])
   @@index([status, readinessDueAt])
   @@index([serviceCatalogVersionId])
+  @@index([sourcePackageVersionId])
   @@map("orders")
 }
 
@@ -1327,6 +1391,8 @@ model OrderRequirement {
   id                         String                 @id @default(uuid()) @db.Uuid
   orderId                    String                 @map("order_id") @db.Uuid
   serviceCatalogVersionId    String                 @map("service_catalog_version_id") @db.Uuid
+  sourcePackageSlotId        String?                @map("source_package_slot_id") @db.Uuid
+  customerNote               String?                @map("customer_note") @db.VarChar(500)
   status                     OrderRequirementStatus @default(ACTIVE)
   rowVersion                 Int                    @default(1) @map("row_version")
   gameCodeSnapshot           String                 @map("game_code_snapshot") @db.VarChar(80)
@@ -1346,12 +1412,14 @@ model OrderRequirement {
 
   order                 Order                       @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   serviceCatalogVersion ServiceCatalogVersion       @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sourcePackageSlot     ServicePackageSlot?          @relation(fields: [sourcePackageSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   participants          OrderParticipant[]
   events                OrderRequirementEvent[]
   dispatchAttempts      DispatchAttempt[]
 
   @@index([orderId, status, createdAt])
   @@index([serviceCatalogVersionId])
+  @@index([sourcePackageSlotId])
   @@map("order_requirements")
 }
 

@@ -35,6 +35,8 @@
     "./admin-directory": "./src/admin-directory.ts",
     "./orders": "./src/orders.ts",
     "./order-participants": "./src/order-participants.ts",
+    "./order-requirements": "./src/order-requirements.ts",
+    "./service-packages": "./src/service-packages.ts",
     "./gifts": "./src/gifts.ts",
     "./player-earnings": "./src/player-earnings.ts",
     "./commissions": "./src/commissions.ts",
