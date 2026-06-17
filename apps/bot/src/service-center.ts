@@ -42,6 +42,8 @@ export interface OrderSummary {
   billingUnitMinutes: number | null;
   unitCount: number | null;
   amountMinor: number;
+  sourcePackageVersionId?: string | null;
+  compositionMode?: 'PACKAGE_DEFAULT' | 'CUSTOMIZED' | null;
   currency: string;
   notes: string | null;
   preferredPlayerDiscordUserIds?: string[];
@@ -68,6 +70,7 @@ export interface PublicServiceSummary {
 export interface OrderRequirementSummary {
   id: string;
   orderId: string;
+  sourcePackageSlotId?: string | null;
   serviceCatalogVersionId: string;
   game: string;
   gameDisplayName: string;
@@ -81,15 +84,24 @@ export interface OrderRequirementSummary {
   customerUnitPriceMinor: number;
   estimatedLinePriceMinor: number;
   filledPlayerCount: number;
+  customerNote?: string | null;
   status: 'ACTIVE' | 'REMOVED';
   version: number;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ServicePackageSlotSummary { id:string;position:number;serviceCatalogVersionId:string;gameDisplayName:string;serviceDisplayName:string;regionDisplayName:string|null;billingUnitMinutes:number;unitCount:number;customerNoteTemplate:string|null }
+export interface ServicePackageSummary { id:string;code:string;version:number;displayName:string;description:string;defaultCustomerPriceMinor:number|null;currency:'CAT';slots:ServicePackageSlotSummary[] }
+export interface ServicePackagePreviewSummary extends ServicePackageSummary { derivedTotalMinor:number;compositionMode:'PACKAGE_DEFAULT' }
+export interface ServicePackagePageSummary { items:ServicePackageSummary[];nextCursor:string|null }
+export interface ApplyServicePackageSummary {orderId:string;orderVersion:number;sourcePackageVersionId:string;compositionMode:'PACKAGE_DEFAULT';derivedTotalMinor:number;currency:'CAT';requirements:OrderRequirementSummary[]}
+
 export interface OrderRequirementPageSummary {
   orderId: string;
   orderVersion: number;
+  catalogSubtotalMinor?: number;
+  packageAdjustmentMinor?: number;
   derivedTotalMinor: number;
   currency: 'CAT';
   items: OrderRequirementSummary[];
@@ -372,10 +384,13 @@ export interface BotApiClient {
   updateOrderRequirement?(
     orderId: string,
     requirementId: string,
-    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null },
+    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'CHANGE_NOTE' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null;customerNote?:string|null },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<OrderRequirementMutationSummary>;
+  listServicePackages?(actor:BotActorContext,cursor?:string,limit?:number):Promise<ServicePackagePageSummary>;
+  previewServicePackage?(servicePackageVersionId:string,actor:BotActorContext):Promise<ServicePackagePreviewSummary>;
+  applyServicePackage?(orderId:string,input:{expectedOrderVersion:number;servicePackageVersionId:string},actor:BotActorContext,idempotencyKey:string):Promise<ApplyServicePackageSummary>;
   getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary>;
   getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary>;
   getCurrentUserProfileSummary(actor: BotActorContext): Promise<CurrentUserProfileSummary>;
@@ -554,12 +569,16 @@ export class HttpBotApiClient implements BotApiClient {
   public async updateOrderRequirement(
     orderId: string,
     requirementId: string,
-    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null },
+    input: { expectedOrderVersion: number; expectedRequirementVersion: number; action: 'CHANGE_PROJECT' | 'CHANGE_QUANTITY' | 'CHANGE_NOTE' | 'REMOVE'; serviceCatalogVersionId?: string | null; unitCount?: number | null; requestedPlayerCount?: number | null;customerNote?:string|null },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<OrderRequirementMutationSummary> {
     return this.request<OrderRequirementMutationSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/requirements/${encodeURIComponent(requirementId)}`, { method: 'PATCH', actor, idempotencyKey, body: input });
   }
+
+  public async listServicePackages(actor:BotActorContext,cursor?:string,limit=25):Promise<ServicePackagePageSummary>{const query=new URLSearchParams({limit:String(limit)});if(cursor)query.set('cursor',cursor);return this.request<ServicePackagePageSummary>(`/api/v1/service-packages?${query.toString()}`,{method:'GET',actor});}
+  public async previewServicePackage(servicePackageVersionId:string,actor:BotActorContext):Promise<ServicePackagePreviewSummary>{return this.request<ServicePackagePreviewSummary>(`/api/v1/service-packages/${encodeURIComponent(servicePackageVersionId)}/preview`,{method:'POST',actor});}
+  public async applyServicePackage(orderId:string,input:{expectedOrderVersion:number;servicePackageVersionId:string},actor:BotActorContext,idempotencyKey:string):Promise<ApplyServicePackageSummary>{return this.request<ApplyServicePackageSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/package`,{method:'POST',actor,idempotencyKey,body:input});}
 
   public async getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary> {
     return this.request<CurrentUserSummary>('/api/v1/me', {
@@ -974,14 +993,19 @@ export type ServiceCenterRoute =
   | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration' | 'preferred-players'; expectedVersion: number }
   | { area: 'order-requirement-select'; orderId: string; action: 'add'; requirementId?: undefined; expectedVersion: number }
   | { area: 'order-requirement-select'; orderId: string; action: 'edit'; requirementId?: undefined; expectedVersion: number; cursor?: string }
-  | { area: 'order-requirement-select'; orderId: string; action: 'units' | 'players'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
+  | { area: 'order-requirement-select'; orderId: string; action: 'project' | 'units' | 'players'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
   | { area: 'order-requirement-action'; orderId: string; action: 'back'; expectedVersion: number }
   | { area: 'order-requirement-action'; orderId: string; action: 'page'; expectedVersion: number; cursor?: string }
   | { area: 'order-requirement-action'; orderId: string; action: 'remove'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
+  | {area:'service-package-select';orderId:string;expectedVersion:number}
+  | {area:'service-package-action';orderId:string;action:'open'|'back';expectedVersion:number}
+  | {area:'service-package-action';orderId:string;action:'apply';servicePackageVersionId:string;expectedVersion:number}
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
   | { area: 'order-notes-open'; orderId: string; expectedVersion: number }
+  | {area:'requirement-note-modal';orderId:string;requirementId:string;expectedVersion:number;expectedRequirementVersion:number}
+  | {area:'requirement-note-open';orderId:string;requirementId:string;expectedVersion:number;expectedRequirementVersion:number}
   | { area: 'profile'; action: 'open' | 'refresh' | 'orders' | 'consumptions'; cursor?: string }
   | { area: 'reports'; action: 'list'; cursor?: string }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
@@ -1022,6 +1046,8 @@ export function buildOrderNotesModal(input: { orderId: string; expectedVersion: 
     ]
   };
 }
+
+export function buildRequirementNoteModal(input:{orderId:string;requirementId:string;expectedVersion:number;expectedRequirementVersion:number}):ModalSpec{return{title:'这个席位希望怎样陪你',customId:`bc:rnm:${input.orderId}:${input.requirementId}:v${input.expectedVersion}:r${input.expectedRequirementVersion}`,components:[{type:'TEXT_INPUT',customId:'requirement-note',label:'例如：技术要求不高，会聊天就行',style:'PARAGRAPH',required:false,maxLength:500}]};}
 
 export function buildPrivateOrderChannelPlan(input: {
   guildId: string;
@@ -1155,15 +1181,19 @@ export function buildMultiProjectOrderPanelMessage(
   const lines = requirements.length
     ? requirements.map((item, index) => [
         `**${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName ? ` · ${item.regionDisplayName}` : ''}**`,
-        `${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, page.currency)}`
+        `${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, page.currency)}`,
+        item.customerNote?`偏好：${item.customerNote}`:''
       ].join('\n')).join('\n\n')
     : '清单还是空的。请先从下方选择一个陪玩项目，我们会把它放进本次订单。';
-  const components: ActionRowSpec[] = [
+  const components: ActionRowSpec[] = selected ? [
+    { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
+  ] : [
     { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:add:v${page.orderVersion}`, '添加一个陪玩项目', serviceOptions(order, services))] },
     { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
   ];
   if (selected) {
     components.push(
+      { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:project:v${page.orderVersion}:r${selected.version}`, `项目：${selected.gameDisplayName} · ${selected.serviceDisplayName}`, serviceOptions(order, services))] },
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:units:v${page.orderVersion}:r${selected.version}`, `时长：${formatRequirementDuration(selected)}`, integerOptions(1, 12, selected.unitCount, (value) => `${value * selected.billingUnitMinutes / 60} 小时`))] },
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:players:v${page.orderVersion}:r${selected.version}`, `需要 ${selected.requestedPlayerCount} 位陪玩`, integerOptions(1, 10, selected.requestedPlayerCount, (value) => `${value} 位陪玩`))] }
     );
@@ -1179,11 +1209,13 @@ export function buildMultiProjectOrderPanelMessage(
     ] });
   }
   components.push({ type: 'ACTION_ROW', components: selected ? [
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:rno:${order.id}:${selected.id}:v${page.orderVersion}:r${selected.version}`, label: '席位偏好' },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:req:${order.id}:${selected.id}:remove:v${page.orderVersion}:r${selected.version}`, label: '删除此项目' },
     { type: 'BUTTON', style: 'SECONDARY', customId: `bc:req:${order.id}:back:v${page.orderVersion}`, label: '返回清单' },
     { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单' },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' }
   ] : [
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:package:${order.id}:open:v${page.orderVersion}`, label: '选择套餐' },
     { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单', disabled: requirements.length === 0 },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' },
     { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${page.orderVersion}`, label: '我要申诉' }
@@ -1191,11 +1223,19 @@ export function buildMultiProjectOrderPanelMessage(
 
   return {
     title: `订单 #${order.publicId} · 陪玩清单`,
-    body: [lines, `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`, `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`, order.notes ? `备注：${order.notes}` : '备注：未填写'].join('\n\n'),
+    body: [order.compositionMode==='PACKAGE_DEFAULT'?'当前构成：套餐默认阵容':order.compositionMode==='CUSTOMIZED'?'当前构成：已自定义阵容':null,lines,order.compositionMode==='PACKAGE_DEFAULT'&&(page.packageAdjustmentMinor??0)!==0?`项目原价：${formatCustomerMoney(page.catalogSubtotalMinor??page.derivedTotalMinor,page.currency)}\n套餐调整：${formatCustomerMoney(page.packageAdjustmentMinor??0,page.currency)}`:null, `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`, `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`, order.notes ? `备注：${order.notes}` : '备注：未填写'].filter(Boolean).join('\n\n'),
     visibility: 'PRIVATE_CHANNEL',
     components
   };
 }
+
+export function buildServicePackagePickerMessage(order:OrderSummary,page:ServicePackagePageSummary):MessageSpec{return{title:`订单 #${order.publicId} · 选择套餐`,body:['套餐会先展开成独立陪玩席位，应用后每个席位都能单独修改。',page.items.length?'请选择一个套餐查看默认阵容和服务端报价。':'目前没有可用套餐，你仍可返回自由搭配。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[...(page.items.length?[{type:'ACTION_ROW' as const,components:[select(`bc:package:${order.id}:select:v${order.version}`,'选择一个套餐',page.items.slice(0,25).map(item=>({label:item.displayName,value:item.id,description:`${item.slots.length} 个席位 · ${item.description}`.slice(0,100)})))]}]:[]),{type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回自由搭配'}]}]};}
+
+export function buildServicePackagePreviewMessage(order:OrderSummary,pkg:ServicePackagePreviewSummary):MessageSpec{const slots=pkg.slots.map(slot=>`${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}${slot.regionDisplayName?` · ${slot.regionDisplayName}`:''}\n${slot.unitCount*slot.billingUnitMinutes/60} 小时${slot.customerNoteTemplate?` · ${slot.customerNoteTemplate}`:''}`).join('\n\n');return{title:`${pkg.displayName} · 默认阵容`,body:[pkg.description,slots,`套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor,pkg.currency)}`,'应用后可以把某个技术席位单独改成娱乐陪玩，其他席位不会变化；一旦修改，API 会按最终阵容重新报价。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,label:'使用这个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'换一个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回自由搭配'}]}]};}
+
+export async function handleServicePackageSelect(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;servicePackageVersionId:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);const [order,pkg]=await Promise.all([input.api.getOrder(input.orderId,input.actor),api.preview(input.servicePackageVersionId,input.actor)]);if(order.status!=='DRAFT')return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(order)};return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildServicePackagePreviewMessage(order,pkg)};}
+
+export async function handleServicePackageAction(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;action:'open'|'back'|'apply';servicePackageVersionId?:string;idempotencyKey:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);if(input.action==='open'){const [order,page]=await Promise.all([input.api.getOrder(input.orderId,input.actor),api.list(input.actor,undefined,25)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildServicePackagePickerMessage(order,page)};}if(input.action==='apply'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');await api.apply(input.orderId,{expectedOrderVersion:input.expectedVersion,servicePackageVersionId:input.servicePackageVersionId},input.actor,input.idempotencyKey);}if(!input.api.listOrderRequirements)throw new Error('Order requirement API is unavailable.');const [order,requirements,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,requirements,services.items)};}
 
 function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
   return {
@@ -1718,7 +1758,7 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
   const currencyMismatch=input.requirements.currency!==input.balance.currency;
   const deficitMinor=Math.max(0,input.requirements.derivedTotalMinor-input.balance.availableMinor);
   const canSubmit=active.length>0&&!currencyMismatch&&deficitMinor===0;
-  const lines=active.map((item,index)=>`${index+1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName?` · ${item.regionDisplayName}`:''}\n   ${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor,input.requirements.currency)}`).join('\n');
+  const lines=active.map((item,index)=>`${index+1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName?` · ${item.regionDisplayName}`:''}\n   ${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor,input.requirements.currency)}${item.customerNote?`\n   偏好：${item.customerNote}`:''}`).join('\n');
   return {title:`订单 #${input.order.publicId} · 最后确认`,body:[lines||'还没有添加陪玩项目。',input.order.notes?`备注：${input.order.notes}`:'备注：未填写',`订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor,input.requirements.currency)}`,`可用余额：${formatCustomerMoney(input.balance.availableMinor,input.balance.currency)}`,canSubmit?'状态：可以提交。提交时 API 会再次复核项目、价格、余额和订单版本。':currencyMismatch?'订单币种与钱包币种不一致。':active.length===0?'请先添加至少一个陪玩项目。':`可用余额还差 ${formatCustomerMoney(deficitMinor,input.requirements.currency)}。`].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[
     {type:'BUTTON',style:'PRIMARY',customId:`bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,label:'确认提交并预留',disabled:!canSubmit},
     {type:'BUTTON',style:'SECONDARY',customId:`bc:req:${input.order.id}:back:v${input.requirements.orderVersion}`,label:'返回修改'},
@@ -2122,7 +2162,7 @@ export async function handleOrderRequirementSelectSubmit(input: {
   actor: BotActorContext;
   orderId: string;
   expectedVersion: number;
-  action: 'add' | 'edit' | 'units' | 'players';
+  action: 'add' | 'edit' | 'project' | 'units' | 'players';
   requirementId?: string;
   expectedRequirementVersion?: number;
   cursor?: string;
@@ -2147,18 +2187,19 @@ export async function handleOrderRequirementSelectSubmit(input: {
       requestedPlayerCount: 1
     }, input.actor, input.idempotencyKey);
     selectedRequirementId = created.requirement.id;
-  } else if (input.action === 'units' || input.action === 'players') {
+  } else if (input.action === 'project' || input.action === 'units' || input.action === 'players') {
     const requirement = page.items.find((item) => item.id === input.requirementId && item.status === 'ACTIVE');
     const requirementVersion=requirement?.version??input.expectedRequirementVersion;
     if (!input.requirementId||!requirementVersion) throw new Error('The selected order requirement is unavailable.');
-    const quantity = Number.parseInt(input.value, 10);
-    if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('The selected quantity is invalid.');
+    const quantity = input.action==='project'?null:Number.parseInt(input.value, 10);
+    if (input.action!=='project'&&(!Number.isSafeInteger(quantity) || Number(quantity) < 1)) throw new Error('The selected quantity is invalid.');
     const changed=await requirementApi.update(input.orderId, input.requirementId, {
       expectedOrderVersion: input.expectedVersion,
       expectedRequirementVersion: requirementVersion,
-      action: 'CHANGE_QUANTITY',
-      unitCount: input.action === 'units' ? quantity : null,
-      requestedPlayerCount: input.action === 'players' ? quantity : null
+      action: input.action==='project'?'CHANGE_PROJECT':'CHANGE_QUANTITY',
+      serviceCatalogVersionId:input.action==='project'?input.value:null,
+      unitCount: input.action === 'units' ? Number(quantity) : null,
+      requestedPlayerCount: input.action === 'players' ? Number(quantity) : null
     }, input.actor, input.idempotencyKey);
     changedRequirement=changed;
   }
@@ -2223,6 +2264,8 @@ export async function handleOrderNotesSubmit(input: {
   }
 }
 
+export async function handleRequirementNoteSubmit(input:{api:BotApiClient;actor:BotActorContext;orderId:string;requirementId:string;expectedVersion:number;expectedRequirementVersion:number;customerNote:string;idempotencyKey:string}):Promise<BotFlowResult>{const requirementApi=requireOrderRequirementApi(input.api);await requirementApi.update(input.orderId,input.requirementId,{expectedOrderVersion:input.expectedVersion,expectedRequirementVersion:input.expectedRequirementVersion,action:'CHANGE_NOTE',customerNote:input.customerNote||null},input.actor,input.idempotencyKey);const [order,page,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),requirementApi.list(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,page,services.items,input.requirementId)};}
+
 export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute {
   const giftOpen = /^bc:gift:open:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
   if (giftOpen) return { area: 'gift', action: 'open', orderId: giftOpen[1]!, expectedVersion: Number(giftOpen[2]) };
@@ -2282,9 +2325,9 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   if (requirementAdd) return {area:'order-requirement-select',orderId:requirementAdd[1]!,action:'add',expectedVersion:Number(requirementAdd[2])};
   const requirementEdit = /^bc:req:([0-9a-f-]{36}):edit:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
   if (requirementEdit) return {area:'order-requirement-select',orderId:requirementEdit[1]!,action:'edit',cursor:requirementEdit[2]==='first'?undefined:requirementEdit[2],expectedVersion:Number(requirementEdit[3])};
-  const requirementQuantity = /^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):(units|players):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
+  const requirementQuantity = /^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):(project|units|players):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
   if (requirementQuantity) {
-    return { area: 'order-requirement-select', orderId: requirementQuantity[1]!, requirementId: requirementQuantity[2]!, action: requirementQuantity[3] as 'units'|'players', expectedVersion: Number(requirementQuantity[4]),expectedRequirementVersion:Number(requirementQuantity[5]) };
+    return { area: 'order-requirement-select', orderId: requirementQuantity[1]!, requirementId: requirementQuantity[2]!, action: requirementQuantity[3] as 'project'|'units'|'players', expectedVersion: Number(requirementQuantity[4]),expectedRequirementVersion:Number(requirementQuantity[5]) };
   }
   const requirementRemove=/^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):remove:v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
   if(requirementRemove)return{area:'order-requirement-action',orderId:requirementRemove[1]!,requirementId:requirementRemove[2]!,action:'remove',expectedVersion:Number(requirementRemove[3]),expectedRequirementVersion:Number(requirementRemove[4])};
@@ -2292,6 +2335,10 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   if(requirementBack)return{area:'order-requirement-action',orderId:requirementBack[1]!,action:'back',expectedVersion:Number(requirementBack[2])};
   const requirementPage=/^bc:req:([0-9a-f-]{36}):page:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
   if(requirementPage)return{area:'order-requirement-action',orderId:requirementPage[1]!,action:'page',cursor:requirementPage[2]==='first'?undefined:requirementPage[2],expectedVersion:Number(requirementPage[3])};
+
+  const packageSelect=/^bc:package:([0-9a-f-]{36}):select:v([1-9][0-9]*)$/u.exec(customId);if(packageSelect)return{area:'service-package-select',orderId:packageSelect[1]!,expectedVersion:Number(packageSelect[2])};
+  const packageApply=/^bc:package:([0-9a-f-]{36}):([0-9a-f-]{36}):apply:v([1-9][0-9]*)$/u.exec(customId);if(packageApply)return{area:'service-package-action',orderId:packageApply[1]!,servicePackageVersionId:packageApply[2]!,action:'apply',expectedVersion:Number(packageApply[3])};
+  const packageAction=/^bc:package:([0-9a-f-]{36}):(open|back):v([1-9][0-9]*)$/u.exec(customId);if(packageAction)return{area:'service-package-action',orderId:packageAction[1]!,action:packageAction[2] as 'open'|'back',expectedVersion:Number(packageAction[3])};
 
   const notesModal = /^bc:modal:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
   if (notesModal) {
@@ -2303,6 +2350,8 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   }
   const notesOpen=/^bc:modal-open:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);
   if(notesOpen)return{area:'order-notes-open',orderId:notesOpen[1]!,expectedVersion:Number(notesOpen[2])};
+  const requirementNoteModal=/^bc:rnm:([0-9a-f-]{36}):([0-9a-f-]{36}):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);if(requirementNoteModal)return{area:'requirement-note-modal',orderId:requirementNoteModal[1]!,requirementId:requirementNoteModal[2]!,expectedVersion:Number(requirementNoteModal[3]),expectedRequirementVersion:Number(requirementNoteModal[4])};
+  const requirementNoteOpen=/^bc:rno:([0-9a-f-]{36}):([0-9a-f-]{36}):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);if(requirementNoteOpen)return{area:'requirement-note-open',orderId:requirementNoteOpen[1]!,requirementId:requirementNoteOpen[2]!,expectedVersion:Number(requirementNoteOpen[3]),expectedRequirementVersion:Number(requirementNoteOpen[4])};
 
   const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
   if (orderAction) {
@@ -2361,6 +2410,7 @@ function requireOrderRequirementApi(api: BotApiClient) {
   if (!api.listOrderRequirements || !api.addOrderRequirement || !api.updateOrderRequirement) throw new Error('Order requirement API is unavailable.');
   return { list: api.listOrderRequirements.bind(api), add: api.addOrderRequirement.bind(api), update: api.updateOrderRequirement.bind(api) };
 }
+function requirePackageApi(api:BotApiClient){if(!api.listServicePackages||!api.previewServicePackage||!api.applyServicePackage)throw new Error('Service package API is unavailable.');return{list:api.listServicePackages.bind(api),preview:api.previewServicePackage.bind(api),apply:api.applyServicePackage.bind(api)};}
 
 function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
   return [

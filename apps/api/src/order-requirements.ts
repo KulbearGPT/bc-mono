@@ -54,6 +54,8 @@ export interface OrderRequirementRecord {
 export interface RequirementPage {
   orderId: string;
   orderVersion: number;
+  catalogSubtotalMinor: number;
+  packageAdjustmentMinor: number;
   derivedTotalMinor: number;
   currency: 'CAT';
   items: OrderRequirementRecord[];
@@ -143,7 +145,7 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
   }
 
   listAdmin(input:{orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number}):RequirementPage{
-    const order=this.orders.find((item)=>item.id===input.orderId&&item.guildId===input.guildId);if(!order)throw new OrderRequirementError('NOT_FOUND','Order was not found.');if(input.actorLevel==='L1_SUPPORT'&&!(this.claimedOrderIdsByStaffId[input.actorStaffId]??[]).includes(order.id))throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the claimed task scope.');const offset=decodeCursor(input.cursor);const all=this.requirements.filter((item)=>item.orderId===order.id&&item.status==='ACTIVE').sort(sortCreated);return{orderId:order.id,orderVersion:order.version,derivedTotalMinor:deriveTotal(all),currency:'CAT',items:clone(all.slice(offset,offset+input.limit)),nextCursor:offset+input.limit<all.length?encodeCursor(offset+input.limit):null};
+    const order=this.orders.find((item)=>item.id===input.orderId&&item.guildId===input.guildId);if(!order)throw new OrderRequirementError('NOT_FOUND','Order was not found.');if(input.actorLevel==='L1_SUPPORT'&&!(this.claimedOrderIdsByStaffId[input.actorStaffId]??[]).includes(order.id))throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the claimed task scope.');const offset=decodeCursor(input.cursor);const all=this.requirements.filter((item)=>item.orderId===order.id&&item.status==='ACTIVE').sort(sortCreated);const catalogSubtotalMinor=deriveTotal(all);const derivedTotalMinor=order.compositionMode==='PACKAGE_DEFAULT'?order.amountMinor:catalogSubtotalMinor;return{orderId:order.id,orderVersion:order.version,catalogSubtotalMinor,packageAdjustmentMinor:derivedTotalMinor-catalogSubtotalMinor,derivedTotalMinor,currency:'CAT',items:clone(all.slice(offset,offset+input.limit)),nextCursor:offset+input.limit<all.length?encodeCursor(offset+input.limit):null};
   }
 
   list(input: RequirementScope & { cursor: string | null; limit: number }): RequirementPage {
@@ -153,7 +155,9 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
     return {
       orderId: order.id,
       orderVersion: order.version,
-      derivedTotalMinor: deriveTotal(all),
+      catalogSubtotalMinor: deriveTotal(all),
+      packageAdjustmentMinor: order.compositionMode==='PACKAGE_DEFAULT'?order.amountMinor-deriveTotal(all):0,
+      derivedTotalMinor: order.compositionMode==='PACKAGE_DEFAULT'?order.amountMinor:deriveTotal(all),
       currency: 'CAT',
       items: clone(all.slice(offset, offset + input.limit)),
       nextCursor: offset + input.limit < all.length ? encodeCursor(offset + input.limit) : null
@@ -241,11 +245,12 @@ export class PostgresOrderRequirementStore implements OrderRequirementStore {
     const result = await this.pool.query<RequirementRow>(`${requirementSelect}
       WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`, [input.orderId, offset, input.limit + 1]);
     const items = result.rows.slice(0, input.limit).map(mapRequirement);
-    const total = await requirementTotal(this.pool, input.orderId);
-    return { orderId: input.orderId, orderVersion: order.row_version, derivedTotalMinor: total, currency: 'CAT', items, nextCursor: result.rows.length > input.limit ? encodeCursor(offset + input.limit) : null };
+    const total = order.composition_mode==='PACKAGE_DEFAULT'?safeMinor(order.amount_minor??0):await requirementTotal(this.pool, input.orderId);
+    const catalogSubtotalMinor=await requirementTotal(this.pool,input.orderId);
+    return { orderId: input.orderId, orderVersion: order.row_version, catalogSubtotalMinor,packageAdjustmentMinor:total-catalogSubtotalMinor,derivedTotalMinor: total, currency: 'CAT', items, nextCursor: result.rows.length > input.limit ? encodeCursor(offset + input.limit) : null };
   }
   async listAdmin(input:{orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number}):Promise<RequirementPage>{
-    const scoped=await this.pool.query<{row_version:number}>(`SELECT orders.row_version FROM orders WHERE orders.id=$1 AND orders.guild_id=$2 AND ($3::text<>'L1_SUPPORT' OR EXISTS(SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$4 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')))`,[input.orderId,input.guildId,input.actorLevel,input.actorStaffId]);if(!scoped.rows[0])throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the current staff scope.');const offset=decodeCursor(input.cursor);const result=await this.pool.query<RequirementRow>(`${requirementSelect} WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`,[input.orderId,offset,input.limit+1]);const items=result.rows.slice(0,input.limit).map(mapRequirement);return{orderId:input.orderId,orderVersion:scoped.rows[0].row_version,derivedTotalMinor:await requirementTotal(this.pool,input.orderId),currency:'CAT',items,nextCursor:result.rows.length>input.limit?encodeCursor(offset+input.limit):null};
+    const scoped=await this.pool.query<{row_version:number;composition_mode:string|null;amount_minor:string|number|null}>(`SELECT orders.row_version,orders.composition_mode::text,orders.amount_minor FROM orders WHERE orders.id=$1 AND orders.guild_id=$2 AND ($3::text<>'L1_SUPPORT' OR EXISTS(SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$4 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')))`,[input.orderId,input.guildId,input.actorLevel,input.actorStaffId]);if(!scoped.rows[0])throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the current staff scope.');const offset=decodeCursor(input.cursor);const result=await this.pool.query<RequirementRow>(`${requirementSelect} WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id OFFSET $2 LIMIT $3`,[input.orderId,offset,input.limit+1]);const items=result.rows.slice(0,input.limit).map(mapRequirement);const catalogSubtotalMinor=await requirementTotal(this.pool,input.orderId);const derivedTotalMinor=scoped.rows[0].composition_mode==='PACKAGE_DEFAULT'?safeMinor(scoped.rows[0].amount_minor??0):catalogSubtotalMinor;return{orderId:input.orderId,orderVersion:scoped.rows[0].row_version,catalogSubtotalMinor,packageAdjustmentMinor:derivedTotalMinor-catalogSubtotalMinor,derivedTotalMinor,currency:'CAT',items,nextCursor:result.rows.length>input.limit?encodeCursor(offset+input.limit):null};
   }
 
   add(input: AddRequirementInput): Promise<StagedRequirementWrite> { return this.prepare(input, null); }
@@ -358,7 +363,7 @@ function buildRequirement(input: { id: string; orderId: string; catalog: Require
 }
 
 async function scopedOrder(client: Pick<Pool, 'query'> | PoolClient, input: RequirementScope, lock: boolean): Promise<OrderScopeRow> {
-  const result = await client.query<OrderScopeRow>(`SELECT orders.id,orders.row_version,orders.status::text FROM orders
+  const result = await client.query<OrderScopeRow>(`SELECT orders.id,orders.row_version,orders.status::text,orders.composition_mode::text,orders.amount_minor FROM orders
     JOIN discord_accounts account ON account.user_id=orders.customer_id AND account.guild_id=orders.guild_id
     WHERE orders.id=$1 AND orders.guild_id=$2 AND account.discord_user_id=$3 ${lock ? 'FOR UPDATE OF orders' : ''}`,
   [input.orderId,input.actorGuildId,input.actorDiscordUserId]);
@@ -410,7 +415,7 @@ function normalizeError(error: unknown): unknown { if(error instanceof OrderRequ
 function requirementValues(r: OrderRequirementRecord): unknown[] { return [r.id,r.orderId,r.serviceCatalogVersionId,r.game,r.gameDisplayName,r.service,r.serviceDisplayName,r.region,r.regionDisplayName,r.billingUnitMinutes,r.unitCount,r.requestedPlayerCount,r.customerUnitPriceMinor,r.estimatedLinePriceMinor,r.createdAt]; }
 function mapRequirement(row: RequirementRow): OrderRequirementRecord { return { id:row.id,orderId:row.order_id,sourcePackageSlotId:row.source_package_slot_id,customerNote:row.customer_note,serviceCatalogVersionId:row.service_catalog_version_id,game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,customerUnitPriceMinor:safeMinor(row.customer_unit_price_minor_snapshot),estimatedLinePriceMinor:safeMinor(row.estimated_line_price_minor),filledPlayerCount:Number(row.filled_player_count),status:row.status,version:row.row_version,createdAt:new Date(row.created_at).toISOString(),updatedAt:new Date(row.updated_at).toISOString() }; }
 
-interface OrderScopeRow { id: string; row_version: number; status: string }
+interface OrderScopeRow { id: string; row_version: number; status: string;composition_mode:string|null;amount_minor:string|number|bigint|null }
 interface CatalogRow { id:string;status:string;billing_unit_minutes:number;customer_unit_price_minor:string|number|bigint;game_code:string;game_name:string;service_code:string;service_name:string;region_code:string|null }
 interface RequirementRow { id:string;order_id:string;source_package_slot_id:string|null;customer_note:string|null;service_catalog_version_id:string;status:OrderRequirementStatus;row_version:number;game_code_snapshot:string;game_display_name_snapshot:string;service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;customer_unit_price_minor_snapshot:string|number|bigint;estimated_line_price_minor:string|number|bigint;filled_player_count:string|number;created_at:string|Date;updated_at:string|Date }
 const requirementSelect = `SELECT requirement.id,requirement.order_id,requirement.source_package_slot_id,requirement.customer_note,requirement.service_catalog_version_id,requirement.status::text,requirement.row_version,

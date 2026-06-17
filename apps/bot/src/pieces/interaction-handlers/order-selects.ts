@@ -9,6 +9,7 @@ import {
   buildOrderPanelMessage,
   buildMultiProjectOrderPanelMessage,
   handleOrderRequirementSelectSubmit,
+  handleServicePackageSelect,
   handleOrderSelectSubmit,
   parseServiceCenterCustomId,
   type BotActorContext,
@@ -25,11 +26,11 @@ export default class OrderSelectHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-select' || route.area === 'order-requirement-select' ? this.some(route) : this.none();
+    return route.area === 'order-select' || route.area === 'order-requirement-select' || route.area==='service-package-select' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select')) {
+    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select'&&parsedData.area!=='service-package-select')) {
       return;
     }
 
@@ -42,14 +43,14 @@ export default class OrderSelectHandler extends InteractionHandler {
     };
     try {
       const api = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
-      const result = parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
+      const result = parsedData.area==='service-package-select'?await handleServicePackageSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,servicePackageVersionId:interaction.values[0]??''}):parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
         api,
         actor,
         orderId: parsedData.orderId,
         expectedVersion: parsedData.expectedVersion,
         action: parsedData.action,
         requirementId: parsedData.requirementId,
-        expectedRequirementVersion: parsedData.action === 'units' || parsedData.action === 'players' ? parsedData.expectedRequirementVersion : undefined,
+        expectedRequirementVersion: parsedData.action === 'project' || parsedData.action === 'units' || parsedData.action === 'players' ? parsedData.expectedRequirementVersion : undefined,
         cursor: parsedData.action === 'edit' ? parsedData.cursor : undefined,
         value: interaction.values[0] ?? '',
         idempotencyKey: buildDiscordIdempotencyKey(`requirement:${parsedData.action}`, interaction.id)

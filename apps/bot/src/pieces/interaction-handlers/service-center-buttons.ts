@@ -11,6 +11,7 @@ import {
   buildOrderPanelMessage,
   buildMultiProjectOrderPanelMessage,
   buildOrderNotesModal,
+  buildRequirementNoteModal,
   buildCurrentPlayerWeeklyReportDetailMessage,
   buildCurrentPlayerWeeklyReportListMessage,
   buildCurrentUserConsumptionsMessage,
@@ -19,6 +20,7 @@ import {
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
   handleOrderRequirementAction,
+  handleServicePackageAction,
   handleOpenCancellationPreview,
   handleConfirmCancellation,
   handleCreateOrderFromPublicEntry,
@@ -41,7 +43,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area === 'order-notes-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area==='service-package-action' || route.area === 'order-notes-open' || route.area==='requirement-note-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
       ? this.some(route)
       : this.none();
   }
@@ -88,11 +90,16 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     if(parsedData.area==='order-notes-open'){await interaction.showModal(toDiscordModal(buildOrderNotesModal({orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion})));return;}
+    if(parsedData.area==='requirement-note-open'){await interaction.showModal(toDiscordModal(buildRequirementNoteModal(parsedData)));return;}
 
     if(parsedData.area==='order-requirement-action'){
       const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内修改订单。request_id: local-guild-required',ephemeral:true});return;}
       try{const result=await handleOrderRequirementAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,requirementId:parsedData.action==='remove'?parsedData.requirementId:undefined,expectedRequirementVersion:parsedData.action==='remove'?parsedData.expectedRequirementVersion:undefined,cursor:parsedData.action==='page'?parsedData.cursor:undefined,idempotencyKey:buildDiscordIdempotencyKey(`requirement:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){const reply=toDiscordReply(result.message);await interaction.update({content:null,embeds:reply.embeds,components:reply.components});return;}}
       catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-requirement-action';await interaction.reply({content:`订单项目刚刚发生变化，请刷新后重试。request_id: ${requestId}`,ephemeral:true});return;}
+    }
+
+    if(parsedData.area==='service-package-action'){
+      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内选择套餐。request_id: local-guild-required',ephemeral:true});return;}try{const result=await handleServicePackageAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,servicePackageVersionId:parsedData.action==='apply'?parsedData.servicePackageVersionId:undefined,idempotencyKey:buildDiscordIdempotencyKey(`package:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){const reply=toDiscordReply(result.message);await interaction.update({content:null,embeds:reply.embeds,components:reply.components});return;}}catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-package-action';await interaction.reply({content:`套餐清单刚刚发生变化，请重试。request_id: ${requestId}`,ephemeral:true});return;}
     }
 
     if (parsedData.area !== 'order-action') {

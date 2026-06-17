@@ -71,6 +71,8 @@ export interface OrderRecord {
   playerId: string | null;
   status: OrderStatus;
   version: number;
+  sourcePackageVersionId?: string | null;
+  compositionMode?: 'PACKAGE_DEFAULT' | 'CUSTOMIZED' | null;
   serviceCatalogId: string | null;
   catalogVersion: number | null;
   game: string | null;
@@ -3164,6 +3166,8 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerId: row.player_id,
     status: row.status,
     version: row.row_version,
+    sourcePackageVersionId:row.source_package_version_id,
+    compositionMode:row.composition_mode,
     serviceCatalogId: row.service_catalog_version_id,
     catalogVersion: row.catalog_version,
     game: row.game_code_snapshot,
@@ -3276,6 +3280,8 @@ interface OrderRow {
   player_id: string | null;
   status: OrderStatus;
   row_version: number;
+  source_package_version_id:string|null;
+  composition_mode:'PACKAGE_DEFAULT'|'CUSTOMIZED'|null;
   automation_state: 'RUNNING' | 'PAUSED';
   automation_version: number;
   automation_paused_by_staff_id: string | null;

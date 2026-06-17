@@ -39,7 +39,7 @@ describe('M9-US-14 customer preferred dispatch list', () => {
     expect(serviceCenter).toContain('maxValues: 3');
     expect(renderer).toContain('UserSelectMenuBuilder');
     expect(orders).toContain('preferredPlayerDiscordUserIds');
-    expect(orders).toContain('requirement_snapshot = $19::jsonb');
+    expect(orders).toMatch(/requirement_snapshot = \$[1-9][0-9]*::jsonb/u);
     expect(orders).toContain('preferredPlayerIdsFromSnapshot');
   });
 });
