@@ -81,6 +81,41 @@ describe('M10-US-04 participant lifecycle and earnings', () => {
       expect.objectContaining({ orderParticipantId: '00000000-0000-0000-0000-00000010c703', playerUserId: playerIds[2], amountMinor: 100 })
     ]);
   });
+
+  test('blocks final capture when an active unready player is added during service', async () => {
+    const readyParticipants = participants().map((participant) => ({ ...participant, readyAt: now.toISOString() }));
+    const lateParticipant = {
+      ...participants()[0]!,
+      id: '00000000-0000-0000-0000-00000010c709',
+      playerId: '00000000-0000-0000-0000-00000010a609',
+      displayName: '后加猫',
+      readyAt: null
+    };
+    const store = buildStore({
+      status: 'PENDING_CONFIRMATION',
+      version: 9,
+      customerReadyAt: now.toISOString(),
+      playerReadyAt: now.toISOString(),
+      serviceStartedAt: now.toISOString(),
+      completionRequestedAt: now.toISOString(),
+      confirmationDueAt: new Date(now.getTime() + 1_800_000).toISOString(),
+      participants: [...readyParticipants, lateParticipant]
+    });
+
+    await expect(confirmOrder({
+      store,
+      orderId,
+      expectedVersion: 9,
+      confirmation: 'CONFIRM_COMPLETED',
+      actor: { guildId, discordUserId: '999999999999999991' },
+      idempotencyKey: 'm10-us-04:unready-late-player',
+      now
+    })).rejects.toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+
+    expect(store.getOrder(orderId)).toMatchObject({ status: 'PENDING_CONFIRMATION', version: 9 });
+    expect(store.consumptionEntries).toEqual([]);
+    expect(store.playerEarnings).toEqual([]);
+  });
 });
 
 function ready(store: InMemoryServiceLifecycleStore, index: number, expectedVersion: number, at: Date) {

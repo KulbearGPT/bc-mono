@@ -61,6 +61,12 @@ describe('M10-US-02 multi-player persistence', () => {
     expect(schema).toMatch(/model PlayerEarning[\s\S]*?orderParticipantId/u);
   });
 
+  test('allows one immutable earning per participant instead of one earning per order', async () => {
+    const migration = await readFile('database/prisma/migrations/000025_multi_player_earning_cardinality/migration.sql', 'utf8');
+    expect(migration).toContain('DROP INDEX IF EXISTS "player_earnings_order_id_key"');
+    expect(migration).toContain('player_earnings_order_id_created_at_idx');
+  });
+
   test('backfills a legacy accepted player with immutable project and earning linkage', async () => {
     const result = await pool.query(`SELECT participant.player_id,participant.service_code_snapshot,participant.service_display_name_snapshot,
       participant.compensation_source::text,participant.line_price_minor::text,event.event_type::text,earning.order_participant_id
