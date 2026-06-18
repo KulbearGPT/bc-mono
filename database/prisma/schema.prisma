@@ -1378,6 +1378,7 @@ model OrderParticipant {
   serviceCatalogVersion ServiceCatalogVersion       @relation(fields: [serviceCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   events   OrderParticipantEvent[]
   earning  PlayerEarning?
+  giftRequests GiftRequest[]
 
   @@index([orderId, status, createdAt])
   @@index([playerId, status, createdAt])
@@ -1733,6 +1734,7 @@ model GiftRequest {
   id                        String            @id @default(uuid()) @db.Uuid
   publicId                  String            @unique @map("public_id") @db.VarChar(30)
   orderId                   String            @map("order_id") @db.Uuid
+  orderParticipantId        String?           @map("order_participant_id") @db.Uuid
   giftCatalogVersionId      String            @map("gift_catalog_version_id") @db.Uuid
   senderId                  String            @map("sender_id") @db.Uuid
   receiverId                String            @map("receiver_id") @db.Uuid
@@ -1762,6 +1764,7 @@ model GiftRequest {
   updatedAt                 DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   order               Order                @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orderParticipant    OrderParticipant?     @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   giftCatalogVersion  GiftCatalogVersion   @relation(fields: [giftCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sender              User                 @relation("GiftSender", fields: [senderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   receiver            User                 @relation("GiftReceiver", fields: [receiverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -1779,6 +1782,7 @@ model GiftRequest {
   @@index([status, createdAt])
   @@index([status, expiresAt])
   @@index([orderId, createdAt])
+  @@index([orderParticipantId, createdAt])
   @@map("gift_requests")
 }
 
