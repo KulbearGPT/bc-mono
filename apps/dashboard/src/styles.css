@@ -2969,6 +2969,12 @@ textarea:hover {
   }
 }
 
+.package-slot-editor { display: grid; gap: 1rem; }
+.package-slot-row { display: grid; grid-template-columns: auto minmax(15rem, 2fr) minmax(8rem, .6fr) minmax(14rem, 1.4fr) auto; gap: .75rem; align-items: end; padding: 1rem; border: 1px solid var(--border); border-radius: 1rem; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.package-slot-row label { display: grid; gap: .4rem; }
+.package-slot-row strong { align-self: center; white-space: nowrap; }
+@media (max-width: 960px) { .package-slot-row { grid-template-columns: 1fr; align-items: stretch; } }
+
 /* M4-US-09: charted presentation of the existing eight authorized metrics. */
 .operations-dashboard {
   display: grid;

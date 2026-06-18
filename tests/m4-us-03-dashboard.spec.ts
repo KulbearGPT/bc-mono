@@ -28,6 +28,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       'users',
       'players',
       'serviceCatalog',
+      'servicePackages',
       'giftCatalog',
       'playerEarnings'
     ]);

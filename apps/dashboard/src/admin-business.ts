@@ -3,6 +3,7 @@ export type AdminBusinessPageId =
   | 'users'
   | 'players'
   | 'serviceCatalog'
+  | 'servicePackages'
   | 'giftCatalog'
   | 'giftRequests'
   | 'commissions'
@@ -116,6 +117,14 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
       { id: 'CREATE_SERVICE_VERSION', label: '创建服务版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
       { id: 'UPDATE_VERSION', label: '编辑服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' },
       { id: 'ARCHIVE_SERVICE', label: '删除', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
+    ]
+  },
+  {
+    id: 'servicePackages', label: '服务套餐', href: '/admin/service-packages', endpoint: '/api/v1/admin/service-packages', readPermission: 'catalog.read',
+    filters: [],
+    actions: [
+      { id: 'CREATE_PACKAGE_VERSION', label: '创建套餐版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
+      { id: 'UPDATE_PACKAGE_STATUS', label: '发布或退役', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -303,6 +312,8 @@ export function buildAdminActionRequest(input: {
     const reasonCode = requireReasonCode(input.fields.reasonCode);
     return { method: 'POST', path: '/api/v1/admin/service-catalog', body: buildServiceCatalogCreateBody(input.fields, reasonCode) };
   }
+  if(input.actionId==='CREATE_PACKAGE_VERSION')return{method:'POST',path:'/api/v1/admin/service-packages',body:buildServicePackageCreateBody(input.fields,requireReasonCode(input.fields.reasonCode))};
+  if(input.actionId==='UPDATE_PACKAGE_STATUS'){const expectedStatus=requireEnum(input.item?.status as string,['DRAFT','ACTIVE','RETIRED'],'status');const item=requireItem(input.item);const action=requireEnum(input.fields.action,['ACTIVATE','RETIRE'],'action');return{method:'PATCH',path:`/api/v1/admin/service-packages/${encodeURIComponent(item.id)}`,body:{expectedStatus,action,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if (input.actionId === 'UPDATE_GIFT_VERSION') {
     const item = requireItem(input.item);
     const action = requireEnum(input.fields.action, ['ENABLE', 'DISABLE', 'CREATE_REPLACEMENT_VERSION'], 'action');
@@ -438,3 +449,5 @@ function buildGiftCatalogCreateBody(fields: Record<string, string | boolean>, re
     reasonCode
   };
 }
+
+function buildServicePackageCreateBody(fields:Record<string,string|boolean>,reasonCode:string){let slots:unknown;try{slots=JSON.parse(requireText(fields.slotsJson,'slotsJson',20_000));}catch{throw new TypeError('请至少配置一个有效套餐席位。');}if(!Array.isArray(slots)||slots.length<1||slots.length>25)throw new TypeError('套餐席位数量必须在 1 到 25 之间。');return{code:requireText(fields.code,'code',100).toUpperCase(),displayName:requireText(fields.displayName,'displayName',100),description:requireText(fields.description,'description',1000),defaultCustomerPriceMinor:optionalPositiveInteger(fields.defaultCustomerPriceMinor),currency:'CAT',activate:fields.activate===true,slots:slots.map((slot,index)=>{if(!slot||typeof slot!=='object'||Array.isArray(slot))throw new TypeError(`第 ${index+1} 个席位无效。`);const value=slot as Record<string,unknown>;return{serviceCatalogVersionId:requireText(value.serviceCatalogVersionId as string,'serviceCatalogVersionId'),unitCount:requirePositiveInteger(String(value.unitCount),'unitCount'),customerNoteTemplate:optionalText(typeof value.customerNoteTemplate==='string'?value.customerNoteTemplate:undefined)};}),reasonCode};}
