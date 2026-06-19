@@ -26,6 +26,7 @@ describe('M8-US-03 selective customer token rendering', () => {
     });
     const gift = buildGiftAffordabilityMessage({
       giftCatalogVersionId: 'gift-1', catalogVersion: 1, priceMinor: 5_000,
+      recipientCount: 1, totalPriceMinor: 5_000,
       ledgerBalanceMinor: 20_000, reservedMinor: 0, availableMinor: 20_000,
       shortfallMinor: 0, currency: 'CAT', calculatedAt: '2026-07-21T22:00:00Z',
       stale: false, canAfford: true, topUpInstructions: '联系客服并提交付款 receipt。'

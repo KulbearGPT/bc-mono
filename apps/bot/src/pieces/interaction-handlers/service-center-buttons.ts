@@ -4,7 +4,7 @@ import { botConfigCache } from '../../bot-config.js';
 import { botCopy } from '../../bot-copy.js';
 import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
 import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftRequestMessage,
-  createGiftContinuationToken, readGiftContinuationToken } from '../../gifts.js';
+  createGiftContinuationToken, decodeGiftRecipientSelection, readGiftContinuationToken } from '../../gifts.js';
 import {
   HttpBotApiClient,
   BotApiError,
@@ -43,7 +43,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area==='service-package-action' || route.area === 'order-notes-open' || route.area==='requirement-note-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area==='service-package-action' || route.area === 'order-notes-open' || route.area==='requirement-note-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift' || route.area === 'gift-recipient-page'
       ? this.some(route)
       : this.none();
   }
@@ -63,6 +63,15 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
     if (parsedData.area === 'gift') {
       await this.handleGift(interaction, parsedData);
+      return;
+    }
+    if (parsedData.area === 'gift-recipient-page') {
+      const actor = actorFromInteraction(interaction);
+      if (!actor) return;
+      const catalog = await createBotApiClient().listGifts(parsedData.orderId, actor);
+      const reply = toDiscordReply(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
+        giftContinuationSecret(), new Date(), decodeGiftRecipientSelection(catalog.recipients, parsedData.selection), parsedData.page));
+      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
       return;
     }
 
@@ -228,24 +237,30 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         return;
       }
       const context = readGiftContinuationToken(route.token, actor, secret);
+      const selectedParticipantIds = selectedGiftParticipantIds(interaction);
+      if (selectedParticipantIds.length === 0) throw new Error('Gift recipients are missing from the interaction message.');
       if (route.action === 'back') {
         const [order, catalog] = await Promise.all([api.getOrder(context.orderId, actor), api.listGifts(context.orderId, actor)]);
-        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret));
+        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret, new Date(), selectedParticipantIds));
         await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
-      const affordability = await api.checkGiftAffordability(context.orderId, context.giftCatalogVersionId, actor);
+      const [affordability, catalog] = await Promise.all([
+        api.checkGiftAffordability(context.orderId, context.giftCatalogVersionId, selectedParticipantIds, actor),
+        api.listGifts(context.orderId, actor)
+      ]);
       const currentToken = createGiftContinuationToken({ orderId: context.orderId, orderVersion: context.orderVersion,
         giftCatalogVersionId: affordability.giftCatalogVersionId, catalogVersion: affordability.catalogVersion,
         priceMinor: affordability.priceMinor }, actor, secret);
       const changed = affordability.catalogVersion !== context.catalogVersion || affordability.priceMinor !== context.priceMinor;
       if (route.action !== 'confirm' || changed || !affordability.canAfford) {
-        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken));
+        const selectedRecipients = catalog.recipients.filter((recipient) => selectedParticipantIds.includes(recipient.participantId));
+        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken, selectedRecipients));
         await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
       const created = await api.createOrderGiftRequest(context.orderId, { expectedOrderVersion: context.orderVersion,
-        giftCatalogVersionId: context.giftCatalogVersionId, expectedCatalogVersion: context.catalogVersion,
+        giftCatalogVersionId: context.giftCatalogVersionId, participantIds: selectedParticipantIds, expectedCatalogVersion: context.catalogVersion,
         expectedPriceMinor: context.priceMinor }, actor, buildDiscordIdempotencyKey('gift:confirm', interaction.id));
       const reply = toDiscordReply(buildGiftRequestMessage(created));
       await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
@@ -437,6 +452,15 @@ function giftContinuationSecret(): string {
   const secret = process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '';
   if (secret.length < 32) throw new Error('Gift continuation signing secret is not configured.');
   return secret;
+}
+
+function selectedGiftParticipantIds(interaction: ButtonInteraction): string[] {
+  const message = interaction.message.toJSON() as { components?: Array<{ components?: Array<{ custom_id?: string; options?: Array<{ value?: string; default?: boolean }> }> }> };
+  const values = message.components?.flatMap((row) => row.components ?? []).flatMap((component) => {
+    if (!component.custom_id?.startsWith('bc:gift:recipients:') && component.custom_id !== 'bc:gift:selected') return [];
+    return (component.options ?? []).filter((option) => option.default && typeof option.value === 'string').map((option) => option.value!);
+  }) ?? [];
+  return [...new Set(values)];
 }
 
 function actorFromInteraction(interaction: ButtonInteraction): BotActorContext | null {

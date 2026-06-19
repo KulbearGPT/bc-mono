@@ -11,21 +11,24 @@ export interface GiftPanelData {
   orderId: string;
   orderPublicId: string;
   receiver: { userId: string; displayName: string };
+  recipients: Array<{ participantId: string; playerId: string; displayName: string }>;
   balance: BalanceData;
   items: Array<{ id: string; code: string; name: string; version: number; priceMinor: number; currency: string; affordable: boolean }>;
 }
 
-export interface GiftRequestResult {
+export interface GiftRequestItemResult {
   id: string; publicId: string; orderId: string; senderId: string; receiverId: string;
+  participantId: string;
   status: 'PENDING_REVIEW'; expiresAt: string;
   gift: { code: string; name: string; priceMinor: number; currency: string };
   reservation: { id: string; sourceType: 'GIFT'; status: string; amountMinor: number; currency: string; expiresAt: string };
   staffTask: { id: string; publicId: string; type: 'GIFT_REVIEW'; status: string };
   balance: BalanceData;
 }
+export interface GiftRequestResult { unitPriceMinor: number; recipientCount: number; totalAmountMinor: number; items: GiftRequestItemResult[] }
 
 export interface GiftAffordabilityResult {
-  giftCatalogVersionId: string; catalogVersion: number; priceMinor: number;
+  giftCatalogVersionId: string; catalogVersion: number; priceMinor: number; recipientCount: number; totalPriceMinor: number;
   ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
   currency: 'CAT'; calculatedAt: string; stale: boolean; canAfford: boolean; topUpInstructions: string;
 }
@@ -57,7 +60,8 @@ export function buildGiftPanel(data: GiftPanelData) {
   };
 }
 
-export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, token: string): MessageSpec {
+export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, token: string,
+  recipients: Array<{ participantId: string; displayName: string }> = []): MessageSpec {
   const displayConfig = parseWalletDisplayConfig(process.env);
   const walletLabel = customerWalletLabel(displayConfig);
   const confirmationRow = data.canAfford && !data.stale
@@ -68,11 +72,12 @@ export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, tok
   return {
     title: data.canAfford && !data.stale ? '确认礼物' : data.stale ? `${walletLabel}需要刷新` : `${walletLabel}余额不足`,
     body: data.canAfford && !data.stale
-      ? botCopy.gifts.affordable(formatGiftAmount(data.priceMinor, data.currency))
+      ? botCopy.gifts.affordable(`${data.recipientCount} 位猫猫 · ${formatGiftAmount(data.totalPriceMinor, data.currency)}`)
       : data.stale ? BOT_COPY.gifts.staleBalance
         : botCopy.gifts.shortfall(formatGiftAmount(data.shortfallMinor, data.currency), data.topUpInstructions),
     visibility: 'EPHEMERAL',
     components: [
+      ...chunk(recipients, 25).slice(0, 3).map((page, index) => recipientSelectionRow(`bc:gift:selected:${index}`, page, true)),
       ...confirmationRow,
       { type: 'ACTION_ROW', components: [
         { type: 'BUTTON', style: 'SECONDARY', customId: customId('refresh', token), label: '刷新余额' },
@@ -83,21 +88,64 @@ export function buildGiftAffordabilityMessage(data: GiftAffordabilityResult, tok
 }
 
 export function buildGiftCatalogMessage(data: GiftPanelData, orderVersion: number, actor: BotActorContext,
-  secret: string, now = new Date()): MessageSpec {
+  secret: string, now = new Date(), selectedParticipantIds: string[] = [], page = 0): MessageSpec {
   if (data.items.length > 25) throw new Error('Gift catalog exceeds the Discord component limit.');
-  const buttons = data.items.map((item) => ({
-    type: 'BUTTON' as const, style: 'SECONDARY' as const,
-    customId: customId('select', createGiftContinuationToken({ orderId: data.orderId, orderVersion,
-      giftCatalogVersionId: item.id, catalogVersion: item.version, priceMinor: item.priceMinor }, actor, secret, now)),
-    label: `${item.name} · ${formatGiftAmount(item.priceMinor, item.currency)}`, disabled: false
+  const giftOptions = data.items.map((item) => ({
+    value: createGiftContinuationToken({ orderId: data.orderId, orderVersion,
+      giftCatalogVersionId: item.id, catalogVersion: item.version, priceMinor: item.priceMinor }, actor, secret, now),
+    label: `${item.name} · ${formatGiftAmount(item.priceMinor, item.currency)}`
   }));
-  return { title: `订单 ${data.orderPublicId} · 赠送礼物`, body: botCopy.gifts.catalogTarget(data.receiver.displayName),
-    visibility: 'EPHEMERAL', components: chunk(buttons, 5).map((components) => ({ type: 'ACTION_ROW', components })) };
+  const selected = data.recipients.filter((recipient) => selectedParticipantIds.includes(recipient.participantId));
+  const pageCount = Math.max(1, Math.ceil(data.recipients.length / 25));
+  const safePage = Math.min(Math.max(0, page), pageCount - 1);
+  const pageRecipients = data.recipients.slice(safePage * 25, safePage * 25 + 25);
+  const selection = encodeGiftRecipientSelection(data.recipients, selectedParticipantIds);
+  return { title: `订单 ${data.orderPublicId} · 赠送礼物`, body: selected.length
+    ? `已选 ${selected.length} 位猫猫。可以继续翻页挑选，或直接选择礼物。`
+    : '先选择这次要收到礼物的陪玩猫猫。',
+    visibility: 'EPHEMERAL', components: [recipientSelectionRow(`bc:grs:${data.orderId}:${safePage}:v${orderVersion}:${selection}`, pageRecipients, false, selectedParticipantIds),
+      ...(selected.length && giftOptions.length ? [{ type: 'ACTION_ROW' as const, components: [{ type: 'STRING_SELECT' as const,
+        customId: `bc:gc:${selection}`, placeholder: '选择要赠送的礼物', minValues: 1, maxValues: 1, options: giftOptions }] }] : []),
+      ...(pageCount > 1 ? [{ type: 'ACTION_ROW' as const, components: [
+        { type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:grp:${data.orderId}:${Math.max(0, safePage - 1)}:v${orderVersion}:${selection}`, label: '上一页', disabled: safePage === 0 },
+        { type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:grp:${data.orderId}:${Math.min(pageCount - 1, safePage + 1)}:v${orderVersion}:${selection}`, label: '下一页', disabled: safePage === pageCount - 1 }
+      ] }] : [])] };
+}
+
+export function encodeGiftRecipientSelection(recipients: Array<{ participantId: string }>, selectedParticipantIds: string[]): string {
+  if (recipients.length > 240) throw new Error('Gift recipient list exceeds the Discord continuation limit.');
+  const selected = new Set(selectedParticipantIds);
+  const bytes = Buffer.alloc(Math.max(1, Math.ceil(recipients.length / 8)));
+  recipients.forEach((recipient, index) => { if (selected.has(recipient.participantId)) bytes[index >> 3] |= 1 << (index & 7); });
+  return bytes.toString('base64url');
+}
+
+export function decodeGiftRecipientSelection(recipients: Array<{ participantId: string }>, selection: string): string[] {
+  if (!/^[A-Za-z0-9_-]{1,40}$/u.test(selection)) throw new Error('Gift recipient selection is invalid.');
+  const bytes = Buffer.from(selection, 'base64url');
+  if (bytes.length < Math.max(1, Math.ceil(recipients.length / 8))) throw new Error('Gift recipient selection is invalid.');
+  return recipients.filter((_recipient, index) => Boolean(bytes[index >> 3]! & (1 << (index & 7)))).map((recipient) => recipient.participantId);
+}
+
+export function buildGiftRecipientPickerMessage(data: GiftPanelData, orderVersion: number): MessageSpec {
+  return buildGiftCatalogMessage(data, orderVersion, { guildId: '', discordUserId: '', interactionId: '', clientSource: 'DISCORD_BOT' }, 'x'.repeat(32));
 }
 
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {
-  return { title: '送礼请求已提交', body: botCopy.gifts.requestSubmitted(data.gift.name, formatGiftAmount(data.reservation.amountMinor, data.reservation.currency)),
+  const first = data.items[0];
+  return { title: '送礼请求已提交', body: first
+    ? botCopy.gifts.requestSubmitted(`${first.gift.name} × ${data.recipientCount}`, formatGiftAmount(data.totalAmountMinor, first.gift.currency))
+    : '礼物请求已提交。',
     visibility: 'EPHEMERAL', components: [] };
+}
+
+function recipientSelectionRow(customId: string, recipients: Array<{ participantId: string; displayName: string }>, disabled: boolean,
+  selectedIds: string[] = recipients.map((recipient) => recipient.participantId)) {
+  const visible = recipients.slice(0, 25);
+  return { type: 'ACTION_ROW' as const, components: [{ type: 'STRING_SELECT' as const, customId,
+    placeholder: '选择收到礼物的陪玩（可多选）', minValues: 1, maxValues: visible.length, disabled,
+    options: visible.map((recipient) => ({ label: recipient.displayName.slice(0, 100), value: recipient.participantId,
+      default: selectedIds.includes(recipient.participantId) })) }] };
 }
 
 export function createGiftContinuationToken(context: GiftContinuationContext, actor: BotActorContext,
@@ -160,15 +208,17 @@ function uuidString(value: Buffer) {
 }
 
 export function buildGiftRequestConfirmation(data: GiftRequestResult) {
+  const first = data.items[0];
+  if (!first) throw new Error('Gift request batch is empty.');
   return {
     title: '送礼请求已提交',
-    requestPublicId: data.publicId,
+    requestPublicId: first.publicId,
     statusLabel: '等待客服核对',
-    giftName: data.gift.name,
-    reservedMinor: data.reservation.amountMinor,
+    giftName: `${first.gift.name} × ${data.recipientCount}`,
+    reservedMinor: data.totalAmountMinor,
     capturedMinor: 0,
-    availableMinor: data.balance.availableMinor,
-    expiresAt: data.expiresAt
+    availableMinor: data.items.at(-1)?.balance.availableMinor ?? first.balance.availableMinor,
+    expiresAt: first.expiresAt
   };
 }
 

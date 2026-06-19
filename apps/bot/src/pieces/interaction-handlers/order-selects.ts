@@ -15,6 +15,7 @@ import {
   type BotActorContext,
   type ServiceCenterRoute
 } from '../../service-center.js';
+import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, createGiftContinuationToken, decodeGiftRecipientSelection, readGiftContinuationToken } from '../../gifts.js';
 
 export default class OrderSelectHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -26,11 +27,11 @@ export default class OrderSelectHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-select' || route.area === 'order-requirement-select' || route.area==='service-package-select' ? this.some(route) : this.none();
+    return route.area === 'order-select' || route.area === 'order-requirement-select' || route.area==='service-package-select' || route.area==='gift-recipient-select' || route.area==='gift-catalog-select' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select'&&parsedData.area!=='service-package-select')) {
+    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select'&&parsedData.area!=='service-package-select'&&parsedData.area!=='gift-recipient-select'&&parsedData.area!=='gift-catalog-select')) {
       return;
     }
 
@@ -43,6 +44,31 @@ export default class OrderSelectHandler extends InteractionHandler {
     };
     try {
       const api = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
+      if (parsedData.area === 'gift-catalog-select') {
+        const secret = process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '';
+        const token = interaction.values[0] ?? '';
+        const context = readGiftContinuationToken(token, actor, secret);
+        const catalog = await api.listGifts(context.orderId, actor);
+        const participantIds = decodeGiftRecipientSelection(catalog.recipients, parsedData.selection);
+        const affordability = await api.checkGiftAffordability(context.orderId, context.giftCatalogVersionId, participantIds, actor);
+        const currentToken = createGiftContinuationToken({ orderId: context.orderId, orderVersion: context.orderVersion,
+          giftCatalogVersionId: affordability.giftCatalogVersionId, catalogVersion: affordability.catalogVersion,
+          priceMinor: affordability.priceMinor }, actor, secret);
+        const selected = catalog.recipients.filter((recipient) => participantIds.includes(recipient.participantId));
+        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken, selected));
+        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        return;
+      }
+      if (parsedData.area === 'gift-recipient-select') {
+        const catalog = await api.listGifts(parsedData.orderId, actor);
+        const prior = decodeGiftRecipientSelection(catalog.recipients, parsedData.selection);
+        const visible = catalog.recipients.slice(parsedData.page * 25, parsedData.page * 25 + 25).map((recipient) => recipient.participantId);
+        const selected = [...prior.filter((participantId) => !visible.includes(participantId)), ...interaction.values];
+        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
+          process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '', new Date(), selected, parsedData.page));
+        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        return;
+      }
       const result = parsedData.area==='service-package-select'?await handleServicePackageSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,servicePackageVersionId:interaction.values[0]??''}):parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
         api,
         actor,
@@ -71,6 +97,10 @@ export default class OrderSelectHandler extends InteractionHandler {
       await interaction.editReply({ content: BOT_COPY.orders.optionUpdateFailed, components: [] });
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-order-select-failed';
+      if (!('orderId' in parsedData)) {
+        await interaction.followUp({ content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`, ephemeral: true });
+        return;
+      }
       try {
         const recoveryApi = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
         const [order, requirements, services] = await Promise.all([

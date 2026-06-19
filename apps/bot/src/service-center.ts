@@ -465,10 +465,10 @@ export interface BotApiClient {
     idempotencyKey: string
   ): Promise<unknown>;
   listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData>;
-  checkGiftAffordability(orderId: string, giftCatalogVersionId: string, actor: BotActorContext): Promise<GiftAffordabilityResult>;
+  checkGiftAffordability(orderId: string, giftCatalogVersionId: string, participantIds: string[], actor: BotActorContext): Promise<GiftAffordabilityResult>;
   createOrderGiftRequest(
     orderId: string,
-    input: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number },
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string; participantIds: string[]; expectedCatalogVersion: number; expectedPriceMinor: number },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<GiftRequestResult>;
@@ -608,16 +608,16 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
-  public async checkGiftAffordability(orderId: string, giftCatalogVersionId: string,
+  public async checkGiftAffordability(orderId: string, giftCatalogVersionId: string, participantIds: string[],
     actor: BotActorContext): Promise<GiftAffordabilityResult> {
     return this.request<GiftAffordabilityResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-affordability`, {
-      method: 'POST', actor, body: { giftCatalogVersionId }
+      method: 'POST', actor, body: { giftCatalogVersionId, participantIds }
     });
   }
 
   public async createOrderGiftRequest(
     orderId: string,
-    input: { expectedOrderVersion: number; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number },
+    input: { expectedOrderVersion: number; giftCatalogVersionId: string; participantIds: string[]; expectedCatalogVersion: number; expectedPriceMinor: number },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<GiftRequestResult> {
@@ -922,7 +922,9 @@ export type ComponentSpec =
       type: 'STRING_SELECT';
       customId: string;
       placeholder: string;
-      options: Array<{ label: string; value: string }>;
+      options: Array<{ label: string; value: string; description?: string; default?: boolean }>;
+      minValues?: number;
+      maxValues?: number;
       disabled?: boolean;
     }
   | {
@@ -1010,6 +1012,9 @@ export type ServiceCenterRoute =
   | { area: 'reports'; action: 'list'; cursor?: string }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
   | { area: 'gift'; action: 'select' | 'refresh' | 'confirm' | 'back'; token: string }
+  | { area: 'gift-recipient-select'; orderId: string; expectedVersion: number; page: number; selection: string }
+  | { area: 'gift-catalog-select'; selection: string }
+  | { area: 'gift-recipient-page'; orderId: string; expectedVersion: number; page: number; selection: string }
   | { area: 'reports'; action: 'detail'; reportId: string }
   | { area: 'unknown' };
 
@@ -2271,6 +2276,12 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   if (giftOpen) return { area: 'gift', action: 'open', orderId: giftOpen[1]!, expectedVersion: Number(giftOpen[2]) };
   const giftAction = /^bc:gift:(select|refresh|confirm|back):(g1_[A-Za-z0-9_-]{80})$/u.exec(customId);
   if (giftAction) return { area: 'gift', action: giftAction[1] as 'select'|'refresh'|'confirm'|'back', token: giftAction[2]! };
+  const giftRecipients = /^bc:grs:([0-9a-f-]{36}):([0-9]+):v([1-9][0-9]*):([A-Za-z0-9_-]{1,40})$/u.exec(customId);
+  if (giftRecipients) return { area: 'gift-recipient-select', orderId: giftRecipients[1]!, page: Number(giftRecipients[2]), expectedVersion: Number(giftRecipients[3]), selection: giftRecipients[4]! };
+  const giftCatalog = /^bc:gc:([A-Za-z0-9_-]{1,40})$/u.exec(customId);
+  if (giftCatalog) return { area: 'gift-catalog-select', selection: giftCatalog[1]! };
+  const giftRecipientPage = /^bc:grp:([0-9a-f-]{36}):([0-9]+):v([1-9][0-9]*):([A-Za-z0-9_-]{1,40})$/u.exec(customId);
+  if (giftRecipientPage) return { area: 'gift-recipient-page', orderId: giftRecipientPage[1]!, page: Number(giftRecipientPage[2]), expectedVersion: Number(giftRecipientPage[3]), selection: giftRecipientPage[4]! };
   if (customId === 'bc:profile:open' || customId === 'bc:profile:refresh') {
     return { area: 'profile', action: customId.endsWith('refresh') ? 'refresh' : 'open' };
   }

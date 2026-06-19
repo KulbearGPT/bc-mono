@@ -83,11 +83,14 @@ function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSel
       .setDisabled(component.disabled ?? false);
   }
 
-  return new StringSelectMenuBuilder()
+  const select = new StringSelectMenuBuilder()
     .setCustomId(component.customId)
     .setPlaceholder(component.placeholder)
     .setDisabled(component.disabled ?? false)
     .addOptions(component.options);
+  if (component.minValues !== undefined) select.setMinValues(component.minValues);
+  if (component.maxValues !== undefined) select.setMaxValues(component.maxValues);
+  return select;
 }
 
 function toButtonStyle(style: 'PRIMARY' | 'SECONDARY' | 'DANGER'): ButtonStyle {

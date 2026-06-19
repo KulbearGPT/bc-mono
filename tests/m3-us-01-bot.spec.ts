@@ -5,6 +5,7 @@ describe('M3-US-01 Discord gift panel', () => {
   test('renders API affordability and recharge action without accepting a receiver input', () => {
     const panel = buildGiftPanel({
       orderId: 'order-1', orderPublicId: 'P-1', receiver: { userId: 'player-1', displayName: '阿岚' },
+      recipients: [{ participantId: 'participant-1', playerId: 'player-1', displayName: '阿岚' }],
       balance: { ledgerBalanceMinor: 5000, reservedMinor: 3000, availableMinor: 2000, currency: 'CAT', calculatedAt: '2026-07-18T12:00:00.000Z' },
       items: [
         { id: 'gift-18', code: 'SMALL', name: '小心意', version: 1, priceMinor: 1800, currency: 'CAT', affordable: true },
@@ -22,12 +23,14 @@ describe('M3-US-01 Discord gift panel', () => {
 
   test('confirms that funds are reserved and staff review is pending', () => {
     expect(buildGiftRequestConfirmation({
-      id: 'request-1', publicId: 'G-1', orderId: 'order-1', senderId: 'user-1', receiverId: 'player-1',
+      unitPriceMinor: 1800, recipientCount: 1, totalAmountMinor: 1800, items: [{
+      id: 'request-1', publicId: 'G-1', orderId: 'order-1', participantId: 'participant-1', senderId: 'user-1', receiverId: 'player-1',
       status: 'PENDING_REVIEW', expiresAt: '2026-07-18T12:30:00.000Z',
       gift: { code: 'SMALL', name: '小心意', priceMinor: 1800, currency: 'CAT' },
       reservation: { id: 'reservation-1', sourceType: 'GIFT', status: 'ACTIVE', amountMinor: 1800, currency: 'CAT', expiresAt: '2026-07-18T12:30:00.000Z' },
       staffTask: { id: 'task-1', publicId: 'T-1', type: 'GIFT_REVIEW', status: 'OPEN' },
       balance: { ledgerBalanceMinor: 5000, reservedMinor: 4800, availableMinor: 200, currency: 'CAT', calculatedAt: '2026-07-18T12:00:00.000Z' }
+      }]
     })).toMatchObject({ title: '送礼请求已提交', statusLabel: '等待客服核对', reservedMinor: 1800, capturedMinor: 0 });
   });
 });
