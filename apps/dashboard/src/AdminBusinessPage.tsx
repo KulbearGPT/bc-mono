@@ -61,7 +61,9 @@ export function AdminBusinessPage(props: {
       {model.kind === 'EMPTY' && <div className="state-card"><p>当前筛选下没有记录。</p><button type="button" onClick={props.onClearFilters}>清除筛选</button></div>}
       {model.kind === 'READY' && (model.page === 'orders'
         ? <OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
-        : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
+        : ['players','serviceCatalog','servicePackages'].includes(model.page)
+          ? <BusinessDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
+          : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
 
       {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions} participantPlayerOptions={props.participantPlayerOptions} participantMutationError={props.participantMutationError} onAddOrderParticipant={props.onAddOrderParticipant} onUpdateOrderParticipant={props.onUpdateOrderParticipant} /></DashboardOverlay>}
       {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
@@ -144,6 +146,44 @@ function OrderFact({ label, value, muted = false, strong = false }: { label: str
   return <div><dt>{label}</dt><dd className={`${muted ? 'is-muted' : ''}${strong ? ' is-strong' : ''}`.trim()} title={value}>{value}</dd></div>;
 }
 
+function BusinessDiscussionGrid(props: {
+  model: AdminBusinessPageModel;
+  onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
+  onOpenDetail?: (item: Record<string, unknown>) => void;
+}) {
+  const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
+  return <div className="business-discussion-grid">{props.model.items.map((item, index) => {
+    const card = businessCardContent(props.model.page, item, index);
+    return <article className="business-discussion-card" key={textValue(item.id) || `${props.model.page}-${index}`}>
+      <header className="business-discussion-card__header"><div><span className="business-discussion-card__label">{card.eyebrow}</span><h2>{card.title}</h2></div><span className={`business-discussion-card__status business-discussion-card__status--${card.status.toLowerCase()}`}>{card.statusLabel}</span></header>
+      <div className="business-discussion-card__summary"><p>{card.summary}</p></div>
+      <dl className="business-discussion-card__facts">{card.facts.map((fact) => <OrderFact key={fact.label} {...fact} />)}</dl>
+      <footer className="business-discussion-card__footer"><span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span><div className="business-discussion-card__actions">{props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}{itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button className={action.id.startsWith('ARCHIVE_') ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}</div></footer>
+    </article>;
+  })}</div>;
+}
+
+function businessCardContent(page: AdminBusinessPageModel['page'], item: Record<string, unknown>, index: number): { eyebrow: string; title: string; summary: string; status: string; statusLabel: string; facts: Array<{ label: string; value: string; muted?: boolean; strong?: boolean }> } {
+  if (page === 'players') {
+    const status = textValue(item.reviewStatus) || (item.active === false ? 'INACTIVE' : 'ACTIVE');
+    return { eyebrow: `陪玩档案 · ${compactIdentifier(item.playerId || item.id)}`, title: textValue(item.displayName) || textValue(item.discordTag) || `陪玩 ${index + 1}`, summary: [textValue(item.discordTag), textValue(item.gameTags), textValue(item.serviceTags)].filter(Boolean).join(' · ') || '支持范围待配置', status, statusLabel: playerStatusLabel(status), facts: [{ label: 'Discord Tag', value: textValue(item.discordTag) || '—' }, { label: '陪玩编号', value: compactIdentifier(item.playerId || item.id) }, { label: '运营状态', value: item.active === false ? '已停用' : '可参与派单' }, { label: '版本', value: textValue(item.version) || '—' }] };
+  }
+  if (page === 'serviceCatalog') {
+    const game = textValue(item.gameDisplayName) || textValue(item.game) || '未指定游戏';
+    const service = textValue(item.serviceDisplayName) || textValue(item.service) || '未指定服务';
+    const status = textValue(item.status) || (item.enabled === false ? 'INACTIVE' : 'ACTIVE');
+    const minutes = numberValue(item.billingUnitMinutes);
+    return { eyebrow: `服务版本 · ${textValue(item.code) || compactIdentifier(item.id)}`, title: `${game} · ${service}`, summary: [textValue(item.regionDisplayName) || textValue(item.region) || '不限区服', minutes ? `每单位 ${minutes} 分钟` : '计费单位待配置'].join(' · '), status, statusLabel: catalogStatusLabel(status), facts: [{ label: '客户单价', value: priceValue(item.customerUnitPriceMinor, item.currency), strong: typeof item.customerUnitPriceMinor === 'number' }, { label: '服务代码', value: textValue(item.code) || '—' }, { label: '计费单位', value: minutes ? `${minutes} 分钟` : '—' }, { label: '版本', value: textValue(item.version) || '—' }] };
+  }
+  const status = textValue(item.status) || 'DRAFT';
+  const slots = Array.isArray(item.slots) ? item.slots : [];
+  return { eyebrow: `服务套餐 · ${textValue(item.code) || compactIdentifier(item.id)}`, title: textValue(item.displayName) || textValue(item.code) || `套餐 ${index + 1}`, summary: textValue(item.description) || '套餐说明待补充', status, statusLabel: catalogStatusLabel(status), facts: [{ label: '默认陪玩席位', value: slots.length ? `${slots.length} 个独立席位` : '席位待配置' }, { label: '套餐价格', value: priceValue(item.defaultCustomerPriceMinor, item.currency), strong: typeof item.defaultCustomerPriceMinor === 'number' }, { label: '稳定代码', value: textValue(item.code) || '—' }, { label: '版本', value: textValue(item.version) || '—' }] };
+}
+
+function priceValue(amount: unknown, currency: unknown): string { return typeof amount === 'number' && typeof currency === 'string' ? formatMinorCurrency(amount, currency) : '由目录汇总'; }
+function playerStatusLabel(status: string): string { return ({ PENDING_REVIEW: '待审核', APPROVED: '已批准', REJECTED: '已拒绝', ACTIVE: '已启用', INACTIVE: '已停用' } as Record<string, string>)[status] ?? status; }
+function catalogStatusLabel(status: string): string { return ({ DRAFT: '草稿', ACTIVE: '已启用', RETIRED: '已退役', INACTIVE: '已停用' } as Record<string, string>)[status] ?? status; }
+
 function orderBillingSummary(item: Record<string, unknown>): string {
   const minutes = numberValue(item.billingUnitMinutes);
   const units = numberValue(item.unitCount);
@@ -182,7 +222,7 @@ function AdminBusinessTable(props: {
 }) {
   const columns = collectColumns(props.model.items);
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
-  const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'giftRequests'].includes(props.model.page);
+  const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftRequests'].includes(props.model.page);
   const hasOperations = itemActions.length > 0 || hasDetail;
   return (
     <div className="table-scroll content-panel content-panel--flush">
@@ -340,7 +380,7 @@ function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: 
       {detail.kind === 'LOADING' && <p aria-busy="true">正在载入详情...</p>}
       {detail.kind === 'FORBIDDEN' && <p role="alert">{detail.page === 'orders' ? '当前订单不在你的任务权限范围内。' : '当前账号无权查看此详情。'}{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
       {detail.kind === 'ERROR' && <p role="alert">详情暂时无法载入。{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
-      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions??[]} participantPlayerOptions={props.participantPlayerOptions??[]} mutationError={props.participantMutationError} onAdd={props.onAddOrderParticipant} onUpdate={props.onUpdateOrderParticipant} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{key}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
+      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions??[]} participantPlayerOptions={props.participantPlayerOptions??[]} mutationError={props.participantMutationError} onAdd={props.onAddOrderParticipant} onUpdate={props.onUpdateOrderParticipant} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
     </aside>
   );
 }
@@ -409,7 +449,7 @@ function displayValue(column: string, value: unknown, currency: unknown, tags?: 
     const names = new Map((tags?.[tagType] ?? []).map((tag) => [tag.code, tag.displayName]));
     return value.map((code) => names.get(String(code)) ?? String(code)).join(', ');
   }
-  if (Array.isArray(value)) return value.map(String).join(', ');
+  if (Array.isArray(value)) return value.map((item) => typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item)).join(', ');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }

@@ -36,7 +36,7 @@ export function buildUpdateOrderParticipantRequest(orderId:string,participantId:
 
 export interface AdminBusinessDetailState {
   kind: 'LOADING' | 'READY' | 'ERROR' | 'FORBIDDEN';
-  page: 'orders' | 'users' | 'players' | 'giftRequests';
+  page: 'orders' | 'users' | 'players' | 'serviceCatalog' | 'servicePackages' | 'giftRequests';
   requestId: string | null;
   data: Record<string, unknown> | null;
   consumptions?: {
