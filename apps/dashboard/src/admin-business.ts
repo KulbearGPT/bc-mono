@@ -124,6 +124,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     filters: [],
     actions: [
       { id: 'CREATE_PACKAGE_VERSION', label: '创建套餐版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
+      { id: 'COPY_PACKAGE_VERSION', label: '编辑套餐（创建新版本）', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' },
       { id: 'UPDATE_PACKAGE_STATUS', label: '发布或退役', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
@@ -312,7 +313,7 @@ export function buildAdminActionRequest(input: {
     const reasonCode = requireReasonCode(input.fields.reasonCode);
     return { method: 'POST', path: '/api/v1/admin/service-catalog', body: buildServiceCatalogCreateBody(input.fields, reasonCode) };
   }
-  if(input.actionId==='CREATE_PACKAGE_VERSION')return{method:'POST',path:'/api/v1/admin/service-packages',body:buildServicePackageCreateBody(input.fields,requireReasonCode(input.fields.reasonCode))};
+  if(input.actionId==='CREATE_PACKAGE_VERSION'||input.actionId==='COPY_PACKAGE_VERSION')return{method:'POST',path:'/api/v1/admin/service-packages',body:buildServicePackageCreateBody(input.fields,requireReasonCode(input.fields.reasonCode))};
   if(input.actionId==='UPDATE_PACKAGE_STATUS'){const expectedStatus=requireEnum(input.item?.status as string,['DRAFT','ACTIVE','RETIRED'],'status');const item=requireItem(input.item);const action=requireEnum(input.fields.action,['ACTIVATE','RETIRE'],'action');return{method:'PATCH',path:`/api/v1/admin/service-packages/${encodeURIComponent(item.id)}`,body:{expectedStatus,action,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if (input.actionId === 'UPDATE_GIFT_VERSION') {
     const item = requireItem(input.item);
