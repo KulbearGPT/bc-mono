@@ -11,6 +11,7 @@ import {
   type OrderRecord
 } from '@blackcat/api/orders';
 import { InMemoryAuditSink, type AuditRecord } from '@blackcat/api/security';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-17T20:00:00.000Z');
@@ -31,18 +32,7 @@ describe('M1-US-03 Postgres order draft integration', () => {
     await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m1_order']);
-    await execFile('psql', [
-      '-h',
-      socketDir,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m1_order',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000001_p0_baseline/migration.sql'
-    ]);
+    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m1_order' });
 
     pool = new Pool({
       host: socketDir,

@@ -12,6 +12,7 @@ import {
   dispatchOrder,
   expireDispatchAttempt
 } from '@blackcat/api/dispatch';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T01:00:00.000Z');
@@ -33,18 +34,7 @@ describe('M2-US-02 Postgres dispatch integration', () => {
     await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_dispatch']);
-    await execFile('psql', [
-      '-h',
-      socketDir,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m2_dispatch',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000001_p0_baseline/migration.sql'
-    ]);
+    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m2_dispatch' });
 
     pool = new Pool({
       host: socketDir,

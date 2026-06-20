@@ -13,6 +13,7 @@ import {
   declineOrderOffer,
   dispatchOrder
 } from '@blackcat/api/dispatch';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T03:00:00.000Z');
@@ -37,22 +38,7 @@ describe('M2-US-03 Postgres accept-order concurrency', () => {
     await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_accept']);
-    await execFile('psql', [
-      '-h',
-      socketDir,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m2_accept',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000001_p0_baseline/migration.sql'
-    ]);
-    await execFile('psql', [
-      '-h', socketDir, '-p', String(port), '-d', 'blackcat_m2_accept', '-v', 'ON_ERROR_STOP=1',
-      '-f', 'database/prisma/migrations/000016_order_acceptance_payout_snapshot/migration.sql'
-    ]);
+    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m2_accept' });
 
     pool = new Pool({
       host: socketDir,
