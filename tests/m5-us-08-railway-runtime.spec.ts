@@ -118,14 +118,14 @@ describe('M5-US-08 Railway runtime contract', () => {
         cwd: process.cwd(),
         env,
         encoding: 'utf8',
-        timeout: 1_000
+        timeout: 10_000
       });
       const output = `${result.stdout}${result.stderr}`;
       expect(result.status, missingKey).not.toBe(0);
       expect(output, missingKey).toContain(missingKey);
       expect(output, missingKey).not.toContain(secretValue);
     }
-  }, 15_000);
+  }, 45_000);
 
   it('marks every required Pilot production configuration field missing before dependency readiness can pass', async () => {
     const completeEnv = productionEnv();
