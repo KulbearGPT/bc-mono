@@ -334,11 +334,14 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(riskHtml).not.toContain('name="reasonCode"');
   });
 
-  test('renders the operations column before business data columns', () => {
+  test('renders service catalog actions inside the current discussion-card layout', () => {
     const model = buildAdminBusinessPage({ page: 'serviceCatalog', permissions: ['catalog.read', 'catalog.manage'], status: 'READY', items: [{ id: 'service-1', version: 1, game: 'VALORANT' }] });
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, onAction: () => undefined }));
-    expect(html.indexOf('>操作</th>')).toBeLessThan(html.indexOf('>编号</th>'));
-    expect(html.indexOf('class="table-actions"')).toBeLessThan(html.indexOf('>service-1</td>'));
+    expect(html).toContain('class="business-discussion-grid"');
+    expect(html).toContain('class="business-discussion-card"');
+    expect(html).toContain('内部编号 · service-1');
+    expect(html).toContain('class="business-discussion-card__actions"');
+    expect(html).not.toContain('>操作</th>');
   });
 
   test('reuses a generated idempotency key for retries of one logical write', async () => {
