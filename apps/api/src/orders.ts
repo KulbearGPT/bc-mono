@@ -53,6 +53,7 @@ export type OrderEventType =
   | 'CANCELLED'
   | 'EXCEPTION_ENTERED'
   | 'EXCEPTION_RECOVERED'
+  | 'CHANNEL_RECOVERED'
   | 'RESOLVED'
   | 'PANEL_SYNC_REQUESTED';
 export type FundReservationEventType = 'CREATED' | 'ACTIVATED' | 'CAPTURED' | 'RELEASED' | 'DISPUTED' | 'DISPUTE_RESOLVED' | 'EXPIRED' | 'FAILED' | 'INCREASED' | 'DECREASED';
@@ -133,6 +134,12 @@ export interface UpdateOrderInput {
   notes?: string | null;
   voiceChannelId?: string | null;
   preferredPlayerDiscordUserIds?: string[];
+}
+
+export interface RecoverOrderChannelInput {
+  expectedVersion: number;
+  previousChannelId: string;
+  channelSpec: ChannelSpec;
 }
 
 export interface EstimateOrderInput {
@@ -1319,6 +1326,25 @@ export async function prepareUpdateOrder(input: {
   };
 }
 
+export async function prepareRecoverOrderChannel(input: {
+  accountStore: AccountStore;
+  orderStore: OrderStore;
+  actor: ActorContext;
+  orderId: string;
+  input: RecoverOrderChannelInput;
+  now: Date;
+}): Promise<PreparedOrderWrite> {
+  const binding = await requireCurrentBinding(input.accountStore, input.actor);
+  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  if (!activeOrderStatuses.has(order.status)) throw new OrderError('CONFLICT', 'Only an active order channel can be recovered.');
+  if (!Number.isInteger(input.input.expectedVersion) || input.input.expectedVersion !== order.version) throw new OrderError('CONFLICT', 'Order version is stale.');
+  if (input.input.previousChannelId !== order.channelSpec.channelId) throw new OrderError('CONFLICT', 'The order channel mapping has already changed.');
+  validateChannelSpec(input.input.channelSpec);
+  if (input.input.channelSpec.channelId === input.input.previousChannelId) throw new OrderError('VALIDATION_ERROR', 'A replacement channel is required.');
+  const updated: OrderRecord = {...clone(order),version:order.version+1,channelSpec:{...input.input.channelSpec,voiceChannelId:order.channelSpec.voiceChannelId},updatedAt:input.now.toISOString()};
+  return {data:toApiOrder(updated),order:updated,event:buildOrderEvent({order:updated,eventType:'CHANNEL_RECOVERED',fromStatus:order.status,toStatus:order.status,actor:input.actor,now:input.now,sequence:updated.version,payload:{previousChannelId:order.channelSpec.channelId,channelSpec:updated.channelSpec}})};
+}
+
 export async function estimateOrder(input: {
   accountStore: AccountStore;
   orderStore: OrderStore;
@@ -2113,6 +2139,21 @@ export function registerOrderRoutes(
       actor,
       orderId: readParams(request).orderId ?? ''
     }),
+    mapError: mapOrderError
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST',
+    url: '/api/v1/orders/:orderId/channel-recovery',
+    permission: 'order.update',
+    action: 'RECOVER_ORDER_CHANNEL',
+    targetType: 'order',
+    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    acceptedSources: ['DISCORD_BOT'],
+    handler: async (request, actor) => {
+      const prepared = await prepareRecoverOrderChannel({accountStore:options.accountStore,orderStore:options.orderStore,actor,orderId:readParams(request).orderId??'',input:request.body as RecoverOrderChannelInput,now:now()});
+      return {data:prepared.data,commit:(auditRecord:AuditRecord)=>options.orderStore.commitUpdate({order:prepared.order,event:prepared.event,expectedVersion:(request.body as RecoverOrderChannelInput).expectedVersion,auditRecord:{...auditRecord,beforeSnapshot:{channelId:(request.body as RecoverOrderChannelInput).previousChannelId},afterSnapshot:{channelSpec:prepared.order.channelSpec,orderVersion:prepared.order.version}},auditSink})};
+    },
     mapError: mapOrderError
   });
 

@@ -146,7 +146,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     try{
       const staffRoleIds=['staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].map((key)=>values?.[key]).filter((id):id is string=>typeof id==='string');
       channel=await interaction.guild.channels.create({name:`order-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/gu,'-').slice(0,80),type:ChannelType.GuildText,parent:categoryId,
-        permissionOverwrites:[{id:interaction.guildId,deny:[PermissionFlagsBits.ViewChannel]},{id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]},{id:interaction.client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]},...staffRoleIds.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]}))]});
+        permissionOverwrites:[{id:interaction.guildId,deny:[PermissionFlagsBits.ViewChannel]},{id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages],deny:[PermissionFlagsBits.ManageChannels]},{id:interaction.client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]},...staffRoleIds.map((id)=>({id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]}))]});
       const placeholder=await channel.send('正在创建订单面板…');
       const actor=actorFromInteraction(interaction)!;
       const api=createBotApiClient();
@@ -154,9 +154,20 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       if(result.kind==='CREATE_PRIVATE_CHANNEL'){
         const [catalog,requirements]=await Promise.all([api.listServices(actor),api.listOrderRequirements(result.order.id,actor,undefined,10)]);
         const reply=toDiscordReply(buildMultiProjectOrderPanelMessage(result.order,requirements,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
-      if(result.kind==='OPEN_EXISTING_CHANNEL'){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(botCopy.entry.existingOrder(result.channelId));return;}
+      if(result.kind==='OPEN_EXISTING_CHANNEL'){
+        const existing=await interaction.guild.channels.fetch(result.channelId).catch(()=>null);
+        if(existing){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(botCopy.entry.existingOrder(result.channelId));return;}
+        const order=await api.getOrder(result.orderId,actor);
+        const recovered=await api.recoverOrderChannel(result.orderId,{expectedVersion:order.version,previousChannelId:result.channelId,channelSpec:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:order.channelSpec.voiceChannelId}},actor,buildDiscordIdempotencyKey(`order:recover-channel:${result.orderId}`,interaction.id));
+        const [catalog,requirements]=await Promise.all([api.listServices(actor),api.listOrderRequirements(recovered.id,actor,undefined,10)]);
+        const reply=toDiscordReply(buildMultiProjectOrderPanelMessage(recovered,requirements,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${recovered.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;
+      }
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
-    }catch(error){if(channel)await channel.delete('Order creation failed').catch(()=>undefined);const requestId=error instanceof BotApiError?error.requestId:'local-order-channel-failed';await interaction.editReply(botCopy.orders.channelCreationFailed(requestId));}
+    }catch(error){
+      if(channel)await channel.delete('Order creation failed').catch(()=>undefined);
+      if(error instanceof BotApiError){await interaction.editReply(`订单处理失败，请稍后重试或联系猫舍前台。request_id: ${error.requestId}`);return;}
+      await interaction.editReply(botCopy.orders.channelCreationFailed('local-order-channel-failed'));
+    }
   }
 
   private async handleServiceLifecycleButton(

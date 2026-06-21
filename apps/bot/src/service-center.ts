@@ -362,6 +362,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<{ statusCode: number; order: OrderSummary }>;
+  recoverOrderChannel(
+    orderId: string,
+    input: { expectedVersion: number; previousChannelId: string; channelSpec: OrderChannelSpec },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderSummary>;
   reportChannelCreationFailure(
     input: { requestId: string; failureCode: 'CHANNEL_CREATE_FAILED' },
     actor: BotActorContext,
@@ -516,6 +522,12 @@ export class HttpBotApiClient implements BotApiClient {
       includeStatus: true
     });
     return { statusCode: response.statusCode, order: response.data };
+  }
+
+  public async recoverOrderChannel(orderId: string, input: { expectedVersion: number; previousChannelId: string; channelSpec: OrderChannelSpec }, actor: BotActorContext, idempotencyKey: string): Promise<OrderSummary> {
+    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/channel-recovery`, {
+      method: 'POST', actor, idempotencyKey, body: input
+    });
   }
 
   public async listServices(actor: BotActorContext, game?: string): Promise<{ items: PublicServiceSummary[] }> {
@@ -1070,7 +1082,7 @@ export function buildPrivateOrderChannelPlan(input: {
       id: input.customerDiscordUserId,
       kind: 'MEMBER',
       allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'],
-      deny: []
+      deny: ['MANAGE_CHANNELS']
     },
     {
       id: input.botUserId,
@@ -1081,7 +1093,7 @@ export function buildPrivateOrderChannelPlan(input: {
     ...input.staffRoleIds.map((roleId) => ({
       id: roleId,
       kind: 'ROLE' as const,
-      allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'] as PermissionName[],
+      allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'MANAGE_CHANNELS'] as PermissionName[],
       deny: []
     }))
   ];

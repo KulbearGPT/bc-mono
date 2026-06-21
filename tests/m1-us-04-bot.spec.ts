@@ -58,6 +58,7 @@ function api(overrides: Partial<BotApiClient> = {}): BotApiClient {
   return {
     listServices: vi.fn().mockResolvedValue({ items: [{ id: '00000000-0000-0000-0000-00000000c104', game: '无畏契约', service: '娱乐陪玩', region: '北美', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }] }),
     createOrder: vi.fn().mockResolvedValue({ statusCode: 201, order: draftOrder() }),
+    recoverOrderChannel: vi.fn().mockResolvedValue(draftOrder({ version: 4 })),
     reportChannelCreationFailure: vi.fn().mockResolvedValue(undefined),
     updateOrder: vi.fn().mockResolvedValue(draftOrder({ version: 4 })),
     getOrder: vi.fn().mockResolvedValue(draftOrder()),
@@ -115,9 +116,9 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     expect(plan.permissionOverwrites).toEqual(
       expect.arrayContaining([
         { id: guildId, kind: 'ROLE', allow: [], deny: ['VIEW_CHANNEL'] },
-        { id: customerDiscordUserId, kind: 'MEMBER', allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'], deny: [] },
+        { id: customerDiscordUserId, kind: 'MEMBER', allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'], deny: ['MANAGE_CHANNELS'] },
         { id: '999999999999999998', kind: 'MEMBER', allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'MANAGE_CHANNELS'], deny: [] },
-        { id: '220000000000000001', kind: 'ROLE', allow: ['VIEW_CHANNEL', 'SEND_MESSAGES'], deny: [] },
+        { id: '220000000000000001', kind: 'ROLE', allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'MANAGE_CHANNELS'], deny: [] },
         { id: '330000000000000001', kind: 'ROLE', allow: [], deny: ['VIEW_CHANNEL'] }
       ])
     );

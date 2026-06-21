@@ -374,6 +374,17 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
     expect(updateOther.statusCode).toBe(403);
   });
 
+  test('recovers a missing Discord channel without changing the active order business state', async () => {
+    const { server, orderStore, auditSink } = buildOrderServer({ orders: [draftOrder()] });
+    const replacement = channelSpec({ channelId: '120000000000000009', panelMessageId: '120000000000000010' });
+    const response = await server.inject({method:'POST',url:'/api/v1/orders/00000000-0000-0000-0000-00000000b001/channel-recovery',headers:botHeaders('111111111111111111',{'idempotency-key':'discord:order:recover-channel:1'}),payload:{expectedVersion:1,previousChannelId:'120000000000000001',channelSpec:replacement}});
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toMatchObject({status:'DRAFT',version:2,channelSpec:replacement});
+    expect(orderStore.events.at(-1)).toMatchObject({eventType:'CHANNEL_RECOVERED',fromStatus:'DRAFT',toStatus:'DRAFT'});
+    expect(auditSink.records.at(-1)).toMatchObject({action:'RECOVER_ORDER_CHANNEL',permissionCode:'order.update'});
+  });
+
   test('documents implemented order operationIds on the expected OpenAPI paths', async () => {
     const openapi = await readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8');
 
