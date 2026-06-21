@@ -92,7 +92,7 @@ export interface OrderRequirementSummary {
 }
 
 export interface ServicePackageSlotSummary { id:string;position:number;serviceCatalogVersionId:string;gameDisplayName:string;serviceDisplayName:string;regionDisplayName:string|null;billingUnitMinutes:number;unitCount:number;customerNoteTemplate:string|null }
-export interface ServicePackageSummary { id:string;code:string;version:number;displayName:string;description:string;defaultCustomerPriceMinor:number|null;currency:'CAT';slots:ServicePackageSlotSummary[] }
+export interface ServicePackageSummary { id:string;code:string;version:number;game:string;gameDisplayName:string;displayName:string;description:string;defaultCustomerPriceMinor:number|null;currency:'CAT';slots:ServicePackageSlotSummary[] }
 export interface ServicePackagePreviewSummary extends ServicePackageSummary { derivedTotalMinor:number;compositionMode:'PACKAGE_DEFAULT' }
 export interface ServicePackagePageSummary { items:ServicePackageSummary[];nextCursor:string|null }
 export interface ApplyServicePackageSummary {orderId:string;orderVersion:number;sourcePackageVersionId:string;compositionMode:'PACKAGE_DEFAULT';derivedTotalMinor:number;currency:'CAT';requirements:OrderRequirementSummary[]}
@@ -356,7 +356,7 @@ export interface OrderCompletionSummary {
 }
 
 export interface BotApiClient {
-  listServices(actor: BotActorContext): Promise<{ items: PublicServiceSummary[] }>;
+  listServices(actor: BotActorContext, game?: string): Promise<{ items: PublicServiceSummary[] }>;
   createOrder(
     input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },
     actor: BotActorContext,
@@ -388,7 +388,7 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<OrderRequirementMutationSummary>;
-  listServicePackages?(actor:BotActorContext,cursor?:string,limit?:number):Promise<ServicePackagePageSummary>;
+  listServicePackages?(actor:BotActorContext,cursor?:string,limit?:number,game?:string):Promise<ServicePackagePageSummary>;
   previewServicePackage?(servicePackageVersionId:string,actor:BotActorContext):Promise<ServicePackagePreviewSummary>;
   applyServicePackage?(orderId:string,input:{expectedOrderVersion:number;servicePackageVersionId:string},actor:BotActorContext,idempotencyKey:string):Promise<ApplyServicePackageSummary>;
   getCurrentUser(actor: BotActorContext): Promise<CurrentUserSummary>;
@@ -518,8 +518,9 @@ export class HttpBotApiClient implements BotApiClient {
     return { statusCode: response.statusCode, order: response.data };
   }
 
-  public async listServices(actor: BotActorContext): Promise<{ items: PublicServiceSummary[] }> {
-    return this.request('/api/v1/services', { method: 'GET', actor });
+  public async listServices(actor: BotActorContext, game?: string): Promise<{ items: PublicServiceSummary[] }> {
+    const query=game?`?game=${encodeURIComponent(game)}`:'';
+    return this.request(`/api/v1/services${query}`, { method: 'GET', actor });
   }
 
   public async reportChannelCreationFailure(
@@ -576,7 +577,7 @@ export class HttpBotApiClient implements BotApiClient {
     return this.request<OrderRequirementMutationSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/requirements/${encodeURIComponent(requirementId)}`, { method: 'PATCH', actor, idempotencyKey, body: input });
   }
 
-  public async listServicePackages(actor:BotActorContext,cursor?:string,limit=25):Promise<ServicePackagePageSummary>{const query=new URLSearchParams({limit:String(limit)});if(cursor)query.set('cursor',cursor);return this.request<ServicePackagePageSummary>(`/api/v1/service-packages?${query.toString()}`,{method:'GET',actor});}
+  public async listServicePackages(actor:BotActorContext,cursor?:string,limit=25,game?:string):Promise<ServicePackagePageSummary>{const query=new URLSearchParams({limit:String(limit)});if(cursor)query.set('cursor',cursor);if(game)query.set('game',game);return this.request<ServicePackagePageSummary>(`/api/v1/service-packages?${query.toString()}`,{method:'GET',actor});}
   public async previewServicePackage(servicePackageVersionId:string,actor:BotActorContext):Promise<ServicePackagePreviewSummary>{return this.request<ServicePackagePreviewSummary>(`/api/v1/service-packages/${encodeURIComponent(servicePackageVersionId)}/preview`,{method:'POST',actor});}
   public async applyServicePackage(orderId:string,input:{expectedOrderVersion:number;servicePackageVersionId:string},actor:BotActorContext,idempotencyKey:string):Promise<ApplyServicePackageSummary>{return this.request<ApplyServicePackageSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/package`,{method:'POST',actor,idempotencyKey,body:input});}
 
@@ -1000,6 +1001,7 @@ export type ServiceCenterRoute =
   | { area: 'order-requirement-action'; orderId: string; action: 'page'; expectedVersion: number; cursor?: string }
   | { area: 'order-requirement-action'; orderId: string; action: 'remove'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
   | {area:'service-package-select';orderId:string;expectedVersion:number}
+  | {area:'order-game-select';orderId:string;expectedVersion:number}
   | {area:'service-package-action';orderId:string;action:'open'|'back';expectedVersion:number}
   | {area:'service-package-action';orderId:string;action:'apply';servicePackageVersionId:string;expectedVersion:number}
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
@@ -1193,12 +1195,11 @@ export function buildMultiProjectOrderPanelMessage(
   const components: ActionRowSpec[] = selected ? [
     { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
   ] : [
-    { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:add:v${page.orderVersion}`, '添加一个陪玩项目', serviceOptions(order, services))] },
     { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
   ];
   if (selected) {
     components.push(
-      { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:project:v${page.orderVersion}:r${selected.version}`, `项目：${selected.gameDisplayName} · ${selected.serviceDisplayName}`, serviceOptions(order, services))] },
+      { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:project:v${page.orderVersion}:r${selected.version}`, `项目：${selected.gameDisplayName} · ${selected.serviceDisplayName}`, serviceOptions(order, services.filter(service=>service.game===selected.game)))] },
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:units:v${page.orderVersion}:r${selected.version}`, `时长：${formatRequirementDuration(selected)}`, integerOptions(1, 12, selected.unitCount, (value) => `${value * selected.billingUnitMinutes / 60} 小时`))] },
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:players:v${page.orderVersion}:r${selected.version}`, `需要 ${selected.requestedPlayerCount} 位陪玩`, integerOptions(1, 10, selected.requestedPlayerCount, (value) => `${value} 位陪玩`))] }
     );
@@ -1220,7 +1221,7 @@ export function buildMultiProjectOrderPanelMessage(
     { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单' },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' }
   ] : [
-    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:package:${order.id}:open:v${page.orderVersion}`, label: '选择套餐' },
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:package:${order.id}:open:v${page.orderVersion}`, label: '按游戏点单' },
     { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单', disabled: requirements.length === 0 },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' },
     { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${page.orderVersion}`, label: '我要申诉' }
@@ -1236,11 +1237,17 @@ export function buildMultiProjectOrderPanelMessage(
 
 export function buildServicePackagePickerMessage(order:OrderSummary,page:ServicePackagePageSummary):MessageSpec{return{title:`订单 #${order.publicId} · 选择套餐`,body:['套餐会先展开成独立陪玩席位，应用后每个席位都能单独修改。',page.items.length?'请选择一个套餐查看默认阵容和服务端报价。':'目前没有可用套餐，你仍可返回自由搭配。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[...(page.items.length?[{type:'ACTION_ROW' as const,components:[select(`bc:package:${order.id}:select:v${order.version}`,'选择一个套餐',page.items.slice(0,25).map(item=>({label:item.displayName,value:item.id,description:`${item.slots.length} 个席位 · ${item.description}`.slice(0,100)})))]}]:[]),{type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回自由搭配'}]}]};}
 
-export function buildServicePackagePreviewMessage(order:OrderSummary,pkg:ServicePackagePreviewSummary):MessageSpec{const slots=pkg.slots.map(slot=>`${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}${slot.regionDisplayName?` · ${slot.regionDisplayName}`:''}\n${slot.unitCount*slot.billingUnitMinutes/60} 小时${slot.customerNoteTemplate?` · ${slot.customerNoteTemplate}`:''}`).join('\n\n');return{title:`${pkg.displayName} · 默认阵容`,body:[pkg.description,slots,`套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor,pkg.currency)}`,'应用后可以把某个技术席位单独改成娱乐陪玩，其他席位不会变化；一旦修改，API 会按最终阵容重新报价。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,label:'使用这个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'换一个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回自由搭配'}]}]};}
+export function buildGamePickerMessage(order:OrderSummary,services:PublicServiceSummary[]):MessageSpec{const games=[...new Map(services.map(item=>[item.game,item.gameDisplayName??item.game])).entries()].slice(0,25);return{title:`订单 #${order.publicId} · 选择游戏`,body:games.length?'先选今天想玩的游戏，下一页只会出现这个游戏可用的套餐和单点项目。':'今天暂时没有可下单的游戏项目。',visibility:'PRIVATE_CHANNEL',components:[...(games.length?[{type:'ACTION_ROW' as const,components:[select(`bc:game:${order.id}:select:v${order.version}`,'选择一个游戏',games.map(([game,name])=>({label:name,value:game})))]}]:[]),{type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回陪玩清单'}]}]};}
+
+export function buildGameOrderingMenuMessage(order:OrderSummary,game:string,services:PublicServiceSummary[],packages:ServicePackagePageSummary):MessageSpec{const gameName=services[0]?.gameDisplayName??packages.items[0]?.gameDisplayName??game;const components:ActionRowSpec[]=[];if(packages.items.length)components.push({type:'ACTION_ROW',components:[select(`bc:package:${order.id}:select:v${order.version}`,'选择一个套餐',packages.items.slice(0,25).map(item=>({label:item.displayName,value:item.id})))]});if(services.length)components.push({type:'ACTION_ROW',components:[select(`bc:req:${order.id}:add:v${order.version}`,'单点一个陪玩项目',serviceOptions(order,services))]});components.push({type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'更换游戏'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回清单'}]});return{title:`${gameName} · 今日菜单`,body:[packages.items.length?`套餐 ${packages.items.length} 个`:'暂无套餐',services.length?`单点 ${services.length} 个`:'暂无单点项目','套餐可以整套加入，也可以在加入后逐席位修改；单点会新增一条需求席位，实际陪玩在提交后匹配。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components};}
+
+export function buildServicePackagePreviewMessage(order:OrderSummary,pkg:ServicePackagePreviewSummary):MessageSpec{const slots=pkg.slots.map(slot=>`${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}${slot.regionDisplayName?` · ${slot.regionDisplayName}`:''}\n${slot.unitCount*slot.billingUnitMinutes/60} 小时${slot.customerNoteTemplate?` · ${slot.customerNoteTemplate}`:''}`).join('\n\n');return{title:`${pkg.displayName} · 默认阵容`,body:[pkg.description,slots,`套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor,pkg.currency)}`,'应用后可以把某个技术席位单独改成娱乐陪玩，其他席位不会变化；一旦修改，API 会按最终阵容重新报价。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,label:'使用这个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'返回游戏菜单'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回陪玩清单'}]}]};}
 
 export async function handleServicePackageSelect(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;servicePackageVersionId:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);const [order,pkg]=await Promise.all([input.api.getOrder(input.orderId,input.actor),api.preview(input.servicePackageVersionId,input.actor)]);if(order.status!=='DRAFT')return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(order)};return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildServicePackagePreviewMessage(order,pkg)};}
 
-export async function handleServicePackageAction(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;action:'open'|'back'|'apply';servicePackageVersionId?:string;idempotencyKey:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);if(input.action==='open'){const [order,page]=await Promise.all([input.api.getOrder(input.orderId,input.actor),api.list(input.actor,undefined,25)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildServicePackagePickerMessage(order,page)};}if(input.action==='apply'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');await api.apply(input.orderId,{expectedOrderVersion:input.expectedVersion,servicePackageVersionId:input.servicePackageVersionId},input.actor,input.idempotencyKey);}if(!input.api.listOrderRequirements)throw new Error('Order requirement API is unavailable.');const [order,requirements,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,requirements,services.items)};}
+export async function handleGameMenuSelect(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;game:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);const [order,services,packages]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listServices(input.actor,input.game),api.list(input.actor,undefined,25,input.game)]);if(order.status!=='DRAFT')return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(order)};return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGameOrderingMenuMessage(order,input.game,services.items,packages)};}
+
+export async function handleServicePackageAction(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;action:'open'|'back'|'apply';servicePackageVersionId?:string;idempotencyKey:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);if(input.action==='open'){const [order,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGamePickerMessage(order,services.items)};}if(input.action==='apply'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');await api.apply(input.orderId,{expectedOrderVersion:input.expectedVersion,servicePackageVersionId:input.servicePackageVersionId},input.actor,input.idempotencyKey);}if(!input.api.listOrderRequirements)throw new Error('Order requirement API is unavailable.');const [order,requirements,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,requirements,services.items)};}
 
 function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
   return {
@@ -2348,6 +2355,7 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   if(requirementPage)return{area:'order-requirement-action',orderId:requirementPage[1]!,action:'page',cursor:requirementPage[2]==='first'?undefined:requirementPage[2],expectedVersion:Number(requirementPage[3])};
 
   const packageSelect=/^bc:package:([0-9a-f-]{36}):select:v([1-9][0-9]*)$/u.exec(customId);if(packageSelect)return{area:'service-package-select',orderId:packageSelect[1]!,expectedVersion:Number(packageSelect[2])};
+  const gameSelect=/^bc:game:([0-9a-f-]{36}):select:v([1-9][0-9]*)$/u.exec(customId);if(gameSelect)return{area:'order-game-select',orderId:gameSelect[1]!,expectedVersion:Number(gameSelect[2])};
   const packageApply=/^bc:package:([0-9a-f-]{36}):([0-9a-f-]{36}):apply:v([1-9][0-9]*)$/u.exec(customId);if(packageApply)return{area:'service-package-action',orderId:packageApply[1]!,servicePackageVersionId:packageApply[2]!,action:'apply',expectedVersion:Number(packageApply[3])};
   const packageAction=/^bc:package:([0-9a-f-]{36}):(open|back):v([1-9][0-9]*)$/u.exec(customId);if(packageAction)return{area:'service-package-action',orderId:packageAction[1]!,action:packageAction[2] as 'open'|'back',expectedVersion:Number(packageAction[3])};
 

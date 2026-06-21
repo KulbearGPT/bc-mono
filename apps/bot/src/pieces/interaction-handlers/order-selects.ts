@@ -9,6 +9,7 @@ import {
   buildOrderPanelMessage,
   buildMultiProjectOrderPanelMessage,
   handleOrderRequirementSelectSubmit,
+  handleGameMenuSelect,
   handleServicePackageSelect,
   handleOrderSelectSubmit,
   parseServiceCenterCustomId,
@@ -27,11 +28,11 @@ export default class OrderSelectHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-select' || route.area === 'order-requirement-select' || route.area==='service-package-select' || route.area==='gift-recipient-select' || route.area==='gift-catalog-select' ? this.some(route) : this.none();
+    return route.area === 'order-select' || route.area === 'order-requirement-select' || route.area==='service-package-select' || route.area==='order-game-select' || route.area==='gift-recipient-select' || route.area==='gift-catalog-select' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select'&&parsedData.area!=='service-package-select'&&parsedData.area!=='gift-recipient-select'&&parsedData.area!=='gift-catalog-select')) {
+    if ((!interaction.isStringSelectMenu() && !interaction.isUserSelectMenu()) || !parsedData || (parsedData.area !== 'order-select' && parsedData.area !== 'order-requirement-select'&&parsedData.area!=='service-package-select'&&parsedData.area!=='order-game-select'&&parsedData.area!=='gift-recipient-select'&&parsedData.area!=='gift-catalog-select')) {
       return;
     }
 
@@ -69,7 +70,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
         return;
       }
-      const result = parsedData.area==='service-package-select'?await handleServicePackageSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,servicePackageVersionId:interaction.values[0]??''}):parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
+      const result = parsedData.area==='order-game-select'?await handleGameMenuSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,game:interaction.values[0]??''}):parsedData.area==='service-package-select'?await handleServicePackageSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,servicePackageVersionId:interaction.values[0]??''}):parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
         api,
         actor,
         orderId: parsedData.orderId,

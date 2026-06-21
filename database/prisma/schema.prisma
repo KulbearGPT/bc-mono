@@ -1190,12 +1190,15 @@ model ServiceCatalogVersion {
 model ServicePackage {
   id          String    @id @default(uuid()) @db.Uuid
   code        String    @unique @db.VarChar(100)
+  gameCode    String    @map("game_code") @db.VarChar(80)
+  gameName    String    @map("game_name") @db.VarChar(100)
   archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   versions ServicePackageVersion[]
 
+  @@index([gameCode, archivedAt])
   @@map("service_packages")
 }
 
