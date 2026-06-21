@@ -152,6 +152,15 @@ SELECT
     expect(current).toMatchObject({ version: 2, amountMinor: 12000 });
     expect(leakedAudit.rows[0]?.count).toBe('0');
   });
+
+  test('commits a recovered CHANNEL_LINKED event and persists the replacement mapping', async () => {
+    const store = new PostgresOrderStore({ pool });
+    const current = await store.findById('00000000-0000-0000-0000-00000000b001');
+    expect(current).not.toBeNull();
+    const updated = draftOrder({ version: current!.version + 1, channelSpec: { channelId: '120000000000000009', panelMessageId: '120000000000000010', voiceChannelId: null }, updatedAt: now.toISOString() });
+    await store.commitUpdate({order:updated,event:orderEvent({eventType:'CHANNEL_LINKED',fromStatus:'DRAFT',toStatus:'DRAFT',sequence:updated.version,payload:{recovered:true}}),expectedVersion:current!.version,auditRecord:auditRecord('RECOVER_ORDER_CHANNEL','order.update'),auditSink:new InMemoryAuditSink()});
+    await expect(store.findById(updated.id)).resolves.toMatchObject({version:updated.version,channelSpec:updated.channelSpec});
+  });
 });
 
 async function seedCustomerAndCatalog(): Promise<void> {

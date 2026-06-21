@@ -53,7 +53,6 @@ export type OrderEventType =
   | 'CANCELLED'
   | 'EXCEPTION_ENTERED'
   | 'EXCEPTION_RECOVERED'
-  | 'CHANNEL_RECOVERED'
   | 'RESOLVED'
   | 'PANEL_SYNC_REQUESTED';
 export type FundReservationEventType = 'CREATED' | 'ACTIVATED' | 'CAPTURED' | 'RELEASED' | 'DISPUTED' | 'DISPUTE_RESOLVED' | 'EXPIRED' | 'FAILED' | 'INCREASED' | 'DECREASED';
@@ -1342,7 +1341,7 @@ export async function prepareRecoverOrderChannel(input: {
   validateChannelSpec(input.input.channelSpec);
   if (input.input.channelSpec.channelId === input.input.previousChannelId) throw new OrderError('VALIDATION_ERROR', 'A replacement channel is required.');
   const updated: OrderRecord = {...clone(order),version:order.version+1,channelSpec:{...input.input.channelSpec,voiceChannelId:order.channelSpec.voiceChannelId},updatedAt:input.now.toISOString()};
-  return {data:toApiOrder(updated),order:updated,event:buildOrderEvent({order:updated,eventType:'CHANNEL_RECOVERED',fromStatus:order.status,toStatus:order.status,actor:input.actor,now:input.now,sequence:updated.version,payload:{previousChannelId:order.channelSpec.channelId,channelSpec:updated.channelSpec}})};
+  return {data:toApiOrder(updated),order:updated,event:buildOrderEvent({order:updated,eventType:'CHANNEL_LINKED',fromStatus:order.status,toStatus:order.status,actor:input.actor,now:input.now,sequence:updated.version,payload:{recovered:true,previousChannelId:order.channelSpec.channelId,channelSpec:updated.channelSpec}})};
 }
 
 export async function estimateOrder(input: {
@@ -2836,12 +2835,14 @@ SET row_version = $2,
     expected_player_earning_minor = $16,
     currency = $17,
     customer_note = $18,
-    voice_channel_id = $19,
-    requirement_snapshot = $20::jsonb,
-    updated_at = $21
+    channel_id = $19,
+    panel_message_id = $20,
+    voice_channel_id = $21,
+    requirement_snapshot = $22::jsonb,
+    updated_at = $23
 WHERE id = $1
   AND status = 'DRAFT'
-  AND row_version = $22
+  AND row_version = $24
     `,
     [
       order.id,
@@ -2862,6 +2863,8 @@ WHERE id = $1
       order.playerEarningMinor,
       order.currency,
       order.notes,
+      order.channelSpec.channelId,
+      order.channelSpec.panelMessageId,
       order.channelSpec.voiceChannelId,
       JSON.stringify({ preferredPlayerDiscordUserIds: order.preferredPlayerDiscordUserIds ?? [] }),
       new Date(order.updatedAt),

@@ -381,7 +381,7 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().data).toMatchObject({status:'DRAFT',version:2,channelSpec:replacement});
-    expect(orderStore.events.at(-1)).toMatchObject({eventType:'CHANNEL_RECOVERED',fromStatus:'DRAFT',toStatus:'DRAFT'});
+    expect(orderStore.events.at(-1)).toMatchObject({eventType:'CHANNEL_LINKED',fromStatus:'DRAFT',toStatus:'DRAFT',payload:{recovered:true}});
     expect(auditSink.records.at(-1)).toMatchObject({action:'RECOVER_ORDER_CHANNEL',permissionCode:'order.update'});
   });
 
