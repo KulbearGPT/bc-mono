@@ -28,4 +28,12 @@ describe('M9-US-13 automatic 90-second dispatch rounds',()=>{
     expect(handler).toContain('const accepted = await api.acceptOrder(');
     expect(handler).toContain('accepted.channelSpec.channelId');
   });
+  test('a repeated accept resolves the trusted order before explaining that the player already joined',async()=>{
+    expect(botCopy.dispatch.alreadyAccepted('120000000000000001')).toContain('已经接过这张委托');
+    expect(botCopy.dispatch.alreadyAccepted('120000000000000001')).toContain('<#120000000000000001>');
+    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
+    expect(handler).toContain("error.code === 'CONFLICT' || error.code === 'PLAYER_NOT_ELIGIBLE'");
+    expect(handler).toContain('const currentOrder = await api.getOrder(parsed.orderId, actor);');
+    expect(handler).toContain('botCopy.dispatch.alreadyAccepted(currentOrder.channelSpec.channelId)');
+  });
 });

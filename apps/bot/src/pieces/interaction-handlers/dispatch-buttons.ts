@@ -67,6 +67,24 @@ export class DispatchButtonsHandler extends InteractionHandler {
       );
       await interaction.editReply({ content: botCopy.dispatch.declined });
     } catch (error) {
+      if (
+        parsed.action === 'accept'
+        && error instanceof BotApiError
+        && (error.code === 'CONFLICT' || error.code === 'PLAYER_NOT_ELIGIBLE')
+      ) {
+        try {
+          const currentOrder = await api.getOrder(parsed.orderId, actor);
+          await interaction.editReply({
+            content: botCopy.dispatch.alreadyAccepted(currentOrder.channelSpec.channelId)
+          });
+          return;
+        } catch {
+          if (error.code === 'CONFLICT') {
+            await interaction.editReply({ content: botCopy.dispatch.alreadyTaken });
+            return;
+          }
+        }
+      }
       interaction.client.logger.error({
         event: 'dispatch.button_failed',
         guildId: interaction.guildId,

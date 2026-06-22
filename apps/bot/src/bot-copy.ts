@@ -62,6 +62,8 @@ export const botCopy = {
   },
   dispatch: {
     accepted: (channelId: string) => `🐈 委托接取成功\n这位客人今晚就交给你啦。请进入订单频道 <#${channelId}>，等待双方完成准备确认；确认前不会开始服务。`,
+    alreadyAccepted: (channelId: string) => `🐾 你已经接过这张委托啦\n不用重复接单，请直接进入订单频道 <#${channelId}>，等待双方完成准备确认。`,
+    alreadyTaken: '这张委托已经被处理过了，当前席位可能已由其他陪玩接取。可以继续等待下一轮通知。',
     declined: '已记录本轮暂不接单，我们不会再用这轮委托打扰你。',
     ineligible: '这张委托暂时接不了。请检查陪玩工作台中的在线状态、接单开关和已认证项目，调整后可以等待下一轮通知。',
     failed: '这次接单没有成功，请刷新后再试；订单不会因为这次失败自动分配给你。'
