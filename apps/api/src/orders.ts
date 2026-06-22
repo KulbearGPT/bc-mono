@@ -38,6 +38,7 @@ export type OrderStatus =
 export type OrderEventType =
   | 'CREATED'
   | 'DETAILS_UPDATED'
+  | 'CHANNEL_LINKED'
   | 'SUBMITTED'
   | 'DISPATCH_STARTED'
   | 'DISPATCH_TIMED_OUT'
