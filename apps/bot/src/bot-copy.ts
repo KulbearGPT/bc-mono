@@ -61,7 +61,7 @@ export const botCopy = {
     cancellationChanged: (requestId: string) => `订单状态刚刚发生变化，请刷新取消说明，确认最新影响后再试。request_id: ${requestId}`
   },
   dispatch: {
-    accepted: '🐈 委托接取成功\n这位客人今晚就交给你啦。请进入订单频道，等待双方完成准备确认；确认前不会开始服务。',
+    accepted: (channelId: string) => `🐈 委托接取成功\n这位客人今晚就交给你啦。请进入订单频道 <#${channelId}>，等待双方完成准备确认；确认前不会开始服务。`,
     declined: '已记录本轮暂不接单，我们不会再用这轮委托打扰你。',
     ineligible: '这张委托暂时接不了。请检查陪玩工作台中的在线状态、接单开关和已认证项目，调整后可以等待下一轮通知。',
     failed: '这次接单没有成功，请刷新后再试；订单不会因为这次失败自动分配给你。'

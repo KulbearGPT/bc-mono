@@ -49,13 +49,13 @@ export class DispatchButtonsHandler extends InteractionHandler {
 
     try {
       if (parsed.action === 'accept') {
-        await api.acceptOrder(
+        const accepted = await api.acceptOrder(
           parsed.orderId,
           { expectedVersion: parsed.expectedVersion, dispatchAttemptId: parsed.dispatchAttemptId },
           actor,
           buildDiscordIdempotencyKey('dispatch:accept', interaction.id)
         );
-        await interaction.editReply({ content: botCopy.dispatch.accepted });
+        await interaction.editReply({ content: botCopy.dispatch.accepted(accepted.channelSpec.channelId) });
         return;
       }
 

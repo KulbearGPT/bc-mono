@@ -1,6 +1,7 @@
 import { describe,expect,test,vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { createDispatchStartHandler } from '../apps/api/src/worker-handlers.js';
+import { botCopy } from '../apps/bot/src/bot-copy.js';
 import type { OutboxJob } from '../apps/api/src/outbox.js';
 
 const job:OutboxJob={id:'00000000-0000-0000-0000-000000009013',type:'DISPATCH_START',status:'PROCESSING',aggregateType:'order',aggregateId:'00000000-0000-0000-0000-000000009014',
@@ -20,5 +21,11 @@ describe('M9-US-13 automatic 90-second dispatch rounds',()=>{
     expect(deferIndex).toBeLessThan(apiIndex);
     expect(handler).toContain('error instanceof BotApiError');
     expect(handler).toContain('await interaction.editReply(');
+  });
+  test('accepted reply links the player directly to the order text channel',async()=>{
+    expect(botCopy.dispatch.accepted('120000000000000001')).toContain('<#120000000000000001>');
+    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
+    expect(handler).toContain('const accepted = await api.acceptOrder(');
+    expect(handler).toContain('accepted.channelSpec.channelId');
   });
 });
