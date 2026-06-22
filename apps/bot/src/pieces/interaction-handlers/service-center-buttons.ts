@@ -2,13 +2,14 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { ChannelType, PermissionFlagsBits, type ButtonInteraction, type Interaction } from 'discord.js';
 import { botConfigCache } from '../../bot-config.js';
 import { botCopy } from '../../bot-copy.js';
-import { toDiscordModal, toDiscordReply } from '../../discord-renderer.js';
+import { toDiscordModal, toDiscordReply, toDiscordUpdate } from '../../discord-renderer.js';
 import { buildGiftAffordabilityMessage, buildGiftCatalogMessage, buildGiftRequestMessage,
   createGiftContinuationToken, decodeGiftRecipientSelection, readGiftContinuationToken } from '../../gifts.js';
 import {
   HttpBotApiClient,
   BotApiError,
   buildOrderPanelMessage,
+  buildGamePickerMessage,
   buildMultiProjectOrderPanelMessage,
   buildOrderNotesModal,
   buildRequirementNoteModal,
@@ -20,6 +21,8 @@ import {
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
   handleOrderRequirementAction,
+  handleOrderRequirementSelectSubmit,
+  handleGameMenuSelect,
   handleServicePackageAction,
   handleOpenCancellationPreview,
   handleConfirmCancellation,
@@ -43,7 +46,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area==='service-package-action' || route.area === 'order-notes-open' || route.area==='requirement-note-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift' || route.area === 'gift-recipient-page'
+    return route.area === 'entry' || route.area === 'order-action' || route.area === 'order-requirement-action' || route.area === 'order-requirement-add-action' || route.area==='order-game-action' || route.area==='service-package-action' || route.area === 'order-notes-open' || route.area==='requirement-note-open' || route.area === 'service-action' || route.area === 'player-action' || route.area === 'cancellation-action' || route.area === 'profile' || route.area === 'reports' || route.area === 'gift' || route.area === 'gift-recipient-page'
       ? this.some(route)
       : this.none();
   }
@@ -69,9 +72,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const actor = actorFromInteraction(interaction);
       if (!actor) return;
       const catalog = await createBotApiClient().listGifts(parsedData.orderId, actor);
-      const reply = toDiscordReply(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
-        giftContinuationSecret(), new Date(), decodeGiftRecipientSelection(catalog.recipients, parsedData.selection), parsedData.page));
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
+        giftContinuationSecret(), new Date(), decodeGiftRecipientSelection(catalog.recipients, parsedData.selection), parsedData.page)));
       return;
     }
 
@@ -101,14 +103,26 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     if(parsedData.area==='order-notes-open'){await interaction.showModal(toDiscordModal(buildOrderNotesModal({orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion})));return;}
     if(parsedData.area==='requirement-note-open'){await interaction.showModal(toDiscordModal(buildRequirementNoteModal(parsedData)));return;}
 
+    if(parsedData.area==='order-game-action'){
+      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内选择游戏。request_id: local-guild-required',ephemeral:true});return;}
+      try{const result=await handleGameMenuSelect({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,game:parsedData.game});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){await interaction.update(toDiscordUpdate(result.message));return;}}
+      catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-game-action';await interaction.reply({content:`游戏菜单刚刚发生变化，请重试。request_id: ${requestId}`,ephemeral:true});return;}
+    }
+
+    if(parsedData.area==='order-requirement-add-action'){
+      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内添加单点。request_id: local-guild-required',ephemeral:true});return;}
+      try{const result=await handleOrderRequirementSelectSubmit({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:'add',value:parsedData.serviceCatalogVersionId,idempotencyKey:buildDiscordIdempotencyKey('requirement:add',interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){await interaction.update(toDiscordUpdate(result.message));return;}}
+      catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-requirement-add';await interaction.reply({content:`单点项目刚刚发生变化，请重试。request_id: ${requestId}`,ephemeral:true});return;}
+    }
+
     if(parsedData.area==='order-requirement-action'){
       const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内修改订单。request_id: local-guild-required',ephemeral:true});return;}
-      try{const result=await handleOrderRequirementAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,requirementId:parsedData.action==='remove'?parsedData.requirementId:undefined,expectedRequirementVersion:parsedData.action==='remove'?parsedData.expectedRequirementVersion:undefined,cursor:parsedData.action==='page'?parsedData.cursor:undefined,idempotencyKey:buildDiscordIdempotencyKey(`requirement:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){const reply=toDiscordReply(result.message);await interaction.update({content:null,embeds:reply.embeds,components:reply.components});return;}}
+      try{const result=await handleOrderRequirementAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,requirementId:parsedData.action==='remove'?parsedData.requirementId:undefined,expectedRequirementVersion:parsedData.action==='remove'?parsedData.expectedRequirementVersion:undefined,cursor:parsedData.action==='page'?parsedData.cursor:undefined,idempotencyKey:buildDiscordIdempotencyKey(`requirement:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){await interaction.update(toDiscordUpdate(result.message));return;}}
       catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-requirement-action';await interaction.reply({content:`订单项目刚刚发生变化，请刷新后重试。request_id: ${requestId}`,ephemeral:true});return;}
     }
 
     if(parsedData.area==='service-package-action'){
-      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内选择套餐。request_id: local-guild-required',ephemeral:true});return;}try{const result=await handleServicePackageAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,servicePackageVersionId:parsedData.action==='apply'?parsedData.servicePackageVersionId:undefined,idempotencyKey:buildDiscordIdempotencyKey(`package:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){const reply=toDiscordReply(result.message);await interaction.update({content:null,embeds:reply.embeds,components:reply.components});return;}}catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-package-action';await interaction.reply({content:`套餐清单刚刚发生变化，请重试。request_id: ${requestId}`,ephemeral:true});return;}
+      const actor=actorFromInteraction(interaction);if(!actor){await interaction.reply({content:'请在服务器内选择套餐。request_id: local-guild-required',ephemeral:true});return;}try{const result=await handleServicePackageAction({api:createBotApiClient(),actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,action:parsedData.action,servicePackageVersionId:parsedData.action==='apply'||parsedData.action==='preview'?parsedData.servicePackageVersionId:undefined,idempotencyKey:buildDiscordIdempotencyKey(`package:${parsedData.action}`,interaction.id)});if(result.kind==='EDIT_ORIGINAL_MESSAGE'){await interaction.update(toDiscordUpdate(result.message));return;}}catch(error){const requestId=error instanceof BotApiError?error.requestId:'local-package-action';await interaction.reply({content:`套餐清单刚刚发生变化，请重试。request_id: ${requestId}`,ephemeral:true});return;}
     }
 
     if (parsedData.area !== 'order-action') {
@@ -152,15 +166,17 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const api=createBotApiClient();
       const result=await handleCreateOrderFromPublicEntry({api,actor,provisionalChannel:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:null},idempotencyKey:buildDiscordIdempotencyKey('order:create',interaction.id)});
       if(result.kind==='CREATE_PRIVATE_CHANNEL'){
-        const [catalog,requirements]=await Promise.all([api.listServices(actor),api.listOrderRequirements(result.order.id,actor,undefined,10)]);
-        const reply=toDiscordReply(buildMultiProjectOrderPanelMessage(result.order,requirements,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
+        const [catalog,requirements,packages]=await Promise.all([api.listServices(actor),api.listOrderRequirements(result.order.id,actor,undefined,10),api.listServicePackages(actor,undefined,25)]);
+        const message=requirements.items.some((item)=>item.status==='ACTIVE')?buildMultiProjectOrderPanelMessage(result.order,requirements,catalog.items):buildGamePickerMessage(result.order,catalog.items,packages.items);
+        await placeholder.edit(toDiscordUpdate(message));await channel.setName(`order-${result.order.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;}
       if(result.kind==='OPEN_EXISTING_CHANNEL'){
         const existing=await interaction.guild.channels.fetch(result.channelId).catch(()=>null);
         if(existing){await channel.delete('Duplicate provisional order channel').catch(()=>undefined);await interaction.editReply(botCopy.entry.existingOrder(result.channelId));return;}
         const order=await api.getOrder(result.orderId,actor);
         const recovered=await api.recoverOrderChannel(result.orderId,{expectedVersion:order.version,previousChannelId:result.channelId,channelSpec:{channelId:channel.id,panelMessageId:placeholder.id,voiceChannelId:order.channelSpec.voiceChannelId}},actor,buildDiscordIdempotencyKey(`order:recover-channel:${result.orderId}`,interaction.id));
-        const [catalog,requirements]=await Promise.all([api.listServices(actor),api.listOrderRequirements(recovered.id,actor,undefined,10)]);
-        const reply=toDiscordReply(buildMultiProjectOrderPanelMessage(recovered,requirements,catalog.items));await placeholder.edit({content:null,embeds:reply.embeds,components:reply.components});await channel.setName(`order-${recovered.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;
+        const [catalog,requirements,packages]=await Promise.all([api.listServices(actor),api.listOrderRequirements(recovered.id,actor,undefined,10),api.listServicePackages(actor,undefined,25)]);
+        const message=requirements.items.some((item)=>item.status==='ACTIVE')?buildMultiProjectOrderPanelMessage(recovered,requirements,catalog.items):buildGamePickerMessage(recovered,catalog.items,packages.items);
+        await placeholder.edit(toDiscordUpdate(message));await channel.setName(`order-${recovered.publicId}`.toLowerCase().slice(0,90)).catch(()=>undefined);await interaction.editReply(botCopy.entry.channelCreated(String(channel)));return;
       }
       await channel.delete('Order creation failed').catch(()=>undefined);await interaction.editReply(result.kind==='EPHEMERAL_MESSAGE'||result.kind==='CHANNEL_CREATION_FAILED'?result.message:'暂时无法创建订单。');
     }catch(error){
@@ -190,8 +206,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey(`service:${route.action}`, interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      const reply = toDiscordReply(result.message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(result.message));
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {
@@ -211,8 +226,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         : route.action === 'consumptions'
           ? buildCurrentUserConsumptionsMessage(await api.listCurrentUserConsumptions(actor, route.cursor, 5))
           : buildCurrentUserProfileMessage(await api.getCurrentUserProfileSummary(actor));
-      const reply = toDiscordReply(message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(message));
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-profile-fallback';
       await interaction.reply({ content: botCopy.common.featureUnavailable('个人中心', requestId), ephemeral: true });
@@ -227,8 +241,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const message = route.action === 'detail'
         ? buildCurrentPlayerWeeklyReportDetailMessage(await api.getCurrentPlayerWeeklyReport(route.reportId, actor))
         : buildCurrentPlayerWeeklyReportListMessage(await api.listCurrentPlayerWeeklyReports(actor, route.cursor, 4));
-      const reply = toDiscordReply(message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(message));
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
       await interaction.reply({ content: botCopy.common.featureUnavailable('我的周报', requestId), ephemeral: true });
@@ -252,8 +265,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       if (selectedParticipantIds.length === 0) throw new Error('Gift recipients are missing from the interaction message.');
       if (route.action === 'back') {
         const [order, catalog] = await Promise.all([api.getOrder(context.orderId, actor), api.listGifts(context.orderId, actor)]);
-        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, order.version, actor, secret, new Date(), selectedParticipantIds));
-        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.update(toDiscordUpdate(buildGiftCatalogMessage(catalog, order.version, actor, secret, new Date(), selectedParticipantIds)));
         return;
       }
       const [affordability, catalog] = await Promise.all([
@@ -266,15 +278,13 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const changed = affordability.catalogVersion !== context.catalogVersion || affordability.priceMinor !== context.priceMinor;
       if (route.action !== 'confirm' || changed || !affordability.canAfford) {
         const selectedRecipients = catalog.recipients.filter((recipient) => selectedParticipantIds.includes(recipient.participantId));
-        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken, selectedRecipients));
-        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.update(toDiscordUpdate(buildGiftAffordabilityMessage(affordability, currentToken, selectedRecipients)));
         return;
       }
       const created = await api.createOrderGiftRequest(context.orderId, { expectedOrderVersion: context.orderVersion,
         giftCatalogVersionId: context.giftCatalogVersionId, participantIds: selectedParticipantIds, expectedCatalogVersion: context.catalogVersion,
         expectedPriceMinor: context.priceMinor }, actor, buildDiscordIdempotencyKey('gift:confirm', interaction.id));
-      const reply = toDiscordReply(buildGiftRequestMessage(created));
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(buildGiftRequestMessage(created)));
     } catch (error) {
       const requestId = error instanceof BotApiError ? error.requestId : 'local-gift-context';
       await interaction.reply({ content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`, ephemeral: true });
@@ -337,8 +347,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       );
       const result = await handleOpenPlayerWorkbench({ api, actor });
       if (result.kind === 'SHOW_PLAYER_WORKBENCH') {
-        const reply = toDiscordReply(result.message);
-        await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.update(toDiscordUpdate(result.message));
         return;
       }
       await interaction.reply({ content: '可接单状态已更新，请刷新工作台。', ephemeral: true });
@@ -366,8 +375,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey('order:estimate', interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      const reply = toDiscordReply(result.message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(result.message));
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {
@@ -391,8 +399,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey('order:cancel-preview', interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      const reply = toDiscordReply(result.message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(result.message));
       return;
     }
     await interaction.reply({
@@ -440,8 +447,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       idempotencyKey: buildDiscordIdempotencyKey('order:submit-final', interaction.id)
     });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-      const reply = toDiscordReply(result.message);
-      await interaction.update({ content: null, embeds: reply.embeds, components: reply.components });
+      await interaction.update(toDiscordUpdate(result.message));
       return;
     }
     if (result.kind === 'EPHEMERAL_MESSAGE') {

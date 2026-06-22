@@ -167,8 +167,6 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
   add(input: AddRequirementInput): StagedRequirementWrite {
     const order = this.requireMutableOrder(input, input.expectedOrderVersion);
     const catalog = this.requireCatalog(input.serviceCatalogVersionId);
-    const selectedGame=this.requirements.find(item=>item.orderId===order.id&&item.status==='ACTIVE')?.game;
-    if(selectedGame&&catalog.game!==selectedGame)throw new OrderRequirementError('BUSINESS_RULE_ERROR','New requirement must belong to the order selected game.');
     const requirement = buildRequirement({ id: crypto.randomUUID(), orderId: order.id, catalog, unitCount: input.unitCount, requestedPlayerCount: input.requestedPlayerCount, version: 1, now: input.now });
     const total = deriveTotal([...this.requirements, requirement]);
     const data = mutationResult(order, requirement, total);
@@ -304,8 +302,6 @@ async function applyAdd(client: PoolClient, input: AddRequirementInput): Promise
   const order = await scopedOrder(client, input, true);
   assertMutable(order, input.expectedOrderVersion);
   const catalog = await catalogFacts(client, input.serviceCatalogVersionId);
-  const selectedGame=await client.query<{game_code_snapshot:string}>(`SELECT game_code_snapshot FROM order_requirements WHERE order_id=$1 AND status='ACTIVE' ORDER BY created_at,id LIMIT 1`,[input.orderId]);
-  if(selectedGame.rows[0]&&selectedGame.rows[0].game_code_snapshot!==catalog.game)throw new OrderRequirementError('BUSINESS_RULE_ERROR','New requirement must belong to the order selected game.');
   const requirement = buildRequirement({ id: crypto.randomUUID(), orderId: input.orderId, catalog, unitCount: input.unitCount, requestedPlayerCount: input.requestedPlayerCount, version: 1, now: input.now });
   await client.query(`INSERT INTO order_requirements (
     id,order_id,service_catalog_version_id,status,row_version,game_code_snapshot,game_display_name_snapshot,
@@ -334,11 +330,11 @@ async function applyUpdate(client: PoolClient, input: UpdateRequirementInput): P
     if (input.action === 'CHANGE_PROJECT' && catalog.game !== existing.game) throw new OrderRequirementError('BUSINESS_RULE_ERROR', 'Replacement project must belong to the same game.');
     next = buildRequirement({ id: existing.id, orderId: existing.orderId, catalog, unitCount: input.unitCount ?? existing.unitCount, requestedPlayerCount: input.requestedPlayerCount ?? existing.requestedPlayerCount, version: existing.version + 1, now: input.now, createdAt: existing.createdAt, sourcePackageSlotId: existing.sourcePackageSlotId ?? null, customerNote: existing.customerNote ?? null });
   }
-  await client.query(`UPDATE order_requirements SET service_catalog_version_id=$2,status=$3,row_version=$4,
+  await client.query(`UPDATE order_requirements SET service_catalog_version_id=$2,status=$3::"OrderRequirementStatus",row_version=$4,
     game_code_snapshot=$5,game_display_name_snapshot=$6,service_code_snapshot=$7,service_display_name_snapshot=$8,
     region_code_snapshot=$9,region_display_name_snapshot=$10,billing_unit_minutes_snapshot=$11,unit_count=$12,
     requested_player_count=$13,customer_unit_price_minor_snapshot=$14,estimated_line_price_minor=$15,customer_note=$16,
-    removed_at=CASE WHEN $3='REMOVED' THEN $17 ELSE NULL END,updated_at=$17 WHERE id=$1`,
+    removed_at=CASE WHEN $3::"OrderRequirementStatus"='REMOVED'::"OrderRequirementStatus" THEN $17::timestamptz ELSE NULL END,updated_at=$17::timestamptz WHERE id=$1`,
   [next.id,next.serviceCatalogVersionId,next.status,next.version,next.game,next.gameDisplayName,next.service,next.serviceDisplayName,next.region,next.regionDisplayName,next.billingUnitMinutes,next.unitCount,next.requestedPlayerCount,next.customerUnitPriceMinor,next.estimatedLinePriceMinor,next.customerNote,input.now.toISOString()]);
   return finishMutation(client, input, next, input.action === 'REMOVE' ? 'REMOVED' : input.action === 'CHANGE_PROJECT' ? 'PROJECT_CHANGED' : input.action==='CHANGE_NOTE'?'NOTE_CHANGED':'QUANTITY_CHANGED');
 }

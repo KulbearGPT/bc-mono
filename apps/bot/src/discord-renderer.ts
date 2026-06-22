@@ -2,15 +2,20 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ContainerBuilder,
   EmbedBuilder,
+  MessageFlags,
   ModalBuilder,
+  SectionBuilder,
   StringSelectMenuBuilder,
+  TextDisplayBuilder,
   UserSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
+  type InteractionEditReplyOptions,
   type InteractionReplyOptions
 } from 'discord.js';
-import type { ActionRowSpec, ComponentSpec, MessageSpec, ModalSpec, TextInputSpec } from './service-center.js';
+import type { ActionRowSpec, ComponentSpec, MessageComponentSpec, MessageSpec, ModalSpec, TextInputSpec } from './service-center.js';
 
 export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
 
@@ -39,15 +44,58 @@ export function configureDiscordRendererEnvironment(value: string | undefined): 
 
 export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
+  if (rendered.layout === 'COMPONENTS_V2' || rendered.visibility === 'PRIVATE_CHANNEL') {
+    const container = new ContainerBuilder()
+      .setAccentColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000)));
+    for (const component of rendered.components) addV2Component(container, component);
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Blackcat Companion'));
+    return {
+      components: [container],
+      flags: rendered.visibility === 'EPHEMERAL'
+        ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+        : MessageFlags.IsComponentsV2
+    };
+  }
   return {
     embeds: [new EmbedBuilder()
       .setColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
       .setTitle(rendered.title.slice(0, 256))
       .setDescription(rendered.body.slice(0, 4096))
       .setFooter({ text: 'Blackcat Companion' })],
-    components: rendered.components.map(toDiscordActionRow),
+    components: rendered.components
+      .filter((component): component is ActionRowSpec => component.type === 'ACTION_ROW')
+      .map(toDiscordActionRow),
     ephemeral: rendered.visibility === 'EPHEMERAL'
   };
+}
+
+export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptions {
+  const reply = toDiscordReply(message);
+  return {
+    content: null,
+    embeds: reply.embeds,
+    components: reply.components,
+    flags: message.layout === 'COMPONENTS_V2' || message.visibility === 'PRIVATE_CHANNEL' ? MessageFlags.IsComponentsV2 : undefined
+  };
+}
+
+function addV2Component(container: ContainerBuilder, component: MessageComponentSpec): void {
+  if (component.type === 'ACTION_ROW') {
+    container.addActionRowComponents(toDiscordActionRow(component));
+    return;
+  }
+  if (component.type === 'V2_SECTION') {
+    container.addSectionComponents(new SectionBuilder()
+      .addTextDisplayComponents(new TextDisplayBuilder().setContent(component.content.slice(0, 4000)))
+      .setButtonAccessory(toDiscordComponent(component.accessory) as ButtonBuilder));
+    return;
+  }
+  if (component.type === 'V2_TEXT') {
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(component.content.slice(0, 4000)));
+    return;
+  }
+  container.addSeparatorComponents((separator) => separator.setDivider(true));
 }
 
 export function toDiscordModal(modal: ModalSpec): ModalBuilder {

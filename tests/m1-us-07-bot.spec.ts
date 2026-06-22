@@ -217,8 +217,7 @@ describe('M1-US-07 order confirmation panel', () => {
     });
 
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.title).toBe('订单 #P-1042');
-    expect(result.message.body).toContain('已刷新');
+    expect(result.message.title).toContain('STEP 1/4');
     expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-stale');
   });
 
@@ -278,6 +277,6 @@ describe('M1-US-07 Sapphire order confirmation wiring', () => {
     expect(source).toContain('handleOpenOrderConfirmation');
     expect(source).toContain("route.area === 'entry' || route.area === 'order-action'");
     expect(source).toContain('buildDiscordIdempotencyKey');
-    expect(source).toContain('await interaction.update({ content: null, embeds: reply.embeds, components: reply.components })');
+    expect(source).toContain('await interaction.update(toDiscordUpdate(result.message))');
   });
 });

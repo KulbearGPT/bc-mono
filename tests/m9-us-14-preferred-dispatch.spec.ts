@@ -29,14 +29,18 @@ describe('M9-US-14 customer preferred dispatch list', () => {
     expect(prioritizeDispatchCandidates([ordinary], ['999999999999999999'], 'TIMEOUT_RETRY')).toEqual([ordinary]);
   });
 
-  test('order panel uses a restart-safe user select capped at three and API validates the snapshot', async () => {
+  test('API keeps the restart-safe preference snapshot while the prototype-aligned wizard omits the legacy selector', async () => {
     const [serviceCenter, renderer, orders] = await Promise.all([
       readFile('apps/bot/src/service-center.ts', 'utf8'),
       readFile('apps/bot/src/discord-renderer.ts', 'utf8'),
       readFile('apps/api/src/orders.ts', 'utf8')
     ]);
-    expect(serviceCenter).toContain("type: 'USER_SELECT'");
-    expect(serviceCenter).toContain('maxValues: 3');
+    const currentWizard = serviceCenter.slice(
+      serviceCenter.indexOf('export function buildMultiProjectOrderPanelMessage'),
+      serviceCenter.indexOf('export function buildGamePickerMessage')
+    );
+    expect(currentWizard).not.toContain('preferred-players');
+    expect(serviceCenter).toContain("field==='preferred-players'");
     expect(renderer).toContain('UserSelectMenuBuilder');
     expect(orders).toContain('preferredPlayerDiscordUserIds');
     expect(orders).toMatch(/requirement_snapshot = \$[1-9][0-9]*::jsonb/u);

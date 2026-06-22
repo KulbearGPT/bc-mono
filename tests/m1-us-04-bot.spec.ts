@@ -124,27 +124,14 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     );
   });
 
-  test('order panel renders structured message selects and current draft summary without leaking player payout', () => {
+  test('draft order panel enters the game-first wizard without legacy controls or payout leakage', () => {
     const message = buildOrderPanelMessage(draftOrder(), [{ id: '00000000-0000-0000-0000-00000000c104', game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'FUN', serviceDisplayName: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }]);
 
-    expect(message.title).toBe('订单 #P-1042');
-    expect(message.body).toContain('瓦洛兰特');
-    expect(message.body).toContain('娱乐陪玩');
-    expect(message.body).toContain('1,200.0 CAT');
-    expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual(
-      expect.arrayContaining([
-        `bc:select:order:${orderId}:catalog:v3`,
-        `bc:select:order:${orderId}:duration:v3`,
-        `bc:modal-open:order-notes:${orderId}:v3`
-      ])
-    );
-    expect(message.components).toHaveLength(4);
-    expect(JSON.stringify(message.components)).toContain('瓦洛兰特 · 娱乐陪玩 · NA');
-    expect(JSON.stringify(message.components)).not.toContain('VALORANT · FUN');
-    expect(message.components.every((row) => {
-      const selects = row.components.filter((component) => component.type === 'SELECT');
-      return selects.length === 0 || (selects.length === 1 && row.components.length === 1);
-    })).toBe(true);
+    expect(message.title).toContain('STEP 1/4');
+    expect(JSON.stringify(message)).toContain('瓦洛兰特');
+    expect(JSON.stringify(message.components)).toContain('V2_SECTION');
+    expect(JSON.stringify(message.components)).toContain('进入');
+    for (const legacy of ['选择陪玩项目','优先陪玩','补充备注','确认订单','取消订单','我要申诉']) expect(JSON.stringify(message)).not.toContain(legacy);
     expect(JSON.stringify(message)).not.toMatch(/playerEarning|playerPayout|陪玩结算|可用余额|余额/);
   });
 
@@ -287,7 +274,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
       'discord:order:update:duration'
     );
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.title).toBe('订单 #P-1042');
+    expect(result.message.title).toContain('STEP 1/4');
   });
 
   test('select handler updates the original panel without posting an ephemeral acknowledgement', async () => {
@@ -323,7 +310,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
     );
     expect(client.getOrder).toHaveBeenCalledWith(orderId, actor());
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.body).toContain('旧版本已刷新');
+    expect(result.message.title).toContain('STEP 1/4');
     expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-conflict');
   });
 });

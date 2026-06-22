@@ -1,12 +1,13 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { BOT_COPY, botCopy } from '../../bot-copy.js';
 import type { Interaction } from 'discord.js';
-import { toDiscordReply } from '../../discord-renderer.js';
+import { toDiscordUpdate } from '../../discord-renderer.js';
 import {
   BotApiError,
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   buildOrderPanelMessage,
+  buildGamePickerMessage,
   buildMultiProjectOrderPanelMessage,
   handleOrderRequirementSelectSubmit,
   handleGameMenuSelect,
@@ -56,8 +57,7 @@ export default class OrderSelectHandler extends InteractionHandler {
           giftCatalogVersionId: affordability.giftCatalogVersionId, catalogVersion: affordability.catalogVersion,
           priceMinor: affordability.priceMinor }, actor, secret);
         const selected = catalog.recipients.filter((recipient) => participantIds.includes(recipient.participantId));
-        const reply = toDiscordReply(buildGiftAffordabilityMessage(affordability, currentToken, selected));
-        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.editReply(toDiscordUpdate(buildGiftAffordabilityMessage(affordability, currentToken, selected)));
         return;
       }
       if (parsedData.area === 'gift-recipient-select') {
@@ -65,9 +65,8 @@ export default class OrderSelectHandler extends InteractionHandler {
         const prior = decodeGiftRecipientSelection(catalog.recipients, parsedData.selection);
         const visible = catalog.recipients.slice(parsedData.page * 25, parsedData.page * 25 + 25).map((recipient) => recipient.participantId);
         const selected = [...prior.filter((participantId) => !visible.includes(participantId)), ...interaction.values];
-        const reply = toDiscordReply(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
-          process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '', new Date(), selected, parsedData.page));
-        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.editReply(toDiscordUpdate(buildGiftCatalogMessage(catalog, parsedData.expectedVersion, actor,
+          process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '', new Date(), selected, parsedData.page)));
         return;
       }
       const result = parsedData.area==='order-game-select'?await handleGameMenuSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,game:interaction.values[0]??''}):parsedData.area==='service-package-select'?await handleServicePackageSelect({api,actor,orderId:parsedData.orderId,expectedVersion:parsedData.expectedVersion,servicePackageVersionId:interaction.values[0]??''}):parsedData.area === 'order-requirement-select' ? await handleOrderRequirementSelectSubmit({
@@ -91,8 +90,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         idempotencyKey: buildDiscordIdempotencyKey(`order:update:${parsedData.field}`, interaction.id)
       });
       if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
-        const reply = toDiscordReply(result.message);
-        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        await interaction.editReply(toDiscordUpdate(result.message));
         return;
       }
       await interaction.editReply({ content: BOT_COPY.orders.optionUpdateFailed, components: [] });
@@ -104,13 +102,16 @@ export default class OrderSelectHandler extends InteractionHandler {
       }
       try {
         const recoveryApi = new HttpBotApiClient({ apiBaseUrl: process.env.API_BASE_URL ?? '', botServiceToken: process.env.BOT_SERVICE_TOKEN ?? '' });
-        const [order, requirements, services] = await Promise.all([
+        const [order, requirements, services, packages] = await Promise.all([
           recoveryApi.getOrder(parsedData.orderId, actor),
           recoveryApi.listOrderRequirements(parsedData.orderId, actor, undefined, 10),
-          recoveryApi.listServices(actor)
+          recoveryApi.listServices(actor),
+          recoveryApi.listServicePackages(actor, undefined, 25)
         ]);
-        const reply = toDiscordReply(buildMultiProjectOrderPanelMessage(order, requirements, services.items));
-        await interaction.editReply({ content: null, embeds: reply.embeds, components: reply.components });
+        const message=requirements.items.some((item)=>item.status==='ACTIVE')
+          ?buildMultiProjectOrderPanelMessage(order,requirements,services.items)
+          :buildGamePickerMessage(order,services.items,packages.items);
+        await interaction.editReply(toDiscordUpdate(message));
         await interaction.followUp({ content: botCopy.orders.optionSaveFailed(requestId), ephemeral: true });
       } catch {
         await interaction.followUp({ content: botCopy.orders.menuRecoveryFailed(requestId), ephemeral: true });

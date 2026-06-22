@@ -916,6 +916,23 @@ export interface ActionRowSpec {
   components: ComponentSpec[];
 }
 
+export interface V2SectionSpec {
+  type: 'V2_SECTION';
+  content: string;
+  accessory: Extract<ComponentSpec, { type: 'BUTTON' }>;
+}
+
+export interface V2TextSpec {
+  type: 'V2_TEXT';
+  content: string;
+}
+
+export interface V2SeparatorSpec {
+  type: 'V2_SEPARATOR';
+}
+
+export type MessageComponentSpec = ActionRowSpec | V2SectionSpec | V2TextSpec | V2SeparatorSpec;
+
 export type ComponentSpec =
   | {
       type: 'BUTTON';
@@ -953,7 +970,8 @@ export interface MessageSpec {
   title: string;
   body: string;
   visibility: 'PUBLIC' | 'EPHEMERAL' | 'PRIVATE_CHANNEL';
-  components: ActionRowSpec[];
+  components: MessageComponentSpec[];
+  layout?: 'EMBED' | 'COMPONENTS_V2';
 }
 
 export interface ModalSpec {
@@ -1006,15 +1024,18 @@ export type ServiceCenterRoute =
   | { area: 'player-action'; action: 'set-available'; expectedVersion: number }
   | { area: 'cancellation-action'; action: 'confirm'; orderId: string; previewId: string; expectedVersion: number }
   | { area: 'order-select'; orderId: string; field: 'catalog' | 'duration' | 'preferred-players'; expectedVersion: number }
-  | { area: 'order-requirement-select'; orderId: string; action: 'add'; requirementId?: undefined; expectedVersion: number }
+  | { area: 'order-requirement-select'; orderId: string; action: 'add'|'preview'; requirementId?: undefined; expectedVersion: number }
   | { area: 'order-requirement-select'; orderId: string; action: 'edit'; requirementId?: undefined; expectedVersion: number; cursor?: string }
   | { area: 'order-requirement-select'; orderId: string; action: 'project' | 'units' | 'players'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
   | { area: 'order-requirement-action'; orderId: string; action: 'back'; expectedVersion: number }
   | { area: 'order-requirement-action'; orderId: string; action: 'page'; expectedVersion: number; cursor?: string }
   | { area: 'order-requirement-action'; orderId: string; action: 'remove'; requirementId: string; expectedVersion: number; expectedRequirementVersion: number }
+  | { area: 'order-requirement-add-action'; orderId: string; serviceCatalogVersionId: string; action: 'add'; expectedVersion: number }
   | {area:'service-package-select';orderId:string;expectedVersion:number}
   | {area:'order-game-select';orderId:string;expectedVersion:number}
+  | {area:'order-game-action';orderId:string;game:string;action:'open';expectedVersion:number}
   | {area:'service-package-action';orderId:string;action:'open'|'back';expectedVersion:number}
+  | {area:'service-package-action';orderId:string;action:'preview';servicePackageVersionId:string;expectedVersion:number}
   | {area:'service-package-action';orderId:string;action:'apply';servicePackageVersionId:string;expectedVersion:number}
   | { area: 'order-action'; orderId: string; action: 'submit' | 'submit-final' | 'cancel'; expectedVersion: number }
   | { area: 'service-action'; orderId: string; action: 'ready' | 'request-completion' | 'confirm' | 'support'; expectedVersion: number }
@@ -1131,6 +1152,9 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
   if (order.automation?.state === 'PAUSED') {
     return buildPausedAutomationMessage(order);
   }
+  if (order.status === 'DRAFT') {
+    return buildGamePickerMessage(order, services);
+  }
   if ((order.status === 'PENDING_DISPATCH' || order.status === 'ACCEPTED') && order.matching) {
     return buildMatchingProgressMessage(order);
   }
@@ -1139,52 +1163,15 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
   const body = [
     `${selectedService?.gameDisplayName ?? order.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? order.serviceDisplayName ?? formatService(order.service)}`,
     `${selectedService?.regionDisplayName ?? order.regionDisplayName ?? formatRegion(order.region)} · ${formatDuration(order)}`,
-    `预计价格：${formatCustomerMoney(order.amountMinor, order.currency)}`,
-    `优先陪玩：${order.preferredPlayerDiscordUserIds?.length ?? 0}/3（可选）`,
-    order.notes ? `备注：${order.notes}` : '备注：未填写'
+    `订单金额：${formatCustomerMoney(order.amountMinor, order.currency)}`,
+    `当前状态：${order.status}`
   ].join('\n');
 
   return {
     title,
     body,
     visibility: 'PRIVATE_CHANNEL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          select(`bc:select:order:${order.id}:catalog:v${order.version}`, '选择陪玩项目', serviceOptions(order, services))
-        ]
-      },
-      {
-        type: 'ACTION_ROW',
-        components: [
-          select(`bc:select:order:${order.id}:duration:v${order.version}`, '选择时长', [
-            { label: '1 小时', value: '1' },
-            { label: '2 小时', value: '2' },
-            { label: '3 小时', value: '3' }
-          ])
-        ]
-      },
-      {
-        type: 'ACTION_ROW',
-        components: [{
-          type: 'USER_SELECT',
-          customId: `bc:select:order:${order.id}:preferred-players:v${order.version}`,
-          placeholder: `优先陪玩（已选 ${order.preferredPlayerDiscordUserIds?.length ?? 0}/3）`,
-          minValues: 0,
-          maxValues: 3
-        }]
-      },
-      {
-        type: 'ACTION_ROW',
-        components: [
-          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:modal-open:order-notes:${order.id}:v${order.version}`, label: '补充备注' },
-          { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${order.version}`, label: '确认订单' },
-          { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${order.version}`, label: '取消订单' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${order.version}`, label: '我要申诉' }
-        ]
-      }
-    ]
+    components: [{ type: 'ACTION_ROW', components: orderMenuControls(order.id, order.version) }]
   };
 }
 
@@ -1197,13 +1184,18 @@ export function buildMultiProjectOrderPanelMessage(
 ): MessageSpec {
   const requirements = page.items.filter((item) => item.status === 'ACTIVE');
   const selected = requirements.find((item) => item.id === selectedRequirementId);
-  const lines = requirements.length
-    ? requirements.map((item, index) => [
-        `**${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName ? ` · ${item.regionDisplayName}` : ''}**`,
-        `${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, page.currency)}`,
-        item.customerNote?`偏好：${item.customerNote}`:''
-      ].join('\n')).join('\n\n')
-    : '清单还是空的。请先从下方选择一个陪玩项目，我们会把它放进本次订单。';
+  const groups = [...new Map(requirements.map((item) => [item.game, item.gameDisplayName])).entries()];
+  const lines = groups.length
+    ? groups.map(([game, gameName]) => {
+        const items = requirements.filter((item) => item.game === game);
+        return [`### ${gameName} · ${items.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`, items.map((item, index) => [
+          `**${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName} · ${item.regionDisplayName ?? '不限区服'}**`,
+          `${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, page.currency)}`,
+          item.customerNote ? `偏好：${item.customerNote}` : '偏好：未填写',
+          item.sourcePackageSlotId ? '来源：套餐席位' : '来源：单点'
+        ].join('\n')).join('\n\n')].join('\n\n');
+      }).join('\n\n')
+    : '清单还是空的。请先选择游戏，再从对应菜单加入套餐或单点项目。';
   const components: ActionRowSpec[] = selected ? [
     { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`, '选择要修改的项目', requirementOptions(requirements), requirements.length === 0)] }
   ] : [
@@ -1215,13 +1207,8 @@ export function buildMultiProjectOrderPanelMessage(
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:units:v${page.orderVersion}:r${selected.version}`, `时长：${formatRequirementDuration(selected)}`, integerOptions(1, 12, selected.unitCount, (value) => `${value * selected.billingUnitMinutes / 60} 小时`))] },
       { type: 'ACTION_ROW', components: [select(`bc:req:${order.id}:${selected.id}:players:v${page.orderVersion}:r${selected.version}`, `需要 ${selected.requestedPlayerCount} 位陪玩`, integerOptions(1, 10, selected.requestedPlayerCount, (value) => `${value} 位陪玩`))] }
     );
-  } else {
-    components.push({ type: 'ACTION_ROW', components: [{
-      type: 'USER_SELECT', customId: `bc:select:order:${order.id}:preferred-players:v${page.orderVersion}`,
-      placeholder: `优先陪玩（已选 ${order.preferredPlayerDiscordUserIds?.length ?? 0}/3）`, minValues: 0, maxValues: 3
-    }] });
+  } else if (cursor || page.nextCursor) {
     components.push({ type: 'ACTION_ROW', components: [
-      { type: 'BUTTON', style: 'SECONDARY', customId: `bc:modal-open:order-notes:${order.id}:v${page.orderVersion}`, label: '补充备注' },
       ...(cursor ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:req:${order.id}:page:first:v${page.orderVersion}`, label: '返回首页' }] : []),
       ...(page.nextCursor ? [{ type: 'BUTTON' as const, style: 'SECONDARY' as const, customId: `bc:req:${order.id}:page:${page.nextCursor}:v${page.orderVersion}`, label: '下一页' }] : [])
     ] });
@@ -1230,36 +1217,34 @@ export function buildMultiProjectOrderPanelMessage(
     { type: 'BUTTON', style: 'SECONDARY', customId: `bc:rno:${order.id}:${selected.id}:v${page.orderVersion}:r${selected.version}`, label: '席位偏好' },
     { type: 'BUTTON', style: 'DANGER', customId: `bc:req:${order.id}:${selected.id}:remove:v${page.orderVersion}:r${selected.version}`, label: '删除此项目' },
     { type: 'BUTTON', style: 'SECONDARY', customId: `bc:req:${order.id}:back:v${page.orderVersion}`, label: '返回清单' },
-    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单' },
-    { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' }
+    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '下一步 · 确认订单' }
   ] : [
-    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:package:${order.id}:open:v${page.orderVersion}`, label: '按游戏点单' },
-    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '确认订单', disabled: requirements.length === 0 },
-    { type: 'BUTTON', style: 'DANGER', customId: `bc:order:${order.id}:cancel:v${page.orderVersion}`, label: '取消订单' },
-    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:service:support:${order.id}:v${page.orderVersion}`, label: '我要申诉' }
+    { type: 'BUTTON', style: 'SECONDARY', customId: `bc:package:${order.id}:open:v${page.orderVersion}`, label: '＋ 添加其他游戏或单点' },
+    { type: 'BUTTON', style: 'PRIMARY', customId: `bc:order:${order.id}:submit:v${page.orderVersion}`, label: '下一步 · 确认订单', disabled: requirements.length === 0 }
   ] });
 
   return {
-    title: `订单 #${order.publicId} · 陪玩清单`,
-    body: [order.compositionMode==='PACKAGE_DEFAULT'?'当前构成：套餐默认阵容':order.compositionMode==='CUSTOMIZED'?'当前构成：已自定义阵容':null,lines,order.compositionMode==='PACKAGE_DEFAULT'&&(page.packageAdjustmentMinor??0)!==0?`项目原价：${formatCustomerMoney(page.catalogSubtotalMinor??page.derivedTotalMinor,page.currency)}\n套餐调整：${formatCustomerMoney(page.packageAdjustmentMinor??0,page.currency)}`:null, `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`, `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`, order.notes ? `备注：${order.notes}` : '备注：未填写'].filter(Boolean).join('\n\n'),
+    title: `ORDER ${order.publicId} · STEP 3/4 · 检查并调整陪玩清单`,
+    body: ['▓▓▓░', '套餐只是快捷配菜：每个席位仍是独立项目，可以替换同游戏服务、修改时长或偏好。', order.compositionMode==='PACKAGE_DEFAULT'?'当前构成：套餐默认阵容':order.compositionMode==='CUSTOMIZED'?'当前构成：已自定义阵容':null, lines, (page.packageAdjustmentMinor??0)!==0?`目录小计：${formatCustomerMoney(page.catalogSubtotalMinor??page.derivedTotalMinor,page.currency)}\n套餐调整：${formatCustomerMoney(page.packageAdjustmentMinor??0,page.currency)}`:null, `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`, `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`].filter(Boolean).join('\n\n'),
     visibility: 'PRIVATE_CHANNEL',
-    components
+    components,
+    layout: 'COMPONENTS_V2'
   };
 }
 
 export function buildServicePackagePickerMessage(order:OrderSummary,page:ServicePackagePageSummary):MessageSpec{return{title:`订单 #${order.publicId} · 选择套餐`,body:['套餐会先展开成独立陪玩席位，应用后每个席位都能单独修改。',page.items.length?'请选择一个套餐查看默认阵容和服务端报价。':'目前没有可用套餐，你仍可返回自由搭配。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[...(page.items.length?[{type:'ACTION_ROW' as const,components:[select(`bc:package:${order.id}:select:v${order.version}`,'选择一个套餐',page.items.slice(0,25).map(item=>({label:item.displayName,value:item.id,description:`${item.slots.length} 个席位 · ${item.description}`.slice(0,100)})))]}]:[]),{type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回自由搭配'}]}]};}
 
-export function buildGamePickerMessage(order:OrderSummary,services:PublicServiceSummary[]):MessageSpec{const games=[...new Map(services.map(item=>[item.game,item.gameDisplayName??item.game])).entries()].slice(0,25);return{title:`订单 #${order.publicId} · 选择游戏`,body:games.length?'先选今天想玩的游戏，下一页只会出现这个游戏可用的套餐和单点项目。':'今天暂时没有可下单的游戏项目。',visibility:'PRIVATE_CHANNEL',components:[...(games.length?[{type:'ACTION_ROW' as const,components:[select(`bc:game:${order.id}:select:v${order.version}`,'选择一个游戏',games.map(([game,name])=>({label:name,value:game})))]}]:[]),{type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回陪玩清单'}]}]};}
+export function buildGamePickerMessage(order:OrderSummary,services:PublicServiceSummary[],packages:ServicePackageSummary[]=[]):MessageSpec{const games=[...new Map(services.map(item=>[item.game,item.gameDisplayName??item.game])).entries()].slice(0,20);const components:MessageComponentSpec[]=games.map(([game,name])=>({type:'V2_SECTION',content:`### ${name}  \`${game}\`\n${services.filter(item=>item.game===game).length} 个单点 · ${packages.filter(item=>item.game===game).length} 个套餐；进入后只显示本游戏目录。`,accessory:{type:'BUTTON',style:'PRIMARY',customId:`bc:game:${order.id}:${game}:open:v${order.version}`,label:'进入'}}));if(order.amountMinor>0)components.push({type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'查看已点清单'}]});return{title:`ORDER ${order.publicId} · STEP 1/4 · 先选今天想玩的游戏`,body:games.length?'▓░░░\n像翻开一张菜单：请选择右侧“进入”，下一页只会显示这个游戏的套餐和单点。':'今天暂时没有可下单的游戏项目。',visibility:'PRIVATE_CHANNEL',components,layout:'COMPONENTS_V2'};}
 
-export function buildGameOrderingMenuMessage(order:OrderSummary,game:string,services:PublicServiceSummary[],packages:ServicePackagePageSummary):MessageSpec{const gameName=services[0]?.gameDisplayName??packages.items[0]?.gameDisplayName??game;const components:ActionRowSpec[]=[];if(packages.items.length)components.push({type:'ACTION_ROW',components:[select(`bc:package:${order.id}:select:v${order.version}`,'选择一个套餐',packages.items.slice(0,25).map(item=>({label:item.displayName,value:item.id})))]});if(services.length)components.push({type:'ACTION_ROW',components:[select(`bc:req:${order.id}:add:v${order.version}`,'单点一个陪玩项目',serviceOptions(order,services))]});components.push({type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'更换游戏'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回清单'}]});return{title:`${gameName} · 今日菜单`,body:[packages.items.length?`套餐 ${packages.items.length} 个`:'暂无套餐',services.length?`单点 ${services.length} 个`:'暂无单点项目','套餐可以整套加入，也可以在加入后逐席位修改；单点会新增一条需求席位，实际陪玩在提交后匹配。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components};}
+export function buildGameOrderingMenuMessage(order:OrderSummary,game:string,services:PublicServiceSummary[],packages:ServicePackagePageSummary,selectedService?:PublicServiceSummary):MessageSpec{const gameName=services[0]?.gameDisplayName??packages.items[0]?.gameDisplayName??game;const components:MessageComponentSpec[]=packages.items.slice(0,20).map(item=>({type:'V2_SECTION',content:`### ${item.displayName}\n${item.description}\n**${item.defaultCustomerPriceMinor===null?'由目录实时计价':formatCustomerMoney(item.defaultCustomerPriceMinor,item.currency)}** · ${item.slots.length} 个席位`,accessory:{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${item.id}:preview:v${order.version}`,label:'查看'}}));if(selectedService)components.push({type:'V2_TEXT',content:`### 单点陪玩项目\n**${gameName} · ${selectedService.serviceDisplayName??selectedService.service}**\n${selectedService.regionDisplayName??selectedService.region??'不限区服'} · ${selectedService.billingUnitMinutes} 分钟 · 1 位陪玩\n**${formatCustomerMoney(selectedService.customerUnitPriceMinor,selectedService.currency)}**`});if(services.length)components.push({type:'ACTION_ROW',components:[select(`bc:req:${order.id}:preview:v${order.version}`,'选择一个单点陪玩项目',serviceOptions(order,services))]});if(selectedService)components.push({type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:req:${order.id}:${selectedService.id}:add:v${order.version}`,label:'单点加入'}]});components.push({type:'ACTION_ROW',components:[{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'换一个游戏'},...(order.amountMinor>0?[{type:'BUTTON' as const,style:'PRIMARY' as const,customId:`bc:package:${order.id}:back:v${order.version}`,label:'查看清单'}]:[])]});return{title:`ORDER ${order.publicId} · STEP 2/4 · ${gameName} · 今日菜单`,body:[`▓▓░░\n当前游戏 · ${gameName}　套餐 ${packages.items.length}　单点 ${services.length}`,'套餐使用右侧按钮预览；单点项目先选择预览，再按“单点加入”。所有选项都只来自当前游戏。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components,layout:'COMPONENTS_V2'};}
 
-export function buildServicePackagePreviewMessage(order:OrderSummary,pkg:ServicePackagePreviewSummary):MessageSpec{const slots=pkg.slots.map(slot=>`${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}${slot.regionDisplayName?` · ${slot.regionDisplayName}`:''}\n${slot.unitCount*slot.billingUnitMinutes/60} 小时${slot.customerNoteTemplate?` · ${slot.customerNoteTemplate}`:''}`).join('\n\n');return{title:`${pkg.displayName} · 默认阵容`,body:[pkg.description,slots,`套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor,pkg.currency)}`,'应用后可以把某个技术席位单独改成娱乐陪玩，其他席位不会变化；一旦修改，API 会按最终阵容重新报价。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,label:'使用这个套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:open:v${order.version}`,label:'返回游戏菜单'},{type:'BUTTON',style:'SECONDARY',customId:`bc:package:${order.id}:back:v${order.version}`,label:'返回陪玩清单'}]}]};}
+export function buildServicePackagePreviewMessage(order:OrderSummary,pkg:ServicePackagePreviewSummary):MessageSpec{const slots=pkg.slots.map(slot=>`**${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}**${slot.regionDisplayName?` · ${slot.regionDisplayName}`:''}\n${slot.unitCount*slot.billingUnitMinutes/60} 小时${slot.customerNoteTemplate?` · ${slot.customerNoteTemplate}`:''}`).join('\n\n');return{title:`ORDER ${order.publicId} · STEP 2/4 · ${pkg.displayName} · 套餐预览`,body:['▓▓░░',pkg.description,slots,`套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor,pkg.currency)}`,'采用后每个席位都能单独调整；修改套餐席位后，API 会按最终阵容重新报价。'].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[{type:'BUTTON',style:'PRIMARY',customId:`bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,label:'采用套餐'},{type:'BUTTON',style:'SECONDARY',customId:`bc:game:${order.id}:${pkg.game}:open:v${order.version}`,label:'返回游戏菜单'},...(order.amountMinor>0?[{type:'BUTTON' as const,style:'SECONDARY' as const,customId:`bc:package:${order.id}:back:v${order.version}`,label:'查看清单'}]:[])]}],layout:'COMPONENTS_V2'};}
 
 export async function handleServicePackageSelect(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;servicePackageVersionId:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);const [order,pkg]=await Promise.all([input.api.getOrder(input.orderId,input.actor),api.preview(input.servicePackageVersionId,input.actor)]);if(order.status!=='DRAFT')return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(order)};return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildServicePackagePreviewMessage(order,pkg)};}
 
 export async function handleGameMenuSelect(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;game:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);const [order,services,packages]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listServices(input.actor,input.game),api.list(input.actor,undefined,25,input.game)]);if(order.status!=='DRAFT')return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildOrderPanelMessage(order)};return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGameOrderingMenuMessage(order,input.game,services.items,packages)};}
 
-export async function handleServicePackageAction(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;action:'open'|'back'|'apply';servicePackageVersionId?:string;idempotencyKey:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);if(input.action==='open'){const [order,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGamePickerMessage(order,services.items)};}if(input.action==='apply'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');await api.apply(input.orderId,{expectedOrderVersion:input.expectedVersion,servicePackageVersionId:input.servicePackageVersionId},input.actor,input.idempotencyKey);}if(!input.api.listOrderRequirements)throw new Error('Order requirement API is unavailable.');const [order,requirements,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,requirements,services.items)};}
+export async function handleServicePackageAction(input:{api:BotApiClient;actor:BotActorContext;orderId:string;expectedVersion:number;action:'open'|'back'|'preview'|'apply';servicePackageVersionId?:string;idempotencyKey:string}):Promise<BotFlowResult>{const api=requirePackageApi(input.api);if(input.action==='open'){const [order,services,packages]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listServices(input.actor),api.list(input.actor,undefined,25)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGamePickerMessage(order,services.items,packages.items)};}if(input.action==='preview'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');return handleServicePackageSelect({...input,servicePackageVersionId:input.servicePackageVersionId});}if(input.action==='apply'){if(!input.servicePackageVersionId)throw new Error('Package version is required.');await api.apply(input.orderId,{expectedOrderVersion:input.expectedVersion,servicePackageVersionId:input.servicePackageVersionId},input.actor,input.idempotencyKey);}if(!input.api.listOrderRequirements)throw new Error('Order requirement API is unavailable.');const [order,requirements,services]=await Promise.all([input.api.getOrder(input.orderId,input.actor),input.api.listOrderRequirements(input.orderId,input.actor,undefined,10),input.api.listServices(input.actor)]);return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildMultiProjectOrderPanelMessage(order,requirements,services.items)};}
 
 function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
   return {
@@ -1496,7 +1481,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     ].join('\n')).join('\n')
     : '待接订单：暂无';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
-  const components: MessageSpec['components'] = [{
+  const components: ActionRowSpec[] = [{
     type: 'ACTION_ROW',
     components: [
       { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:player-workbench', label: '刷新' },
@@ -1783,11 +1768,10 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
   const deficitMinor=Math.max(0,input.requirements.derivedTotalMinor-input.balance.availableMinor);
   const canSubmit=active.length>0&&!currencyMismatch&&deficitMinor===0;
   const lines=active.map((item,index)=>`${index+1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName?` · ${item.regionDisplayName}`:''}\n   ${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor,input.requirements.currency)}${item.customerNote?`\n   偏好：${item.customerNote}`:''}`).join('\n');
-  return {title:`订单 #${input.order.publicId} · 最后确认`,body:[lines||'还没有添加陪玩项目。',input.order.notes?`备注：${input.order.notes}`:'备注：未填写',`订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor,input.requirements.currency)}`,`可用余额：${formatCustomerMoney(input.balance.availableMinor,input.balance.currency)}`,canSubmit?'状态：可以提交。提交时 API 会再次复核项目、价格、余额和订单版本。':currencyMismatch?'订单币种与钱包币种不一致。':active.length===0?'请先添加至少一个陪玩项目。':`可用余额还差 ${formatCustomerMoney(deficitMinor,input.requirements.currency)}。`].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[
-    {type:'BUTTON',style:'PRIMARY',customId:`bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,label:'确认提交并预留',disabled:!canSubmit},
-    {type:'BUTTON',style:'SECONDARY',customId:`bc:req:${input.order.id}:back:v${input.requirements.orderVersion}`,label:'返回修改'},
-    {type:'BUTTON',style:'DANGER',customId:`bc:order:${input.order.id}:cancel:v${input.requirements.orderVersion}`,label:'取消订单'}
-  ]}]};
+  return {title:`ORDER ${input.order.publicId} · STEP 4/4 · 订单清单已就绪`,body:['▓▓▓▓','这是提交前的最终确认。价格、余额、目录有效性与套餐调整仍由业务 API 重新校验。',lines||'还没有添加陪玩项目。',`订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor,input.requirements.currency)}`,`可用余额：${formatCustomerMoney(input.balance.availableMinor,input.balance.currency)}`,'确认后创建资金预留，不立即扣款。',canSubmit?'状态：可以提交。':currencyMismatch?'订单币种与钱包币种不一致。':active.length===0?'请先添加至少一个陪玩项目。':`可用余额还差 ${formatCustomerMoney(deficitMinor,input.requirements.currency)}。`].join('\n\n'),visibility:'PRIVATE_CHANNEL',components:[{type:'ACTION_ROW',components:[
+    {type:'BUTTON',style:'SECONDARY',customId:`bc:req:${input.order.id}:back:v${input.requirements.orderVersion}`,label:'返回编辑'},
+    {type:'BUTTON',style:'PRIMARY',customId:`bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,label:'确认提交订单',disabled:!canSubmit}
+  ]}],layout:'COMPONENTS_V2'};
 }
 
 function readinessLabel(value: 'READY' | 'NOT_READY'): string {
@@ -2186,7 +2170,7 @@ export async function handleOrderRequirementSelectSubmit(input: {
   actor: BotActorContext;
   orderId: string;
   expectedVersion: number;
-  action: 'add' | 'edit' | 'project' | 'units' | 'players';
+  action: 'add' | 'preview' | 'edit' | 'project' | 'units' | 'players';
   requirementId?: string;
   expectedRequirementVersion?: number;
   cursor?: string;
@@ -2199,6 +2183,12 @@ export async function handleOrderRequirementSelectSubmit(input: {
     requirementApi.list(input.orderId, input.actor, input.cursor, 10),
     input.api.listServices(input.actor)
   ]);
+  if(input.action==='preview'){
+    const selected=catalog.items.find((item)=>item.id===input.value);
+    if(!selected)throw new Error('The selected service catalog is unavailable.');
+    const packages=await requirePackageApi(input.api).list(input.actor,undefined,25,selected.game);
+    return{kind:'EDIT_ORIGINAL_MESSAGE',message:buildGameOrderingMenuMessage(order,selected.game,catalog.items.filter((item)=>item.game===selected.game),packages,selected)};
+  }
   let selectedRequirementId = input.action === 'edit' ? input.value : input.requirementId;
   let changedRequirement: OrderRequirementMutationSummary | null = null;
   if (input.action === 'add') {
@@ -2210,7 +2200,7 @@ export async function handleOrderRequirementSelectSubmit(input: {
       unitCount: service.minimumUnits,
       requestedPlayerCount: 1
     }, input.actor, input.idempotencyKey);
-    selectedRequirementId = created.requirement.id;
+    selectedRequirementId = undefined;
   } else if (input.action === 'project' || input.action === 'units' || input.action === 'players') {
     const requirement = page.items.find((item) => item.id === input.requirementId && item.status === 'ACTIVE');
     const requirementVersion=requirement?.version??input.expectedRequirementVersion;
@@ -2351,8 +2341,8 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
     };
   }
 
-  const requirementAdd = /^bc:req:([0-9a-f-]{36}):add:v([1-9][0-9]*)$/u.exec(customId);
-  if (requirementAdd) return {area:'order-requirement-select',orderId:requirementAdd[1]!,action:'add',expectedVersion:Number(requirementAdd[2])};
+  const requirementAdd = /^bc:req:([0-9a-f-]{36}):(add|preview):v([1-9][0-9]*)$/u.exec(customId);
+  if (requirementAdd) return {area:'order-requirement-select',orderId:requirementAdd[1]!,action:requirementAdd[2] as 'add'|'preview',expectedVersion:Number(requirementAdd[3])};
   const requirementEdit = /^bc:req:([0-9a-f-]{36}):edit:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
   if (requirementEdit) return {area:'order-requirement-select',orderId:requirementEdit[1]!,action:'edit',cursor:requirementEdit[2]==='first'?undefined:requirementEdit[2],expectedVersion:Number(requirementEdit[3])};
   const requirementQuantity = /^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):(project|units|players):v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
@@ -2361,6 +2351,8 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   }
   const requirementRemove=/^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):remove:v([1-9][0-9]*):r([1-9][0-9]*)$/u.exec(customId);
   if(requirementRemove)return{area:'order-requirement-action',orderId:requirementRemove[1]!,requirementId:requirementRemove[2]!,action:'remove',expectedVersion:Number(requirementRemove[3]),expectedRequirementVersion:Number(requirementRemove[4])};
+  const requirementAddAction=/^bc:req:([0-9a-f-]{36}):([0-9a-f-]{36}):add:v([1-9][0-9]*)$/u.exec(customId);
+  if(requirementAddAction)return{area:'order-requirement-add-action',orderId:requirementAddAction[1]!,serviceCatalogVersionId:requirementAddAction[2]!,action:'add',expectedVersion:Number(requirementAddAction[3])};
   const requirementBack=/^bc:req:([0-9a-f-]{36}):back:v([1-9][0-9]*)$/u.exec(customId);
   if(requirementBack)return{area:'order-requirement-action',orderId:requirementBack[1]!,action:'back',expectedVersion:Number(requirementBack[2])};
   const requirementPage=/^bc:req:([0-9a-f-]{36}):page:(first|[A-Za-z0-9_-]{1,40}):v([1-9][0-9]*)$/u.exec(customId);
@@ -2368,6 +2360,8 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
 
   const packageSelect=/^bc:package:([0-9a-f-]{36}):select:v([1-9][0-9]*)$/u.exec(customId);if(packageSelect)return{area:'service-package-select',orderId:packageSelect[1]!,expectedVersion:Number(packageSelect[2])};
   const gameSelect=/^bc:game:([0-9a-f-]{36}):select:v([1-9][0-9]*)$/u.exec(customId);if(gameSelect)return{area:'order-game-select',orderId:gameSelect[1]!,expectedVersion:Number(gameSelect[2])};
+  const gameAction=/^bc:game:([0-9a-f-]{36}):([A-Z0-9_]{1,24}):open:v([1-9][0-9]*)$/u.exec(customId);if(gameAction)return{area:'order-game-action',orderId:gameAction[1]!,game:gameAction[2]!,action:'open',expectedVersion:Number(gameAction[3])};
+  const packagePreview=/^bc:package:([0-9a-f-]{36}):([0-9a-f-]{36}):preview:v([1-9][0-9]*)$/u.exec(customId);if(packagePreview)return{area:'service-package-action',orderId:packagePreview[1]!,servicePackageVersionId:packagePreview[2]!,action:'preview',expectedVersion:Number(packagePreview[3])};
   const packageApply=/^bc:package:([0-9a-f-]{36}):([0-9a-f-]{36}):apply:v([1-9][0-9]*)$/u.exec(customId);if(packageApply)return{area:'service-package-action',orderId:packageApply[1]!,servicePackageVersionId:packageApply[2]!,action:'apply',expectedVersion:Number(packageApply[3])};
   const packageAction=/^bc:package:([0-9a-f-]{36}):(open|back):v([1-9][0-9]*)$/u.exec(customId);if(packageAction)return{area:'service-package-action',orderId:packageAction[1]!,action:packageAction[2] as 'open'|'back',expectedVersion:Number(packageAction[3])};
 
