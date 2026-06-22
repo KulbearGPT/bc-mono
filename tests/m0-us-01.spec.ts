@@ -11,6 +11,7 @@ describe('M0-US-01 local workspace skeleton', () => {
 
     expect(packageJson.scripts.dev).toContain('dotenv -e .env -e .env.example');
     expect(packageJson.scripts.dev).toContain('@blackcat/api');
+    expect(packageJson.scripts.dev).toContain('npm run worker -w @blackcat/api');
     expect(packageJson.scripts.dev).toContain('@blackcat/bot');
     expect(packageJson.scripts.dev).toContain('@blackcat/dashboard');
     expect(packageJson.dependencies.pg).toBeDefined();

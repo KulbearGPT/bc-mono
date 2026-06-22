@@ -14,7 +14,7 @@
     "db:migrate:deploy": "sh -c 'DATABASE_URL=${MIGRATION_DATABASE_URL:-$DATABASE_URL} prisma migrate deploy --schema database/prisma/schema.prisma'",
     "db:validate": "dotenv -e .env.example -- prisma validate --schema database/prisma/schema.prisma",
     "db:verify:migration": "bash scripts/verify-m0-us-02-migration.sh",
-    "dev": "dotenv -e .env -e .env.example -- concurrently -n api,bot,dashboard -c blue,magenta,green \"npm run dev -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",
+    "dev": "dotenv -e .env -e .env.example -- concurrently -n api,worker,bot,dashboard -c blue,yellow,magenta,green \"npm run dev -w @blackcat/api\" \"npm run worker -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",
     "m0:verify": "vitest run tests/m0-us-01.spec.ts tests/m0-us-02.spec.ts tests/m0-us-03.spec.ts tests/m0-us-04.spec.ts tests/m0-us-05.spec.ts",
     "start:web": "node apps/api/dist/index.js",
     "start:bot": "node apps/bot/dist/index.js",
