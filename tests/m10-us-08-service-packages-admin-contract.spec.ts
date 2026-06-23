@@ -15,6 +15,8 @@ describe('M10-US-08 package administration contract',()=>{
     expect(openapi).toContain('operationId: updateAdminServicePackageVersionStatus');
     expect(openapi).toContain('active-service-versions-only');
     expect(openapi).toContain('append-only-version-history');
+    expect(openapi).toContain('Clients cannot submit this field.');
+    expect(openapi).not.toMatch(/CreateAdminServicePackageVersionRequest:[\s\S]{0,900}defaultCustomerPriceMinor:/);
     expect(backlog).toContain('AT-MULTI-010');
     expect(mapping).toContain('INT-A-064');
     expect(acceptance).toContain('SERVICE_PACKAGE_VERSION_ADMIN');

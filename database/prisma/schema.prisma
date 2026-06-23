@@ -1211,7 +1211,8 @@ model ServicePackageVersion {
   activePackageKey          String?              @unique @map("active_package_key") @db.Uuid
   displayName               String               @map("display_name") @db.VarChar(100)
   description               String               @db.VarChar(1000)
-  defaultCustomerPriceMinor BigInt?              @map("default_customer_price_minor")
+  /// Server-derived immutable sum of slot catalog unit prices multiplied by slot unit counts.
+  defaultCustomerPriceMinor BigInt               @map("default_customer_price_minor")
   currency                  String               @db.Char(3)
   createdByStaffId          String               @map("created_by_staff_id") @db.Uuid
   activatedAt               DateTime?            @map("activated_at") @db.Timestamptz(3)
