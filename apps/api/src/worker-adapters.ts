@@ -57,6 +57,24 @@ SELECT orders.id AS order_id,
        (SELECT COUNT(*)::int
           FROM order_participants participant
          WHERE participant.order_id = orders.id AND participant.status = 'ACTIVE') AS filled_player_count,
+       (SELECT jsonb_agg(jsonb_build_object(
+                 'gameDisplayName', COALESCE(to_jsonb(requirement)->>'game_display_name_snapshot', to_jsonb(requirement)->>'game_code_snapshot'),
+                 'serviceDisplayName', COALESCE(to_jsonb(requirement)->>'service_display_name_snapshot', to_jsonb(requirement)->>'service_code_snapshot'),
+                 'regionDisplayName', COALESCE(to_jsonb(requirement)->>'region_display_name_snapshot', to_jsonb(requirement)->>'region_code_snapshot'),
+                 'durationMinutes', NULLIF(to_jsonb(requirement)->>'billing_unit_minutes_snapshot','')::int * NULLIF(to_jsonb(requirement)->>'unit_count','')::int,
+                 'requestedPlayerCount', requirement.requested_player_count,
+                 'customerNote', to_jsonb(requirement)->>'customer_note'
+               ) ORDER BY requirement.id)
+          FROM order_requirements requirement
+         WHERE requirement.order_id = orders.id AND requirement.status = 'ACTIVE') AS coordination_requirements,
+       orders.game_name_snapshot AS legacy_game_display_name,
+       orders.service_name_snapshot AS legacy_service_display_name,
+       COALESCE(to_jsonb(orders)->>'region_name_snapshot', orders.region_code_snapshot) AS legacy_region_display_name,
+       orders.billing_unit_minutes AS legacy_billing_unit_minutes,
+       orders.unit_count AS legacy_unit_count,
+       orders.customer_note AS legacy_customer_note,
+       orders.submitted_at,
+       orders.accepted_at,
        orders.amount_minor,
        orders.currency
 FROM orders AS orders
@@ -193,14 +211,27 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     }
     const voiceLink = `https://discord.com/channels/${projection.guildId}/${voiceChannelId}`;
     await this.sendOnce(projection.channelId, `accepted-customer:${projection.orderId}`, `<@${projection.customerDiscordUserId}> 你的陪玩已匹配成功，协调语音房已创建：${voiceLink}`, notBefore, [projection.customerDiscordUserId]);
-    await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`, `订单 **${projection.publicId}** 已下单并匹配完成。客服协调语音房：${voiceLink}`, notBefore);
+    await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`,
+      buildStaffCoordinationNotice(projection, voiceChannelId), notBefore);
     return voiceChannelId;
   }
 
-  private async sendOnce(channelId: string, key: string, content: string, notBefore: string, users: string[] = []): Promise<void> {
+  private async sendOnce(
+    channelId: string,
+    key: string,
+    message: string | Record<string, unknown>,
+    notBefore: string,
+    users: string[] = []
+  ): Promise<void> {
     const nonce = createHash('sha256').update(key).digest('hex').slice(0, 24);
     if (await this.findMessageByNonce(channelId, nonce, notBefore)) return;
-    await this.request(`/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({ content, nonce, enforce_nonce: true, allowed_mentions: { users } }) });
+    const payload = typeof message === 'string' ? { content: message } : message;
+    await this.request(`/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({
+      ...payload,
+      nonce,
+      enforce_nonce: true,
+      allowed_mentions: 'allowed_mentions' in payload ? payload.allowed_mentions : { parse: [], users }
+    }) });
   }
 
   private async findMessageByNonce(channelId: string, nonce: string, notBefore: string): Promise<string | null> {
@@ -272,6 +303,9 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     playerDiscordUserIds,
     requestedPlayerCount: optionalInteger(row.requested_player_count, playerDiscordUserIds.length),
     filledPlayerCount: optionalInteger(row.filled_player_count, playerDiscordUserIds.length),
+    coordinationRequirements: coordinationRequirements(row),
+    submittedAt: nullableDateText(row.submitted_at, 'submitted_at'),
+    acceptedAt: nullableDateText(row.accepted_at, 'accepted_at'),
     amountMinor: integer(row.amount_minor, 'amount_minor'),
     currency: text(row.currency, 'currency').trim()
     ,guildId: text(row.guild_id, 'guild_id')
@@ -283,6 +317,121 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
 }
 
 function nullableConfigText(value: unknown): string | null { return typeof value === 'string' && value ? value : null; }
+
+function buildStaffCoordinationNotice(projection: OrderPanelProjection, voiceChannelId: string): Record<string, unknown> {
+  const guildId = projection.guildId!;
+  const playerIds = activePlayerDiscordUserIds(projection);
+  const orderLink = `https://discord.com/channels/${guildId}/${projection.channelId}`;
+  const voiceLink = `https://discord.com/channels/${guildId}/${voiceChannelId}`;
+  const requirements = projection.coordinationRequirements ?? [];
+  const requirementSummary = requirements.length > 0
+    ? requirements.map((requirement, index) => {
+      const location = requirement.regionDisplayName ? ` · ${requirement.regionDisplayName}` : '';
+      const duration = requirement.durationMinutes ? formatMinutes(requirement.durationMinutes) : '时长待确认';
+      const note = requirement.customerNote ? `\n   需求备注：${requirement.customerNote}` : '';
+      return `${index + 1}. **${requirement.gameDisplayName} · ${requirement.serviceDisplayName}${location}**\n   ${duration} · ${requirement.requestedPlayerCount} 位${note}`;
+    }).join('\n')
+    : '暂无结构化需求，请进入订单频道确认。';
+  const timeLines = [
+    projection.submittedAt ? `下单：${discordTimestamp(projection.submittedAt)}` : null,
+    projection.acceptedAt ? `匹配：${discordTimestamp(projection.acceptedAt)}` : null
+  ].filter(Boolean).join('\n') || '暂无时间记录';
+  return {
+    content: null,
+    embeds: [{
+      color: 0x5865f2,
+      title: `🛠️ 新订单协调 · ${projection.publicId}`.slice(0, 256),
+      description: '订单已匹配完成，请客服在进入协调前先查看参与人和项目需求。',
+      fields: [
+        embedField('当前状态', `${coordinationStatusLabel(projection.status)}（${projection.status}）`, true),
+        embedField('客户', `<@${projection.customerDiscordUserId}>`, true),
+        embedField('已匹配陪玩', playerIds.map((id) => `<@${id}>`).join('、') || '待确认', false),
+        embedField('项目需求', requirementSummary, false),
+        embedField('关键时间', timeLines, false),
+        embedField('协调入口', `[打开订单频道](${orderLink}) · [进入协调语音房](${voiceLink})`, false)
+      ],
+      footer: { text: '协调前请先确认需求、参与人与准备状态 · Blackcat Companion' }
+    }],
+    components: [{ type: 1, components: [
+      { type: 2, style: 5, label: '打开订单频道', url: orderLink },
+      { type: 2, style: 5, label: '进入协调语音房', url: voiceLink }
+    ] }],
+    allowed_mentions: { parse: [] }
+  };
+}
+
+function embedField(name: string, value: string, inline: boolean): { name: string; value: string; inline: boolean } {
+  return { name, value: truncate(value, 1_024), inline };
+}
+
+function formatMinutes(minutes: number): string {
+  return minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
+}
+
+function discordTimestamp(value: string): string {
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? `<t:${Math.floor(milliseconds / 1_000)}:F>` : value;
+}
+
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+}
+
+function coordinationStatusLabel(status: string): string {
+  return status === 'ACCEPTED' ? '等待双方准备' : orderStatusLabel(status);
+}
+
+function coordinationRequirements(row: Record<string, unknown>): NonNullable<OrderPanelProjection['coordinationRequirements']> {
+  const raw = row.coordination_requirements;
+  if (Array.isArray(raw) && raw.length > 0) {
+    const requirements = raw.map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidRow('coordination_requirements');
+      const item = value as Record<string, unknown>;
+      const gameDisplayName = nullablePlainText(item.gameDisplayName);
+      const serviceDisplayName = nullablePlainText(item.serviceDisplayName);
+      if (!gameDisplayName || !serviceDisplayName) throw invalidRow('coordination_requirements');
+      return {
+        gameDisplayName,
+        serviceDisplayName,
+        regionDisplayName: nullablePlainText(item.regionDisplayName),
+        durationMinutes: nullablePositiveInteger(item.durationMinutes),
+        requestedPlayerCount: optionalInteger(item.requestedPlayerCount, 1),
+        customerNote: nullablePlainText(item.customerNote)
+      };
+    });
+    return requirements;
+  }
+  const gameDisplayName = nullablePlainText(row.legacy_game_display_name);
+  const serviceDisplayName = nullablePlainText(row.legacy_service_display_name);
+  if (!gameDisplayName || !serviceDisplayName) return [];
+  const billingUnitMinutes = nullablePositiveInteger(row.legacy_billing_unit_minutes);
+  const unitCount = nullablePositiveInteger(row.legacy_unit_count);
+  return [{
+    gameDisplayName,
+    serviceDisplayName,
+    regionDisplayName: nullablePlainText(row.legacy_region_display_name),
+    durationMinutes: billingUnitMinutes && unitCount ? billingUnitMinutes * unitCount : null,
+    requestedPlayerCount: 1,
+    customerNote: nullablePlainText(row.legacy_customer_note)
+  }];
+}
+
+function nullablePlainText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function nullablePositiveInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function nullableDateText(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null;
+  const date = value instanceof Date ? value : new Date(text(value, field));
+  if (!Number.isFinite(date.getTime())) throw invalidRow(field);
+  return date.toISOString();
+}
 
 function renderOrderPanel(projection: OrderPanelProjection): {
   flags: number;

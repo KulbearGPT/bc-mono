@@ -99,6 +99,9 @@ export interface OrderPanelProjection {
   playerDiscordUserIds?: string[];
   requestedPlayerCount?: number;
   filledPlayerCount?: number;
+  coordinationRequirements?: OrderCoordinationRequirement[];
+  submittedAt?: string | null;
+  acceptedAt?: string | null;
   amountMinor: number;
   currency: string;
   guildId?: string;
@@ -106,6 +109,15 @@ export interface OrderPanelProjection {
   privateOrderCategoryId?: string | null;
   staffTaskChannelId?: string | null;
   staffRoleIds?: string[];
+}
+
+export interface OrderCoordinationRequirement {
+  gameDisplayName: string;
+  serviceDisplayName: string;
+  regionDisplayName: string | null;
+  durationMinutes: number | null;
+  requestedPlayerCount: number;
+  customerNote: string | null;
 }
 
 export interface OrderPanelProjectionStore {

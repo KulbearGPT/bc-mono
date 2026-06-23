@@ -19,6 +19,16 @@ const projection: OrderPanelProjection = {
   playerDiscordUserIds: ['530000000000000004'],
   requestedPlayerCount: 1,
   filledPlayerCount: 1,
+  coordinationRequirements: [{
+    gameDisplayName: '瓦洛兰特',
+    serviceDisplayName: '娱乐陪玩',
+    regionDisplayName: '北美',
+    durationMinutes: 120,
+    requestedPlayerCount: 1,
+    customerNote: '中文交流，希望轻松一点'
+  }],
+  submittedAt: '2026-07-18T22:55:00.000Z',
+  acceptedAt: '2026-07-18T23:00:00.000Z',
   amountMinor: 12_000,
   currency: 'CAT',
   guildId: '530000000000000000',
@@ -43,6 +53,9 @@ describe('M5-US-02 Worker production adapters', () => {
       player_discord_user_ids: projection.playerDiscordUserIds,
       requested_player_count: projection.requestedPlayerCount,
       filled_player_count: projection.filledPlayerCount,
+      coordination_requirements: projection.coordinationRequirements,
+      submitted_at: projection.submittedAt,
+      accepted_at: projection.acceptedAt,
       amount_minor: '12000',
       currency: projection.currency
       ,guild_id: projection.guildId
@@ -220,8 +233,24 @@ describe('M5-US-02 Worker production adapters', () => {
     expect(customerNotice.content).toContain('/530000000000000020');
     expect(customerNotice.allowed_mentions.users).toEqual([projection.customerDiscordUserId]);
     const staffNotice = JSON.parse(fetchMock.mock.calls[5]?.[1]?.body as string);
-    expect(staffNotice.content).toContain('已下单并匹配完成');
-    expect(staffNotice.content).toContain('/530000000000000020');
+    expect(staffNotice.content).toBeNull();
+    expect(staffNotice.allowed_mentions).toEqual({ parse: [] });
+    expect(staffNotice.embeds).toEqual([expect.objectContaining({
+      title: '🛠️ 新订单协调 · P-5301',
+      description: expect.stringContaining('已匹配完成'),
+      fields: expect.arrayContaining([
+        { name: '当前状态', value: '等待双方准备（ACCEPTED）', inline: true },
+        { name: '客户', value: `<@${projection.customerDiscordUserId}>`, inline: true },
+        { name: '已匹配陪玩', value: `<@${projection.playerDiscordUserId}>`, inline: false },
+        { name: '项目需求', value: expect.stringContaining('瓦洛兰特 · 娱乐陪玩 · 北美'), inline: false },
+        { name: '关键时间', value: expect.stringContaining('<t:1784415600:F>'), inline: false }
+      ])
+    })]);
+    const staffPayload = JSON.stringify(staffNotice);
+    expect(staffPayload).toContain('中文交流，希望轻松一点');
+    expect(staffPayload).toContain(`/channels/${projection.guildId}/${projection.channelId}`);
+    expect(staffPayload).toContain(`/channels/${projection.guildId}/530000000000000020`);
+    expect(staffPayload).not.toMatch(/金额|余额|支付|内部定价|1200/);
   });
 
   test('posts a replacement only when the existing panel PATCH returns 404', async () => {

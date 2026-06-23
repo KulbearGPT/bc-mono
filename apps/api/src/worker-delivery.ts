@@ -67,8 +67,7 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
       components: hasCandidates ? [{
         type: 1,
         components: [
-          { type: 2, style: 3, label: '接单', custom_id: `bc:dispatch:${dispatchAttemptId}:accept:${orderId}:v${orderVersion}` },
-          { type: 2, style: 2, label: '无法接单', custom_id: `bc:dispatch:${dispatchAttemptId}:decline:${orderId}:v${orderVersion}` }
+          { type: 2, style: 3, label: '接单', custom_id: `bc:dispatch:${dispatchAttemptId}:accept:${orderId}:v${orderVersion}` }
         ]
       }] : []
     };

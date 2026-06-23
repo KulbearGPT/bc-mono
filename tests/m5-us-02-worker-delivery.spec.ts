@@ -90,6 +90,16 @@ describe('M5-US-02 Worker delivery adapters', () => {
         { name: '接单截止', value: '<t:1784419200:F>\n<t:1784419200:R>', inline: false }
       ])
     })]);
+    expect(requests[1]!.body.components).toEqual([{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 3,
+        label: '接单',
+        custom_id: 'bc:dispatch:attempt-1:accept:order-1:v3'
+      }]
+    }]);
+    expect(JSON.stringify(requests[1]!.body)).not.toContain('无法接单');
     expect(requests[2]!.body).not.toHaveProperty('nonce');
     expect(requests[2]!.body).not.toHaveProperty('enforce_nonce');
     expect(requests[2]!.body.content).toBeNull();

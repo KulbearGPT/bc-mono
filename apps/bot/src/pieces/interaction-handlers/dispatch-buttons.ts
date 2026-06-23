@@ -2,7 +2,7 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { botCopy } from '../../bot-copy.js';
 import type { ButtonInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
-import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
+import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey, buildDispatchIneligibleReply } from '../../service-center.js';
 
 export class DispatchButtonsHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
@@ -85,6 +85,16 @@ export class DispatchButtonsHandler extends InteractionHandler {
           }
         }
       }
+      if (parsed.action === 'accept' && error instanceof BotApiError && error.code === 'PLAYER_NOT_ELIGIBLE') {
+        try {
+          const workbench = await api.getPlayerWorkbench(actor);
+          await interaction.editReply({ content: buildDispatchIneligibleReply(workbench, error.requestId) });
+          return;
+        } catch {
+          await interaction.editReply({ content: botCopy.dispatch.ineligible([], error.requestId) });
+          return;
+        }
+      }
       interaction.client.logger.error({
         event: 'dispatch.button_failed',
         guildId: interaction.guildId,
@@ -95,9 +105,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
         error
       });
       const requestId = error instanceof BotApiError ? error.requestId : 'local-dispatch-button-failed';
-      const message = error instanceof BotApiError && error.code === 'PLAYER_NOT_ELIGIBLE'
-        ? botCopy.dispatch.ineligible
-        : botCopy.dispatch.failed;
+      const message = botCopy.dispatch.failed;
       await interaction.editReply({
         content: `${message} request_id: ${requestId}`
       });

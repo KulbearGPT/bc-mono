@@ -305,6 +305,21 @@ export interface PlayerWorkbenchOrderSummary {
   voiceChannelId: string | null;
 }
 
+const dispatchEligibilityReasonLabels: Record<string, string> = {
+  ACTIVE_REVIEW_STATUS: '陪玩资格当前不是可接单状态',
+  MATCHING_TAGS: '本轮游戏或服务项目不在你的已认证范围内',
+  DISCORD_ONLINE: 'Discord 当前未在线',
+  AVAILABLE: '接单开关尚未开启',
+  NO_ACTIVE_ORDER: '已有进行中的订单'
+};
+
+export function buildDispatchIneligibleReply(workbench: PlayerWorkbenchSummary, requestId: string): string {
+  const reasons = workbench.eligibility.checks
+    .filter((check) => !check.passed)
+    .map((check) => dispatchEligibilityReasonLabels[check.code] ?? check.code);
+  return botCopy.dispatch.ineligible(reasons, requestId);
+}
+
 export interface DispatchOfferSummary {
   dispatchAttemptId: string;
   orderId: string;
