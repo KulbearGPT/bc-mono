@@ -112,6 +112,14 @@ async function orderFacts() {
 
 async function seed() {
   await pool.query(`
+    CREATE TABLE order_requirements (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL,
+      requested_player_count integer NOT NULL, status text NOT NULL
+    );
+    CREATE TABLE order_participants (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL,
+      player_id uuid NOT NULL, status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+    );
     INSERT INTO users (id,display_name,status,row_version,created_at,updated_at) VALUES
       ('${customerId}','Customer','ACTIVE',1,now(),now()),
       ('${staffUserId}','Supervisor','ACTIVE',1,now(),now());

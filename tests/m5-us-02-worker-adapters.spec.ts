@@ -16,6 +16,9 @@ const projection: OrderPanelProjection = {
   panelMessageId: '530000000000000002',
   customerDiscordUserId: '530000000000000003',
   playerDiscordUserId: '530000000000000004',
+  playerDiscordUserIds: ['530000000000000004'],
+  requestedPlayerCount: 1,
+  filledPlayerCount: 1,
   amountMinor: 12_000,
   currency: 'CAT',
   guildId: '530000000000000000',
@@ -37,6 +40,9 @@ describe('M5-US-02 Worker production adapters', () => {
       panel_message_id: projection.panelMessageId,
       customer_discord_user_id: projection.customerDiscordUserId,
       player_discord_user_id: projection.playerDiscordUserId,
+      player_discord_user_ids: projection.playerDiscordUserIds,
+      requested_player_count: projection.requestedPlayerCount,
+      filled_player_count: projection.filledPlayerCount,
       amount_minor: '12000',
       currency: projection.currency
       ,guild_id: projection.guildId
@@ -126,26 +132,58 @@ describe('M5-US-02 Worker production adapters', () => {
       expect.objectContaining({ method: 'PATCH' })
     );
     const panelBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
-    expect(panelBody.content).toContain('P-5301');
-    expect(panelBody.content).toContain('IN_SERVICE');
-    expect(panelBody.content).toContain('CAT 1200.0');
-    expect(panelBody.embeds).toEqual([]);
+    expect(panelBody.flags).toBe(32768);
+    expect(JSON.stringify(panelBody.components)).toContain('P-5301');
+    expect(JSON.stringify(panelBody.components)).toContain('IN_SERVICE');
+    expect(JSON.stringify(panelBody.components)).toContain('CAT 1200.0');
+    expect(panelBody).not.toHaveProperty('content');
+    expect(panelBody).not.toHaveProperty('embeds');
     expect(panelBody.allowed_mentions).toEqual({ parse: [] });
-    expect(panelBody.components[0].components).toEqual(expect.arrayContaining([
+    const actionRow = panelBody.components[0].components.find((component: { type: number }) => component.type === 1);
+    expect(actionRow.components).toEqual(expect.arrayContaining([
       expect.objectContaining({ custom_id: `bc:service:request-completion:${projection.orderId}:v8` }),
       expect.objectContaining({ custom_id: `bc:service:support:${projection.orderId}:v8` })
     ]));
   });
 
+  test('updates a Components V2 panel with multi-player access and explicit assembly progress', async () => {
+    const secondPlayerDiscordUserId = '530000000000000006';
+    const assembling = {
+      ...projection,
+      status: 'PENDING_DISPATCH',
+      playerDiscordUserIds: [projection.playerDiscordUserId!, secondPlayerDiscordUserId],
+      requestedPlayerCount: 3,
+      filledPlayerCount: 2
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { id: projection.panelMessageId }));
+    const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
+
+    await adapter.upsertOrderPanel(assembling, notBefore);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toContain(`/permissions/${projection.playerDiscordUserId}`);
+    expect(fetchMock.mock.calls[1]?.[0]).toContain(`/permissions/${secondPlayerDiscordUserId}`);
+    const panelBody = JSON.parse(fetchMock.mock.calls[2]?.[1]?.body as string);
+    expect(panelBody.flags).toBe(32768);
+    expect(panelBody).not.toHaveProperty('content');
+    expect(panelBody).not.toHaveProperty('embeds');
+    expect(panelBody.components[0]).toMatchObject({ type: 17 });
+    expect(JSON.stringify(panelBody.components)).toContain('陪玩到位：2/3');
+    expect(JSON.stringify(panelBody.components)).toContain('全部到齐后开放准备确认');
+  });
+
   test('keeps recovery controls when synchronizing a pending-dispatch panel', async () => {
-    const pending = { ...projection, status: 'PENDING_DISPATCH', playerDiscordUserId: null };
+    const pending = { ...projection, status: 'PENDING_DISPATCH', playerDiscordUserId: null, playerDiscordUserIds: [], filledPlayerCount: 0 };
     const fetchMock = vi.fn().mockResolvedValue(response(200, { id: projection.panelMessageId }));
     const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
 
     await adapter.upsertOrderPanel(pending, notBefore);
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-    expect(body.components[0].components).toEqual(expect.arrayContaining([
+    const actionRow = body.components[0].components.find((component: { type: number }) => component.type === 1);
+    expect(actionRow.components).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:submit:v8` }),
       expect.objectContaining({ label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v8` }),
       expect.objectContaining({ label: '联系客服' })
@@ -193,7 +231,7 @@ describe('M5-US-02 Worker production adapters', () => {
       .mockResolvedValueOnce(response(200, { id: '530000000000000005' }));
     const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
 
-    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null }, notBefore)).resolves.toEqual({
+    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null, playerDiscordUserIds: [], filledPlayerCount: 0 }, notBefore)).resolves.toEqual({
       messageId: '530000000000000005',
       recreated: true
     });
@@ -215,7 +253,7 @@ describe('M5-US-02 Worker production adapters', () => {
       .mockResolvedValueOnce(response(200, [{ id: '530000000000000005', nonce }]));
     const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
 
-    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null }, notBefore)).resolves.toEqual({
+    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null, playerDiscordUserIds: [], filledPlayerCount: 0 }, notBefore)).resolves.toEqual({
       messageId: '530000000000000005', recreated: true
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -227,7 +265,7 @@ describe('M5-US-02 Worker production adapters', () => {
     }));
     const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
 
-    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null }, notBefore))
+    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null, playerDiscordUserIds: [], filledPlayerCount: 0 }, notBefore))
       .rejects.toMatchObject({ retryAfterMs: 500 });
   });
 
@@ -235,7 +273,7 @@ describe('M5-US-02 Worker production adapters', () => {
     const fetchMock = vi.fn().mockResolvedValue(response(403, { message: 'Missing Permissions' }));
     const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
 
-    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null }, notBefore))
+    await expect(adapter.upsertOrderPanel({ ...projection, playerDiscordUserId: null, playerDiscordUserIds: [], filledPlayerCount: 0 }, notBefore))
       .rejects.toBeInstanceOf(WorkerAdapterError);
     expect(fetchMock).toHaveBeenCalledOnce();
   });

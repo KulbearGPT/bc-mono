@@ -11,7 +11,9 @@ describe('M2-US-07 Postgres matching projection', () => {
           player_display_name: null,
           attempt_status: 'TIMED_OUT',
           expires_at: new Date('2026-07-18T08:05:00.000Z'),
-          notified_count: '4'
+          notified_count: '4',
+          requested_player_count: '3',
+          filled_player_count: '1'
         }] })
       }
     });
@@ -19,6 +21,8 @@ describe('M2-US-07 Postgres matching projection', () => {
     await expect(store.getMatchingProgress('00000000-0000-0000-0000-00000000b701')).resolves.toEqual({
       stage: 'TIMED_OUT',
       notifiedCandidateCount: 4,
+      requestedPlayerCount: 3,
+      filledPlayerCount: 1,
       timeoutAt: '2026-07-18T08:05:00.000Z',
       nextStep: 'CHOOSE_CONTINUE_OR_CANCEL',
       playerSummary: null

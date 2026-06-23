@@ -96,6 +96,9 @@ export interface OrderPanelProjection {
   panelMessageId: string;
   customerDiscordUserId: string;
   playerDiscordUserId: string | null;
+  playerDiscordUserIds?: string[];
+  requestedPlayerCount?: number;
+  filledPlayerCount?: number;
   amountMinor: number;
   currency: string;
   guildId?: string;

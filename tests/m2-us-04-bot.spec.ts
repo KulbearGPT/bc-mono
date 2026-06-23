@@ -338,6 +338,44 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('已扣除 1,200.0 CAT，陪玩收益也已记录') });
   });
 
+  test.each([
+    {
+      action: 'confirm' as const,
+      apiMethod: 'confirmOrder' as const,
+      expected: '这个「确认完成」按钮需要由本单客人操作'
+    },
+    {
+      action: 'request-completion' as const,
+      apiMethod: 'requestOrderCompletion' as const,
+      expected: '这个「申请完成」按钮需要由本单陪玩操作'
+    }
+  ])('explains who may use the $action action when the API denies permission', async ({ action, apiMethod, expected }) => {
+    const denied = new BotApiError({
+      code: 'PERMISSION_DENIED',
+      message: 'Actor role does not match this action.',
+      requestId: `req-${action}`,
+      statusCode: 403
+    });
+    const api = {
+      [apiMethod]: vi.fn().mockRejectedValue(denied)
+    } as Partial<BotApiClient> as BotApiClient;
+
+    const result = await handleServiceLifecycleAction({
+      api,
+      actor: { ...actor, discordUserId: '222222222222222222' },
+      orderId: acceptedOrder.orderId,
+      action,
+      expectedVersion: 7,
+      idempotencyKey: `discord:service:${action}:denied`
+    });
+
+    expect(result).toMatchObject({
+      kind: 'EPHEMERAL_MESSAGE',
+      message: expect.stringContaining(expected)
+    });
+    expect(result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '').toContain(`request_id: req-${action}`);
+  });
+
   test('refreshes and retries readiness once when a timeout advanced the order version', async () => {
     const setOrderReadiness = vi.fn()
       .mockRejectedValueOnce(new BotApiError({ code: 'CONFLICT', message: 'Order version is stale.', requestId: 'req-stale-ready', statusCode: 409 }))

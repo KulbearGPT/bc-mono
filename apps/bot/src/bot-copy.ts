@@ -70,6 +70,10 @@ export const botCopy = {
   },
   lifecycle: {
     completionConfirmed: (amount: string) => `✨ 本次陪伴已经确认完成\n已扣除 ${amount}，陪玩收益也已记录。感谢你们今晚的相伴。`,
+    confirmationRestricted: (requestId: string) => `这个「确认完成」按钮需要由本单客人操作。陪玩提交完成申请后，请等待客人确认；如有异议可以点击「我要申诉」。request_id: ${requestId}`,
+    completionRequestRestricted: (requestId: string) => `这个「申请完成」按钮需要由本单陪玩操作。客人无需代为申请，请等待陪玩提交；如需协助可以点击「我要申诉」。request_id: ${requestId}`,
+    readinessRestricted: (requestId: string) => `只有本订单的客人和已接单陪玩可以确认就绪。如果你认为这是权限异常，请联系猫舍前台。request_id: ${requestId}`,
+    supportRestricted: (requestId: string) => `只有本订单的参与者可以从这里发起申诉。如需其他协助，请直接联系猫舍前台。request_id: ${requestId}`,
     appealSubmitted: (taskPublicId: string) => `🛎️ 猫舍前台已经收到\n客服任务 ${taskPublicId} 已创建。我们会核对订单记录和双方说明，处理结果会同步到订单频道。`
   },
   entry: {

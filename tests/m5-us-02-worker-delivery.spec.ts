@@ -62,7 +62,8 @@ describe('M5-US-02 Worker delivery adapters', () => {
       }
     });
     const payload = { dispatchAttemptId: 'attempt-1', dispatchChannelId: 'channel-1', orderId: 'order-1', orderVersion: 3, orderPublicId: 'P-1001',
-      game: '瓦洛兰特', service: '娱乐陪玩', region: '北美', expiresAt: '2026-07-19T00:00:00.000Z' };
+      game: '瓦洛兰特', service: '娱乐陪玩', region: '北美', durationLabel: '2 小时', playerEarningMinor: 8400,
+      currency: 'CAT', notes: '中文交流，主要娱乐', voiceChannelId: 'voice-1', expiresAt: '2026-07-19T00:00:00.000Z', candidatePlayerUserIds: ['player-1'] };
 
     await adapter.upsertDispatchOffer(payload, null, '2026-07-18T23:00:00.000Z');
     await adapter.upsertDispatchOffer(payload, 'message-1', '2026-07-18T23:00:00.000Z');
@@ -74,8 +75,25 @@ describe('M5-US-02 Worker delivery adapters', () => {
     ]);
     expect(requests[1]!.body).toMatchObject({ enforce_nonce: true });
     expect(requests[1]!.body.nonce).toMatch(/^[a-f0-9]{24}$/u);
+    expect(requests[1]!.body.content).toBeNull();
+    expect(requests[1]!.body.embeds).toEqual([expect.objectContaining({
+      title: '🎮 新订单 · P-1001',
+      description: expect.stringContaining('请确认以下信息后再接单'),
+      fields: expect.arrayContaining([
+        { name: '游戏', value: '瓦洛兰特', inline: true },
+        { name: '服务类型', value: '娱乐陪玩', inline: true },
+        { name: '区服', value: '北美', inline: true },
+        { name: '服务时长', value: '2 小时', inline: true },
+        { name: '预计收益', value: '840.0 CAT', inline: true },
+        { name: '语音频道', value: '<#voice-1>', inline: true },
+        { name: '客户备注', value: '中文交流，主要娱乐', inline: false },
+        { name: '接单截止', value: '<t:1784419200:F>\n<t:1784419200:R>', inline: false }
+      ])
+    })]);
     expect(requests[2]!.body).not.toHaveProperty('nonce');
     expect(requests[2]!.body).not.toHaveProperty('enforce_nonce');
+    expect(requests[2]!.body.content).toBeNull();
+    expect(requests[2]!.body.embeds).toHaveLength(1);
   });
 
   test('moves a reusable order message id to the latest dispatch attempt', async () => {
@@ -111,7 +129,11 @@ describe('M5-US-02 Worker delivery adapters', () => {
       orderPublicId: 'P-1001', game: 'VALORANT', service: 'FUN', expiresAt: '2026-07-19T00:00:00.000Z', candidatePlayerUserIds: []
     }, 'message-1', '2026-07-18T23:00:00.000Z');
 
-    expect(body.content).toContain('正在等待合格陪玩');
+    expect(body.content).toBeNull();
+    expect(body.embeds[0]).toMatchObject({
+      title: '⏳ 订单 · P-1001',
+      description: expect.stringContaining('正在等待合格陪玩')
+    });
     expect(body.components).toEqual([]);
   });
 

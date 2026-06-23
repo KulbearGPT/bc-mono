@@ -61,7 +61,9 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
     const orderVersion = requiredInteger(payload.orderVersion, 'orderVersion');
     const hasCandidates = Array.isArray(payload.candidatePlayerUserIds) && payload.candidatePlayerUserIds.length > 0;
     const panel = {
-      content: hasCandidates ? formatDispatchOffer(payload) : formatWaitingDispatch(payload),
+      content: null,
+      embeds: [hasCandidates ? buildDispatchOfferEmbed(payload) : buildWaitingDispatchEmbed(payload)],
+      allowed_mentions: { parse: [] },
       components: hasCandidates ? [{
         type: 1,
         components: [
@@ -225,16 +227,68 @@ function stableNonce(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 24);
 }
 
-function formatDispatchOffer(payload: Record<string, unknown>): string {
+function buildDispatchOfferEmbed(payload: Record<string, unknown>): Record<string, unknown> {
   const publicId = requiredString(payload.orderPublicId, 'orderPublicId');
-  const fields = [payload.game, payload.service, payload.region].filter((value): value is string => typeof value === 'string');
-  return `**新订单 ${publicId}**\n${fields.join(' · ')}\n接单截止：${requiredString(payload.expiresAt, 'expiresAt')}`;
+  const voiceChannelId = optionalString(payload.voiceChannelId);
+  const notes = optionalString(payload.notes);
+  return {
+    color: 0x22c55e,
+    title: `🎮 新订单 · ${publicId}`.slice(0, 256),
+    description: '请确认以下信息后再接单。接单成功后，你将进入该订单的私密服务频道。',
+    fields: [
+      embedField('游戏', displayValue(payload.game), true),
+      embedField('服务类型', displayValue(payload.service), true),
+      embedField('区服', displayValue(payload.region), true),
+      embedField('服务时长', displayValue(payload.durationLabel), true),
+      embedField('预计收益', formatDispatchMoney(payload.playerEarningMinor, payload.currency), true),
+      embedField('语音频道', voiceChannelId ? `<#${voiceChannelId}>` : '接单后创建', true),
+      embedField('客户备注', notes ?? '未填写', false),
+      embedField('接单截止', formatDiscordDeadline(payload.expiresAt), false)
+    ],
+    footer: { text: '第一位成功接单的合格陪玩获得订单 · Blackcat Companion' }
+  };
 }
 
-function formatWaitingDispatch(payload: Record<string, unknown>): string {
+function buildWaitingDispatchEmbed(payload: Record<string, unknown>): Record<string, unknown> {
   const publicId = requiredString(payload.orderPublicId, 'orderPublicId');
-  const fields = [payload.game, payload.service, payload.region].filter((value): value is string => typeof value === 'string');
-  return `**订单 ${publicId} · 正在等待合格陪玩**\n${fields.join(' · ')}\n系统会继续自动匹配，无需重复提交订单。`;
+  return {
+    color: 0xf59e0b,
+    title: `⏳ 订单 · ${publicId}`.slice(0, 256),
+    description: '当前轮次正在等待合格陪玩。系统会继续自动匹配，无需重复提交订单。',
+    fields: [
+      embedField('游戏', displayValue(payload.game), true),
+      embedField('服务类型', displayValue(payload.service), true),
+      embedField('区服', displayValue(payload.region), true)
+    ],
+    footer: { text: 'Blackcat Companion' }
+  };
+}
+
+function embedField(name: string, value: string, inline: boolean): { name: string; value: string; inline: boolean } {
+  return { name, value: value.slice(0, 1_024), inline };
+}
+
+function displayValue(value: unknown): string {
+  return optionalString(value) ?? '未指定';
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function formatDispatchMoney(amountMinor: unknown, currency: unknown): string {
+  if (!Number.isSafeInteger(amountMinor) || Number(amountMinor) < 0) return '待确认';
+  const code = optionalString(currency) ?? 'USD';
+  if (code === 'CAT') return `${(Number(amountMinor) / 10).toFixed(1)} CAT`;
+  return `${code} ${(Number(amountMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDiscordDeadline(value: unknown): string {
+  const expiresAt = requiredString(value, 'expiresAt');
+  const milliseconds = Date.parse(expiresAt);
+  if (!Number.isFinite(milliseconds)) throw new Error('expiresAt must be an ISO date-time.');
+  const timestamp = Math.floor(milliseconds / 1_000);
+  return `<t:${timestamp}:F>\n<t:${timestamp}:R>`;
 }
 
 function requiredString(value: unknown, field: string): string {

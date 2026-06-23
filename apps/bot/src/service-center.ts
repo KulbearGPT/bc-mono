@@ -51,6 +51,8 @@ export interface OrderSummary {
   matching: {
     stage: 'SEARCHING' | 'WAITING_FOR_ACCEPTANCE' | 'TIMED_OUT' | 'ACCEPTED';
     notifiedCandidateCount: number;
+    requestedPlayerCount?: number;
+    filledPlayerCount?: number;
     timeoutAt: string | null;
     nextStep: 'WAIT_FOR_PLAYER' | 'CHOOSE_CONTINUE_OR_CANCEL' | 'CONFIRM_READINESS';
     playerSummary: { playerId: string; displayName: string } | null;
@@ -1289,10 +1291,20 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
   const nextStep = matching.nextStep === 'CHOOSE_CONTINUE_OR_CANCEL'
     ? '下一步：继续等待、取消订单或联系客服'
     : '下一步：请等待陪玩接单';
+  const hasAssemblyProgress = Number.isSafeInteger(matching.requestedPlayerCount)
+    && Number.isSafeInteger(matching.filledPlayerCount)
+    && Number(matching.requestedPlayerCount) > 0;
+  const remainingPlayerCount = hasAssemblyProgress
+    ? Math.max(0, Number(matching.requestedPlayerCount) - Number(matching.filledPlayerCount))
+    : null;
   return {
     title: `订单 #${order.publicId} · ${matching.stage === 'TIMED_OUT' ? '本轮匹配结束' : '正在匹配陪玩'}`,
     body: [
       `已通知符合条件的陪玩：${matching.notifiedCandidateCount} 人`,
+      hasAssemblyProgress ? `陪玩到位：${matching.filledPlayerCount}/${matching.requestedPlayerCount}` : null,
+      remainingPlayerCount && remainingPlayerCount > 0
+        ? `还差 ${remainingPlayerCount} 位，全部到齐后开放准备确认`
+        : null,
       matching.timeoutAt ? `本轮截止：${matching.timeoutAt}` : null,
       nextStep
     ].filter(Boolean).join('\n'),
@@ -1985,6 +1997,12 @@ export async function handleServiceLifecycleAction(input: {
     }, input.actor, input.idempotencyKey);
     return { kind: 'EPHEMERAL_MESSAGE', message: botCopy.lifecycle.appealSubmitted(task.publicId) };
   } catch (error) {
+    if (isApiError(error, 'PERMISSION_DENIED')) {
+      return {
+        kind: 'EPHEMERAL_MESSAGE',
+        message: lifecyclePermissionDeniedMessage(input.action, requestId(error))
+      };
+    }
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '订单状态操作失败') };
   }
 }
@@ -2470,6 +2488,16 @@ function requestId(error: unknown): string {
 function formatApiError(error: unknown, fallback: string): string {
   const id = requestId(error);
   return `${fallback}。request_id: ${id}`;
+}
+
+function lifecyclePermissionDeniedMessage(
+  action: 'ready' | 'request-completion' | 'confirm' | 'support',
+  id: string
+): string {
+  if (action === 'confirm') return botCopy.lifecycle.confirmationRestricted(id);
+  if (action === 'request-completion') return botCopy.lifecycle.completionRequestRestricted(id);
+  if (action === 'ready') return botCopy.lifecycle.readinessRestricted(id);
+  return botCopy.lifecycle.supportRestricted(id);
 }
 
 function formatGame(value: string | null): string {

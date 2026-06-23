@@ -86,6 +86,16 @@ function player(overrides: Partial<PlayerProfileRecord> = {}): PlayerProfileReco
 describe('M2-US-02 dispatch domain and API', () => {
   test('dispatchOrder creates one active attempt, eligible candidate snapshot, message outbox and timeout job', async () => {
     const orderStore = new InMemoryOrderStore({ orders: [pendingDispatchOrder()] });
+    orderStore.getNextOpenRequirement = async () => ({
+      id: '00000000-0000-0000-0000-00000000d299',
+      serviceCatalogVersionId: '00000000-0000-0000-0000-00000000c101',
+      serviceOfferingId: '00000000-0000-0000-0000-00000000c102',
+      game: 'VALORANT', gameDisplayName: '瓦洛兰特',
+      service: 'ENTERTAINMENT', serviceDisplayName: '娱乐陪玩',
+      region: 'NA', regionDisplayName: '北美',
+      billingUnitMinutes: 60, unitCount: 2, requestedPlayerCount: 1, filledPlayerCount: 0,
+      customerUnitPriceMinor: 6000, linePriceMinorPerPlayer: 12000, defaultPlayerPayoutBps: 7000
+    });
     const dispatchStore = new InMemoryDispatchStore();
     const playerPool = new InMemoryDispatchPlayerPool({
       profiles: [
@@ -127,7 +137,8 @@ describe('M2-US-02 dispatch domain and API', () => {
       type: 'DISPATCH_MESSAGE',
       aggregateType: 'dispatch_attempt',
       aggregateId: result.dispatchAttemptId,
-      runAfter: now.toISOString()
+      runAfter: now.toISOString(),
+      payload: expect.objectContaining({ game: '瓦洛兰特', service: '娱乐陪玩', region: '北美' })
     });
     expect(dispatchStore.outboxJobs[1]).toMatchObject({
       type: 'DISPATCH_TIMEOUT',

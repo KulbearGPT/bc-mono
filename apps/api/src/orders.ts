@@ -431,8 +431,11 @@ export interface OrderDispatchRequirement {
   serviceCatalogVersionId: string;
   serviceOfferingId: string;
   game: string;
+  gameDisplayName?: string;
   service: string;
+  serviceDisplayName?: string;
   region: string | null;
+  regionDisplayName?: string | null;
   billingUnitMinutes: number;
   unitCount: number;
   requestedPlayerCount: number;
@@ -445,6 +448,8 @@ export interface OrderDispatchRequirement {
 export interface OrderMatchingProgress {
   stage: 'SEARCHING' | 'WAITING_FOR_ACCEPTANCE' | 'TIMED_OUT' | 'ACCEPTED';
   notifiedCandidateCount: number;
+  requestedPlayerCount?: number;
+  filledPlayerCount?: number;
   timeoutAt: string | null;
   nextStep: 'WAIT_FOR_PLAYER' | 'CHOOSE_CONTINUE_OR_CANCEL' | 'CONFIRM_READINESS';
   playerSummary: { playerId: string; displayName: string } | null;
@@ -830,6 +835,8 @@ LIMIT 1
       attempt_status: string | null;
       expires_at: Date | string | null;
       notified_count: string | number;
+      requested_player_count: string | number;
+      filled_player_count: string | number;
     }>(
       `
 SELECT o.status AS order_status,
@@ -837,7 +844,13 @@ SELECT o.status AS order_status,
        player.display_name AS player_display_name,
        latest.status AS attempt_status,
        latest.expires_at,
-       COALESCE(latest.notified_count, 0) AS notified_count
+       COALESCE(latest.notified_count, 0) AS notified_count,
+       COALESCE((SELECT SUM(requirement.requested_player_count)
+                   FROM order_requirements requirement
+                  WHERE requirement.order_id = o.id AND requirement.status = 'ACTIVE'), 0) AS requested_player_count,
+       COALESCE((SELECT COUNT(*)
+                   FROM order_participants participant
+                  WHERE participant.order_id = o.id AND participant.status = 'ACTIVE'), 0) AS filled_player_count
 FROM orders o
 LEFT JOIN users player ON player.id = o.player_id
 LEFT JOIN LATERAL (
@@ -856,10 +869,14 @@ WHERE o.id = $1
     if (!row || !['PENDING_DISPATCH', 'ACCEPTED'].includes(row.order_status)) {
       return null;
     }
+    const requestedPlayerCount = Number(row.requested_player_count) || (row.player_id ? 1 : 0);
+    const filledPlayerCount = Number(row.filled_player_count) || (row.player_id ? 1 : 0);
     if (row.order_status === 'ACCEPTED' && row.player_id) {
       return {
         stage: 'ACCEPTED',
         notifiedCandidateCount: Number(row.notified_count),
+        requestedPlayerCount,
+        filledPlayerCount,
         timeoutAt: null,
         nextStep: 'CONFIRM_READINESS',
         playerSummary: {
@@ -872,6 +889,8 @@ WHERE o.id = $1
       return {
         stage: 'TIMED_OUT',
         notifiedCandidateCount: Number(row.notified_count),
+        requestedPlayerCount,
+        filledPlayerCount,
         timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
         nextStep: 'CHOOSE_CONTINUE_OR_CANCEL',
         playerSummary: null
@@ -880,6 +899,8 @@ WHERE o.id = $1
     return {
       stage: row.attempt_status === 'ACTIVE' ? 'WAITING_FOR_ACCEPTANCE' : 'SEARCHING',
       notifiedCandidateCount: Number(row.notified_count),
+      requestedPlayerCount,
+      filledPlayerCount,
       timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
       nextStep: 'WAIT_FOR_PLAYER',
       playerSummary: null
@@ -903,11 +924,14 @@ WHERE o.id = $1
   async getNextOpenRequirement(orderId: string): Promise<OrderDispatchRequirement | null> {
     const result = await this.client.query<{
       id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;
-      service_code_snapshot:string;region_code_snapshot:string|null;billing_unit_minutes_snapshot:number;
+      game_display_name_snapshot:string;service_code_snapshot:string;service_display_name_snapshot:string;
+      region_code_snapshot:string|null;region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;
       unit_count:number;requested_player_count:number;filled_player_count:string;customer_unit_price_minor_snapshot:string;
       default_player_payout_bps:number;
     }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
-      requirement.game_code_snapshot,requirement.service_code_snapshot,requirement.region_code_snapshot,
+      requirement.game_code_snapshot,requirement.game_display_name_snapshot,
+      requirement.service_code_snapshot,requirement.service_display_name_snapshot,
+      requirement.region_code_snapshot,requirement.region_display_name_snapshot,
       requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.requested_player_count,
       COUNT(participant.id)::text filled_player_count,requirement.customer_unit_price_minor_snapshot::text,
       version.default_player_payout_bps
@@ -921,7 +945,9 @@ WHERE o.id = $1
     const row=result.rows[0];if(!row)return null;
     const unitPrice=Number(row.customer_unit_price_minor_snapshot);
     return {id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,
-      game:row.game_code_snapshot,service:row.service_code_snapshot,region:row.region_code_snapshot,
+      game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,
+      service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,
+      region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,
       billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,
       filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:unitPrice,linePriceMinorPerPlayer:unitPrice*row.unit_count,
       defaultPlayerPayoutBps:row.default_player_payout_bps};
@@ -929,11 +955,14 @@ WHERE o.id = $1
 
   async getDispatchRequirement(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null> {
     const next = await this.client.query<{
-      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;service_code_snapshot:string;
-      region_code_snapshot:string|null;billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;
+      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;game_display_name_snapshot:string;
+      service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;region_display_name_snapshot:string|null;
+      billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;
       filled_player_count:string;customer_unit_price_minor_snapshot:string;default_player_payout_bps:number;
     }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
-      requirement.game_code_snapshot,requirement.service_code_snapshot,requirement.region_code_snapshot,
+      requirement.game_code_snapshot,requirement.game_display_name_snapshot,
+      requirement.service_code_snapshot,requirement.service_display_name_snapshot,
+      requirement.region_code_snapshot,requirement.region_display_name_snapshot,
       requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.requested_player_count,
       COUNT(participant.id)::text filled_player_count,requirement.customer_unit_price_minor_snapshot::text,version.default_player_payout_bps
       FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
@@ -941,8 +970,11 @@ WHERE o.id = $1
       WHERE requirement.order_id=$1 AND requirement.id=$2 AND requirement.status='ACTIVE'
       GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps`,[orderId,requirementId]);
     const row=next.rows[0];if(!row)return null;const price=Number(row.customer_unit_price_minor_snapshot);
-    return{id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,game:row.game_code_snapshot,
-      service:row.service_code_snapshot,region:row.region_code_snapshot,billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,
+    return{id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,
+      game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,
+      service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,
+      region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,
+      billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,
       requestedPlayerCount:row.requested_player_count,filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:price,
       linePriceMinorPerPlayer:price*row.unit_count,defaultPlayerPayoutBps:row.default_player_payout_bps};
   }

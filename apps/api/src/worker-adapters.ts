@@ -41,6 +41,22 @@ SELECT orders.id AS order_id,
        config.config_json,
        customer_discord.discord_user_id AS customer_discord_user_id,
        player_discord.discord_user_id AS player_discord_user_id,
+       ARRAY(
+         SELECT participant_discord.discord_user_id
+         FROM order_participants participant
+         JOIN discord_accounts participant_discord
+           ON participant_discord.user_id = participant.player_id
+          AND participant_discord.guild_id = orders.guild_id
+         WHERE participant.order_id = orders.id
+           AND participant.status = 'ACTIVE'
+         ORDER BY participant.created_at, participant.id
+       ) AS player_discord_user_ids,
+       (SELECT COALESCE(SUM(requirement.requested_player_count), 0)::int
+          FROM order_requirements requirement
+         WHERE requirement.order_id = orders.id AND requirement.status = 'ACTIVE') AS requested_player_count,
+       (SELECT COUNT(*)::int
+          FROM order_participants participant
+         WHERE participant.order_id = orders.id AND participant.status = 'ACTIVE') AS filled_player_count,
        orders.amount_minor,
        orders.currency
 FROM orders AS orders
@@ -114,9 +130,9 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
 
   async upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean; voiceChannelId?: string }> {
     const voiceChannelId = projection.status === 'ACCEPTED' ? await this.ensureAcceptedCoordination(projection, notBefore) : projection.voiceChannelId ?? undefined;
-    if (projection.playerDiscordUserId) {
+    for (const playerDiscordUserId of activePlayerDiscordUserIds(projection)) {
       await this.request(
-        `/channels/${encodeURIComponent(projection.channelId)}/permissions/${encodeURIComponent(projection.playerDiscordUserId)}`,
+        `/channels/${encodeURIComponent(projection.channelId)}/permissions/${encodeURIComponent(playerDiscordUserId)}`,
         {
           method: 'PUT',
           body: JSON.stringify({ allow: String(VIEW_CHANNEL | SEND_MESSAGES), deny: '0', type: 1 })
@@ -155,7 +171,8 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
   }
 
   private async ensureAcceptedCoordination(projection: OrderPanelProjection, notBefore: string): Promise<string | undefined> {
-    if (!projection.guildId || !projection.playerDiscordUserId || !projection.staffTaskChannelId) return projection.voiceChannelId ?? undefined;
+    const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
+    if (!projection.guildId || playerDiscordUserIds.length === 0 || !projection.staffTaskChannelId) return projection.voiceChannelId ?? undefined;
     let voiceChannelId = projection.voiceChannelId ?? null;
     if (!voiceChannelId) {
       const channelName = `order-${projection.publicId}`.toLowerCase().replace(/[^a-z0-9-]/gu, '-').slice(0, 90);
@@ -164,11 +181,12 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
       if (!voiceChannelId) {
         const overwrites = [
           { id: projection.guildId, type: 0, allow: '0', deny: String(VIEW_CHANNEL | CONNECT) },
-          ...[projection.customerDiscordUserId, projection.playerDiscordUserId].map((id) => ({ id, type: 1, allow: String(VIEW_CHANNEL | CONNECT | SPEAK), deny: '0' })),
+          ...[projection.customerDiscordUserId, ...playerDiscordUserIds].map((id) => ({ id, type: 1, allow: String(VIEW_CHANNEL | CONNECT | SPEAK), deny: '0' })),
           ...(projection.staffRoleIds ?? []).map((id) => ({ id, type: 0, allow: String(VIEW_CHANNEL | CONNECT | SPEAK | MANAGE_CHANNELS | MOVE_MEMBERS), deny: '0' }))
         ];
         const created = await this.request<{ id: string }>(`/guilds/${projection.guildId}/channels`, { method: 'POST', body: JSON.stringify({
-          name: channelName, type: 2, parent_id: projection.privateOrderCategoryId ?? undefined, user_limit: 2, permission_overwrites: overwrites
+          name: channelName, type: 2, parent_id: projection.privateOrderCategoryId ?? undefined,
+          user_limit: Math.min(99, playerDiscordUserIds.length + 1), permission_overwrites: overwrites
         }) });
         voiceChannelId = text(created.id, 'voice_channel.id');
       }
@@ -236,6 +254,12 @@ const MOVE_MEMBERS = 1 << 24;
 
 function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
   const config = row.config_json && typeof row.config_json === 'object' ? row.config_json as Record<string, unknown> : {};
+  const legacyPlayerDiscordUserId = nullableText(row.player_discord_user_id, 'player_discord_user_id');
+  const participantDiscordUserIds = textArray(row.player_discord_user_ids, 'player_discord_user_ids');
+  const playerDiscordUserIds = [...new Set([
+    ...participantDiscordUserIds,
+    ...(legacyPlayerDiscordUserId ? [legacyPlayerDiscordUserId] : [])
+  ])];
   return {
     orderId: text(row.order_id, 'order_id'),
     publicId: text(row.public_id, 'public_id'),
@@ -244,7 +268,10 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     channelId: text(row.channel_id, 'channel_id'),
     panelMessageId: text(row.panel_message_id, 'panel_message_id'),
     customerDiscordUserId: text(row.customer_discord_user_id, 'customer_discord_user_id'),
-    playerDiscordUserId: nullableText(row.player_discord_user_id, 'player_discord_user_id'),
+    playerDiscordUserId: legacyPlayerDiscordUserId,
+    playerDiscordUserIds,
+    requestedPlayerCount: optionalInteger(row.requested_player_count, playerDiscordUserIds.length),
+    filledPlayerCount: optionalInteger(row.filled_player_count, playerDiscordUserIds.length),
     amountMinor: integer(row.amount_minor, 'amount_minor'),
     currency: text(row.currency, 'currency').trim()
     ,guildId: text(row.guild_id, 'guild_id')
@@ -258,20 +285,64 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
 function nullableConfigText(value: unknown): string | null { return typeof value === 'string' && value ? value : null; }
 
 function renderOrderPanel(projection: OrderPanelProjection): {
-  content: string;
-  embeds: never[];
+  flags: number;
   allowed_mentions: { parse: never[] };
-  components: Array<{ type: 1; components: Array<{ type: 2; style: number; label: string; custom_id: string }> }>;
+  components: Array<{
+    type: 17;
+    accent_color: number;
+    components: Array<
+      | { type: 10; content: string }
+      | { type: 1; components: Array<{ type: 2; style: number; label: string; custom_id: string }> }
+    >;
+  }>;
 } {
-  const participants = projection.playerDiscordUserId
-    ? `客户：<@${projection.customerDiscordUserId}>\n陪玩：<@${projection.playerDiscordUserId}>`
-    : `客户：<@${projection.customerDiscordUserId}>\n陪玩：待接单`;
+  const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
+  const requestedPlayerCount = projection.requestedPlayerCount ?? Math.max(playerDiscordUserIds.length, 1);
+  const filledPlayerCount = projection.filledPlayerCount ?? playerDiscordUserIds.length;
+  const participants = playerDiscordUserIds.length > 0
+    ? `已到位陪玩：${playerDiscordUserIds.map((id) => `<@${id}>`).join('、')}`
+    : '陪玩：待接单';
+  const assembly = projection.status === 'PENDING_DISPATCH' && requestedPlayerCount > 0
+    ? `陪玩到位：${filledPlayerCount}/${requestedPlayerCount}\n${filledPlayerCount < requestedPlayerCount ? `还差 ${requestedPlayerCount - filledPlayerCount} 位，全部到齐后开放准备确认。` : '队伍已到齐，正在进入准备确认。'}`
+    : null;
+  const body = [
+    `-# 订单 #${projection.publicId} · ${orderStatusLabel(projection.status)}`,
+    `## 当前订单状态：${projection.status}`,
+    `金额：${projection.currency} ${(projection.amountMinor / (projection.currency === 'CAT' ? 10 : 100)).toFixed(projection.currency === 'CAT' ? 1 : 2)}`,
+    `客户：<@${projection.customerDiscordUserId}>`,
+    participants,
+    assembly
+  ].filter(Boolean).join('\n');
   return {
-    content: `**订单 ${projection.publicId}**\n状态：${projection.status}\n金额：${projection.currency} ${(projection.amountMinor / (projection.currency==='CAT'?10:100)).toFixed(projection.currency==='CAT'?1:2)}\n${participants}`,
-    embeds: [],
+    flags: 1 << 15,
     allowed_mentions: { parse: [] },
-    components: [{ type: 1, components: panelActions(projection) }]
+    components: [{
+      type: 17,
+      accent_color: 2_410_696,
+      components: [
+        { type: 10, content: body },
+        { type: 1, components: panelActions(projection) },
+        { type: 10, content: '-# Blackcat Companion' }
+      ]
+    }]
   };
+}
+
+function activePlayerDiscordUserIds(projection: OrderPanelProjection): string[] {
+  return [...new Set([
+    ...(projection.playerDiscordUserIds ?? []),
+    ...(projection.playerDiscordUserId ? [projection.playerDiscordUserId] : [])
+  ])];
+}
+
+function orderStatusLabel(status: string): string {
+  if (status === 'PENDING_DISPATCH') return '队伍正在集合';
+  if (status === 'ACCEPTED') return '等待准备确认';
+  if (status === 'IN_SERVICE') return '服务进行中';
+  if (status === 'PENDING_CONFIRMATION') return '等待客户确认完成';
+  if (status === 'COMPLETED') return '订单已完成';
+  if (status === 'CANCELLED') return '订单已取消';
+  return status;
 }
 
 function panelActions(projection: OrderPanelProjection): Array<{ type: 2; style: number; label: string; custom_id: string }> {
@@ -302,10 +373,13 @@ async function readMessage(response: Response, fallbackId: string): Promise<{ id
 }
 
 async function discordFailure(response: Response): Promise<WorkerAdapterError> {
-  const body = await response.clone().json().catch(() => ({})) as { retry_after?: unknown };
+  const body = await response.clone().json().catch(() => ({})) as { retry_after?: unknown; code?: unknown; message?: unknown };
   const seconds = typeof body.retry_after === 'number' ? body.retry_after : Number(response.headers.get('retry-after'));
   const retryAfterMs = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1_000) : null;
-  return new WorkerAdapterError('DISCORD_ERROR', `Discord API request failed with status ${response.status}.`, retryAfterMs);
+  const detail = typeof body.message === 'string'
+    ? ` (${typeof body.code === 'number' ? `${body.code}: ` : ''}${body.message})`
+    : '';
+  return new WorkerAdapterError('DISCORD_ERROR', `Discord API request failed with status ${response.status}${detail}.`, retryAfterMs);
 }
 
 function text(value: unknown, field: string): string {
@@ -322,6 +396,16 @@ function integer(value: unknown, field: string): number {
   const parsed = typeof value === 'bigint' ? Number(value) : typeof value === 'string' && /^-?\d+$/u.test(value) ? Number(value) : value;
   if (!Number.isSafeInteger(parsed)) throw invalidRow(field);
   return parsed as number;
+}
+
+function optionalInteger(value: unknown, fallback: number): number {
+  return value === null || value === undefined ? fallback : integer(value, 'optional_integer');
+}
+
+function textArray(value: unknown, field: string): string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item)) throw invalidRow(field);
+  return value as string[];
 }
 
 function invalidRow(field: string): WorkerAdapterError {

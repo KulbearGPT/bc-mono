@@ -7,6 +7,8 @@ describe('M2-US-07 Discord matching progress rendering', () => {
       matching: {
         stage: 'WAITING_FOR_ACCEPTANCE',
         notifiedCandidateCount: 3,
+        requestedPlayerCount: 3,
+        filledPlayerCount: 1,
         timeoutAt: '2026-07-18T08:05:00.000Z',
         nextStep: 'WAIT_FOR_PLAYER',
         playerSummary: null
@@ -15,6 +17,8 @@ describe('M2-US-07 Discord matching progress rendering', () => {
 
     expect(message.title).toContain('正在匹配陪玩');
     expect(message.body).toContain('已通知符合条件的陪玩：3 人');
+    expect(message.body).toContain('陪玩到位：1/3');
+    expect(message.body).toContain('还差 2 位，全部到齐后开放准备确认');
     expect(message.body).toContain('本轮截止：2026-07-18T08:05:00.000Z');
     expect(message.body).not.toContain('candidate');
   });
