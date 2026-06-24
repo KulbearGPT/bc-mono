@@ -40,4 +40,14 @@ describe('M9-US-10 per-player service compensation', () => {
       expectedVersion: null, type: 'PERCENT_BPS', value: 6000, currency: null, reasonCode: 'RATE_UPDATE'
     }});
   });
+
+  test('dashboard shows every player project compensation as a visible list instead of a dropdown', async () => {
+    const source = await readFile('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8');
+    expect(source).toContain('player-compensation-list');
+    expect(source).toContain('player-compensation-item');
+    expect(source).toContain('当前个人分成');
+    expect(source).toContain('项目默认分成');
+    expect(source).toMatch(/type="radio" name="serviceOfferingId"/u);
+    expect(source).not.toMatch(/<select name="serviceOfferingId"/u);
+  });
 });

@@ -302,13 +302,36 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
 
 function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unknown>>}){const[selected,setSelected]=useState<string[]>([]);return <fieldset className="field field--full tag-checklist"><legend>选择派单范围（最多 3 人）</legend><p className="field-help">不勾选时发送给全部当前合格陪玩；勾选后仅通知指定人选。</p>{candidates.length===0?<p>当前没有符合订单要求且在线可接单的陪玩。</p>:candidates.map((candidate)=>{const id=textValue(candidate.discordUserId);const checked=selected.includes(id);return <label className="checkbox-field" key={id}><input type="checkbox" name="targetDiscordUserIds" value={id} checked={checked} disabled={!checked&&selected.length>=3} onChange={()=>setSelected((current)=>checked?current.filter((value)=>value!==id):[...current,id])}/><span>{`陪玩 ${textValue(candidate.playerId).slice(0,8)} · Discord ${id}`}</span></label>;})}<p className="field-help">已选 {selected.length}/3</p></fieldset>}
 
-function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){const[selected,setSelected]=useState('');const selectedOffering=offerings.find((item)=>item.serviceOfferingId===selected);const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;const[type,setType]=useState('PERCENT_BPS');return <>
-    <label className="field field--full"><span>陪玩项目</span><select name="serviceOfferingId" required value={selected} onChange={(event)=>{const value=event.currentTarget.value;setSelected(value);const next=offerings.find((item)=>item.serviceOfferingId===value)?.compensationRule as Record<string,unknown>|undefined;setType(textValue(next?.type)||'PERCENT_BPS');}}><option value="" disabled>请选择项目</option>{offerings.map((item)=><option key={textValue(item.serviceOfferingId)} value={textValue(item.serviceOfferingId)}>{[item.gameDisplayName??item.game,item.serviceDisplayName??item.service,item.regionDisplayName??item.region].filter(Boolean).join(' · ')}</option>)}</select></label>
-  <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
-  <label className="field"><span>分成方式</span><select name="compensationType" value={type} onChange={(event)=>setType(event.currentTarget.value)}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
-  {type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input key={`${selected}:percent`} name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" defaultValue={rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?rule.value/100:undefined}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input key={`${selected}:fixed`} name="fixedAmountMinor" type="number" required min="1" step="1" defaultValue={rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?rule.value:undefined}/></label>}
-  <p className="field-help field--full">个人设置优先；未设置时使用服务项目的默认分成。修改不会追溯已接单订单。</p>
-</>}
+function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){
+  const firstId=textValue(offerings[0]?.serviceOfferingId);
+  const firstRule=offerings[0]?.compensationRule as Record<string,unknown>|undefined;
+  const[selected,setSelected]=useState(firstId);
+  const[type,setType]=useState(textValue(firstRule?.type)||'PERCENT_BPS');
+  useEffect(()=>{if(!offerings.length){setSelected('');return;}if(!offerings.some((item)=>textValue(item.serviceOfferingId)===selected)){const next=offerings[0];setSelected(textValue(next.serviceOfferingId));setType(textValue((next.compensationRule as Record<string,unknown>|undefined)?.type)||'PERCENT_BPS');}},[offerings,selected]);
+  const selectedOffering=offerings.find((item)=>textValue(item.serviceOfferingId)===selected);
+  const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;
+  return <>
+    <section className="field field--full player-compensation-browser" aria-labelledby="player-compensation-title">
+      <div className="player-compensation-browser__heading"><div><span id="player-compensation-title">陪玩项目分成</span><p>全部项目与当前规则同时展示；选择一项后在下方编辑。</p></div><strong>{offerings.length} 个项目</strong></div>
+      {offerings.length===0?<p className="player-compensation-empty">当前没有已启用的服务项目。</p>:<div className="player-compensation-list" role="radiogroup" aria-label="选择要编辑的陪玩项目">{offerings.map((item)=>{
+        const id=textValue(item.serviceOfferingId);const itemRule=item.compensationRule as Record<string,unknown>|undefined;const active=selected===id;
+        return <label className={`player-compensation-item${active?' player-compensation-item--selected':''}`} key={id}>
+          <input type="radio" name="serviceOfferingId" value={id} checked={active} required onChange={()=>{setSelected(id);setType(textValue(itemRule?.type)||'PERCENT_BPS');}}/>
+          <span className="player-compensation-item__content"><span className="player-compensation-item__project"><strong>{compensationProjectName(item)}</strong><small>{[item.regionDisplayName??item.region,typeof item.billingUnitMinutes==='number'?`${item.billingUnitMinutes} 分钟/单位`:null].filter(Boolean).join(' · ')||'不限区服'}</small></span><span className="player-compensation-item__rule"><small>{itemRule?'当前个人分成':'当前生效分成'}</small><strong>{compensationRuleText(itemRule,item)}</strong><span>项目默认分成 {defaultCompensationText(item)}</span></span><span className="player-compensation-item__action">{active?'正在编辑':'编辑'}</span></span>
+        </label>;
+      })}</div>}
+    </section>
+    {selectedOffering&&<><div className="field field--full player-compensation-editor-heading"><span>编辑 {compensationProjectName(selectedOffering)}</span><small>本次只保存这一条个人覆盖规则</small></div>
+      <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
+      <label className="field"><span>分成方式</span><select name="compensationType" value={type} onChange={(event)=>setType(event.currentTarget.value)}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
+      {type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input key={`${selected}:percent`} name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" defaultValue={rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?rule.value/100:undefined}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input key={`${selected}:fixed`} name="fixedAmountMinor" type="number" required min="1" step="1" defaultValue={rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?rule.value:undefined}/></label>}
+      <p className="field-help field--full">个人设置优先；未设置时使用服务项目的默认分成。修改不会追溯已接单订单。</p></>}
+  </>;
+}
+
+function compensationProjectName(item:Record<string,unknown>):string{return [item.gameDisplayName??item.game,item.serviceDisplayName??item.service].filter(Boolean).join(' · ')||'未命名项目';}
+function defaultCompensationText(item:Record<string,unknown>):string{return typeof item.defaultPlayerPayoutBps==='number'?`${(item.defaultPlayerPayoutBps/100).toFixed(2)}%`:'未配置';}
+function compensationRuleText(rule:Record<string,unknown>|undefined,item:Record<string,unknown>):string{if(rule?.type==='PERCENT_BPS'&&typeof rule.value==='number')return `${(rule.value/100).toFixed(2)}%`;if(rule?.type==='FIXED_MINOR'&&typeof rule.value==='number')return `${formatMinorCurrency(rule.value,textValue(rule.currency)||textValue(item.currency)||'CAT')}/单位`;return defaultCompensationText(item);}
 
 function GiftCatalogFields({options,item}:{options?:BusinessTagGroups;item?:Record<string,unknown>}) {
   return <>
