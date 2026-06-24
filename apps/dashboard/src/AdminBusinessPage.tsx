@@ -257,10 +257,12 @@ function AdminActionPanel(props: {
   dispatchCandidateOptions?: Array<Record<string, unknown>>;
 }) {
   const action = props.active.action;
-  return (
+  const [pendingCompensation,setPendingCompensation]=useState<{fields:Record<string,string|boolean>;offering:Record<string,unknown>}|null>(null);
+  const handleSubmit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const fields=collectActionFields(event.currentTarget);if(action.id==='EDIT_PLAYER_COMPENSATION'){const offering=(props.serviceCatalogOptions??[]).find((item)=>textValue(item.serviceOfferingId)===textValue(fields.serviceOfferingId));if(offering){setPendingCompensation({fields,offering});return;}}props.onSubmit?.(action,props.active.item,fields);};
+  return <>
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
-      <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={(event) => submitAction(event, props)}>
+      <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={handleSubmit}>
         <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions} />
         {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
@@ -270,8 +272,11 @@ function AdminActionPanel(props: {
         </div>
       </form>
     </aside>
-  );
+    {pendingCompensation&&<DashboardOverlay label="确认项目分成改动" onClose={()=>setPendingCompensation(null)}><CompensationChangeConfirmation offering={pendingCompensation.offering} fields={pendingCompensation.fields} onCancel={()=>setPendingCompensation(null)} onConfirm={()=>{const pending=pendingCompensation;setPendingCompensation(null);props.onSubmit?.(action,props.active.item,pending.fields);}}/></DashboardOverlay>}
+  </>;
 }
+
+function CompensationChangeConfirmation(props:{offering:Record<string,unknown>;fields:Record<string,string|boolean>;onCancel:()=>void;onConfirm:()=>void}){const rule=props.offering.compensationRule as Record<string,unknown>|undefined;return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后才会写入服务端；返回编辑或关闭此窗口不会保存改动。</p><dl className="compensation-confirmation__facts"><div><dt>项目</dt><dd>{compensationProjectName(props.offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,props.offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(props.fields,props.offering)}</dd></div><div><dt>修改方式</dt><dd>{props.fields.compensationType==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
 
 function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
   if(action.id==='MANUAL_DISPATCH')return <ManualDispatchFields candidates={dispatchCandidateOptions??[]}/>;
@@ -304,34 +309,41 @@ function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unkno
 
 function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){
   const firstId=textValue(offerings[0]?.serviceOfferingId);
-  const firstRule=offerings[0]?.compensationRule as Record<string,unknown>|undefined;
   const[selected,setSelected]=useState(firstId);
-  const[type,setType]=useState(textValue(firstRule?.type)||'PERCENT_BPS');
-  useEffect(()=>{if(!offerings.length){setSelected('');return;}if(!offerings.some((item)=>textValue(item.serviceOfferingId)===selected)){const next=offerings[0];setSelected(textValue(next.serviceOfferingId));setType(textValue((next.compensationRule as Record<string,unknown>|undefined)?.type)||'PERCENT_BPS');}},[offerings,selected]);
+  const [compensationDrafts,setCompensationDrafts]=useState<Record<string,CompensationDraft>>(()=>createCompensationDrafts(offerings));
+  useEffect(()=>{if(!offerings.length){setSelected('');return;}if(!offerings.some((item)=>textValue(item.serviceOfferingId)===selected))setSelected(textValue(offerings[0].serviceOfferingId));setCompensationDrafts((current)=>mergeCompensationDrafts(current,offerings));},[offerings,selected]);
   const selectedOffering=offerings.find((item)=>textValue(item.serviceOfferingId)===selected);
   const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;
+  const draft=compensationDrafts[selected]??compensationDraft(selectedOffering);
+  const updateDraft=(next:Partial<CompensationDraft>)=>setCompensationDrafts((current)=>({...current,[selected]:{...draft,...next}}));
   return <>
     <section className="field field--full player-compensation-browser" aria-labelledby="player-compensation-title">
       <div className="player-compensation-browser__heading"><div><span id="player-compensation-title">陪玩项目分成</span><p>全部项目与当前规则同时展示；选择一项后在下方编辑。</p></div><strong>{offerings.length} 个项目</strong></div>
       {offerings.length===0?<p className="player-compensation-empty">当前没有已启用的服务项目。</p>:<div className="player-compensation-list" role="radiogroup" aria-label="选择要编辑的陪玩项目">{offerings.map((item)=>{
-        const id=textValue(item.serviceOfferingId);const itemRule=item.compensationRule as Record<string,unknown>|undefined;const active=selected===id;
+        const id=textValue(item.serviceOfferingId);const itemRule=item.compensationRule as Record<string,unknown>|undefined;const itemDraft=compensationDrafts[id]??compensationDraft(item);const active=selected===id;const changed=compensationDraftChanged(itemDraft,itemRule);
         return <label className={`player-compensation-item${active?' player-compensation-item--selected':''}`} key={id}>
-          <input type="radio" name="serviceOfferingId" value={id} checked={active} required onChange={()=>{setSelected(id);setType(textValue(itemRule?.type)||'PERCENT_BPS');}}/>
-          <span className="player-compensation-item__content"><span className="player-compensation-item__project"><strong>{compensationProjectName(item)}</strong><small>{[item.regionDisplayName??item.region,typeof item.billingUnitMinutes==='number'?`${item.billingUnitMinutes} 分钟/单位`:null].filter(Boolean).join(' · ')||'不限区服'}</small></span><span className="player-compensation-item__rule"><small>{itemRule?'当前个人分成':'当前生效分成'}</small><strong>{compensationRuleText(itemRule,item)}</strong><span>项目默认分成 {defaultCompensationText(item)}</span></span><span className="player-compensation-item__action">{active?'正在编辑':'编辑'}</span></span>
+          <input type="radio" name="serviceOfferingId" value={id} checked={active} required onChange={()=>setSelected(id)}/>
+          <span className="player-compensation-item__content"><span className="player-compensation-item__project"><strong>{compensationProjectName(item)}</strong><small>{[item.regionDisplayName??item.region,typeof item.billingUnitMinutes==='number'?`${item.billingUnitMinutes} 分钟/单位`:null].filter(Boolean).join(' · ')||'不限区服'}</small></span><span className="player-compensation-item__rule"><small>{changed?'草稿已缓存':itemRule?'当前个人分成':'当前生效分成'}</small><strong>{changed?compensationDraftText(itemDraft,item):compensationRuleText(itemRule,item)}</strong><span>项目默认分成 {defaultCompensationText(item)}</span></span><span className="player-compensation-item__action">{active?'正在编辑':changed?'有草稿':'编辑'}</span></span>
         </label>;
       })}</div>}
     </section>
     {selectedOffering&&<><div className="field field--full player-compensation-editor-heading"><span>编辑 {compensationProjectName(selectedOffering)}</span><small>本次只保存这一条个人覆盖规则</small></div>
       <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
-      <label className="field"><span>分成方式</span><select name="compensationType" value={type} onChange={(event)=>setType(event.currentTarget.value)}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
-      {type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input key={`${selected}:percent`} name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" defaultValue={rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?rule.value/100:undefined}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input key={`${selected}:fixed`} name="fixedAmountMinor" type="number" required min="1" step="1" defaultValue={rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?rule.value:undefined}/></label>}
-      <p className="field-help field--full">个人设置优先；未设置时使用服务项目的默认分成。修改不会追溯已接单订单。</p></>}
+      <label className="field"><span>分成方式</span><select name="compensationType" value={draft.type} onChange={(event)=>updateDraft({type:event.currentTarget.value as CompensationDraft['type']})}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
+      {draft.type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" value={draft.percentage} onChange={(event)=>updateDraft({percentage:event.currentTarget.value})}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input name="fixedAmountMinor" type="number" required min="1" step="1" value={draft.fixedAmountMinor} onChange={(event)=>updateDraft({fixedAmountMinor:event.currentTarget.value})}/></label>}
+      <p className="field-help field--full">输入会即时缓存到本窗口的项目草稿；点击提交后仍需在确认窗口确认，才会保存。修改不会追溯已接单订单。</p></>}
   </>;
 }
 
 function compensationProjectName(item:Record<string,unknown>):string{return [item.gameDisplayName??item.game,item.serviceDisplayName??item.service].filter(Boolean).join(' · ')||'未命名项目';}
 function defaultCompensationText(item:Record<string,unknown>):string{return typeof item.defaultPlayerPayoutBps==='number'?`${(item.defaultPlayerPayoutBps/100).toFixed(2)}%`:'未配置';}
 function compensationRuleText(rule:Record<string,unknown>|undefined,item:Record<string,unknown>):string{if(rule?.type==='PERCENT_BPS'&&typeof rule.value==='number')return `${(rule.value/100).toFixed(2)}%`;if(rule?.type==='FIXED_MINOR'&&typeof rule.value==='number')return `${formatMinorCurrency(rule.value,textValue(rule.currency)||textValue(item.currency)||'CAT')}/单位`;return defaultCompensationText(item);}
+type CompensationDraft={type:'PERCENT_BPS'|'FIXED_MINOR';percentage:string;fixedAmountMinor:string};
+function compensationDraft(item?:Record<string,unknown>):CompensationDraft{const rule=item?.compensationRule as Record<string,unknown>|undefined;return{type:rule?.type==='FIXED_MINOR'?'FIXED_MINOR':'PERCENT_BPS',percentage:rule?.type==='PERCENT_BPS'&&typeof rule.value==='number'?String(rule.value/100):'',fixedAmountMinor:rule?.type==='FIXED_MINOR'&&typeof rule.value==='number'?String(rule.value):''};}
+function createCompensationDrafts(offerings:Array<Record<string,unknown>>):Record<string,CompensationDraft>{return Object.fromEntries(offerings.map((item)=>[textValue(item.serviceOfferingId),compensationDraft(item)]));}
+function mergeCompensationDrafts(current:Record<string,CompensationDraft>,offerings:Array<Record<string,unknown>>):Record<string,CompensationDraft>{const next={...current};for(const item of offerings){const id=textValue(item.serviceOfferingId);if(!next[id])next[id]=compensationDraft(item);}return next;}
+function compensationDraftChanged(draft:CompensationDraft,rule:Record<string,unknown>|undefined):boolean{if(draft.type!==textValue(rule?.type||'PERCENT_BPS'))return Boolean(draft.percentage||draft.fixedAmountMinor||rule);const current=draft.type==='PERCENT_BPS'&&typeof rule?.value==='number'?String(rule.value/100):draft.type==='FIXED_MINOR'&&typeof rule?.value==='number'?String(rule.value):'';return (draft.type==='PERCENT_BPS'?draft.percentage:draft.fixedAmountMinor)!==current;}
+function compensationDraftText(draft:CompensationDraft|Record<string,string|boolean>,item:Record<string,unknown>):string{const type='compensationType'in draft?draft.compensationType:draft.type;if(type==='FIXED_MINOR'){const value=typeof draft.fixedAmountMinor==='string'?draft.fixedAmountMinor:'';return value?`${formatMinorCurrency(Number(value),textValue(item.currency)||'CAT')}/单位`:'未填写';}const value=typeof draft.percentage==='string'?draft.percentage:'';return value?`${value}%`:'未填写';}
 
 function GiftCatalogFields({options,item}:{options?:BusinessTagGroups;item?:Record<string,unknown>}) {
   return <>
@@ -396,17 +408,16 @@ function VersionActionFields(props: { action: AdminBusinessAction; replacementAc
   </>;
 }
 
-function submitAction(event: FormEvent<HTMLFormElement>, props: Parameters<typeof AdminActionPanel>[0]): void {
-  event.preventDefault();
+function collectActionFields(form: HTMLFormElement): Record<string, string | boolean> {
   const fields: Record<string, string | boolean> = {};
-  for (const [key, value] of new FormData(event.currentTarget).entries()) {
+  for (const [key, value] of new FormData(form).entries()) {
     if (typeof value === 'string') fields[key] = typeof fields[key] === 'string' ? `${fields[key]},${value}` : value;
   }
-  const enabled = event.currentTarget.elements.namedItem('enabled');
+  const enabled = form.elements.namedItem('enabled');
   if (enabled instanceof HTMLInputElement) fields.enabled = enabled.checked;
-  const activate=event.currentTarget.elements.namedItem('activate');
+  const activate=form.elements.namedItem('activate');
   if(activate instanceof HTMLInputElement)fields.activate=activate.checked;
-  props.onSubmit?.(props.active.action, props.active.item, fields);
+  return fields;
 }
 
 function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: () => void; onNextConsumptions?: (cursor: string) => void; onNextTimeline?: (cursor: string) => void;serviceCatalogOptions?:Array<Record<string,unknown>>;participantPlayerOptions?:Array<Record<string,unknown>>;participantMutationError?:string|null;onAddOrderParticipant?:(fields:Record<string,unknown>)=>void;onUpdateOrderParticipant?:(fields:Record<string,unknown>)=>void }) {

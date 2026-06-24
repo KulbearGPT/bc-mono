@@ -50,4 +50,13 @@ describe('M9-US-10 per-player service compensation', () => {
     expect(source).toMatch(/type="radio" name="serviceOfferingId"/u);
     expect(source).not.toMatch(/<select name="serviceOfferingId"/u);
   });
+
+  test('caches compensation edits locally and requires a second confirmation before saving', async () => {
+    const source = await readFile('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8');
+    expect(source).toContain('compensationDrafts');
+    expect(source).toContain('草稿已缓存');
+    expect(source).toContain('确认分成改动');
+    expect(source).toContain('确认并保存');
+    expect(source).toContain('CompensationChangeConfirmation');
+  });
 });
