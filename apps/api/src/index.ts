@@ -35,6 +35,7 @@ import { PostgresPlayerCompensationStore } from './player-compensation.js';
 import { PostgresOrderChannelEventStore } from './order-channel-events.js';
 import { PostgresOrderParticipantStore } from './order-participants.js';
 import { PostgresOrderRequirementStore } from './order-requirements.js';
+import { PostgresSelectionPoolStore } from './selection-pools.js';
 import { PostgresServicePackageStore } from './service-packages.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +83,7 @@ const businessTagStore = new PostgresBusinessTagStore(databasePool);
 const playerCompensationStore = new PostgresPlayerCompensationStore(databasePool);
 const orderParticipantStore = new PostgresOrderParticipantStore(databasePool);
 const orderRequirementStore = new PostgresOrderRequirementStore(databasePool);
+const selectionPoolStore = new PostgresSelectionPoolStore(databasePool);
 const servicePackageStore = new PostgresServicePackageStore(databasePool);
 const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
 const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
@@ -219,6 +221,7 @@ const server = buildApiServer({
   orderChannelEvents: { store: new PostgresOrderChannelEventStore(databasePool) },
   orderParticipants: { store: orderParticipantStore },
   orderRequirements: { store: orderRequirementStore },
+  selectionPools: { store: selectionPoolStore },
   servicePackages: { store: servicePackageStore },
   dashboardAuth: dashboardAuthStore ? {
     store: dashboardAuthStore,

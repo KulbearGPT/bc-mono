@@ -36,6 +36,7 @@
     "./orders": "./src/orders.ts",
     "./order-participants": "./src/order-participants.ts",
     "./order-requirements": "./src/order-requirements.ts",
+    "./selection-pools": "./src/selection-pools.ts",
     "./service-packages": "./src/service-packages.ts",
     "./gifts": "./src/gifts.ts",
     "./player-earnings": "./src/player-earnings.ts",

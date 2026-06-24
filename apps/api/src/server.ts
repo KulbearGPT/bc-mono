@@ -50,6 +50,7 @@ import { registerOrderChannelEventRoutes,type OrderChannelEventStore } from './o
 import { registerOrderParticipantRoutes,type OrderParticipantStore } from './order-participants.js';
 import { registerOrderRequirementRoutes,type OrderRequirementStore } from './order-requirements.js';
 import { registerServicePackageRoutes,type ServicePackageStore } from './service-packages.js';
+import { registerSelectionPoolRoutes,type SelectionPoolStore } from './selection-pools.js';
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -137,6 +138,7 @@ export interface ApiServerOptions {
   orderParticipants?: { store: OrderParticipantStore; now?: () => Date };
   orderRequirements?: { store: OrderRequirementStore; now?: () => Date };
   servicePackages?: { store: ServicePackageStore; now?: () => Date };
+  selectionPools?: { store: SelectionPoolStore; now?: () => Date };
 }
 
 export interface HealthPayload {
@@ -353,6 +355,7 @@ export function buildApiServer(options: ApiServerOptions = {}): FastifyInstance 
   if (options.orderParticipants) registerOrderParticipantRoutes(server, options.orderParticipants);
   if (options.orderRequirements) registerOrderRequirementRoutes(server, options.orderRequirements);
   if (options.servicePackages) registerServicePackageRoutes(server, options.servicePackages);
+  if (options.selectionPools) registerSelectionPoolRoutes(server, options.selectionPools);
 
   return server;
 }
