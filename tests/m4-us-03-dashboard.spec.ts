@@ -53,6 +53,8 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(buildAdminDetailRequest('players', { playerId: 'player-1' })).toBe('/api/v1/admin/players/player-1');
     expect(buildAdminDetailRequest('serviceCatalog', { id: 'catalog-v1' })).toBe('/api/v1/admin/service-catalog/catalog-v1');
     expect(buildAdminDetailRequest('servicePackages', { id: 'package-v1' })).toBe('/api/v1/admin/service-packages/package-v1');
+    expect(buildAdminDetailRequest('giftCatalog', { id: 'gift-v1' })).toBe('/api/v1/admin/gift-catalog/gift-v1');
+    expect(buildAdminDetailRequest('giftRequests', { id: 'gift-request-1' })).toBe('/api/v1/admin/gift-requests/gift-request-1');
   });
 
   test('preserves filters while advancing cursor pagination', () => {
@@ -274,7 +276,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(buildAdminDetailRequest('orders', { id: 'order-1' })).toBe('/api/v1/admin/orders/order-1');
     expect(buildAdminDetailRequest('users', { id: 'user-1' })).toBe('/api/v1/admin/users/user-1');
     expect(buildAdminDetailRequest('players', { playerId: 'player-1' })).toBe('/api/v1/admin/players/player-1');
-    expect(() => buildAdminDetailRequest('giftCatalog', { id: 'gift-1' })).toThrow(/detail/i);
+    expect(buildAdminDetailRequest('giftCatalog', { id: 'gift-1' })).toBe('/api/v1/admin/gift-catalog/gift-1');
     expect(buildAdminUserConsumptionRequest('user-1')).toBe('/api/v1/admin/users/user-1/consumptions?limit=25');
   });
 

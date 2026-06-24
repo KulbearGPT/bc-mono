@@ -11,7 +11,7 @@ describe('M4-US-03 complete administrative detail contract', () => {
       readFile(resolve(root, 'outputs/P0开发交付包/02-API/openapi.yaml'), 'utf8')
     ]);
     expect(docs).toBe(outputs);
-    for (const operationId of ['getAdminUser', 'getAdminPlayer', 'getAdminServiceCatalogVersion', 'getAdminServicePackageVersion']) {
+    for (const operationId of ['getAdminUser', 'getAdminPlayer', 'getAdminServiceCatalogVersion', 'getAdminServicePackageVersion', 'getAdminGiftCatalogItem', 'getAdminGiftRequest']) {
       expect(outputs).toContain(`operationId: ${operationId}`);
     }
   });
@@ -29,13 +29,19 @@ describe('M4-US-03 complete administrative detail contract', () => {
     expect(openapi).toMatch(/AdminServicePackage:[\s\S]*?status[\s\S]*?slots[\s\S]*?createdByStaffId[\s\S]*?createdAt[\s\S]*?activatedAt[\s\S]*?retiredAt/u);
   });
 
+  test('returns complete catalog-version and review context for gift details', async () => {
+    const openapi = await readFile(resolve(root, 'outputs/P0开发交付包/02-API/openapi.yaml'), 'utf8');
+    expect(openapi).toMatch(/AdminGiftCatalogItem:[\s\S]*?giftCatalogVersionId[\s\S]*?status[\s\S]*?giftCategoryTagDetails[\s\S]*?createdByStaffId[\s\S]*?activatedAt[\s\S]*?retiredAt[\s\S]*?archivedAt/u);
+    expect(openapi).toMatch(/AdminGiftRequest:[\s\S]*?orderPublicId[\s\S]*?orderParticipantId[\s\S]*?giftCatalogVersionId[\s\S]*?giftCode[\s\S]*?senderDisplayName[\s\S]*?senderDiscordUserId[\s\S]*?receiverDisplayName[\s\S]*?receiverDiscordUserId[\s\S]*?reservationStatus[\s\S]*?verifiedAt[\s\S]*?approvedAt[\s\S]*?capturedAt[\s\S]*?announcedAt[\s\S]*?expiresAt[\s\S]*?updatedAt/u);
+  });
+
   test('traces the four detail projections through interaction, backlog and acceptance contracts', async () => {
     const [interaction, backlog, acceptance] = await Promise.all([
       readFile(resolve(root, 'outputs/P0开发交付包/01-UIUX/交互映射.csv'), 'utf8'),
       readFile(resolve(root, 'outputs/P0开发交付包/06-开发计划/backlog.csv'), 'utf8'),
       readFile(resolve(root, 'outputs/P0开发交付包/07-验收测试/acceptance-cases.csv'), 'utf8')
     ]);
-    for (const operationId of ['getAdminUser', 'getAdminPlayer', 'getAdminServiceCatalogVersion', 'getAdminServicePackageVersion']) {
+    for (const operationId of ['getAdminUser', 'getAdminPlayer', 'getAdminServiceCatalogVersion', 'getAdminServicePackageVersion', 'getAdminGiftCatalogItem', 'getAdminGiftRequest']) {
       expect(interaction).toContain(operationId);
       expect(backlog).toContain(operationId);
     }

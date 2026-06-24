@@ -16,6 +16,7 @@ const ids = {
   playerProfile: '00000000-0000-0000-0000-000000004304',
   order: '00000000-0000-0000-0000-000000004305',
   gift: '00000000-0000-0000-0000-000000004306',
+  giftVersion: '00000000-0000-0000-0000-000000004315',
   giftRequest: '00000000-0000-0000-0000-000000004307',
   outbox: '00000000-0000-0000-0000-000000004308',
   audit: '00000000-0000-0000-0000-000000004309'
@@ -74,12 +75,14 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     const corrections = await store.listUserConsumptions({ cursor: null, limit: 10, userId: ids.customer, type: 'ADMIN_CORRECTION' });
     const giftRequests = await store.listGiftRequests({ cursor: null, limit: 10, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
     const giftRequest = await store.getGiftRequest({ giftRequestId: ids.giftRequest, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
+    const giftCatalog = await store.getGiftCatalog(ids.gift);
     expect(players.items).toEqual([expect.objectContaining({ playerId: ids.playerProfile, userId: ids.player, displayName: 'Player', activeOrderId: ids.order, gameTagDetails: expect.any(Array), serviceTagDetails: expect.any(Array), languageTagDetails: expect.any(Array), version: 1 })]);
     expect(absent.items).toEqual([]);
     expect(consumptions.items).toEqual([expect.objectContaining({ type: 'ORDER', amountMinor: 12000 })]);
     expect(corrections.items).toEqual([expect.objectContaining({ type: 'ADMIN_CORRECTION', amountMinor: -300 })]);
     expect(giftRequests.items).toEqual([expect.objectContaining({ id: ids.giftRequest, rowVersion: 4, announcementStatus: 'FAILED' })]);
-    expect(giftRequest).toMatchObject({ id: ids.giftRequest, rowVersion: 4, announcementStatus: 'FAILED' });
+    expect(giftRequest).toMatchObject({ id: ids.giftRequest, rowVersion: 4, announcementStatus: 'FAILED', orderPublicId: 'P-4305', orderStatus: 'IN_SERVICE', giftCode: 'ROCKET', senderDisplayName: 'Customer', receiverDisplayName: 'Player', senderDiscordUserId: '900000000000004302', reservationStatus: null, verifiedByStaffId: null, capturedAt: expect.any(String), expiresAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(giftCatalog).toMatchObject({ id: ids.gift, giftCatalogVersionId: ids.giftVersion, status: 'ACTIVE', createdByStaffId: ids.staff, activatedAt: expect.any(String), archivedAt: null });
   });
 
   test('persists generic audit records with the established audit_logs field semantics', async () => {

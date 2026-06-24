@@ -53,9 +53,19 @@ describe('Dashboard card workspaces', () => {
       page: 'servicePackages' as const,
       data: { id: 'package-1', code: 'DELTA_ESCORT', gameDisplayName: '三角洲行动', displayName: '双人护航', description: '一位技术猫与一位气氛猫。', defaultCustomerPriceMinor: 600, currency: 'CAT', status: 'ACTIVE', version: 2, slots: [{ id: 'slot-1', position: 1, gameDisplayName: '三角洲行动', serviceDisplayName: '技术护航', regionDisplayName: '北美', billingUnitMinutes: 60, unitCount: 2, customerNoteTemplate: '负责技术护航' }] },
       markers: ['package-detail', '套餐概览', '套餐席位', '1 号位', '负责技术护航']
+    },
+    {
+      page: 'giftCatalog' as const,
+      data: { id: 'gift-1', giftCatalogVersionId: 'gift-v1', code: 'ROCKET', name: '超级火箭', priceMinor: 5200, currency: 'CAT', status: 'ACTIVE', enabled: true, version: 2, broadcastTemplate: '{sender} 送出 {gift}', giftCategoryTagDetails: { code: 'PREMIUM', displayName: '高级礼物' }, createdByStaffId: 'staff-1', createdAt: '2026-08-04T00:00:00Z', activatedAt: '2026-08-04T01:00:00Z', retiredAt: null, archivedAt: null },
+      markers: ['gift-catalog-detail', '礼物目录版本', '超级火箭', '高级礼物', '版本与审计']
+    },
+    {
+      page: 'giftRequests' as const,
+      data: { id: 'request-1', publicId: 'G-1001', orderId: 'order-1', orderPublicId: 'P-1001', orderParticipantId: 'participant-1', giftCatalogVersionId: 'gift-v1', giftCode: 'ROCKET', giftName: '超级火箭', amountMinor: 5200, currency: 'CAT', status: 'PENDING_REVIEW', rowVersion: 4, senderDisplayName: '用户 A', senderDiscordUsername: 'customer_a', receiverDisplayName: '陪玩 B', receiverDiscordUsername: 'player_b', reservationId: 'reservation-1', reservationStatus: 'ACTIVE', reservationExpiresAt: '2026-08-04T02:00:00Z', announcementStatus: 'NOT_QUEUED', createdAt: '2026-08-04T00:00:00Z', updatedAt: '2026-08-04T01:00:00Z' },
+      markers: ['gift-request-detail', '送礼审核', '用户与目标陪玩', '审核与资金', '播报与生命周期']
     }
   ])('renders a structured $page detail instead of a raw field dump', ({ page, data, markers }) => {
-    const model = buildAdminBusinessPage({ page, permissions: ['user.read', 'player.read', 'catalog.read'], status: 'READY', items: [] });
+    const model = buildAdminBusinessPage({ page, permissions: ['user.read', 'player.read', 'catalog.read', 'gift_catalog.read', 'gift_request.read'], status: 'READY', items: [] });
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, detail: { kind: 'READY', page, requestId: 'req-detail-layout', data }, onCloseDetail: () => undefined }));
     for (const marker of markers) expect(html).toContain(marker);
     expect(html).not.toContain('未映射字段：gameDisplayName');

@@ -36,7 +36,7 @@ export function buildUpdateOrderParticipantRequest(orderId:string,participantId:
 
 export interface AdminBusinessDetailState {
   kind: 'LOADING' | 'READY' | 'ERROR' | 'FORBIDDEN';
-  page: 'orders' | 'users' | 'players' | 'serviceCatalog' | 'servicePackages' | 'giftRequests';
+  page: 'orders' | 'users' | 'players' | 'serviceCatalog' | 'servicePackages' | 'giftCatalog' | 'giftRequests';
   requestId: string | null;
   data: Record<string, unknown> | null;
   consumptions?: {
@@ -243,11 +243,11 @@ export function buildAdminDetailRequest(
   page: AdminBusinessPageId,
   item: Record<string, unknown>
 ): string {
-  if (!['orders', 'users', 'players', 'giftRequests', 'serviceCatalog', 'servicePackages'].includes(page)) {
+  if (!['orders', 'users', 'players', 'giftRequests', 'giftCatalog', 'serviceCatalog', 'servicePackages'].includes(page)) {
     throw new TypeError(`${page} does not expose a detail endpoint.`);
   }
   const id = page === 'players' ? requireText(item.playerId, 'playerId') : requireText(item.id, 'id');
-  const resource = page === 'orders' ? 'orders' : page === 'users' ? 'users' : page === 'players' ? 'players' : page === 'giftRequests' ? 'gift-requests' : page === 'serviceCatalog' ? 'service-catalog' : 'service-packages';
+  const resource = page === 'orders' ? 'orders' : page === 'users' ? 'users' : page === 'players' ? 'players' : page === 'giftRequests' ? 'gift-requests' : page === 'giftCatalog' ? 'gift-catalog' : page === 'serviceCatalog' ? 'service-catalog' : 'service-packages';
   return `/api/v1/admin/${resource}/${encodeURIComponent(id)}`;
 }
 

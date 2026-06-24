@@ -222,7 +222,7 @@ function AdminBusinessTable(props: {
 }) {
   const columns = collectColumns(props.model.items);
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
-  const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftRequests'].includes(props.model.page);
+  const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftCatalog', 'giftRequests'].includes(props.model.page);
   const hasOperations = itemActions.length > 0 || hasDetail;
   return (
     <div className="table-scroll content-panel content-panel--flush">
@@ -404,6 +404,8 @@ function StructuredAdminDetail({ page, data }: { page: Exclude<AdminBusinessDeta
   if (page === 'players') return <PlayerProfileDetail data={data} />;
   if (page === 'serviceCatalog') return <CatalogDetail data={data} />;
   if (page === 'servicePackages') return <PackageDetail data={data} />;
+  if (page === 'giftCatalog') return <GiftCatalogDetail data={data} />;
+  if (page === 'giftRequests') return <GiftRequestDetail data={data} />;
   return <dl className="definition-list">{Object.entries(data).map(([key, value]) => <div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key, value, data.currency)}</dd></div>)}</dl>;
 }
 
@@ -462,6 +464,28 @@ function PackageDetail({ data }: { data: Record<string, unknown> }) {
     <section className="entity-detail__package-intro"><div><span>套餐说明</span><p>{textValue(data.description) || '暂未填写套餐说明。'}</p></div><div><span>套餐价格</span><strong>{priceValue(data.defaultCustomerPriceMinor, currency)}</strong><small>由 API 按席位目录价格汇总</small></div></section>
     <section className="entity-detail__section entity-detail__section--slots"><div className="entity-detail__section-heading"><div><span>LINEUP</span><h4>套餐席位</h4></div><strong>{slots.length} 个席位</strong></div>{slots.length ? <div className="package-detail__slots">{slots.map((slot, index) => { const position = numberValue(slot.position) ?? index + 1; return <article className="package-detail__slot" aria-label={`${position} 号位`} key={textValue(slot.id) || `${index}`}><div className="package-detail__slot-index"><span>{position}</span><small>号位</small></div><div className="package-detail__slot-main"><h5>{textValue(slot.serviceDisplayName) || textValue(slot.service) || '未指定服务'}</h5><p>{[textValue(slot.gameDisplayName) || textValue(slot.game), textValue(slot.regionDisplayName) || textValue(slot.region) || '不限区服'].filter(Boolean).join(' · ')}</p><div className="package-detail__slot-meta"><span>{numberValue(slot.unitCount) ?? '—'} 个计费单位</span><span>{numberValue(slot.billingUnitMinutes) ?? '—'} 分钟 / 单位</span></div>{textValue(slot.customerNoteTemplate) && <blockquote>{textValue(slot.customerNoteTemplate)}</blockquote>}</div></article>; })}</div> : <p className="entity-detail__empty">尚未配置套餐席位。</p>}</section>
     <section className="entity-detail__section entity-detail__section--identifiers"><div className="entity-detail__section-heading"><div><span>VERSION</span><h4>版本与审计</h4></div></div><DetailFacts facts={[{ label: '稳定套餐代码', value: textValue(data.code) || '—', mono: true }, { label: '套餐版本编号', value: textValue(data.id) || '—', mono: true }, { label: '数据版本', value: scalarValue(data.version) }, { label: '状态', value: catalogStatusLabel(status) }, { label: '创建员工', value: textValue(data.createdByStaffId) || '—', mono: true }, { label: '创建时间', value: scalarValue(data.createdAt) }, { label: '激活时间', value: scalarValue(data.activatedAt) }, { label: '退役时间', value: scalarValue(data.retiredAt) }]} /></section>
+  </div>;
+}
+
+function GiftCatalogDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.status);
+  const category = data.giftCategoryTagDetails && typeof data.giftCategoryTagDetails === 'object' ? data.giftCategoryTagDetails as Record<string, unknown> : null;
+  return <div className="entity-detail gift-catalog-detail">
+    <header className="entity-detail__hero"><div><span className="entity-detail__eyebrow">礼物目录版本</span><h3>{textValue(data.name) || '未命名礼物'}</h3><p>{textValue(data.code) || '—'} · 版本 {scalarValue(data.version)}</p></div>{status && <DetailStatus status={status} />}</header>
+    <section className="entity-detail__price-strip" aria-label="礼物价格概览"><div><span>客户价格</span><strong>{priceValue(data.priceMinor, textValue(data.currency) || 'CAT')}</strong></div><div><span>礼物分类</span><strong>{textValue(category?.displayName) || '未分类'}</strong></div><div><span>启用状态</span><strong>{data.enabled === true ? '已启用' : data.enabled === false ? '未启用' : '—'}</strong></div></section>
+    <div className="entity-detail__layout"><section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>CONTENT</span><h4>播报与分类</h4></div></div><DetailFacts facts={[{label:'礼物分类代码',value:textValue(category?.code)||'—',mono:true},{label:'分类编号',value:textValue(data.giftCategoryTagId)||'—',mono:true},{label:'播报模板',value:textValue(data.broadcastTemplate)||'—'}]} /></section>
+      <section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>VERSION</span><h4>版本与审计</h4></div></div><DetailFacts facts={[{label:'礼物目录编号',value:textValue(data.id)||'—',mono:true},{label:'礼物版本编号',value:textValue(data.giftCatalogVersionId)||'—',mono:true},{label:'创建员工',value:textValue(data.createdByStaffId)||'—',mono:true},{label:'创建时间',value:scalarValue(data.createdAt)},{label:'激活时间',value:scalarValue(data.activatedAt)},{label:'退役时间',value:scalarValue(data.retiredAt)},{label:'归档时间',value:scalarValue(data.archivedAt)}]} /></section></div>
+  </div>;
+}
+
+function GiftRequestDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.status);
+  return <div className="entity-detail gift-request-detail">
+    <header className="entity-detail__hero"><div><span className="entity-detail__eyebrow">送礼审核</span><h3>礼物请求 {textValue(data.publicId) || '—'}</h3><p>{textValue(data.giftName) || '未命名礼物'} · {priceValue(data.amountMinor, textValue(data.currency) || 'CAT')}</p></div>{status && <DetailStatus status={status} />}</header>
+    <section className="entity-detail__price-strip" aria-label="礼物请求概览"><div><span>来源订单</span><strong>{textValue(data.orderPublicId) || '—'}</strong></div><div><span>预留状态</span><strong>{textValue(data.reservationStatus) || '无预留'}</strong></div><div><span>播报状态</span><strong>{textValue(data.announcementStatus) || '—'}</strong></div></section>
+    <div className="entity-detail__layout"><section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>PARTIES</span><h4>用户与目标陪玩</h4></div></div><DetailFacts facts={[{label:'用户',value:textValue(data.senderDisplayName)||'—',strong:true},{label:'用户 Discord',value:textValue(data.senderDiscordUsername)||textValue(data.senderDiscordUserId)||'—'},{label:'目标陪玩',value:textValue(data.receiverDisplayName)||'—',strong:true},{label:'陪玩 Discord',value:textValue(data.receiverDiscordUsername)||textValue(data.receiverDiscordUserId)||'—'},{label:'订单编号',value:textValue(data.orderId)||'—',mono:true},{label:'订单参与人编号',value:textValue(data.orderParticipantId)||'—',mono:true}]} /></section>
+      <section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>REVIEW</span><h4>审核与资金</h4></div></div><DetailFacts facts={[{label:'预留编号',value:textValue(data.reservationId)||'—',mono:true},{label:'预留有效至',value:scalarValue(data.reservationExpiresAt)},{label:'核对员工',value:textValue(data.verifiedByStaffId)||'—',mono:true},{label:'核对时间',value:scalarValue(data.verifiedAt)},{label:'核对备注',value:textValue(data.verificationNote)||'—'},{label:'批准员工',value:textValue(data.approvedByStaffId)||'—',mono:true},{label:'批准时间',value:scalarValue(data.approvedAt)},{label:'捕获时间',value:scalarValue(data.capturedAt)}]} /></section></div>
+    <section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>DELIVERY</span><h4>播报与生命周期</h4></div></div><DetailFacts facts={[{label:'礼物代码',value:textValue(data.giftCode)||'—',mono:true},{label:'礼物版本编号',value:textValue(data.giftCatalogVersionId)||'—',mono:true},{label:'播报模板快照',value:textValue(data.broadcastTemplate)||'—'},{label:'播报时间',value:scalarValue(data.announcedAt)},{label:'播报频道',value:textValue(data.broadcastChannelId)||'—',mono:true},{label:'播报消息',value:textValue(data.broadcastMessageId)||'—',mono:true},{label:'拒绝原因',value:textValue(data.rejectedReason)||'—'},{label:'失败代码',value:textValue(data.failureCode)||'—',mono:true},{label:'请求有效至',value:scalarValue(data.expiresAt)},{label:'撤回时间',value:scalarValue(data.withdrawnAt)},{label:'创建时间',value:scalarValue(data.createdAt)},{label:'更新时间',value:scalarValue(data.updatedAt)},{label:'数据版本',value:scalarValue(data.rowVersion)}]} /></section>
   </div>;
 }
 

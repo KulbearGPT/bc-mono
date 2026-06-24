@@ -24,8 +24,8 @@ export interface AdminTagSummary { code: string; displayName: string }
 export interface AdminUserRecord { id: string; displayName: string; status: string; discordUserId?: string | null; discordUsername?: string | null; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number; createdAt?: string; updatedAt?: string }
 export interface AdminPlayerRecord { playerId: string; userId?: string; displayName?: string; discordUserId?: string | null; discordUsername?: string | null; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; languageTags?: string[]; gameTagDetails?: AdminTagSummary[]; serviceTagDetails?: AdminTagSummary[]; languageTagDetails?: AdminTagSummary[]; activeOrderId: string | null; version: number; createdAt?: string; updatedAt?: string }
 export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null; guildId?: string }
-export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; archived?: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; createdAt: string }
-export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; senderId: string; receiverId: string; status: string; rowVersion: number; giftName: string; amountMinor: number; currency: string; announcementStatus: string; createdAt: string }
+export interface AdminGiftCatalogRecord { id: string; giftCatalogVersionId?: string; code: string; name: string; priceMinor: number; currency: string; status?: string; enabled: boolean; archived?: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; giftCategoryTagDetails?: AdminTagSummary | null; createdByStaffId?: string; createdAt: string; activatedAt?: string | null; retiredAt?: string | null; archivedAt?: string | null }
+export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; orderPublicId?: string; orderStatus?: string; orderParticipantId?: string | null; giftCatalogVersionId?: string; senderId: string; senderDisplayName?: string; senderDiscordUserId?: string | null; senderDiscordUsername?: string | null; receiverId: string; receiverDisplayName?: string; receiverDiscordUserId?: string | null; receiverDiscordUsername?: string | null; status: string; rowVersion: number; giftCode?: string; giftName: string; amountMinor: number; currency: string; broadcastTemplate?: string; reservationId?: string | null; reservationStatus?: string | null; reservationExpiresAt?: string | null; announcementStatus: string; verifiedByStaffId?: string | null; verifiedAt?: string | null; verificationNote?: string | null; approvedByStaffId?: string | null; approvedAt?: string | null; capturedAt?: string | null; announcedAt?: string | null; broadcastChannelId?: string | null; broadcastMessageId?: string | null; rejectedReason?: string | null; failureCode?: string | null; expiresAt?: string; withdrawnAt?: string | null; createdAt: string; updatedAt?: string }
 interface Page<T> { items: T[]; nextCursor: string | null }
 interface StagedAdminWrite<T> {
   data: T;
@@ -41,6 +41,7 @@ export interface AdminDirectoryStore {
   listPlayers(input: PageInput & { reviewStatus?: string }): Promise<Page<AdminPlayerRecord>> | Page<AdminPlayerRecord>;
   getPlayer(playerId: string): Promise<AdminPlayerRecord | null> | AdminPlayerRecord | null;
   listGiftCatalog(input: PageInput): Promise<Page<AdminGiftCatalogRecord>> | Page<AdminGiftCatalogRecord>;
+  getGiftCatalog(giftCatalogId: string): Promise<AdminGiftCatalogRecord | null> | AdminGiftCatalogRecord | null;
   createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminGiftCatalogRecord>> | StagedAdminWrite<AdminGiftCatalogRecord>;
   updateGiftCatalog(input: { giftCatalogId: string; expectedVersion: number; action: string; reasonCode: string; replacement: GiftCatalogCreateBody | null; actorStaffId: string; now: Date }): Promise<StagedAdminWrite<AdminGiftCatalogRecord>> | StagedAdminWrite<AdminGiftCatalogRecord>;
   listGiftRequests(input: PageInput & { status?: string; actorStaffId: string; actorLevel: string }): Promise<Page<AdminGiftRequestRecord>> | Page<AdminGiftRequestRecord>;
@@ -90,6 +91,7 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
   listPlayers(input: PageInput & { reviewStatus?: string }) { return page(this.players.filter((item) => !input.reviewStatus || item.reviewStatus === input.reviewStatus), input, 'players', playerCursorKeys); }
   getPlayer(playerId: string) { return clone(this.players.find((item) => item.playerId === playerId) ?? null); }
   listGiftCatalog(input: PageInput) { return page(this.gifts.filter((item)=>!item.archived), input, 'gift_catalog', giftCatalogCursorKeys); }
+  getGiftCatalog(giftCatalogId: string) { return clone(this.gifts.find((item) => item.id === giftCatalogId && !item.archived) ?? null); }
   listGiftRequests(input: PageInput & { status?: string; actorStaffId: string; actorLevel: string }) { const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleGiftRequestIdsByStaffId[input.actorStaffId] ?? []) : null; return page(this.giftRequests.filter((item) => (!visibleIds || visibleIds.has(item.id)) && (!input.status || item.status === input.status)), input, 'gift_requests', giftRequestCursorKeys); }
   getGiftRequest(input: { giftRequestId: string; actorStaffId: string; actorLevel: string }) { const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleGiftRequestIdsByStaffId[input.actorStaffId] ?? []) : null; return clone(this.giftRequests.find((item) => item.id === input.giftRequestId && (!visibleIds || visibleIds.has(item.id))) ?? null); }
 
@@ -117,8 +119,10 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
   }
 
   createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }) {
-    const gift: AdminGiftCatalogRecord = { id: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
-      priceMinor: input.amountMinor, currency: input.currency, enabled: input.enabled, version: 1, broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, createdAt: input.now.toISOString() };
+    const gift: AdminGiftCatalogRecord = { id: crypto.randomUUID(), giftCatalogVersionId: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
+      priceMinor: input.amountMinor, currency: input.currency, status: input.enabled ? 'ACTIVE' : 'DRAFT', enabled: input.enabled, version: 1,
+      broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, giftCategoryTagDetails: null,
+      createdByStaffId: input.actorStaffId, createdAt: input.now.toISOString(), activatedAt: input.enabled ? input.now.toISOString() : null, retiredAt: null, archivedAt: null };
     return {
       data: clone(gift),
       commit: async (auditRecord: AuditRecord, auditSink: AuditSink) => {
@@ -250,22 +254,26 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
 
   async listGiftCatalog(input: PageInput) {
     const keys = cursorKeys(input.cursor, 'gift_catalog');
-    const rows = await this.pool.query<GiftCatalogRow>(`SELECT item.id, item.code, version.name, version.price_minor, version.currency, version.status::text,
-      version.version, version.broadcast_template, version.gift_category_tag_id, version.created_at FROM gift_catalog_items item
+    const rows = await this.pool.query<GiftCatalogRow>(`SELECT item.id, item.code, item.archived_at, version.id AS gift_catalog_version_id, version.name, version.price_minor, version.currency, version.status::text,
+      version.version, version.broadcast_template, version.gift_category_tag_id, category.code AS gift_category_code, category.display_name AS gift_category_display_name,
+      version.created_by_staff_id, version.activated_at, version.retired_at, version.created_at FROM gift_catalog_items item
       JOIN LATERAL (
-        SELECT name, price_minor, currency, status, version, broadcast_template, gift_category_tag_id, created_at, id
+        SELECT name, price_minor, currency, status, version, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, retired_at, created_at, id
         FROM gift_catalog_versions WHERE gift_catalog_item_id = item.id ORDER BY version DESC LIMIT 1
       ) version ON TRUE
+      LEFT JOIN skill_tags category ON category.id = version.gift_category_tag_id
       WHERE item.archived_at IS NULL AND ($1::timestamptz IS NULL OR (version.created_at, item.id) < ($1::timestamptz, $2::uuid))
       ORDER BY version.created_at DESC, item.id DESC LIMIT $3`, [keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1]);
     return pageFromRows(rows.rows.map(mapGiftCatalog), input, 'gift_catalog', giftCatalogCursorKeys);
   }
+  async getGiftCatalog(giftCatalogId: string) { const rows = await this.pool.query<GiftCatalogRow>(giftCatalogCurrentSelect, [giftCatalogId]); return rows.rows[0] ? mapGiftCatalog(rows.rows[0]) : null; }
 
   async createGiftCatalog(input: GiftCatalogCreateBody & { actorStaffId: string; now: Date }) {
     const data: AdminGiftCatalogRecord = {
-      id: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
-      priceMinor: input.amountMinor, currency: input.currency, enabled: input.enabled, version: 1,
-      broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, createdAt: input.now.toISOString()
+      id: crypto.randomUUID(), giftCatalogVersionId: crypto.randomUUID(), code: `GIFT_${crypto.randomUUID().slice(0, 8).toUpperCase()}`, name: input.name,
+      priceMinor: input.amountMinor, currency: input.currency, status: input.enabled ? 'ACTIVE' : 'DRAFT', enabled: input.enabled, version: 1,
+      broadcastTemplate: input.broadcastTemplate, giftCategoryTagId: input.giftCategoryTagId ?? null, giftCategoryTagDetails: null,
+      createdByStaffId: input.actorStaffId, createdAt: input.now.toISOString(), activatedAt: input.enabled ? input.now.toISOString() : null, retiredAt: null, archivedAt: null
     };
     return {
       data,
@@ -275,8 +283,8 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
           await client.query('BEGIN');
           await client.query(`INSERT INTO gift_catalog_items (id, code, created_at, updated_at) VALUES ($1::uuid, $2, $3, $3)`, [data.id, data.code, input.now]);
           await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, created_at)
-            VALUES (gen_random_uuid(), $1::uuid, 1, $2::"CatalogVersionStatus", CASE WHEN $3::boolean THEN $1::uuid ELSE NULL END, $4, $5, $6, $7, $8::uuid, $9::uuid, CASE WHEN $3::boolean THEN $10::timestamptz ELSE NULL END, $10::timestamptz)`,
-            [data.id, input.enabled ? 'ACTIVE' : 'DRAFT', input.enabled, input.name, input.amountMinor, input.currency, input.broadcastTemplate, input.giftCategoryTagId, input.actorStaffId, input.now]);
+            VALUES ($11::uuid, $1::uuid, 1, $2::"CatalogVersionStatus", CASE WHEN $3::boolean THEN $1::uuid ELSE NULL END, $4, $5, $6, $7, $8::uuid, $9::uuid, CASE WHEN $3::boolean THEN $10::timestamptz ELSE NULL END, $10::timestamptz)`,
+            [data.id, input.enabled ? 'ACTIVE' : 'DRAFT', input.enabled, input.name, input.amountMinor, input.currency, input.broadcastTemplate, input.giftCategoryTagId, input.actorStaffId, input.now, data.giftCatalogVersionId]);
           await insertPostgresAuditRecord(client, auditRecord);
           await client.query('COMMIT');
         } catch (error) {
@@ -318,8 +326,8 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
           await client.query(`UPDATE gift_catalog_versions SET status = 'RETIRED', active_gift_key = NULL, retired_at = $2
             WHERE gift_catalog_item_id = $1 AND status = 'ACTIVE'`, [input.giftCatalogId, input.now]);
           await client.query(`INSERT INTO gift_catalog_versions (id, gift_catalog_item_id, version, status, active_gift_key, name, price_minor, currency, broadcast_template, gift_category_tag_id, created_by_staff_id, activated_at, created_at)
-            VALUES (gen_random_uuid(), $1::uuid, $2, $3::"CatalogVersionStatus", CASE WHEN $4::boolean THEN $1::uuid ELSE NULL END, $5, $6, $7, $8, $9::uuid, $10::uuid, CASE WHEN $4::boolean THEN $11::timestamptz ELSE NULL END, $11::timestamptz)`,
-            [input.giftCatalogId, data.version, data.enabled ? 'ACTIVE' : 'DRAFT', data.enabled, data.name, data.priceMinor, data.currency, data.broadcastTemplate, data.giftCategoryTagId, input.actorStaffId, input.now]);
+            VALUES ($12::uuid, $1::uuid, $2, $3::"CatalogVersionStatus", CASE WHEN $4::boolean THEN $1::uuid ELSE NULL END, $5, $6, $7, $8, $9::uuid, $10::uuid, CASE WHEN $4::boolean THEN $11::timestamptz ELSE NULL END, $11::timestamptz)`,
+            [input.giftCatalogId, data.version, data.enabled ? 'ACTIVE' : 'DRAFT', data.enabled, data.name, data.priceMinor, data.currency, data.broadcastTemplate, data.giftCategoryTagId, input.actorStaffId, input.now, data.giftCatalogVersionId]);
           await insertPostgresAuditRecord(client, auditRecord);
           await client.query('COMMIT');
         } catch (error) {
@@ -375,6 +383,7 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
   read('/api/v1/admin/players', 'player.read', 'LIST_ADMIN_PLAYERS', 'player_profile', (request) => options.store.listPlayers({ ...pageQuery(request), reviewStatus: enumQuery(request, 'reviewStatus', ['PENDING_REVIEW', 'ACTIVE', 'PAUSED', 'SUSPENDED']) }));
   read('/api/v1/admin/players/:playerId', 'player.read', 'GET_ADMIN_PLAYER', 'player_profile', async (request) => required(await options.store.getPlayer(param(request, 'playerId')), 'Player'));
   read('/api/v1/admin/gift-catalog', 'gift_catalog.read', 'LIST_ADMIN_GIFT_CATALOG', 'gift_catalog', (request) => options.store.listGiftCatalog(pageQuery(request)), 'GIFTS');
+  read('/api/v1/admin/gift-catalog/:giftCatalogId', 'gift_catalog.read', 'GET_ADMIN_GIFT_CATALOG_ITEM', 'gift_catalog', async (request) => required(await options.store.getGiftCatalog(param(request, 'giftCatalogId')), 'Gift catalog item'), 'GIFTS');
   read('/api/v1/admin/gift-requests', 'gift_request.read', 'LIST_ADMIN_GIFT_REQUESTS', 'gift_request', (request, actor) => options.store.listGiftRequests({ ...pageQuery(request), status: enumQuery(request, 'status', ['PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED', 'CAPTURED', 'ANNOUNCED', 'REJECTED', 'EXPIRED', 'WITHDRAWN', 'FAILED', 'REVERSED']), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }), 'GIFTS');
   read('/api/v1/admin/gift-requests/:giftRequestId', 'gift_request.read', 'GET_ADMIN_GIFT_REQUEST', 'gift_request', async (request, actor) => required(await options.store.getGiftRequest({ giftRequestId: param(request, 'giftRequestId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel! }), 'Gift request'), 'GIFTS');
 
@@ -410,26 +419,37 @@ function adminConsumptionGuildPredicate(alias: string, guildParameter: string) {
 
 function buildUpdatedGift(
   current: AdminGiftCatalogRecord,
-  input: { action: string; replacement: GiftCatalogCreateBody | null; now: Date }
+  input: { action: string; replacement: GiftCatalogCreateBody | null; actorStaffId: string; now: Date }
 ): AdminGiftCatalogRecord {
+  const nextVersion = {
+    giftCatalogVersionId: crypto.randomUUID(),
+    createdByStaffId: input.actorStaffId,
+    createdAt: input.now.toISOString(),
+    activatedAt: null,
+    retiredAt: null,
+    archivedAt: null
+  };
   if (input.action === 'ENABLE') {
-    return { ...current, enabled: true, version: current.version + 1, createdAt: input.now.toISOString() };
+    return { ...current, ...nextVersion, status: 'ACTIVE', enabled: true, version: current.version + 1, activatedAt: input.now.toISOString() };
   }
   if (input.action === 'DISABLE') {
-    return { ...current, enabled: false, version: current.version + 1, createdAt: input.now.toISOString() };
+    return { ...current, ...nextVersion, status: 'DRAFT', enabled: false, version: current.version + 1 };
   }
-  if(input.action==='ARCHIVE')return{...current,enabled:false,archived:true,createdAt:input.now.toISOString()};
+  if(input.action==='ARCHIVE')return{...current,status:'RETIRED',enabled:false,archived:true,retiredAt:current.status==='ACTIVE'?input.now.toISOString():current.retiredAt??null,archivedAt:input.now.toISOString()};
   if (input.action === 'CREATE_REPLACEMENT_VERSION' && input.replacement) {
     return {
       ...current,
+      ...nextVersion,
       name: input.replacement.name,
       priceMinor: input.replacement.amountMinor,
       currency: input.replacement.currency,
+      status: input.replacement.enabled ? 'ACTIVE' : 'DRAFT',
       enabled: input.replacement.enabled,
       broadcastTemplate: input.replacement.broadcastTemplate,
       giftCategoryTagId: input.replacement.giftCategoryTagId ?? null,
+      giftCategoryTagDetails: null,
       version: current.version + 1,
-      createdAt: input.now.toISOString()
+      activatedAt: input.replacement.enabled ? input.now.toISOString() : null
     };
   }
   throw new AdminDirectoryError('VALIDATION_ERROR', 'Gift catalog action is invalid.');
@@ -540,20 +560,33 @@ const playerSelect = `SELECT pp.id AS player_id, pp.user_id, u.display_name, da.
   LEFT JOIN skill_tags tag ON tag.id = skill.skill_tag_id
   LEFT JOIN LATERAL (SELECT discord_user_id, username FROM discord_accounts WHERE user_id = u.id ORDER BY created_at ASC LIMIT 1) da ON TRUE
   LEFT JOIN orders active_order ON active_order.active_player_slot_id = pp.user_id`;
-const giftCatalogCurrentSelect = `SELECT item.id, item.code, version.name, version.price_minor, version.currency, version.status::text,
-  version.version, version.broadcast_template, version.gift_category_tag_id, version.created_at FROM gift_catalog_items item
+const giftCatalogCurrentSelect = `SELECT item.id, item.code, item.archived_at, version.id AS gift_catalog_version_id, version.name, version.price_minor, version.currency, version.status::text,
+  version.version, version.broadcast_template, version.gift_category_tag_id, category.code AS gift_category_code, category.display_name AS gift_category_display_name,
+  version.created_by_staff_id, version.activated_at, version.retired_at, version.created_at FROM gift_catalog_items item
   JOIN gift_catalog_versions version ON version.gift_catalog_item_id = item.id
+  LEFT JOIN skill_tags category ON category.id = version.gift_category_tag_id
   WHERE item.id = $1 ORDER BY version.version DESC LIMIT 1`;
-const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, gr.sender_id, gr.receiver_id, gr.status::text,
-  gr.row_version, gr.gift_name_snapshot, gr.price_minor, gr.currency,
+const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, orders.public_id AS order_public_id, orders.status::text AS order_status,
+  NULLIF(to_jsonb(gr)->>'order_participant_id', '')::uuid AS order_participant_id, gr.gift_catalog_version_id,
+  gr.sender_id, sender.display_name AS sender_display_name, sender_account.discord_user_id AS sender_discord_user_id, sender_account.username AS sender_discord_username,
+  gr.receiver_id, receiver.display_name AS receiver_display_name, receiver_account.discord_user_id AS receiver_discord_user_id, receiver_account.username AS receiver_discord_username,
+  gr.status::text, gr.row_version, gr.gift_code_snapshot, gr.gift_name_snapshot, gr.price_minor, gr.currency, gr.broadcast_template_snapshot,
+  reservation.id AS reservation_id, reservation.status::text AS reservation_status, reservation.expires_at AS reservation_expires_at,
+  gr.verified_by_staff_id, gr.verified_at, gr.verification_note, gr.approved_by_staff_id, gr.approved_at, gr.captured_at, gr.announced_at,
+  gr.broadcast_channel_id, gr.broadcast_message_id, gr.rejected_reason, gr.failure_code, gr.expires_at, gr.withdrawn_at, gr.created_at, gr.updated_at,
   CASE
     WHEN gr.announced_at IS NOT NULL OR announcement_job.status = 'COMPLETED' THEN 'ANNOUNCED'
     WHEN announcement_job.status = 'FAILED' THEN 'FAILED'
     WHEN announcement_job.status IN ('PENDING', 'PROCESSING') THEN 'PENDING'
     ELSE 'NOT_QUEUED'
-  END AS announcement_status,
-  gr.created_at
+  END AS announcement_status
   FROM gift_requests gr
+  JOIN orders ON orders.id = gr.order_id
+  JOIN users sender ON sender.id = gr.sender_id
+  JOIN users receiver ON receiver.id = gr.receiver_id
+  LEFT JOIN LATERAL (SELECT discord_user_id, username FROM discord_accounts WHERE user_id=gr.sender_id AND guild_id=orders.guild_id ORDER BY created_at LIMIT 1) sender_account ON TRUE
+  LEFT JOIN LATERAL (SELECT discord_user_id, username FROM discord_accounts WHERE user_id=gr.receiver_id AND guild_id=orders.guild_id ORDER BY created_at LIMIT 1) receiver_account ON TRUE
+  LEFT JOIN LATERAL (SELECT id, status, expires_at FROM fund_reservations WHERE gift_request_id=gr.id ORDER BY created_at DESC LIMIT 1) reservation ON TRUE
   LEFT JOIN LATERAL (
     SELECT status::text AS status
     FROM outbox_events
@@ -564,12 +597,13 @@ const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, gr.sender_id
 interface AdminUserRow { id: string; display_name: string; status: string; discord_user_id: string | null; discord_username: string | null; row_version: number; active_order_id: string | null; risk_flags: string[]; created_at: Date | string; updated_at: Date | string }
 interface PlayerRow { player_id: string; user_id: string; display_name: string; discord_user_id: string | null; discord_username: string | null; review_status: string; availability: string; discord_presence: string; row_version: number; active_order_id: string | null; game_tags: string[]; service_tags: string[]; language_tags: string[]; game_tag_details: AdminTagSummary[]; service_tag_details: AdminTagSummary[]; language_tag_details: AdminTagSummary[]; created_at: Date | string; updated_at: Date | string }
 interface ConsumptionRow { id: string; user_id: string; entry_type: string; source_id: string; amount_minor: string | number; currency: string; direction: string; occurred_at: Date | string; reversal_of_entry_id: string | null }
-interface GiftCatalogRow { id: string; code: string; name: string; price_minor: string | number; currency: string; status: string; version: number; broadcast_template: string; gift_category_tag_id: string | null; created_at: Date | string }
-interface GiftRequestRow { id: string; public_id: string; order_id: string; sender_id: string; receiver_id: string; status: string; row_version: number; gift_name_snapshot: string; price_minor: string | number; currency: string; announcement_status: string; created_at: Date | string }
+interface GiftCatalogRow { id: string; gift_catalog_version_id: string; code: string; name: string; price_minor: string | number; currency: string; status: string; version: number; broadcast_template: string; gift_category_tag_id: string | null; gift_category_code: string | null; gift_category_display_name: string | null; created_by_staff_id: string; activated_at: Date | string | null; retired_at: Date | string | null; archived_at: Date | string | null; created_at: Date | string }
+interface GiftRequestRow { id: string; public_id: string; order_id: string; order_public_id: string; order_status: string; order_participant_id: string | null; gift_catalog_version_id: string; sender_id: string; sender_display_name: string; sender_discord_user_id: string | null; sender_discord_username: string | null; receiver_id: string; receiver_display_name: string; receiver_discord_user_id: string | null; receiver_discord_username: string | null; status: string; row_version: number; gift_code_snapshot: string; gift_name_snapshot: string; price_minor: string | number; currency: string; broadcast_template_snapshot: string; reservation_id: string | null; reservation_status: string | null; reservation_expires_at: Date | string | null; announcement_status: string; verified_by_staff_id: string | null; verified_at: Date | string | null; verification_note: string | null; approved_by_staff_id: string | null; approved_at: Date | string | null; captured_at: Date | string | null; announced_at: Date | string | null; broadcast_channel_id: string | null; broadcast_message_id: string | null; rejected_reason: string | null; failure_code: string | null; expires_at: Date | string; withdrawn_at: Date | string | null; created_at: Date | string; updated_at: Date | string }
 function mapUser(row: AdminUserRow): AdminUserRecord { return { id: row.id, displayName: row.display_name, status: row.status, discordUserId: row.discord_user_id, discordUsername: row.discord_username, externalAccountDisplay: null, activeOrderId: row.active_order_id, riskFlags: row.risk_flags, version: row.row_version, createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() }; }
 function mapPlayer(row: PlayerRow): AdminPlayerRecord { return { playerId: row.player_id, userId: row.user_id, displayName: row.display_name, discordUserId: row.discord_user_id, discordUsername: row.discord_username, reviewStatus: row.review_status, availability: row.availability, discordPresence: row.discord_presence, gameTags: row.game_tags, serviceTags: row.service_tags, languageTags: row.language_tags, gameTagDetails: row.game_tag_details, serviceTagDetails: row.service_tag_details, languageTagDetails: row.language_tag_details, activeOrderId: row.active_order_id, version: row.row_version, createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() }; }
-function mapGiftCatalog(row: GiftCatalogRow): AdminGiftCatalogRecord { return { id: row.id, code: row.code, name: row.name, priceMinor: safeMinorInteger(row.price_minor), currency: row.currency, enabled: row.status === 'ACTIVE', version: row.version, broadcastTemplate: row.broadcast_template, giftCategoryTagId: row.gift_category_tag_id, createdAt: new Date(row.created_at).toISOString() }; }
-function mapGiftRequest(row: GiftRequestRow): AdminGiftRequestRecord { return { id: row.id, publicId: row.public_id, orderId: row.order_id, senderId: row.sender_id, receiverId: row.receiver_id, status: row.status, rowVersion: row.row_version, giftName: row.gift_name_snapshot, amountMinor: safeMinorInteger(row.price_minor), currency: row.currency, announcementStatus: row.announcement_status, createdAt: new Date(row.created_at).toISOString() }; }
+function mapGiftCatalog(row: GiftCatalogRow): AdminGiftCatalogRecord { return { id: row.id, giftCatalogVersionId: row.gift_catalog_version_id, code: row.code, name: row.name, priceMinor: safeMinorInteger(row.price_minor), currency: row.currency, status: row.status, enabled: row.status === 'ACTIVE', version: row.version, broadcastTemplate: row.broadcast_template, giftCategoryTagId: row.gift_category_tag_id, giftCategoryTagDetails: row.gift_category_code ? { code: row.gift_category_code, displayName: row.gift_category_display_name ?? row.gift_category_code } : null, createdByStaffId: row.created_by_staff_id, createdAt: isoTime(row.created_at)!, activatedAt: isoTime(row.activated_at), retiredAt: isoTime(row.retired_at), archivedAt: isoTime(row.archived_at) }; }
+function mapGiftRequest(row: GiftRequestRow): AdminGiftRequestRecord { return { id: row.id, publicId: row.public_id, orderId: row.order_id, orderPublicId: row.order_public_id, orderStatus: row.order_status, orderParticipantId: row.order_participant_id, giftCatalogVersionId: row.gift_catalog_version_id, senderId: row.sender_id, senderDisplayName: row.sender_display_name, senderDiscordUserId: row.sender_discord_user_id, senderDiscordUsername: row.sender_discord_username, receiverId: row.receiver_id, receiverDisplayName: row.receiver_display_name, receiverDiscordUserId: row.receiver_discord_user_id, receiverDiscordUsername: row.receiver_discord_username, status: row.status, rowVersion: row.row_version, giftCode: row.gift_code_snapshot, giftName: row.gift_name_snapshot, amountMinor: safeMinorInteger(row.price_minor), currency: row.currency, broadcastTemplate: row.broadcast_template_snapshot, reservationId: row.reservation_id, reservationStatus: row.reservation_status, reservationExpiresAt: isoTime(row.reservation_expires_at), announcementStatus: row.announcement_status, verifiedByStaffId: row.verified_by_staff_id, verifiedAt: isoTime(row.verified_at), verificationNote: row.verification_note, approvedByStaffId: row.approved_by_staff_id, approvedAt: isoTime(row.approved_at), capturedAt: isoTime(row.captured_at), announcedAt: isoTime(row.announced_at), broadcastChannelId: row.broadcast_channel_id, broadcastMessageId: row.broadcast_message_id, rejectedReason: row.rejected_reason, failureCode: row.failure_code, expiresAt: isoTime(row.expires_at)!, withdrawnAt: isoTime(row.withdrawn_at), createdAt: isoTime(row.created_at)!, updatedAt: isoTime(row.updated_at)! }; }
+function isoTime(value: Date | string | null): string | null { return value === null ? null : new Date(value).toISOString(); }
 function safeMinorInteger(value: string | number): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isSafeInteger(parsed)) throw new AdminDirectoryError('VALIDATION_ERROR', 'Stored amount is outside the supported minor-unit range.');

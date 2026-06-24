@@ -38,8 +38,8 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
       { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'CAT', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
       { id: '00000000-0000-0000-0000-000000004000', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ADMIN_CORRECTION', sourceId: '00000000-0000-0000-0000-000000009001', amountMinor: -300, currency: 'CAT', status: 'REVERSED', occurredAt: '2026-07-18T02:30:00Z', reversalOf: null }
     ],
-    gifts: [{ id: '00000000-0000-0000-0000-000000005001', code: 'ROCKET', name: '火箭', priceMinor: 5200, currency: 'CAT', enabled: true, version: 1, broadcastTemplate: '{sender} 送出 {gift}', createdAt: '2026-07-18T00:00:00Z' }],
-    giftRequests: [{ id: '00000000-0000-0000-0000-000000006001', publicId: 'G-1001', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 4, giftName: '火箭', amountMinor: 5200, currency: 'CAT', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-18T03:00:00Z' }],
+    gifts: [{ id: '00000000-0000-0000-0000-000000005001', giftCatalogVersionId: '00000000-0000-0000-0000-000000005101', code: 'ROCKET', name: '火箭', priceMinor: 5200, currency: 'CAT', status: 'ACTIVE', enabled: true, version: 1, broadcastTemplate: '{sender} 送出 {gift}', giftCategoryTagId: null, giftCategoryTagDetails: null, createdByStaffId: '00000000-0000-0000-0000-333333333333', createdAt: '2026-07-18T00:00:00Z', activatedAt: '2026-07-18T00:00:00Z', retiredAt: null, archivedAt: null }],
+    giftRequests: [{ id: '00000000-0000-0000-0000-000000006001', publicId: 'G-1001', orderId: '00000000-0000-0000-0000-000000001001', orderPublicId: 'P-1001', orderStatus: 'ACCEPTED', orderParticipantId: null, giftCatalogVersionId: '00000000-0000-0000-0000-000000005101', senderId: '00000000-0000-0000-0000-000000002001', senderDisplayName: '用户 A', senderDiscordUserId: '700000000000000001', senderDiscordUsername: 'customer_a', receiverId: '00000000-0000-0000-0000-000000003001', receiverDisplayName: '陪玩 B', receiverDiscordUserId: '700000000000000002', receiverDiscordUsername: 'player_b', status: 'PENDING_REVIEW', rowVersion: 4, giftCode: 'ROCKET', giftName: '火箭', amountMinor: 5200, currency: 'CAT', broadcastTemplate: '{sender} 送出 {gift}', reservationId: '00000000-0000-0000-0000-000000006101', reservationStatus: 'ACTIVE', reservationExpiresAt: '2026-07-18T03:30:00Z', announcementStatus: 'NOT_QUEUED', verifiedByStaffId: null, verifiedAt: null, verificationNote: null, approvedByStaffId: null, approvedAt: null, capturedAt: null, announcedAt: null, broadcastChannelId: null, broadcastMessageId: null, rejectedReason: null, failureCode: null, expiresAt: '2026-07-18T03:30:00Z', withdrawnAt: null, createdAt: '2026-07-18T03:00:00Z', updatedAt: '2026-07-18T03:00:00Z' }],
     visibleOrderIdsByStaffId: {
       '00000000-0000-0000-0000-111111111111': ['00000000-0000-0000-0000-000000001001', '00000000-0000-0000-0000-000000001002']
     },
@@ -63,14 +63,14 @@ describe('M4-US-03 admin directory API', () => {
     ]);
     expect(docsContract).toBe(outputContract);
     expect(outputContract).toMatch(/operationId: getAdminGiftRequest[\s\S]*?'200':\n\s+\$ref: '#\/components\/responses\/AdminGiftRequestResponse'/);
-    expect(outputContract).toMatch(/AdminGiftCatalogItem:[\s\S]*?required: \[id, code, name, priceMinor, currency, enabled, version, broadcastTemplate, createdAt\]/);
+    expect(outputContract).toMatch(/AdminGiftCatalogItem:[\s\S]*?required: \[id, giftCatalogVersionId, code, name, priceMinor, currency, status, enabled, version, broadcastTemplate/);
     expect(outputContract).toMatch(/GiftCatalogPageEnvelope:[\s\S]*?AdminGiftCatalogItem/);
     expect(outputContract).toMatch(/GiftRequestPageEnvelope:[\s\S]*?AdminGiftRequest/);
     expect(outputContract).toMatch(/operationId: getAdminOrder[\s\S]*?x-required-permissions: \[staff_task\.read\]\n\s+x-minimum-staff-level: L1_SUPPORT/);
     expect(outputContract).toMatch(/operationId: listAdminUsers[\s\S]*?x-required-permissions: \[user\.read\]\n\s+x-minimum-staff-level: L2_SUPERVISOR/);
     expect(outputContract).toMatch(/operationId: listAdminUserConsumptions[\s\S]*?x-minimum-staff-level: L2_SUPERVISOR/);
     expect(outputContract).toMatch(/AdminConsumptionMirrorType:\n\s+type: string\n\s+enum: \[ORDER, GIFT, REFUND_REVERSAL, ADMIN_CORRECTION\]/);
-    expect(outputContract).toMatch(/AdminGiftRequest:[\s\S]*?required: \[id, publicId, orderId, senderId, receiverId, status, rowVersion, giftName, amountMinor, currency, announcementStatus, createdAt\][\s\S]*?rowVersion: \{\$ref: '#\/components\/schemas\/Version'\}/);
+    expect(outputContract).toMatch(/AdminGiftRequest:[\s\S]*?required: \[id, publicId, orderId, orderPublicId[\s\S]*?rowVersion: \{\$ref: '#\/components\/schemas\/Version'\}/);
     expect(outputContract).toMatch(/GiftCatalogItemResponse:[\s\S]*?example: \{requestId: req_gift_catalog, data: \{id: [^,]+, code: [^,]+, name: [^,]+, priceMinor: \d+, currency: CAT, enabled: true, version: 1, broadcastTemplate: [^,]+, createdAt: '[^']+'\}\}/);
     expect(productionEntry).toContain('auditSink: new PostgresAuditSink({ client: databasePool })');
     expect(productionEntry).not.toContain('auditSink: new InMemoryAuditSink()');
@@ -202,18 +202,22 @@ describe('M4-US-03 admin directory API', () => {
     const requestDetail = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-requests/00000000-0000-0000-0000-000000006001', headers: headers('111111111111111111') });
     const outOfScopeRequests = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-requests', headers: headers('444444444444444444') });
     const l2Catalog = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-catalog', headers: headers('222222222222222222') });
+    const l2CatalogDetail = await server.inject({ method: 'GET', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001', headers: headers('222222222222222222') });
     const l2Denied = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('222222222222222222', 'dashboard:gift:create:l2'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
     const created = await server.inject({ method: 'POST', url: '/api/v1/admin/gift-catalog', headers: headers('333333333333333333', 'dashboard:gift:create:l3'), payload: { name: '花束', price: { amountMinor: 1800, currency: 'CAT' }, enabled: true, broadcastTemplate: '{sender} 送出 {gift}', reasonCode: 'INITIAL_VERSION' } });
     const updated = await server.inject({ method: 'PATCH', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001', headers: headers('333333333333333333', 'dashboard:gift:update:l3'), payload: { expectedVersion: 1, action: 'DISABLE', reasonCode: 'TEMPORARILY_UNAVAILABLE' } });
     const stale = await server.inject({ method: 'PATCH', url: '/api/v1/admin/gift-catalog/00000000-0000-0000-0000-000000005001', headers: headers('333333333333333333', 'dashboard:gift:update:stale'), payload: { expectedVersion: 1, action: 'ENABLE', reasonCode: 'RESTOCKED' } });
     expect(requests.json().data.items).toEqual([expect.objectContaining({ rowVersion: 4 })]);
-    expect(requestDetail.json()).toMatchObject({ data: { rowVersion: 4 } });
+    expect(requestDetail.json()).toMatchObject({ data: { rowVersion: 4, orderPublicId: 'P-1001', giftCatalogVersionId: '00000000-0000-0000-0000-000000005101', senderDisplayName: '用户 A', senderDiscordUserId: '700000000000000001', receiverDisplayName: '陪玩 B', receiverDiscordUserId: '700000000000000002', reservationStatus: 'ACTIVE', expiresAt: '2026-07-18T03:30:00Z', updatedAt: '2026-07-18T03:00:00Z' } });
     expect(outOfScopeRequests.json().data.items).toEqual([]);
     expect(l2Catalog.json().data.items).toHaveLength(1);
+    expect(l2CatalogDetail.statusCode).toBe(200);
+    expect(l2CatalogDetail.json()).toMatchObject({ data: { giftCatalogVersionId: '00000000-0000-0000-0000-000000005101', status: 'ACTIVE', createdByStaffId: '00000000-0000-0000-0000-333333333333', activatedAt: '2026-07-18T00:00:00Z' } });
     expect(l2Denied.statusCode).toBe(403);
     expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ data: { giftCatalogVersionId: expect.any(String), status: 'ACTIVE', createdByStaffId: '00000000-0000-0000-0000-333333333333', activatedAt: expect.any(String), retiredAt: null, archivedAt: null } });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ data: { enabled: false, version: 2 } });
+    expect(updated.json()).toMatchObject({ data: { giftCatalogVersionId: expect.any(String), status: 'DRAFT', enabled: false, version: 2, createdByStaffId: '00000000-0000-0000-0000-333333333333', activatedAt: null, retiredAt: null, archivedAt: null } });
     expect(stale.statusCode).toBe(409);
     expect(store.gifts).toHaveLength(2);
   });
