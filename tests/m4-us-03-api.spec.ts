@@ -29,10 +29,10 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
       adminOrder({ id: '00000000-0000-0000-0000-000000001002', publicId: 'P-1002', status: 'IN_SERVICE', customerId: '00000000-0000-0000-0000-000000002002', amountMinor: 24000, createdAt: '2026-07-18T02:00:00Z' })
     ],
     users: [
-      { id: '00000000-0000-0000-0000-000000002001', displayName: '用户 A', status: 'ACTIVE', externalAccountDisplay: 'mock-***-001', activeOrderId: '00000000-0000-0000-0000-000000001001', riskFlags: [], version: 1 },
+      { id: '00000000-0000-0000-0000-000000002001', displayName: '用户 A', status: 'ACTIVE', discordUserId: '700000000000000001', discordUsername: 'customer_a', externalAccountDisplay: 'mock-***-001', activeOrderId: '00000000-0000-0000-0000-000000001001', riskFlags: [], version: 1, createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' },
       { id: '00000000-0000-0000-0000-000000002002', displayName: '用户 B', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: '00000000-0000-0000-0000-000000001002', riskFlags: ['PAYMENT_ANOMALY'], version: 2 }
     ],
-    players: [{ playerId: '00000000-0000-0000-0000-000000003001', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: ['VALORANT'], serviceTags: ['娱乐陪玩'], activeOrderId: '00000000-0000-0000-0000-000000001002', version: 3 }],
+    players: [{ playerId: '00000000-0000-0000-0000-000000003001', userId: '00000000-0000-0000-0000-000000002002', displayName: '陪玩 B', discordUserId: '700000000000000002', discordUsername: 'player_b', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: ['VALORANT'], serviceTags: ['FUN'], languageTags: ['CN'], gameTagDetails: [{ code: 'VALORANT', displayName: '瓦洛兰特' }], serviceTagDetails: [{ code: 'FUN', displayName: '娱乐陪玩' }], languageTagDetails: [{ code: 'CN', displayName: '中文' }], activeOrderId: '00000000-0000-0000-0000-000000001002', version: 3, createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' }],
     consumptions: [
       { id: '00000000-0000-0000-0000-000000004001', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001001', amountMinor: 12000, currency: 'CAT', status: 'SUCCEEDED', occurredAt: '2026-07-18T03:00:00Z', reversalOf: null },
       { id: '00000000-0000-0000-0000-000000004002', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'GIFT', sourceId: '00000000-0000-0000-0000-000000006001', amountMinor: 5200, currency: 'CAT', status: 'SUCCEEDED', occurredAt: '2026-07-18T04:00:00Z', reversalOf: null },
@@ -185,8 +185,15 @@ describe('M4-US-03 admin directory API', () => {
     const filtered = await server.inject({ method: 'GET', url: '/api/v1/admin/players?reviewStatus=PENDING_REVIEW', headers: headers('222222222222222222') });
     expect(denied.statusCode).toBe(403);
     expect(allowed.statusCode).toBe(200);
-    expect(allowed.json()).toMatchObject({ data: { playerId: '00000000-0000-0000-0000-000000003001', availability: 'AVAILABLE' } });
+    expect(allowed.json()).toMatchObject({ data: { playerId: '00000000-0000-0000-0000-000000003001', userId: '00000000-0000-0000-0000-000000002002', displayName: '陪玩 B', discordUserId: '700000000000000002', discordUsername: 'player_b', availability: 'AVAILABLE', gameTagDetails: [{ code: 'VALORANT', displayName: '瓦洛兰特' }], createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' } });
     expect(filtered.json().data.items).toEqual([]);
+  });
+
+  test('returns sufficient server facts for the user detail card', async () => {
+    const { server } = fixture();
+    const response = await server.inject({ method: 'GET', url: '/api/v1/admin/users/00000000-0000-0000-0000-000000002001', headers: headers('222222222222222222') });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ data: { displayName: '用户 A', discordUserId: '700000000000000001', discordUsername: 'customer_a', status: 'ACTIVE', version: 1, createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' } });
   });
 
   test('lists gift operations for support and version-manages catalog only for stepped-up L3', async () => {

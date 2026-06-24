@@ -20,8 +20,9 @@ import { PostgresOrderParticipantStore,type OrderParticipantRecord } from './ord
 
 export type AdminOrderListItem = OrderRecord & { participants?: OrderParticipantRecord[] };
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
-export interface AdminUserRecord { id: string; displayName: string; status: string; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number }
-export interface AdminPlayerRecord { playerId: string; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; languageTags?: string[]; activeOrderId: string | null; version: number }
+export interface AdminTagSummary { code: string; displayName: string }
+export interface AdminUserRecord { id: string; displayName: string; status: string; discordUserId?: string | null; discordUsername?: string | null; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number; createdAt?: string; updatedAt?: string }
+export interface AdminPlayerRecord { playerId: string; userId?: string; displayName?: string; discordUserId?: string | null; discordUsername?: string | null; reviewStatus: string; availability: string; discordPresence: string; gameTags: string[]; serviceTags: string[]; languageTags?: string[]; gameTagDetails?: AdminTagSummary[]; serviceTagDetails?: AdminTagSummary[]; languageTagDetails?: AdminTagSummary[]; activeOrderId: string | null; version: number; createdAt?: string; updatedAt?: string }
 export interface AdminConsumptionRecord { id: string; userId: string; type: AdminConsumptionMirrorType; sourceId: string; amountMinor: number; currency: string; status: string; occurredAt: string; reversalOf: string | null; guildId?: string }
 export interface AdminGiftCatalogRecord { id: string; code: string; name: string; priceMinor: number; currency: string; enabled: boolean; archived?: boolean; version: number; broadcastTemplate: string; giftCategoryTagId?: string | null; createdAt: string }
 export interface AdminGiftRequestRecord { id: string; publicId: string; orderId: string; senderId: string; receiverId: string; status: string; rowVersion: number; giftName: string; amountMinor: number; currency: string; announcementStatus: string; createdAt: string }
@@ -188,12 +189,12 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
     const keys = cursorKeys(input.cursor, 'users');
     const rows = await this.pool.query<AdminUserRow>(userSelect + ` WHERE ($1::text IS NULL OR u.display_name ILIKE '%' || $1 || '%' OR u.id::text = $1 OR da.discord_user_id = $1)
       AND ($2::uuid IS NULL OR u.id < $2::uuid)
-      GROUP BY u.id, da.discord_user_id, active_order.id ORDER BY u.id DESC LIMIT $3`, [input.query ?? null, keys?.[0] ?? null, input.limit + 1]);
+      GROUP BY u.id, da.discord_user_id, da.username, active_order.id ORDER BY u.id DESC LIMIT $3`, [input.query ?? null, keys?.[0] ?? null, input.limit + 1]);
     return pageFromRows(rows.rows.map(mapUser), input, 'users', userCursorKeys);
   }
 
   async getUser(userId: string) {
-    const rows = await this.pool.query<AdminUserRow>(userSelect + ` WHERE u.id = $1 GROUP BY u.id, da.discord_user_id, active_order.id LIMIT 1`, [userId]);
+    const rows = await this.pool.query<AdminUserRow>(userSelect + ` WHERE u.id = $1 GROUP BY u.id, da.discord_user_id, da.username, active_order.id LIMIT 1`, [userId]);
     return rows.rows[0] ? mapUser(rows.rows[0]) : null;
   }
 
@@ -242,10 +243,10 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
     const keys = cursorKeys(input.cursor, 'players');
     const rows = await this.pool.query<PlayerRow>(playerSelect + ` WHERE ($1::text IS NULL OR pp.review_status::text = $1)
       AND ($2::uuid IS NULL OR pp.id < $2::uuid)
-      GROUP BY pp.id, active_order.id ORDER BY pp.id DESC LIMIT $3`, [input.reviewStatus ?? null, keys?.[0] ?? null, input.limit + 1]);
+      GROUP BY pp.id, u.id, da.discord_user_id, da.username, active_order.id ORDER BY pp.id DESC LIMIT $3`, [input.reviewStatus ?? null, keys?.[0] ?? null, input.limit + 1]);
     return pageFromRows(rows.rows.map(mapPlayer), input, 'players', playerCursorKeys);
   }
-  async getPlayer(playerId: string) { const rows = await this.pool.query<PlayerRow>(playerSelect + ` WHERE pp.id = $1 GROUP BY pp.id, active_order.id LIMIT 1`, [playerId]); return rows.rows[0] ? mapPlayer(rows.rows[0]) : null; }
+  async getPlayer(playerId: string) { const rows = await this.pool.query<PlayerRow>(playerSelect + ` WHERE pp.id = $1 GROUP BY pp.id, u.id, da.discord_user_id, da.username, active_order.id LIMIT 1`, [playerId]); return rows.rows[0] ? mapPlayer(rows.rows[0]) : null; }
 
   async listGiftCatalog(input: PageInput) {
     const keys = cursorKeys(input.cursor, 'gift_catalog');
@@ -518,22 +519,27 @@ function giftCatalogCursorKeys(item: AdminGiftCatalogRecord) { return [timeKey(i
 function giftRequestCursorKeys(item: AdminGiftRequestRecord) { return [timeKey(item.createdAt), item.id]; }
 function isDatabaseUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
 
-const userSelect = `SELECT u.id, u.display_name, u.status::text, u.row_version, active_order.id AS active_order_id,
+const userSelect = `SELECT u.id, u.display_name, u.status::text, u.row_version, u.created_at, u.updated_at, da.discord_user_id, da.username AS discord_username, active_order.id AS active_order_id,
   COALESCE(array_agg(DISTINCT risk.type::text) FILTER (WHERE risk.id IS NOT NULL), '{}') AS risk_flags FROM users u
   LEFT JOIN LATERAL (
-    SELECT discord_user_id FROM discord_accounts
+    SELECT discord_user_id, username FROM discord_accounts
     WHERE user_id = u.id
     ORDER BY created_at ASC LIMIT 1
   ) da ON TRUE
   LEFT JOIN orders active_order ON active_order.active_customer_slot_id = u.id
   LEFT JOIN risk_events risk ON risk.user_id = u.id`;
-const playerSelect = `SELECT pp.id AS player_id, pp.review_status::text, pp.availability::text, pp.discord_presence::text, pp.row_version,
+const playerSelect = `SELECT pp.id AS player_id, pp.user_id, u.display_name, da.discord_user_id, da.username AS discord_username, pp.review_status::text, pp.availability::text, pp.discord_presence::text, pp.row_version, pp.created_at, pp.updated_at,
   active_order.id AS active_order_id,
   COALESCE(array_agg(DISTINCT tag.code) FILTER (WHERE tag.type = 'GAME'), '{}') AS game_tags,
   COALESCE(array_agg(DISTINCT tag.code) FILTER (WHERE tag.type = 'SERVICE'), '{}') AS service_tags,
-  COALESCE(array_agg(DISTINCT tag.code) FILTER (WHERE tag.type = 'LANGUAGE'), '{}') AS language_tags
+  COALESCE(array_agg(DISTINCT tag.code) FILTER (WHERE tag.type = 'LANGUAGE'), '{}') AS language_tags,
+  COALESCE(jsonb_agg(DISTINCT jsonb_build_object('code', tag.code, 'displayName', tag.display_name)) FILTER (WHERE tag.type = 'GAME'), '[]') AS game_tag_details,
+  COALESCE(jsonb_agg(DISTINCT jsonb_build_object('code', tag.code, 'displayName', tag.display_name)) FILTER (WHERE tag.type = 'SERVICE'), '[]') AS service_tag_details,
+  COALESCE(jsonb_agg(DISTINCT jsonb_build_object('code', tag.code, 'displayName', tag.display_name)) FILTER (WHERE tag.type = 'LANGUAGE'), '[]') AS language_tag_details
   FROM player_profiles pp JOIN users u ON u.id = pp.user_id LEFT JOIN player_skills skill ON skill.player_profile_id = pp.id
-  LEFT JOIN skill_tags tag ON tag.id = skill.skill_tag_id LEFT JOIN orders active_order ON active_order.active_player_slot_id = pp.user_id`;
+  LEFT JOIN skill_tags tag ON tag.id = skill.skill_tag_id
+  LEFT JOIN LATERAL (SELECT discord_user_id, username FROM discord_accounts WHERE user_id = u.id ORDER BY created_at ASC LIMIT 1) da ON TRUE
+  LEFT JOIN orders active_order ON active_order.active_player_slot_id = pp.user_id`;
 const giftCatalogCurrentSelect = `SELECT item.id, item.code, version.name, version.price_minor, version.currency, version.status::text,
   version.version, version.broadcast_template, version.gift_category_tag_id, version.created_at FROM gift_catalog_items item
   JOIN gift_catalog_versions version ON version.gift_catalog_item_id = item.id
@@ -555,13 +561,13 @@ const giftRequestSelect = `SELECT gr.id, gr.public_id, gr.order_id, gr.sender_id
     ORDER BY created_at DESC, id DESC
     LIMIT 1
   ) announcement_job ON TRUE`;
-interface AdminUserRow { id: string; display_name: string; status: string; row_version: number; active_order_id: string | null; risk_flags: string[] }
-interface PlayerRow { player_id: string; review_status: string; availability: string; discord_presence: string; row_version: number; active_order_id: string | null; game_tags: string[]; service_tags: string[]; language_tags: string[] }
+interface AdminUserRow { id: string; display_name: string; status: string; discord_user_id: string | null; discord_username: string | null; row_version: number; active_order_id: string | null; risk_flags: string[]; created_at: Date | string; updated_at: Date | string }
+interface PlayerRow { player_id: string; user_id: string; display_name: string; discord_user_id: string | null; discord_username: string | null; review_status: string; availability: string; discord_presence: string; row_version: number; active_order_id: string | null; game_tags: string[]; service_tags: string[]; language_tags: string[]; game_tag_details: AdminTagSummary[]; service_tag_details: AdminTagSummary[]; language_tag_details: AdminTagSummary[]; created_at: Date | string; updated_at: Date | string }
 interface ConsumptionRow { id: string; user_id: string; entry_type: string; source_id: string; amount_minor: string | number; currency: string; direction: string; occurred_at: Date | string; reversal_of_entry_id: string | null }
 interface GiftCatalogRow { id: string; code: string; name: string; price_minor: string | number; currency: string; status: string; version: number; broadcast_template: string; gift_category_tag_id: string | null; created_at: Date | string }
 interface GiftRequestRow { id: string; public_id: string; order_id: string; sender_id: string; receiver_id: string; status: string; row_version: number; gift_name_snapshot: string; price_minor: string | number; currency: string; announcement_status: string; created_at: Date | string }
-function mapUser(row: AdminUserRow): AdminUserRecord { return { id: row.id, displayName: row.display_name, status: row.status, externalAccountDisplay: null, activeOrderId: row.active_order_id, riskFlags: row.risk_flags, version: row.row_version }; }
-function mapPlayer(row: PlayerRow): AdminPlayerRecord { return { playerId: row.player_id, reviewStatus: row.review_status, availability: row.availability, discordPresence: row.discord_presence, gameTags: row.game_tags, serviceTags: row.service_tags, languageTags: row.language_tags, activeOrderId: row.active_order_id, version: row.row_version }; }
+function mapUser(row: AdminUserRow): AdminUserRecord { return { id: row.id, displayName: row.display_name, status: row.status, discordUserId: row.discord_user_id, discordUsername: row.discord_username, externalAccountDisplay: null, activeOrderId: row.active_order_id, riskFlags: row.risk_flags, version: row.row_version, createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() }; }
+function mapPlayer(row: PlayerRow): AdminPlayerRecord { return { playerId: row.player_id, userId: row.user_id, displayName: row.display_name, discordUserId: row.discord_user_id, discordUsername: row.discord_username, reviewStatus: row.review_status, availability: row.availability, discordPresence: row.discord_presence, gameTags: row.game_tags, serviceTags: row.service_tags, languageTags: row.language_tags, gameTagDetails: row.game_tag_details, serviceTagDetails: row.service_tag_details, languageTagDetails: row.language_tag_details, activeOrderId: row.active_order_id, version: row.row_version, createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() }; }
 function mapGiftCatalog(row: GiftCatalogRow): AdminGiftCatalogRecord { return { id: row.id, code: row.code, name: row.name, priceMinor: safeMinorInteger(row.price_minor), currency: row.currency, enabled: row.status === 'ACTIVE', version: row.version, broadcastTemplate: row.broadcast_template, giftCategoryTagId: row.gift_category_tag_id, createdAt: new Date(row.created_at).toISOString() }; }
 function mapGiftRequest(row: GiftRequestRow): AdminGiftRequestRecord { return { id: row.id, publicId: row.public_id, orderId: row.order_id, senderId: row.sender_id, receiverId: row.receiver_id, status: row.status, rowVersion: row.row_version, giftName: row.gift_name_snapshot, amountMinor: safeMinorInteger(row.price_minor), currency: row.currency, announcementStatus: row.announcement_status, createdAt: new Date(row.created_at).toISOString() }; }
 function safeMinorInteger(value: string | number): number {

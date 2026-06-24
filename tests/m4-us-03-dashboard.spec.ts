@@ -48,6 +48,13 @@ describe('M4-US-03 Dashboard business object pages', () => {
     }
   });
 
+  test('maps all four card workspaces to dedicated detail reads', () => {
+    expect(buildAdminDetailRequest('users', { id: 'user-1' })).toBe('/api/v1/admin/users/user-1');
+    expect(buildAdminDetailRequest('players', { playerId: 'player-1' })).toBe('/api/v1/admin/players/player-1');
+    expect(buildAdminDetailRequest('serviceCatalog', { id: 'catalog-v1' })).toBe('/api/v1/admin/service-catalog/catalog-v1');
+    expect(buildAdminDetailRequest('servicePackages', { id: 'package-v1' })).toBe('/api/v1/admin/service-packages/package-v1');
+  });
+
   test('preserves filters while advancing cursor pagination', () => {
     expect(buildAdminResourceQuery({
       cursor: 'created_at:id',

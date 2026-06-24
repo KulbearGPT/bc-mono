@@ -45,12 +45,13 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  test('searches redacted users by Discord ID without duplicating multi-provider accounts', async () => {
+  test('searches users by Discord ID and returns the staff detail projection once', async () => {
     const store = new PostgresAdminDirectoryStore(pool);
     const result = await store.listUsers({ cursor: null, limit: 10, query: '900000000000004302' });
     expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toMatchObject({ id: ids.customer, displayName: 'Customer', activeOrderId: ids.order });
-    expect(JSON.stringify(result)).not.toContain('900000000000004302');
+    expect(result.items[0]).toMatchObject({ id: ids.customer, displayName: 'Customer', discordUserId: '900000000000004302', discordUsername: null, activeOrderId: ids.order, version: 1 });
+    expect(result.items[0]?.createdAt).toEqual(expect.any(String));
+    expect(result.items[0]?.updatedAt).toEqual(expect.any(String));
   });
 
   test('keeps the second user page stable when a new first-page row is inserted', async () => {
@@ -73,7 +74,7 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     const corrections = await store.listUserConsumptions({ cursor: null, limit: 10, userId: ids.customer, type: 'ADMIN_CORRECTION' });
     const giftRequests = await store.listGiftRequests({ cursor: null, limit: 10, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
     const giftRequest = await store.getGiftRequest({ giftRequestId: ids.giftRequest, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
-    expect(players.items).toEqual([expect.objectContaining({ playerId: ids.playerProfile, activeOrderId: ids.order })]);
+    expect(players.items).toEqual([expect.objectContaining({ playerId: ids.playerProfile, userId: ids.player, displayName: 'Player', activeOrderId: ids.order, gameTagDetails: expect.any(Array), serviceTagDetails: expect.any(Array), languageTagDetails: expect.any(Array), version: 1 })]);
     expect(absent.items).toEqual([]);
     expect(consumptions.items).toEqual([expect.objectContaining({ type: 'ORDER', amountMinor: 12000 })]);
     expect(corrections.items).toEqual([expect.objectContaining({ type: 'ADMIN_CORRECTION', amountMinor: -300 })]);

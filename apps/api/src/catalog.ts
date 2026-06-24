@@ -60,11 +60,17 @@ export interface PublicServiceCatalog {
 }
 
 export interface AdminServiceCatalog extends PublicServiceCatalog {
+  offeringKey: string;
   serviceOfferingId: string;
+  status: CatalogStatus;
   defaultPlayerPayoutBps: number;
   playerUnitPayoutMinor: number;
   enabled: boolean;
+  createdByStaffId: string;
   createdAt: string;
+  activatedAt: string | null;
+  retiredAt: string | null;
+  archivedAt: string | null;
 }
 
 export interface EstimateServiceResult {
@@ -573,6 +579,21 @@ export function registerCatalogRoutes(
     mapError: mapCatalogError
   });
 
+  registerSecureReadRoute(server, security, {
+    method: 'GET',
+    url: '/api/v1/admin/service-catalog/:serviceCatalogId',
+    permission: 'catalog.read',
+    action: 'GET_SERVICE_CATALOG_VERSION',
+    targetType: 'service_catalog_version',
+    targetId: (request) => readParams(request).serviceCatalogId ?? '00000000-0000-0000-0000-000000000000',
+    handler: async (request) => {
+      const record = await options.store.getById(readParams(request).serviceCatalogId ?? '');
+      if (!record) throw new CatalogError('RESOURCE_NOT_FOUND', 'Service catalog version was not found.');
+      return toAdminCatalog(record);
+    },
+    mapError: mapCatalogError
+  });
+
   registerSecureWriteRoute(server, security, {
     method: 'POST',
     url: '/api/v1/services/:serviceCatalogId/estimate',
@@ -820,11 +841,17 @@ function toAdminCatalog(record: ServiceCatalogRecord): AdminServiceCatalog {
   assertCompletePrices(record);
   return {
     ...toPublicCatalog(record as ServiceCatalogRecord & { customerUnitPriceMinor: number }),
+    offeringKey: record.offeringKey,
     serviceOfferingId: record.serviceOfferingId ?? record.offeringKey,
+    status: record.status,
     defaultPlayerPayoutBps: record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor as number) * 10000 / (record.customerUnitPriceMinor as number)),
     playerUnitPayoutMinor: record.playerUnitPayoutMinor as number,
     enabled: record.status === 'ACTIVE',
-    createdAt: record.createdAt
+    createdByStaffId: record.createdByStaffId,
+    createdAt: record.createdAt,
+    activatedAt: record.activatedAt,
+    retiredAt: record.retiredAt,
+    archivedAt: record.archivedAt ?? null
   };
 }
 

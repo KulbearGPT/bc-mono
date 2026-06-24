@@ -105,11 +105,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
 
   async function openDetail(item: Record<string, unknown>) {
     const page = props.page;
-    if (page === 'serviceCatalog' || page === 'servicePackages') {
-      setDetail({ kind: 'READY', page, requestId: null, data: item });
-      return;
-    }
-    if (page !== 'orders' && page !== 'users' && page !== 'players' && page !== 'giftRequests') return;
+    if (page !== 'orders' && page !== 'users' && page !== 'players' && page !== 'giftRequests' && page !== 'serviceCatalog' && page !== 'servicePackages') return;
     setDetail({ kind: 'LOADING', page, requestId: null, data: null });
     try {
       const response = await client.get(buildAdminDetailRequest(page, item));

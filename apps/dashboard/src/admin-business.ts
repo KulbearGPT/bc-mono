@@ -243,11 +243,11 @@ export function buildAdminDetailRequest(
   page: AdminBusinessPageId,
   item: Record<string, unknown>
 ): string {
-  if (!['orders', 'users', 'players', 'giftRequests'].includes(page)) {
+  if (!['orders', 'users', 'players', 'giftRequests', 'serviceCatalog', 'servicePackages'].includes(page)) {
     throw new TypeError(`${page} does not expose a detail endpoint.`);
   }
   const id = page === 'players' ? requireText(item.playerId, 'playerId') : requireText(item.id, 'id');
-  const resource = page === 'orders' ? 'orders' : page === 'users' ? 'users' : page === 'players' ? 'players' : 'gift-requests';
+  const resource = page === 'orders' ? 'orders' : page === 'users' ? 'users' : page === 'players' ? 'players' : page === 'giftRequests' ? 'gift-requests' : page === 'serviceCatalog' ? 'service-catalog' : 'service-packages';
   return `/api/v1/admin/${resource}/${encodeURIComponent(id)}`;
 }
 

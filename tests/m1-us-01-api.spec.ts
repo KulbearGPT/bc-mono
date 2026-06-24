@@ -304,6 +304,22 @@ describe('M1-US-01 service catalog API contract', () => {
         items: [expect.objectContaining({ playerUnitPayoutMinor: 4200 })]
       }
     });
+
+    const detail = await server.inject({
+      method: 'GET',
+      url: '/api/v1/admin/service-catalog/00000000-0000-0000-0000-00000000c001',
+      headers: dashboardHeaders('222222222222222222')
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ data: {
+      id: '00000000-0000-0000-0000-00000000c001',
+      offeringKey: 'VALORANT|ENTERTAINMENT|NA',
+      status: 'ACTIVE',
+      createdByStaffId: '00000000-0000-0000-0000-000000000333',
+      activatedAt: '2026-07-17T15:00:00.000Z',
+      retiredAt: null,
+      archivedAt: null
+    } });
   });
 
   test('createServiceCatalogVersion requires L3 and commits only after a success audit record is available', async () => {

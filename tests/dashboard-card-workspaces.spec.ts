@@ -36,13 +36,13 @@ describe('Dashboard card workspaces', () => {
   test.each([
     {
       page: 'users' as const,
-      data: { id: 'user-1', displayName: 'Yumii', status: 'ACTIVE', activeOrderId: null, externalAccountDisplay: 'Discord · yu_mii', riskFlags: [], version: 3 },
-      markers: ['customer-detail', '客户概览', '账户与运营', '完整客户档案']
+      data: { id: 'user-1', displayName: 'Yumii', discordUserId: '700000000000000001', discordUsername: 'yu_mii', status: 'ACTIVE', activeOrderId: null, externalAccountDisplay: null, riskFlags: [], version: 3, createdAt: '2026-08-04T00:00:00Z', updatedAt: '2026-08-04T01:00:00Z' },
+      markers: ['customer-detail', '客户概览', 'Discord 用户编号', '数据版本', '完整客户档案']
     },
     {
       page: 'players' as const,
-      data: { id: 'player-1', displayName: '奶糖', discordTag: '奶糖#2048', reviewStatus: 'APPROVED', active: true, availability: 'AVAILABLE', gameTags: ['英雄联盟'], serviceTags: ['技术陪玩'], languageTags: ['中文'], version: 4 },
-      markers: ['player-profile-detail', '陪玩档案', '支持范围', '账号信息']
+      data: { playerId: 'player-1', userId: 'user-2', displayName: '奶糖', discordUserId: '700000000000000002', discordUsername: 'milk', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTagDetails: [{ code: 'LOLNA', displayName: '英雄联盟' }], serviceTagDetails: [{ code: 'RANKED', displayName: '技术陪玩' }], languageTagDetails: [{ code: 'CN', displayName: '中文' }], version: 4, createdAt: '2026-08-04T00:00:00Z', updatedAt: '2026-08-04T01:00:00Z' },
+      markers: ['player-profile-detail', '陪玩档案', '支持范围', '账号与状态', 'Discord 在线状态（仅诊断）']
     },
     {
       page: 'serviceCatalog' as const,
@@ -60,5 +60,6 @@ describe('Dashboard card workspaces', () => {
     for (const marker of markers) expect(html).toContain(marker);
     expect(html).not.toContain('未映射字段：gameDisplayName');
     expect(html).not.toContain('未映射字段：serviceDisplayName');
+    expect(html).not.toContain('可参与派单');
   });
 });
