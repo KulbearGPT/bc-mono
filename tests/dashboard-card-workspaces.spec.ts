@@ -32,4 +32,33 @@ describe('Dashboard card workspaces', () => {
     expect(html).toContain('业务对象详情');
     expect(html).toContain('三角洲护航');
   });
+
+  test.each([
+    {
+      page: 'users' as const,
+      data: { id: 'user-1', displayName: 'Yumii', status: 'ACTIVE', activeOrderId: null, externalAccountDisplay: 'Discord · yu_mii', riskFlags: [], version: 3 },
+      markers: ['customer-detail', '客户概览', '账户与运营', '完整客户档案']
+    },
+    {
+      page: 'players' as const,
+      data: { id: 'player-1', displayName: '奶糖', discordTag: '奶糖#2048', reviewStatus: 'APPROVED', active: true, availability: 'AVAILABLE', gameTags: ['英雄联盟'], serviceTags: ['技术陪玩'], languageTags: ['中文'], version: 4 },
+      markers: ['player-profile-detail', '陪玩档案', '支持范围', '账号信息']
+    },
+    {
+      page: 'serviceCatalog' as const,
+      data: { id: 'catalog-1', code: 'LOLNA_RANKED', game: 'LOLNA', gameDisplayName: '英雄联盟美服', service: 'RANKED', serviceDisplayName: '技术陪玩', region: 'NA', regionDisplayName: '北美', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 300, defaultPlayerPayoutBps: 5000, currency: 'CAT', status: 'ACTIVE', version: 2 },
+      markers: ['catalog-detail', '服务项目', '价格与计费', '目录标识']
+    },
+    {
+      page: 'servicePackages' as const,
+      data: { id: 'package-1', code: 'DELTA_ESCORT', gameDisplayName: '三角洲行动', displayName: '双人护航', description: '一位技术猫与一位气氛猫。', defaultCustomerPriceMinor: 600, currency: 'CAT', status: 'ACTIVE', version: 2, slots: [{ id: 'slot-1', position: 1, gameDisplayName: '三角洲行动', serviceDisplayName: '技术护航', regionDisplayName: '北美', billingUnitMinutes: 60, unitCount: 2, customerNoteTemplate: '负责技术护航' }] },
+      markers: ['package-detail', '套餐概览', '套餐席位', '1 号位', '负责技术护航']
+    }
+  ])('renders a structured $page detail instead of a raw field dump', ({ page, data, markers }) => {
+    const model = buildAdminBusinessPage({ page, permissions: ['user.read', 'player.read', 'catalog.read'], status: 'READY', items: [] });
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, detail: { kind: 'READY', page, requestId: 'req-detail-layout', data }, onCloseDetail: () => undefined }));
+    for (const marker of markers) expect(html).toContain(marker);
+    expect(html).not.toContain('未映射字段：gameDisplayName');
+    expect(html).not.toContain('未映射字段：serviceDisplayName');
+  });
 });

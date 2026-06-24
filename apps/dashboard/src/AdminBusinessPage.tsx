@@ -393,9 +393,75 @@ function AdminDetailRegion(props: { detail: AdminBusinessDetailState; onClose?: 
       {detail.kind === 'LOADING' && <p aria-busy="true">正在载入详情...</p>}
       {detail.kind === 'FORBIDDEN' && <p role="alert">{detail.page === 'orders' ? '当前订单不在你的任务权限范围内。' : '当前账号无权查看此详情。'}{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
       {detail.kind === 'ERROR' && <p role="alert">详情暂时无法载入。{detail.requestId ? ` request_id: ${detail.requestId}` : ''}</p>}
-      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions??[]} participantPlayerOptions={props.participantPlayerOptions??[]} mutationError={props.participantMutationError} onAdd={props.onAddOrderParticipant} onUpdate={props.onUpdateOrderParticipant} /> : <dl>{Object.entries(detail.data).map(([key, value]) => <div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key, value, detail.data?.currency)}</dd></div>)}</dl>}{detail.page === 'users' && typeof detail.data.id === 'string' && <p><a href={`/admin/users/${encodeURIComponent(detail.data.id)}/profile`}>打开客户 Profile</a></p>}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
+      {detail.kind === 'READY' && detail.data && <>{detail.page === 'orders' ? <OrderTimelineRegion data={detail.data} pageState={detail.timelinePage} onNext={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions??[]} participantPlayerOptions={props.participantPlayerOptions??[]} mutationError={props.participantMutationError} onAdd={props.onAddOrderParticipant} onUpdate={props.onUpdateOrderParticipant} /> : <StructuredAdminDetail page={detail.page} data={detail.data} />}{detail.page === 'users' && detail.consumptions && <UserConsumptionRegion consumptions={detail.consumptions} onNext={props.onNextConsumptions} />}</>}
     </aside>
   );
+}
+
+function StructuredAdminDetail({ page, data }: { page: Exclude<AdminBusinessDetailState['page'], 'orders'>; data: Record<string, unknown> }) {
+  if (page === 'users') return <CustomerDetail data={data} />;
+  if (page === 'players') return <PlayerProfileDetail data={data} />;
+  if (page === 'serviceCatalog') return <CatalogDetail data={data} />;
+  if (page === 'servicePackages') return <PackageDetail data={data} />;
+  return <dl className="definition-list">{Object.entries(data).map(([key, value]) => <div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key, value, data.currency)}</dd></div>)}</dl>;
+}
+
+function DetailStatus({ status }: { status: string }) {
+  return <span className={`entity-detail__status entity-detail__status--${status.toLowerCase()}`}>{catalogStatusLabel(status)}</span>;
+}
+
+function DetailFacts({ facts }: { facts: Array<{ label: string; value: string; strong?: boolean; mono?: boolean }> }) {
+  return <dl className="entity-detail__facts">{facts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd className={`${fact.strong ? 'is-strong' : ''} ${fact.mono ? 'is-mono' : ''}`.trim()}>{fact.value}</dd></div>)}</dl>;
+}
+
+function DetailTags({ values, empty = '未配置' }: { values: unknown; empty?: string }) {
+  const tags = Array.isArray(values) ? values.map(textValue).filter(Boolean) : textValue(values).split(',').map((item) => item.trim()).filter(Boolean);
+  return tags.length ? <div className="entity-detail__tags">{tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : <p className="entity-detail__empty">{empty}</p>;
+}
+
+function CustomerDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.status) || 'ACTIVE';
+  const riskFlags = Array.isArray(data.riskFlags) ? data.riskFlags : textValue(data.riskFlags) ? [textValue(data.riskFlags)] : [];
+  return <div className="entity-detail customer-detail">
+    <header className="entity-detail__hero"><div><span className="entity-detail__eyebrow">客户概览</span><h3>{textValue(data.displayName) || textValue(data.discordTag) || '未命名客户'}</h3><p>{textValue(data.externalAccountDisplay) || '内部客户账户'}</p></div><DetailStatus status={status} /></header>
+    <div className="entity-detail__layout"><section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>ACCOUNT</span><h4>账户与运营</h4></div></div><DetailFacts facts={[{ label: '客户编号', value: textValue(data.id) || '—', mono: true }, { label: '进行中订单', value: textValue(data.activeOrderId) || '当前无进行中订单' }, { label: '风险标记', value: riskFlags.length ? `${riskFlags.length} 项` : '无风险标记' }, { label: '数据版本', value: textValue(data.version) || '—' }]} />{riskFlags.length > 0 && <DetailTags values={riskFlags} />}</section>
+      <aside className="entity-detail__aside"><span className="entity-detail__aside-label">CUSTOMER PROFILE</span><h4>查看完整客户资料</h4><p>余额、订单、消费与风险模块会在独立档案中按权限展示。</p>{typeof data.id === 'string' && <a className="entity-detail__link" href={`/admin/users/${encodeURIComponent(data.id)}/profile`}>打开完整客户档案 <span aria-hidden="true">→</span></a>}</aside></div>
+  </div>;
+}
+
+function PlayerProfileDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.reviewStatus) || (data.active === false ? 'INACTIVE' : 'ACTIVE');
+  return <div className="entity-detail player-profile-detail">
+    <header className="entity-detail__hero"><div><span className="entity-detail__eyebrow">陪玩档案</span><h3>{textValue(data.displayName) || textValue(data.discordTag) || '未命名陪玩'}</h3><p>{textValue(data.discordTag) || 'Discord 身份待绑定'}</p></div><DetailStatus status={status} /></header>
+    <div className="entity-detail__layout"><section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>SERVICE RANGE</span><h4>支持范围</h4></div></div><div className="entity-detail__tag-groups"><div><h5>游戏</h5><DetailTags values={data.gameTags} /></div><div><h5>服务</h5><DetailTags values={data.serviceTags} /></div><div><h5>语言</h5><DetailTags values={data.languageTags} /></div></div></section>
+      <section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>IDENTITY</span><h4>账号信息</h4></div></div><DetailFacts facts={[{ label: '陪玩编号', value: textValue(data.playerId) || textValue(data.id) || '—', mono: true }, { label: 'Discord 用户编号', value: textValue(data.discordUserId) || '—', mono: true }, { label: '接单状态', value: textValue(data.availability) || '未设置' }, { label: '运营状态', value: data.active === false ? '已停用' : '可参与派单' }, { label: '数据版本', value: textValue(data.version) || '—' }]} /></section></div>
+  </div>;
+}
+
+function CatalogDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.status) || (data.enabled === false ? 'INACTIVE' : 'ACTIVE');
+  const currency = textValue(data.currency) || 'CAT';
+  const game = textValue(data.gameDisplayName) || textValue(data.game) || '未指定游戏';
+  const service = textValue(data.serviceDisplayName) || textValue(data.service) || '未指定服务';
+  const payoutBps = numberValue(data.defaultPlayerPayoutBps);
+  return <div className="entity-detail catalog-detail">
+    <header className="entity-detail__hero entity-detail__hero--catalog"><div><span className="entity-detail__eyebrow">服务项目</span><h3>{game} <span>·</span> {service}</h3><p>{textValue(data.regionDisplayName) || textValue(data.region) || '不限区服'} · 版本 {textValue(data.version) || '—'}</p></div><DetailStatus status={status} /></header>
+    <section className="entity-detail__price-strip" aria-label="价格与计费概览"><div><span>客户单价</span><strong>{priceValue(data.customerUnitPriceMinor, currency)}</strong></div><div><span>计费单位</span><strong>{numberValue(data.billingUnitMinutes) ? `${numberValue(data.billingUnitMinutes)} 分钟` : '—'}</strong></div><div><span>最低购买</span><strong>{numberValue(data.minimumUnits) ? `${numberValue(data.minimumUnits)} 单位` : '—'}</strong></div></section>
+    <div className="entity-detail__layout"><section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>PRICING</span><h4>价格与计费</h4></div></div><DetailFacts facts={[{ label: '客户单位价格', value: priceValue(data.customerUnitPriceMinor, currency), strong: true }, { label: '默认陪玩分成', value: payoutBps == null ? '未配置' : `${payoutBps / 100}%` }, { label: '结算币种', value: currency }, { label: '最低购买单位', value: numberValue(data.minimumUnits) ? `${numberValue(data.minimumUnits)} 单位` : '—' }]} /></section>
+      <section className="entity-detail__section"><div className="entity-detail__section-heading"><div><span>IDENTIFIERS</span><h4>目录标识</h4></div></div><DetailFacts facts={[{ label: '稳定代码', value: textValue(data.code) || '—', mono: true }, { label: '游戏代码', value: textValue(data.game) || '—', mono: true }, { label: '服务代码', value: textValue(data.service) || '—', mono: true }, { label: '地区代码', value: textValue(data.region) || '不限', mono: true }, { label: '目录版本编号', value: textValue(data.id) || '—', mono: true }]} /></section></div>
+  </div>;
+}
+
+function PackageDetail({ data }: { data: Record<string, unknown> }) {
+  const status = textValue(data.status) || 'DRAFT';
+  const currency = textValue(data.currency) || 'CAT';
+  const slots = Array.isArray(data.slots) ? data.slots.filter((slot): slot is Record<string, unknown> => Boolean(slot && typeof slot === 'object' && !Array.isArray(slot))) : [];
+  return <div className="entity-detail package-detail">
+    <header className="entity-detail__hero entity-detail__hero--package"><div><span className="entity-detail__eyebrow">套餐概览</span><h3>{textValue(data.displayName) || textValue(data.code) || '未命名套餐'}</h3><p>{textValue(data.gameDisplayName) || textValue(data.game) || '游戏归属待确认'} · {slots.length} 个独立席位 · 版本 {textValue(data.version) || '—'}</p></div><DetailStatus status={status} /></header>
+    <section className="entity-detail__package-intro"><div><span>套餐说明</span><p>{textValue(data.description) || '暂未填写套餐说明。'}</p></div><div><span>套餐价格</span><strong>{priceValue(data.defaultCustomerPriceMinor, currency)}</strong><small>由 API 按席位目录价格汇总</small></div></section>
+    <section className="entity-detail__section entity-detail__section--slots"><div className="entity-detail__section-heading"><div><span>LINEUP</span><h4>套餐席位</h4></div><strong>{slots.length} 个席位</strong></div>{slots.length ? <div className="package-detail__slots">{slots.map((slot, index) => { const position = numberValue(slot.position) ?? index + 1; return <article className="package-detail__slot" aria-label={`${position} 号位`} key={textValue(slot.id) || `${index}`}><div className="package-detail__slot-index"><span>{position}</span><small>号位</small></div><div className="package-detail__slot-main"><h5>{textValue(slot.serviceDisplayName) || textValue(slot.service) || '未指定服务'}</h5><p>{[textValue(slot.gameDisplayName) || textValue(slot.game), textValue(slot.regionDisplayName) || textValue(slot.region) || '不限区服'].filter(Boolean).join(' · ')}</p><div className="package-detail__slot-meta"><span>{numberValue(slot.unitCount) ?? '—'} 个计费单位</span><span>{numberValue(slot.billingUnitMinutes) ?? '—'} 分钟 / 单位</span></div>{textValue(slot.customerNoteTemplate) && <blockquote>{textValue(slot.customerNoteTemplate)}</blockquote>}</div></article>; })}</div> : <p className="entity-detail__empty">尚未配置套餐席位。</p>}</section>
+    <section className="entity-detail__section entity-detail__section--identifiers"><div className="entity-detail__section-heading"><div><span>VERSION</span><h4>版本信息</h4></div></div><DetailFacts facts={[{ label: '稳定套餐代码', value: textValue(data.code) || '—', mono: true }, { label: '套餐版本编号', value: textValue(data.id) || '—', mono: true }, { label: '数据版本', value: textValue(data.version) || '—' }, { label: '状态', value: catalogStatusLabel(status) }]} /></section>
+  </div>;
 }
 
 function OrderTimelineRegion(props:{data:Record<string,unknown>;pageState?:AdminBusinessDetailState['timelinePage'];onNext?:(cursor:string)=>void;serviceCatalogOptions:Array<Record<string,unknown>>;participantPlayerOptions:Array<Record<string,unknown>>;mutationError?:string|null;onAdd?:(fields:Record<string,unknown>)=>void;onUpdate?:(fields:Record<string,unknown>)=>void}) {
