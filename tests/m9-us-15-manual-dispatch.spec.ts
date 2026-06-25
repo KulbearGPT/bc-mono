@@ -1,43 +1,28 @@
-import { describe, expect, test, vi } from 'vitest';
-import { readFile } from 'node:fs/promises';
-import { resolveBotConfigBoolean, type BotConfigStore } from '@blackcat/api/bot-config';
-import { buildAdminActionRequest, buildAdminBusinessPage } from '@blackcat/dashboard/admin-business';
+import { describe, expect, test } from "vitest";
+import { readFile } from "node:fs/promises";
+import { buildAdminBusinessPage } from "@blackcat/dashboard/admin-business";
+import { botConfigBooleanFields } from "@blackcat/bot/bot-config";
 
-describe('M9-US-15 automatic/manual dispatch mode', () => {
-  test('resolves the guild auto-dispatch switch with a safe fallback', async () => {
-    const store = { get: vi.fn().mockResolvedValue({ guildId: 'guild', version: 1, values: { auto_dispatch_enabled: false } }) } as unknown as BotConfigStore;
-    await expect(resolveBotConfigBoolean(store, 'guild', 'auto_dispatch_enabled', true)).resolves.toBe(false);
-    await expect(resolveBotConfigBoolean(undefined, 'guild', 'auto_dispatch_enabled', true)).resolves.toBe(true);
-  });
-
-  test('worker gates initial and timeout retry while dashboard exposes manual dispatch', async () => {
-    const [worker, adminBusiness, route] = await Promise.all([
-      readFile('apps/api/src/worker.ts', 'utf8'),
-      readFile('apps/dashboard/src/admin-business.ts', 'utf8'),
-      readFile('apps/api/src/dispatch.ts', 'utf8')
+describe("M9-US-15 customer-controlled selection windows", () => {
+  test("retires auto/manual dispatch controls from every production client", async () => {
+    const [worker, server, adminBusiness] = await Promise.all([
+      readFile("apps/api/src/worker.ts", "utf8"),
+      readFile("apps/api/src/server.ts", "utf8"),
+      readFile("apps/dashboard/src/admin-business.ts", "utf8"),
     ]);
-    expect(worker.match(/auto_dispatch_enabled/gu)).toHaveLength(2);
-    expect(adminBusiness).toContain('MANUAL_DISPATCH');
-    expect(route).toContain("acceptedSources: ['SYSTEM_JOB']");
-    expect(route).toContain("url: '/api/v1/admin/orders/:orderId/manual-dispatch'");
+    expect(worker).not.toContain("auto_dispatch_enabled");
+    expect(server).not.toContain("registerDispatchRoutes(server");
+    expect(adminBusiness).not.toContain("MANUAL_DISPATCH");
+    expect(botConfigBooleanFields).not.toContain("auto_dispatch_enabled");
   });
 
-  test('maps the L4 order action to a single 90-second manual round', () => {
+  test("does not offer staff a customer-selection action", () => {
     const page = buildAdminBusinessPage({
-      page: 'orders',
-      permissions: ['order.read', 'dispatch.manual'],
-      status: 'READY',
-      items: [{ id: 'order-1', version: 7, status: 'PENDING_DISPATCH' }]
+      page: "orders",
+      permissions: ["order.read", "dispatch.manual"],
+      status: "READY",
+      items: [{ id: "order-1", version: 7, status: "PENDING_DISPATCH" }],
     });
-    expect(page.actions).toContainEqual(expect.objectContaining({ id: 'MANUAL_DISPATCH' }));
-    expect(buildAdminActionRequest({
-      actionId: 'MANUAL_DISPATCH',
-      item: { id: 'order-1', version: 7, status: 'PENDING_DISPATCH' },
-      fields: { targetDiscordUserIds: '' }
-    })).toEqual({
-      method: 'POST',
-      path: '/api/v1/admin/orders/order-1/manual-dispatch',
-      body: { expectedVersion: 7, trigger: 'MANUAL_RETRY', targetDiscordUserIds: [] }
-    });
+    expect(page.actions).toEqual([]);
   });
 });

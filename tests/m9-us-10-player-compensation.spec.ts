@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import {
   InMemoryPlayerCompensationStore,
   calculatePlayerCompensation,
-  upsertPlayerCompensationRule
+  upsertPlayerCompensationRule,
+  upsertPlayerCompensationRules
 } from '@blackcat/api/player-compensation';
 import { buildAdminActionRequest } from '@blackcat/dashboard/admin-business';
 
@@ -33,12 +34,35 @@ describe('M9-US-10 per-player service compensation', () => {
     expect(updated).toMatchObject({ type: 'FIXED_MINOR', value: 12, currency: 'CAT', version: 2 });
   });
 
+  test('writes multiple project overrides together and rejects the whole stale batch', async () => {
+    const store = new InMemoryPlayerCompensationStore();
+    await upsertPlayerCompensationRules({store,playerId:'player-1',actorStaffId:'staff-1',now:new Date(),rules:[
+      {serviceOfferingId:'offering-1',expectedVersion:null,type:'PERCENT_BPS',value:6000,currency:null},
+      {serviceOfferingId:'offering-2',expectedVersion:null,type:'FIXED_MINOR',value:12,currency:'CAT'}
+    ]});
+    await expect(upsertPlayerCompensationRules({store,playerId:'player-1',actorStaffId:'staff-1',now:new Date(),rules:[
+      {serviceOfferingId:'offering-1',expectedVersion:1,type:'PERCENT_BPS',value:7000,currency:null},
+      {serviceOfferingId:'offering-2',expectedVersion:99,type:'FIXED_MINOR',value:14,currency:'CAT'}
+    ]})).rejects.toMatchObject({code:'CONFLICT'});
+    expect(await store.find('player-1','offering-1')).toMatchObject({value:6000,version:1});
+  });
+
   test('dashboard submits a selected service and exactly one override mode', () => {
     expect(buildAdminActionRequest({ actionId: 'EDIT_PLAYER_COMPENSATION', item: { playerId: 'player-1', version: 3 }, fields: {
       serviceOfferingId: 'offering-1', compensationType: 'PERCENT_BPS', percentage: '60', fixedAmountMinor: '', reasonCode: 'RATE_UPDATE'
     }})).toEqual({ method: 'PUT', path: '/api/v1/admin/players/player-1/compensation/offering-1', body: {
       expectedVersion: null, type: 'PERCENT_BPS', value: 6000, currency: null, reasonCode: 'RATE_UPDATE'
     }});
+  });
+
+  test('dashboard submits every cached project change in one request', () => {
+    expect(buildAdminActionRequest({actionId:'EDIT_PLAYER_COMPENSATION',item:{playerId:'player-1',version:1},fields:{reasonCode:'RATE_UPDATE',compensationChangesJson:JSON.stringify([
+      {serviceOfferingId:'offering-1',expectedVersion:'1',type:'PERCENT_BPS',percentage:'60',fixedAmountMinor:''},
+      {serviceOfferingId:'offering-2',expectedVersion:'',type:'FIXED_MINOR',percentage:'',fixedAmountMinor:'12'}
+    ])}})).toEqual({method:'PUT',path:'/api/v1/admin/players/player-1/compensation',body:{reasonCode:'RATE_UPDATE',rules:[
+      {serviceOfferingId:'offering-1',expectedVersion:1,type:'PERCENT_BPS',value:6000,currency:null},
+      {serviceOfferingId:'offering-2',expectedVersion:null,type:'FIXED_MINOR',value:12,currency:'CAT'}
+    ]}});
   });
 
   test('dashboard shows every player project compensation as a visible list instead of a dropdown', async () => {
@@ -58,5 +82,7 @@ describe('M9-US-10 per-player service compensation', () => {
     expect(source).toContain('确认分成改动');
     expect(source).toContain('确认并保存');
     expect(source).toContain('CompensationChangeConfirmation');
+    expect(source).toContain('确认并保存全部');
+    expect(source).toContain('compensationChangesJson');
   });
 });

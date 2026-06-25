@@ -1,5 +1,5 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import crypto from 'node:crypto';
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import crypto from "node:crypto";
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -7,56 +7,70 @@ import {
   registerSecureWriteRoute,
   type ActorContext,
   type AuditRecord,
-  type AuditSink
-} from './security.js';
-import type { AccountBindingRecord, AccountStore } from './accounts.js';
-import type { Currency, ServiceCatalogRecord, ServiceCatalogStore } from './catalog.js';
+  type AuditSink,
+} from "./security.js";
+import type { AccountBindingRecord, AccountStore } from "./accounts.js";
+import type {
+  Currency,
+  ServiceCatalogRecord,
+  ServiceCatalogStore,
+} from "./catalog.js";
 import {
   buildFundReservationDraft,
   resolveFundReservationMode,
   type FundReservationMode,
-  type FundReservationStatus
-} from './funding.js';
-import type { WalletFundingService } from './wallet.js';
-import type { OutboxJob } from './outbox.js';
+  type FundReservationStatus,
+} from "./funding.js";
+import type { WalletFundingService } from "./wallet.js";
+import type { OutboxJob } from "./outbox.js";
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
-  type StaffTaskStore
-} from './staff-tasks.js';
+  type StaffTaskStore,
+} from "./staff-tasks.js";
 
 export type OrderStatus =
-  | 'DRAFT'
-  | 'PENDING_DISPATCH'
-  | 'ACCEPTED'
-  | 'IN_SERVICE'
-  | 'PENDING_CONFIRMATION'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'EXCEPTION';
+  | "DRAFT"
+  | "PENDING_DISPATCH"
+  | "ACCEPTED"
+  | "IN_SERVICE"
+  | "PENDING_CONFIRMATION"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "EXCEPTION";
 
 export type OrderEventType =
-  | 'CREATED'
-  | 'DETAILS_UPDATED'
-  | 'CHANNEL_LINKED'
-  | 'SUBMITTED'
-  | 'DISPATCH_STARTED'
-  | 'DISPATCH_TIMED_OUT'
-  | 'ACCEPTED'
-  | 'CUSTOMER_READY_CONFIRMED'
-  | 'PLAYER_READY_CONFIRMED'
-  | 'READINESS_RESET'
-  | 'READINESS_TIMED_OUT'
-  | 'SERVICE_STARTED'
-  | 'SERVICE_STARTED_OVERRIDE'
-  | 'COMPLETION_REQUESTED'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'EXCEPTION_ENTERED'
-  | 'EXCEPTION_RECOVERED'
-  | 'RESOLVED'
-  | 'PANEL_SYNC_REQUESTED';
-export type FundReservationEventType = 'CREATED' | 'ACTIVATED' | 'CAPTURED' | 'RELEASED' | 'DISPUTED' | 'DISPUTE_RESOLVED' | 'EXPIRED' | 'FAILED' | 'INCREASED' | 'DECREASED';
+  | "CREATED"
+  | "DETAILS_UPDATED"
+  | "CHANNEL_LINKED"
+  | "SUBMITTED"
+  | "DISPATCH_STARTED"
+  | "DISPATCH_TIMED_OUT"
+  | "ACCEPTED"
+  | "CUSTOMER_READY_CONFIRMED"
+  | "PLAYER_READY_CONFIRMED"
+  | "READINESS_RESET"
+  | "READINESS_TIMED_OUT"
+  | "SERVICE_STARTED"
+  | "SERVICE_STARTED_OVERRIDE"
+  | "COMPLETION_REQUESTED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "EXCEPTION_ENTERED"
+  | "EXCEPTION_RECOVERED"
+  | "RESOLVED"
+  | "PANEL_SYNC_REQUESTED";
+export type FundReservationEventType =
+  | "CREATED"
+  | "ACTIVATED"
+  | "CAPTURED"
+  | "RELEASED"
+  | "DISPUTED"
+  | "DISPUTE_RESOLVED"
+  | "EXPIRED"
+  | "FAILED"
+  | "INCREASED"
+  | "DECREASED";
 
 export interface ChannelSpec {
   channelId: string;
@@ -73,7 +87,7 @@ export interface OrderRecord {
   status: OrderStatus;
   version: number;
   sourcePackageVersionId?: string | null;
-  compositionMode?: 'PACKAGE_DEFAULT' | 'CUSTOMIZED' | null;
+  compositionMode?: "PACKAGE_DEFAULT" | "CUSTOMIZED" | null;
   serviceCatalogId: string | null;
   catalogVersion: number | null;
   game: string | null;
@@ -92,12 +106,12 @@ export interface OrderRecord {
   notes: string | null;
   preferredPlayerDiscordUserIds?: string[];
   channelSpec: ChannelSpec;
-  automationState?: 'RUNNING' | 'PAUSED';
+  automationState?: "RUNNING" | "PAUSED";
   automationVersion?: number;
   automationPausedByStaffId?: string | null;
   automationStaffTaskId?: string | null;
   automationReasonCode?: string | null;
-  automationScope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
+  automationScope?: "ALL" | "DISPATCH" | "LIFECYCLE" | "CANCELLATION" | null;
   automationPausedAt?: string | null;
   automationResumedAt?: string | null;
   automationExpiresAt?: string | null;
@@ -115,14 +129,14 @@ export interface OrderEventRecord {
   toStatus: OrderStatus;
   actorUserId: string | null;
   actorStaffId: string | null;
-  actorSource: ActorContext['actorSource'];
+  actorSource: ActorContext["actorSource"];
   interactionId: string | null;
   payload: unknown;
   createdAt: string;
 }
 
 export interface CreateOrderInput {
-  orderType: 'IMMEDIATE';
+  orderType: "IMMEDIATE";
   channelSpec: ChannelSpec;
 }
 
@@ -161,22 +175,22 @@ export interface AutomationControlInput {
   expectedVersion: number;
   reasonCode: string;
   note?: string | null;
-  scope?: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION';
+  scope?: "ALL" | "DISPATCH" | "LIFECYCLE" | "CANCELLATION";
   expiresAt?: string | null;
-  resumeAction?: 'REDISPATCH' | 'RESTART_READINESS_TIMEOUT' | 'NONE';
+  resumeAction?: "REDISPATCH" | "RESTART_READINESS_TIMEOUT" | "NONE";
 }
 
 export interface AutomationControlResult {
   orderId: string;
   orderVersion: number;
-  resumeAction: AutomationControlInput['resumeAction'] | null;
+  resumeAction: AutomationControlInput["resumeAction"] | null;
   automation: {
-    state: 'RUNNING' | 'PAUSED';
+    state: "RUNNING" | "PAUSED";
     version: number;
     pausedByStaffId: string | null;
     staffTaskId: string | null;
     reasonCode: string | null;
-    scope: OrderRecord['automationScope'];
+    scope: OrderRecord["automationScope"];
     pausedAt: string | null;
     resumedAt: string | null;
     expiresAt: string | null;
@@ -194,8 +208,9 @@ export interface CancellationPreviewRecord {
   fundReservationId: string | null;
   orderVersionSnapshot: number;
   reservationVersionSnapshot: number | null;
-  status: 'ISSUED' | 'APPLIED' | 'EXPIRED' | 'INVALIDATED';
-  disposition: 'AUTO_RELEASE' | 'AUTO_REFUND' | 'STAFF_REVIEW_REQUIRED' | 'BLOCKED';
+  status: "ISSUED" | "APPLIED" | "EXPIRED" | "INVALIDATED";
+  disposition:
+    "AUTO_RELEASE" | "AUTO_REFUND" | "STAFF_REVIEW_REQUIRED" | "BLOCKED";
   releaseAmountMinor: number;
   refundAmountMinor: number;
   currency: Currency;
@@ -216,12 +231,12 @@ export interface CancellationPreviewResult {
   orderId: string;
   orderVersion: number;
   automaticallyProcessable: boolean;
-  fundAction: 'RELEASE_RESERVATION' | 'REFUND_CAPTURED_PAYMENT' | 'NONE';
+  fundAction: "RELEASE_RESERVATION" | "REFUND_CAPTURED_PAYMENT" | "NONE";
   estimatedAmountMinor: number;
   releaseAmountMinor: number;
   refundAmountMinor: number;
   currency: Currency;
-  handlingTimeCode: 'IMMEDIATE' | 'STAFF_REVIEW_REQUIRED';
+  handlingTimeCode: "IMMEDIATE" | "STAFF_REVIEW_REQUIRED";
   staffTaskRequired: boolean;
   validUntil: string;
 }
@@ -229,7 +244,7 @@ export interface CancellationPreviewResult {
 export interface FundReservationRecord {
   id: string;
   userId: string;
-  sourceType: 'ORDER';
+  sourceType: "ORDER";
   orderId: string;
   mode: FundReservationMode;
   provider: string | null;
@@ -258,7 +273,7 @@ export interface FundReservationEventRecord {
   idempotencyKey: string;
   actorUserId: string | null;
   actorStaffId: string | null;
-  actorSource: ActorContext['actorSource'];
+  actorSource: ActorContext["actorSource"];
   reasonCode: string | null;
   createdAt: string;
 }
@@ -266,7 +281,7 @@ export interface FundReservationEventRecord {
 export interface ExternalTransactionMirrorRecord {
   id: string;
   provider: string;
-  type: 'ORDER_CHARGE';
+  type: "ORDER_CHARGE";
   userId: string;
   orderId: string;
   fundReservationId: string | null;
@@ -274,7 +289,7 @@ export interface ExternalTransactionMirrorRecord {
   idempotencyKey: string;
   amountMinor: number;
   currency: Currency;
-  status: 'UNKNOWN' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  status: "UNKNOWN" | "PENDING" | "SUCCEEDED" | "FAILED";
   createdAt: string;
 }
 
@@ -291,7 +306,7 @@ export interface FundReservationSummary {
 
 export interface FundReservationApiRecord {
   id: string;
-  sourceType: 'ORDER';
+  sourceType: "ORDER";
   sourceId: string;
   ownerUserId: string;
   amountMinor: number;
@@ -310,7 +325,7 @@ export interface FundReservationApiRecord {
 
 export interface OrderReservationResult {
   orderId: string;
-  status: 'PENDING_DISPATCH';
+  status: "PENDING_DISPATCH";
   version: number;
   reservation: FundReservationSummary;
   balance: {
@@ -327,7 +342,7 @@ export interface CancellationResult {
   orderId: string;
   status: OrderStatus;
   version: number;
-  fundAction: 'RELEASE_RESERVATION' | 'NONE';
+  fundAction: "RELEASE_RESERVATION" | "NONE";
   amountMinor: number;
   currency: Currency;
   reservation: FundReservationSummary | null;
@@ -360,7 +375,6 @@ export interface PreparedSubmitOrderWrite {
   reservationEvent: FundReservationEventRecord;
   externalTransactions: ExternalTransactionMirrorRecord[];
   ledgerBalanceMinor: number;
-  dispatchStartJob: OutboxJob;
 }
 
 export interface PreparedCancelOrderWrite {
@@ -377,14 +391,30 @@ export interface PreparedCancelOrderWrite {
 export interface OrderStore {
   findActiveByCustomer(customerId: string): Promise<OrderRecord | null>;
   findById(orderId: string): Promise<OrderRecord | null>;
-  findActiveReservationByOrder?(orderId: string): Promise<FundReservationRecord | null>;
+  findActiveReservationByOrder?(
+    orderId: string,
+  ): Promise<FundReservationRecord | null>;
   getMatchingProgress?(orderId: string): Promise<OrderMatchingProgress | null>;
-  getActiveRequirementEstimate?(orderId: string): Promise<{ count: number; amountMinor: number }>;
-  getNextOpenRequirement?(orderId: string): Promise<OrderDispatchRequirement | null>;
-  getDispatchRequirement?(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null>;
+  getActiveRequirementEstimate?(
+    orderId: string,
+  ): Promise<{ count: number; amountMinor: number }>;
+  getNextOpenRequirement?(
+    orderId: string,
+  ): Promise<OrderDispatchRequirement | null>;
+  getDispatchRequirement?(
+    orderId: string,
+    requirementId: string,
+  ): Promise<OrderDispatchRequirement | null>;
   getActiveParticipantPlayerIds?(orderId: string): Promise<string[]>;
-  issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> | void;
-  findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> | CancellationPreviewRecord | null;
+  issueCancellationPreview(
+    preview: CancellationPreviewRecord,
+  ): Promise<void> | void;
+  findCancellationPreview(
+    previewId: string,
+  ):
+    | Promise<CancellationPreviewRecord | null>
+    | CancellationPreviewRecord
+    | null;
   applyCancellationPreview(previewId: string, now: Date): Promise<void> | void;
   commitAutomationControl(input: {
     order: OrderRecord;
@@ -393,7 +423,12 @@ export interface OrderStore {
     auditSink: AuditSink;
   }): Promise<void> | void;
   nextEventSequence(orderId: string): Promise<number>;
-  commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
+  commitCreate(input: {
+    order: OrderRecord;
+    event: OrderEventRecord;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void>;
   commitUpdate(input: {
     order: OrderRecord;
     event: OrderEventRecord;
@@ -409,7 +444,6 @@ export interface OrderStore {
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
-    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void>;
@@ -446,17 +480,21 @@ export interface OrderDispatchRequirement {
 }
 
 export interface OrderMatchingProgress {
-  stage: 'SEARCHING' | 'WAITING_FOR_ACCEPTANCE' | 'TIMED_OUT' | 'ACCEPTED';
+  stage: "SEARCHING" | "WAITING_FOR_ACCEPTANCE" | "TIMED_OUT" | "ACCEPTED";
   notifiedCandidateCount: number;
   requestedPlayerCount?: number;
   filledPlayerCount?: number;
   timeoutAt: string | null;
-  nextStep: 'WAIT_FOR_PLAYER' | 'CHOOSE_CONTINUE_OR_CANCEL' | 'CONFIRM_READINESS';
+  nextStep:
+    "WAIT_FOR_PLAYER" | "CHOOSE_CONTINUE_OR_CANCEL" | "CONFIRM_READINESS";
   playerSummary: { playerId: string; displayName: string } | null;
 }
 
 export interface OrderQueryClient {
-  query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[]; rowCount?: number | null }>;
+  query<Row = Record<string, unknown>>(
+    sql: string,
+    values?: unknown[],
+  ): Promise<{ rows: Row[]; rowCount?: number | null }>;
 }
 
 export interface OrderTransactionClient extends OrderQueryClient {
@@ -472,7 +510,7 @@ export interface OrderApiRecord {
   publicId: string;
   status: OrderStatus;
   version: number;
-  orderType: 'IMMEDIATE';
+  orderType: "IMMEDIATE";
   serviceCatalogId: string | null;
   catalogVersion: number | null;
   unitCount: number | null;
@@ -489,20 +527,20 @@ export interface OrderApiRecord {
   matching: OrderMatchingProgress | null;
   fundReservation: FundReservationSummary | null;
   readiness: {
-    customer: 'NOT_READY';
-    player: 'NOT_READY';
+    customer: "NOT_READY";
+    player: "NOT_READY";
     bothReady: false;
     readyDeadlineAt: null;
     startedAt: null;
     staffTaskId: null;
   };
   automation: {
-    state: 'RUNNING' | 'PAUSED';
+    state: "RUNNING" | "PAUSED";
     version: number;
     pausedByStaffId: string | null;
     staffTaskId: string | null;
     reasonCode: string | null;
-    scope: OrderRecord['automationScope'];
+    scope: OrderRecord["automationScope"];
     pausedAt: string | null;
     resumedAt: string | null;
     expiresAt: string | null;
@@ -519,19 +557,19 @@ export interface OrderApiRecord {
 
 export class OrderError extends Error {
   readonly code:
-    | 'ACCOUNT_NOT_BOUND'
-    | 'BUSINESS_RULE_VIOLATION'
-    | 'CANCELLATION_PREVIEW_STALE'
-    | 'CONFLICT'
-    | 'INSUFFICIENT_AVAILABLE_BALANCE'
-    | 'PERMISSION_DENIED'
-    | 'RESOURCE_NOT_FOUND'
-    | 'SERVICE_NOT_AVAILABLE'
-    | 'VALIDATION_ERROR';
+    | "ACCOUNT_NOT_BOUND"
+    | "BUSINESS_RULE_VIOLATION"
+    | "CANCELLATION_PREVIEW_STALE"
+    | "CONFLICT"
+    | "INSUFFICIENT_AVAILABLE_BALANCE"
+    | "PERMISSION_DENIED"
+    | "RESOURCE_NOT_FOUND"
+    | "SERVICE_NOT_AVAILABLE"
+    | "VALIDATION_ERROR";
 
-  constructor(code: OrderError['code'], message: string) {
+  constructor(code: OrderError["code"], message: string) {
     super(message);
-    this.name = 'OrderError';
+    this.name = "OrderError";
     this.code = code;
   }
 }
@@ -545,14 +583,16 @@ export class InMemoryOrderStore implements OrderStore {
   readonly outboxJobs: OutboxJob[] = [];
   readonly cancellationPreviews: CancellationPreviewRecord[];
 
-  constructor(input: {
-    orders?: OrderRecord[];
-    events?: OrderEventRecord[];
-    reservations?: FundReservationRecord[];
-    reservationEvents?: FundReservationEventRecord[];
-    externalTransactions?: ExternalTransactionMirrorRecord[];
-    cancellationPreviews?: CancellationPreviewRecord[];
-  } = {}) {
+  constructor(
+    input: {
+      orders?: OrderRecord[];
+      events?: OrderEventRecord[];
+      reservations?: FundReservationRecord[];
+      reservationEvents?: FundReservationEventRecord[];
+      externalTransactions?: ExternalTransactionMirrorRecord[];
+      cancellationPreviews?: CancellationPreviewRecord[];
+    } = {},
+  ) {
     this.orders = input.orders?.map(clone) ?? [];
     this.events = input.events?.map(clone) ?? [];
     this.reservations = input.reservations?.map(clone) ?? [];
@@ -566,22 +606,36 @@ export class InMemoryOrderStore implements OrderStore {
   }
 
   findCancellationPreview(previewId: string): CancellationPreviewRecord | null {
-    const preview = this.cancellationPreviews.find((candidate) => candidate.id === previewId);
+    const preview = this.cancellationPreviews.find(
+      (candidate) => candidate.id === previewId,
+    );
     return preview ? clone(preview) : null;
   }
 
   applyCancellationPreview(previewId: string, now: Date): void {
-    const index = this.cancellationPreviews.findIndex((candidate) => candidate.id === previewId);
+    const index = this.cancellationPreviews.findIndex(
+      (candidate) => candidate.id === previewId,
+    );
     const preview = index === -1 ? null : this.cancellationPreviews[index];
-    if (!preview || preview.status !== 'ISSUED') {
-      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    if (!preview || preview.status !== "ISSUED") {
+      throw new OrderError(
+        "CANCELLATION_PREVIEW_STALE",
+        "Refresh the cancellation preview before retrying.",
+      );
     }
-    this.cancellationPreviews[index] = { ...preview, status: 'APPLIED', appliedAt: now.toISOString() };
+    this.cancellationPreviews[index] = {
+      ...preview,
+      status: "APPLIED",
+      appliedAt: now.toISOString(),
+    };
   }
 
   async findActiveByCustomer(customerId: string): Promise<OrderRecord | null> {
     const order = this.orders.find((candidate) => {
-      return candidate.customerId === customerId && activeOrderStatuses.has(candidate.status);
+      return (
+        candidate.customerId === customerId &&
+        activeOrderStatuses.has(candidate.status)
+      );
     });
     return order ? clone(order) : null;
   }
@@ -591,9 +645,14 @@ export class InMemoryOrderStore implements OrderStore {
     return order ? clone(order) : null;
   }
 
-  async findActiveReservationByOrder(orderId: string): Promise<FundReservationRecord | null> {
+  async findActiveReservationByOrder(
+    orderId: string,
+  ): Promise<FundReservationRecord | null> {
     const reservation = this.reservations.find((candidate) => {
-      return candidate.orderId === orderId && activeFundReservationStatuses.includes(candidate.status);
+      return (
+        candidate.orderId === orderId &&
+        activeFundReservationStatuses.includes(candidate.status)
+      );
     });
     return reservation ? clone(reservation) : null;
   }
@@ -605,9 +664,14 @@ export class InMemoryOrderStore implements OrderStore {
     return maxSequence + 1;
   }
 
-  async commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void> {
+  async commitCreate(input: {
+    order: OrderRecord;
+    event: OrderEventRecord;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void> {
     if (await this.findActiveByCustomer(input.order.customerId)) {
-      throw new OrderError('CONFLICT', 'Customer already has an active order.');
+      throw new OrderError("CONFLICT", "Customer already has an active order.");
     }
     this.orders.push(clone(input.order));
     this.events.push(clone(input.event));
@@ -621,13 +685,15 @@ export class InMemoryOrderStore implements OrderStore {
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
+    const index = this.orders.findIndex(
+      (candidate) => candidate.id === input.order.id,
+    );
     const existing = index === -1 ? null : this.orders[index];
     if (!existing) {
-      throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+      throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
     }
     if (existing.version !== input.expectedVersion) {
-      throw new OrderError('CONFLICT', 'Order version is stale.');
+      throw new OrderError("CONFLICT", "Order version is stale.");
     }
     this.orders[index] = clone(input.order);
     this.events.push(clone(input.event));
@@ -640,13 +706,15 @@ export class InMemoryOrderStore implements OrderStore {
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
+    const index = this.orders.findIndex(
+      (candidate) => candidate.id === input.order.id,
+    );
     const existing = index === -1 ? null : this.orders[index];
     if (!existing) {
-      throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+      throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
     }
     if (existing.version !== input.expectedVersion) {
-      throw new OrderError('CONFLICT', 'Order version is stale.');
+      throw new OrderError("CONFLICT", "Order version is stale.");
     }
     this.orders[index] = clone(input.order);
     await input.auditSink.append(input.auditRecord);
@@ -660,32 +728,42 @@ export class InMemoryOrderStore implements OrderStore {
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
-    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
+    const index = this.orders.findIndex(
+      (candidate) => candidate.id === input.order.id,
+    );
     const existing = index === -1 ? null : this.orders[index];
     if (!existing) {
-      throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+      throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
     }
-    if (existing.status !== 'DRAFT' || existing.version !== input.expectedVersion) {
-      throw new OrderError('CONFLICT', 'Order version is stale.');
+    if (
+      existing.status !== "DRAFT" ||
+      existing.version !== input.expectedVersion
+    ) {
+      throw new OrderError("CONFLICT", "Order version is stale.");
     }
-    if (this.reservations.some((reservation) => reservation.orderId === input.order.id)) {
-      throw new OrderError('CONFLICT', 'Order already has a fund reservation.');
+    if (
+      this.reservations.some(
+        (reservation) => reservation.orderId === input.order.id,
+      )
+    ) {
+      throw new OrderError("CONFLICT", "Order already has a fund reservation.");
     }
     assertCommitAvailableBalance({
       ledgerBalanceMinor: input.ledgerBalanceMinor,
-      activeReservedMinor: sumActiveReservedMinor(this.reservations, input.reservation),
-      amountMinor: input.reservation.amountMinor
+      activeReservedMinor: sumActiveReservedMinor(
+        this.reservations,
+        input.reservation,
+      ),
+      amountMinor: input.reservation.amountMinor,
     });
     this.orders[index] = clone(input.order);
     this.reservations.push(clone(input.reservation));
     this.reservationEvents.push(clone(input.reservationEvent));
     this.externalTransactions.push(...input.externalTransactions.map(clone));
     this.events.push(clone(input.orderEvent));
-    this.outboxJobs.push(clone(input.dispatchStartJob));
     await input.auditSink.append(input.auditRecord);
   }
 
@@ -700,33 +778,62 @@ export class InMemoryOrderStore implements OrderStore {
     previewId: string;
     now: Date;
   }): Promise<void> {
-    const previewIndex = this.cancellationPreviews.findIndex((candidate) => candidate.id === input.previewId);
-    const preview = previewIndex === -1 ? null : this.cancellationPreviews[previewIndex];
-    const index = this.orders.findIndex((candidate) => candidate.id === input.order.id);
+    const previewIndex = this.cancellationPreviews.findIndex(
+      (candidate) => candidate.id === input.previewId,
+    );
+    const preview =
+      previewIndex === -1 ? null : this.cancellationPreviews[previewIndex];
+    const index = this.orders.findIndex(
+      (candidate) => candidate.id === input.order.id,
+    );
     const existing = index === -1 ? null : this.orders[index];
     if (!existing) {
-      throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+      throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
     }
-    if (!preview || !isCancellationPreviewCurrent(preview, existing, this.reservations, input.now)) {
-      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    if (
+      !preview ||
+      !isCancellationPreviewCurrent(
+        preview,
+        existing,
+        this.reservations,
+        input.now,
+      )
+    ) {
+      throw new OrderError(
+        "CANCELLATION_PREVIEW_STALE",
+        "Refresh the cancellation preview before retrying.",
+      );
     }
-    if (existing.version !== input.expectedVersion || !['DRAFT', 'PENDING_DISPATCH'].includes(existing.status)) {
-      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    if (
+      existing.version !== input.expectedVersion ||
+      !["DRAFT", "PENDING_DISPATCH"].includes(existing.status)
+    ) {
+      throw new OrderError(
+        "CANCELLATION_PREVIEW_STALE",
+        "Refresh the cancellation preview before retrying.",
+      );
     }
     if (input.reservation) {
-      const reservationIndex = this.reservations.findIndex((candidate) => candidate.id === input.reservation?.id);
-      const existingReservation = reservationIndex === -1 ? null : this.reservations[reservationIndex];
+      const reservationIndex = this.reservations.findIndex(
+        (candidate) => candidate.id === input.reservation?.id,
+      );
+      const existingReservation =
+        reservationIndex === -1 ? null : this.reservations[reservationIndex];
       if (
         !existingReservation ||
         existingReservation.version !== input.reservation.version - 1 ||
         !activeFundReservationStatuses.includes(existingReservation.status)
       ) {
-        throw new OrderError('CONFLICT', 'Order reservation is stale.');
+        throw new OrderError("CONFLICT", "Order reservation is stale.");
       }
       this.reservations[reservationIndex] = clone(input.reservation);
     }
     this.orders[index] = clone(input.order);
-    this.cancellationPreviews[previewIndex] = { ...preview, status: 'APPLIED', appliedAt: input.now.toISOString() };
+    this.cancellationPreviews[previewIndex] = {
+      ...preview,
+      status: "APPLIED",
+      appliedAt: input.now.toISOString(),
+    };
     if (input.reservationEvent) {
       this.reservationEvents.push(clone(input.reservationEvent));
     }
@@ -741,7 +848,10 @@ export class PostgresOrderStore implements OrderStore {
 
   constructor(options: { client?: OrderQueryClient; pool?: OrderPool }) {
     if (!options.client && !options.pool) {
-      throw new OrderError('VALIDATION_ERROR', 'PostgresOrderStore requires a client or pool.');
+      throw new OrderError(
+        "VALIDATION_ERROR",
+        "PostgresOrderStore requires a client or pool.",
+      );
     }
     this.client = options.pool ?? options.client!;
     this.pool = options.pool ?? null;
@@ -757,12 +867,14 @@ WHERE customer_id = $1
 ORDER BY created_at ASC
 LIMIT 1
       `,
-      [customerId, Array.from(activeOrderStatuses)]
+      [customerId, Array.from(activeOrderStatuses)],
     );
     return result.rows[0] ? mapOrderRow(result.rows[0]) : null;
   }
 
-  async issueCancellationPreview(preview: CancellationPreviewRecord): Promise<void> {
+  async issueCancellationPreview(
+    preview: CancellationPreviewRecord,
+  ): Promise<void> {
     await this.client.query(
       `
 INSERT INTO cancellation_previews (
@@ -775,26 +887,50 @@ VALUES ($1, $2, $3, $4, $5, $6::"CancellationPreviewStatus", $7::"CancellationDi
         $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       `,
       [
-        preview.id, preview.orderId, preview.fundReservationId, preview.orderVersionSnapshot, preview.reservationVersionSnapshot,
-        preview.status, preview.disposition, preview.releaseAmountMinor, preview.refundAmountMinor, preview.currency,
-        preview.policyKey, preview.policyVersion, preview.reasonCode, preview.requestedByUserId, preview.requestedByStaffId,
-        preview.estimatedResolutionAt, preview.expiresAt, preview.appliedAt, preview.invalidatedAt, preview.createdAt
-      ]
+        preview.id,
+        preview.orderId,
+        preview.fundReservationId,
+        preview.orderVersionSnapshot,
+        preview.reservationVersionSnapshot,
+        preview.status,
+        preview.disposition,
+        preview.releaseAmountMinor,
+        preview.refundAmountMinor,
+        preview.currency,
+        preview.policyKey,
+        preview.policyVersion,
+        preview.reasonCode,
+        preview.requestedByUserId,
+        preview.requestedByStaffId,
+        preview.estimatedResolutionAt,
+        preview.expiresAt,
+        preview.appliedAt,
+        preview.invalidatedAt,
+        preview.createdAt,
+      ],
     );
   }
 
-  async findCancellationPreview(previewId: string): Promise<CancellationPreviewRecord | null> {
-    const result = await this.client.query<CancellationPreviewRow>('SELECT * FROM cancellation_previews WHERE id = $1 LIMIT 1', [previewId]);
+  async findCancellationPreview(
+    previewId: string,
+  ): Promise<CancellationPreviewRecord | null> {
+    const result = await this.client.query<CancellationPreviewRow>(
+      "SELECT * FROM cancellation_previews WHERE id = $1 LIMIT 1",
+      [previewId],
+    );
     return result.rows[0] ? mapCancellationPreviewRow(result.rows[0]) : null;
   }
 
   async applyCancellationPreview(previewId: string, now: Date): Promise<void> {
     const result = await this.client.query(
       `UPDATE cancellation_previews SET status = 'APPLIED', applied_at = $2 WHERE id = $1 AND status = 'ISSUED'`,
-      [previewId, now.toISOString()]
+      [previewId, now.toISOString()],
     );
     if ((result.rowCount ?? 0) !== 1) {
-      throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+      throw new OrderError(
+        "CANCELLATION_PREVIEW_STALE",
+        "Refresh the cancellation preview before retrying.",
+      );
     }
   }
 
@@ -806,12 +942,14 @@ FROM orders
 WHERE id = $1
 LIMIT 1
       `,
-      [orderId]
+      [orderId],
     );
     return result.rows[0] ? mapOrderRow(result.rows[0]) : null;
   }
 
-  async findActiveReservationByOrder(orderId: string): Promise<FundReservationRecord | null> {
+  async findActiveReservationByOrder(
+    orderId: string,
+  ): Promise<FundReservationRecord | null> {
     const result = await this.client.query<FundReservationRow>(
       `
 SELECT *
@@ -822,12 +960,14 @@ WHERE order_id = $1
 ORDER BY created_at ASC
 LIMIT 1
       `,
-      [orderId, activeFundReservationStatuses]
+      [orderId, activeFundReservationStatuses],
     );
     return result.rows[0] ? mapFundReservationRow(result.rows[0]) : null;
   }
 
-  async getMatchingProgress(orderId: string): Promise<OrderMatchingProgress | null> {
+  async getMatchingProgress(
+    orderId: string,
+  ): Promise<OrderMatchingProgress | null> {
     const result = await this.client.query<{
       order_status: OrderStatus;
       player_id: string | null;
@@ -863,72 +1003,97 @@ LEFT JOIN LATERAL (
 ) latest ON true
 WHERE o.id = $1
       `,
-      [orderId]
+      [orderId],
     );
     const row = result.rows[0];
-    if (!row || !['PENDING_DISPATCH', 'ACCEPTED'].includes(row.order_status)) {
+    if (!row || !["PENDING_DISPATCH", "ACCEPTED"].includes(row.order_status)) {
       return null;
     }
-    const requestedPlayerCount = Number(row.requested_player_count) || (row.player_id ? 1 : 0);
-    const filledPlayerCount = Number(row.filled_player_count) || (row.player_id ? 1 : 0);
-    if (row.order_status === 'ACCEPTED' && row.player_id) {
+    const requestedPlayerCount =
+      Number(row.requested_player_count) || (row.player_id ? 1 : 0);
+    const filledPlayerCount =
+      Number(row.filled_player_count) || (row.player_id ? 1 : 0);
+    if (row.order_status === "ACCEPTED" && row.player_id) {
       return {
-        stage: 'ACCEPTED',
+        stage: "ACCEPTED",
         notifiedCandidateCount: Number(row.notified_count),
         requestedPlayerCount,
         filledPlayerCount,
         timeoutAt: null,
-        nextStep: 'CONFIRM_READINESS',
+        nextStep: "CONFIRM_READINESS",
         playerSummary: {
           playerId: row.player_id,
-          displayName: row.player_display_name ?? '已接单陪玩'
-        }
+          displayName: row.player_display_name ?? "已接单陪玩",
+        },
       };
     }
-    if (row.attempt_status === 'TIMED_OUT') {
+    if (row.attempt_status === "TIMED_OUT") {
       return {
-        stage: 'TIMED_OUT',
+        stage: "TIMED_OUT",
         notifiedCandidateCount: Number(row.notified_count),
         requestedPlayerCount,
         filledPlayerCount,
-        timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
-        nextStep: 'CHOOSE_CONTINUE_OR_CANCEL',
-        playerSummary: null
+        timeoutAt: row.expires_at
+          ? new Date(row.expires_at).toISOString()
+          : null,
+        nextStep: "CHOOSE_CONTINUE_OR_CANCEL",
+        playerSummary: null,
       };
     }
     return {
-      stage: row.attempt_status === 'ACTIVE' ? 'WAITING_FOR_ACCEPTANCE' : 'SEARCHING',
+      stage:
+        row.attempt_status === "ACTIVE"
+          ? "WAITING_FOR_ACCEPTANCE"
+          : "SEARCHING",
       notifiedCandidateCount: Number(row.notified_count),
       requestedPlayerCount,
       filledPlayerCount,
       timeoutAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
-      nextStep: 'WAIT_FOR_PLAYER',
-      playerSummary: null
+      nextStep: "WAIT_FOR_PLAYER",
+      playerSummary: null,
     };
   }
 
-  async getActiveRequirementEstimate(orderId: string): Promise<{ count: number; amountMinor: number }> {
-    const result = await this.client.query<{ requirement_count: string; amount_minor: string }>(
+  async getActiveRequirementEstimate(
+    orderId: string,
+  ): Promise<{ count: number; amountMinor: number }> {
+    const result = await this.client.query<{
+      requirement_count: string;
+      amount_minor: string;
+    }>(
       `SELECT COUNT(*)::text requirement_count,
               COALESCE(SUM(estimated_line_price_minor),0)::text amount_minor
        FROM order_requirements
        WHERE order_id=$1 AND status='ACTIVE'`,
-      [orderId]
+      [orderId],
     );
     return {
       count: Number(result.rows[0]?.requirement_count ?? 0),
-      amountMinor: Number(result.rows[0]?.amount_minor ?? 0)
+      amountMinor: Number(result.rows[0]?.amount_minor ?? 0),
     };
   }
 
-  async getNextOpenRequirement(orderId: string): Promise<OrderDispatchRequirement | null> {
+  async getNextOpenRequirement(
+    orderId: string,
+  ): Promise<OrderDispatchRequirement | null> {
     const result = await this.client.query<{
-      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;
-      game_display_name_snapshot:string;service_code_snapshot:string;service_display_name_snapshot:string;
-      region_code_snapshot:string|null;region_display_name_snapshot:string|null;billing_unit_minutes_snapshot:number;
-      unit_count:number;requested_player_count:number;filled_player_count:string;customer_unit_price_minor_snapshot:string;
-      default_player_payout_bps:number;
-    }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
+      id: string;
+      service_catalog_version_id: string;
+      service_offering_id: string;
+      game_code_snapshot: string;
+      game_display_name_snapshot: string;
+      service_code_snapshot: string;
+      service_display_name_snapshot: string;
+      region_code_snapshot: string | null;
+      region_display_name_snapshot: string | null;
+      billing_unit_minutes_snapshot: number;
+      unit_count: number;
+      requested_player_count: number;
+      filled_player_count: string;
+      customer_unit_price_minor_snapshot: string;
+      default_player_payout_bps: number;
+    }>(
+      `SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
       requirement.game_code_snapshot,requirement.game_display_name_snapshot,
       requirement.service_code_snapshot,requirement.service_display_name_snapshot,
       requirement.region_code_snapshot,requirement.region_display_name_snapshot,
@@ -941,25 +1106,54 @@ WHERE o.id = $1
       WHERE requirement.order_id=$1 AND requirement.status='ACTIVE'
       GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps
       HAVING COUNT(participant.id)<requirement.requested_player_count
-      ORDER BY requirement.created_at,requirement.id LIMIT 1`, [orderId]);
-    const row=result.rows[0];if(!row)return null;
-    const unitPrice=Number(row.customer_unit_price_minor_snapshot);
-    return {id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,
-      game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,
-      service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,
-      region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,
-      billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,requestedPlayerCount:row.requested_player_count,
-      filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:unitPrice,linePriceMinorPerPlayer:unitPrice*row.unit_count,
-      defaultPlayerPayoutBps:row.default_player_payout_bps};
+      ORDER BY requirement.created_at,requirement.id LIMIT 1`,
+      [orderId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const unitPrice = Number(row.customer_unit_price_minor_snapshot);
+    return {
+      id: row.id,
+      serviceCatalogVersionId: row.service_catalog_version_id,
+      serviceOfferingId: row.service_offering_id,
+      game: row.game_code_snapshot,
+      gameDisplayName: row.game_display_name_snapshot,
+      service: row.service_code_snapshot,
+      serviceDisplayName: row.service_display_name_snapshot,
+      region: row.region_code_snapshot,
+      regionDisplayName: row.region_display_name_snapshot,
+      billingUnitMinutes: row.billing_unit_minutes_snapshot,
+      unitCount: row.unit_count,
+      requestedPlayerCount: row.requested_player_count,
+      filledPlayerCount: Number(row.filled_player_count),
+      customerUnitPriceMinor: unitPrice,
+      linePriceMinorPerPlayer: unitPrice * row.unit_count,
+      defaultPlayerPayoutBps: row.default_player_payout_bps,
+    };
   }
 
-  async getDispatchRequirement(orderId: string, requirementId: string): Promise<OrderDispatchRequirement | null> {
+  async getDispatchRequirement(
+    orderId: string,
+    requirementId: string,
+  ): Promise<OrderDispatchRequirement | null> {
     const next = await this.client.query<{
-      id:string;service_catalog_version_id:string;service_offering_id:string;game_code_snapshot:string;game_display_name_snapshot:string;
-      service_code_snapshot:string;service_display_name_snapshot:string;region_code_snapshot:string|null;region_display_name_snapshot:string|null;
-      billing_unit_minutes_snapshot:number;unit_count:number;requested_player_count:number;
-      filled_player_count:string;customer_unit_price_minor_snapshot:string;default_player_payout_bps:number;
-    }>(`SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
+      id: string;
+      service_catalog_version_id: string;
+      service_offering_id: string;
+      game_code_snapshot: string;
+      game_display_name_snapshot: string;
+      service_code_snapshot: string;
+      service_display_name_snapshot: string;
+      region_code_snapshot: string | null;
+      region_display_name_snapshot: string | null;
+      billing_unit_minutes_snapshot: number;
+      unit_count: number;
+      requested_player_count: number;
+      filled_player_count: string;
+      customer_unit_price_minor_snapshot: string;
+      default_player_payout_bps: number;
+    }>(
+      `SELECT requirement.id,requirement.service_catalog_version_id,version.service_offering_id,
       requirement.game_code_snapshot,requirement.game_display_name_snapshot,
       requirement.service_code_snapshot,requirement.service_display_name_snapshot,
       requirement.region_code_snapshot,requirement.region_display_name_snapshot,
@@ -968,20 +1162,38 @@ WHERE o.id = $1
       FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id
       LEFT JOIN order_participants participant ON participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'
       WHERE requirement.order_id=$1 AND requirement.id=$2 AND requirement.status='ACTIVE'
-      GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps`,[orderId,requirementId]);
-    const row=next.rows[0];if(!row)return null;const price=Number(row.customer_unit_price_minor_snapshot);
-    return{id:row.id,serviceCatalogVersionId:row.service_catalog_version_id,serviceOfferingId:row.service_offering_id,
-      game:row.game_code_snapshot,gameDisplayName:row.game_display_name_snapshot,
-      service:row.service_code_snapshot,serviceDisplayName:row.service_display_name_snapshot,
-      region:row.region_code_snapshot,regionDisplayName:row.region_display_name_snapshot,
-      billingUnitMinutes:row.billing_unit_minutes_snapshot,unitCount:row.unit_count,
-      requestedPlayerCount:row.requested_player_count,filledPlayerCount:Number(row.filled_player_count),customerUnitPriceMinor:price,
-      linePriceMinorPerPlayer:price*row.unit_count,defaultPlayerPayoutBps:row.default_player_payout_bps};
+      GROUP BY requirement.id,version.service_offering_id,version.default_player_payout_bps`,
+      [orderId, requirementId],
+    );
+    const row = next.rows[0];
+    if (!row) return null;
+    const price = Number(row.customer_unit_price_minor_snapshot);
+    return {
+      id: row.id,
+      serviceCatalogVersionId: row.service_catalog_version_id,
+      serviceOfferingId: row.service_offering_id,
+      game: row.game_code_snapshot,
+      gameDisplayName: row.game_display_name_snapshot,
+      service: row.service_code_snapshot,
+      serviceDisplayName: row.service_display_name_snapshot,
+      region: row.region_code_snapshot,
+      regionDisplayName: row.region_display_name_snapshot,
+      billingUnitMinutes: row.billing_unit_minutes_snapshot,
+      unitCount: row.unit_count,
+      requestedPlayerCount: row.requested_player_count,
+      filledPlayerCount: Number(row.filled_player_count),
+      customerUnitPriceMinor: price,
+      linePriceMinorPerPlayer: price * row.unit_count,
+      defaultPlayerPayoutBps: row.default_player_payout_bps,
+    };
   }
 
   async getActiveParticipantPlayerIds(orderId: string): Promise<string[]> {
-    const result=await this.client.query<{player_id:string}>(`SELECT player_id FROM order_participants WHERE order_id=$1 AND status='ACTIVE' ORDER BY created_at,id`,[orderId]);
-    return result.rows.map((row)=>row.player_id);
+    const result = await this.client.query<{ player_id: string }>(
+      `SELECT player_id FROM order_participants WHERE order_id=$1 AND status='ACTIVE' ORDER BY created_at,id`,
+      [orderId],
+    );
+    return result.rows.map((row) => row.player_id);
   }
 
   async nextEventSequence(orderId: string): Promise<number> {
@@ -991,24 +1203,34 @@ SELECT (COALESCE(MAX(sequence), 0) + 1)::text AS next_sequence
 FROM order_events
 WHERE order_id = $1
       `,
-      [orderId]
+      [orderId],
     );
     return Number(result.rows[0]?.next_sequence ?? 1);
   }
 
-  async commitCreate(input: { order: OrderRecord; event: OrderEventRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void> {
-    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+  async commitCreate(input: {
+    order: OrderRecord;
+    event: OrderEventRecord;
+    auditRecord: AuditRecord;
+    auditSink: AuditSink;
+  }): Promise<void> {
+    const transactionClient = this.pool
+      ? await this.pool.connect()
+      : this.client;
     try {
-      await transactionClient.query('BEGIN');
+      await transactionClient.query("BEGIN");
       await insertOrder(transactionClient, input.order);
       await insertOrderEvent(transactionClient, input.event);
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
-      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      await transactionClient.query("ROLLBACK").catch(() => undefined);
       throw mapPostgresOrderError(error);
     } finally {
-      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+      if (
+        "release" in transactionClient &&
+        typeof transactionClient.release === "function"
+      ) {
         transactionClient.release();
       }
     }
@@ -1021,22 +1243,33 @@ WHERE order_id = $1
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    const transactionClient = this.pool
+      ? await this.pool.connect()
+      : this.client;
     try {
-      await transactionClient.query('BEGIN');
-      await transactionClient.query("SELECT set_config('app.order_draft_amount_update', 'approved', true)");
-      const updated = await updateDraftOrder(transactionClient, input.order, input.expectedVersion);
+      await transactionClient.query("BEGIN");
+      await transactionClient.query(
+        "SELECT set_config('app.order_draft_amount_update', 'approved', true)",
+      );
+      const updated = await updateDraftOrder(
+        transactionClient,
+        input.order,
+        input.expectedVersion,
+      );
       if ((updated.rowCount ?? 0) !== 1) {
-        throw new OrderError('CONFLICT', 'Order version is stale.');
+        throw new OrderError("CONFLICT", "Order version is stale.");
       }
       await insertOrderEvent(transactionClient, input.event);
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
-      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      await transactionClient.query("ROLLBACK").catch(() => undefined);
       throw mapPostgresOrderError(error);
     } finally {
-      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+      if (
+        "release" in transactionClient &&
+        typeof transactionClient.release === "function"
+      ) {
         transactionClient.release();
       }
     }
@@ -1048,9 +1281,11 @@ WHERE order_id = $1
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    const transactionClient = this.pool
+      ? await this.pool.connect()
+      : this.client;
     try {
-      await transactionClient.query('BEGIN');
+      await transactionClient.query("BEGIN");
       const updated = await transactionClient.query(
         `UPDATE orders
          SET row_version = $3,
@@ -1066,28 +1301,46 @@ WHERE order_id = $1
              updated_at = $13
          WHERE id = $1 AND row_version = $2`,
         [
-          input.order.id, input.expectedVersion, input.order.version, input.order.automationState ?? 'RUNNING',
-          input.order.automationVersion ?? 1, input.order.automationPausedByStaffId ?? null,
-          input.order.automationStaffTaskId ?? null, input.order.automationReasonCode ?? null,
-          input.order.automationScope ?? null, input.order.automationPausedAt ? new Date(input.order.automationPausedAt) : null,
-          input.order.automationResumedAt ? new Date(input.order.automationResumedAt) : null,
-          input.order.automationExpiresAt ? new Date(input.order.automationExpiresAt) : null,
-          new Date(input.order.updatedAt)
-        ]
+          input.order.id,
+          input.expectedVersion,
+          input.order.version,
+          input.order.automationState ?? "RUNNING",
+          input.order.automationVersion ?? 1,
+          input.order.automationPausedByStaffId ?? null,
+          input.order.automationStaffTaskId ?? null,
+          input.order.automationReasonCode ?? null,
+          input.order.automationScope ?? null,
+          input.order.automationPausedAt
+            ? new Date(input.order.automationPausedAt)
+            : null,
+          input.order.automationResumedAt
+            ? new Date(input.order.automationResumedAt)
+            : null,
+          input.order.automationExpiresAt
+            ? new Date(input.order.automationExpiresAt)
+            : null,
+          new Date(input.order.updatedAt),
+        ],
       );
       if ((updated.rowCount ?? 0) !== 1) {
-        throw new OrderError('CONFLICT', 'Order version is stale.');
+        throw new OrderError("CONFLICT", "Order version is stale.");
       }
       await insertOrderPanelSync(transactionClient, {
-        orderId: input.order.id, version: input.order.version, kind: 'ORDER_AUTOMATION_CHANNEL_SYNC', now: new Date(input.order.updatedAt)
+        orderId: input.order.id,
+        version: input.order.version,
+        kind: "ORDER_AUTOMATION_CHANNEL_SYNC",
+        now: new Date(input.order.updatedAt),
       });
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
-      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      await transactionClient.query("ROLLBACK").catch(() => undefined);
       throw mapPostgresOrderError(error);
     } finally {
-      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+      if (
+        "release" in transactionClient &&
+        typeof transactionClient.release === "function"
+      ) {
         transactionClient.release();
       }
     }
@@ -1101,46 +1354,66 @@ WHERE order_id = $1
     reservation: FundReservationRecord;
     reservationEvent: FundReservationEventRecord;
     externalTransactions: ExternalTransactionMirrorRecord[];
-    dispatchStartJob: OutboxJob;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> {
-    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    const transactionClient = this.pool
+      ? await this.pool.connect()
+      : this.client;
     try {
-      await transactionClient.query('BEGIN');
-      await lockUserCurrency(transactionClient, input.reservation.userId, input.reservation.currency);
+      await transactionClient.query("BEGIN");
+      await lockUserCurrency(
+        transactionClient,
+        input.reservation.userId,
+        input.reservation.currency,
+      );
       await validateCatalogSnapshotForCommit(transactionClient, input.order);
-      const ledgerBalanceMinor = await readLedgerBalanceForCommit(transactionClient, input.reservation.userId);
-      const activeReservedMinor = await sumActiveReservedMinorForCommit(transactionClient, input.reservation);
+      const ledgerBalanceMinor = await readLedgerBalanceForCommit(
+        transactionClient,
+        input.reservation.userId,
+      );
+      const activeReservedMinor = await sumActiveReservedMinorForCommit(
+        transactionClient,
+        input.reservation,
+      );
       assertCommitAvailableBalance({
         ledgerBalanceMinor,
         activeReservedMinor,
-        amountMinor: input.reservation.amountMinor
+        amountMinor: input.reservation.amountMinor,
       });
-      const updated = await updateSubmittedOrder(transactionClient, input.order, input.expectedVersion);
+      const updated = await updateSubmittedOrder(
+        transactionClient,
+        input.order,
+        input.expectedVersion,
+      );
       if ((updated.rowCount ?? 0) !== 1) {
-        throw new OrderError('CONFLICT', 'Order version is stale.');
+        throw new OrderError("CONFLICT", "Order version is stale.");
       }
       await insertFundReservation(transactionClient, input.reservation);
-      await insertFundReservationEvent(transactionClient, input.reservationEvent);
+      await insertFundReservationEvent(
+        transactionClient,
+        input.reservationEvent,
+      );
       for (const transaction of input.externalTransactions) {
         await insertExternalTransaction(transactionClient, transaction);
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
-      await transactionClient.query(`INSERT INTO outbox_events
-        (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
-        VALUES ($1,'DISPATCH_START','order',$2,$2,$3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5)`,
-      [input.dispatchStartJob.id,input.order.id,input.dispatchStartJob.dedupeKey,JSON.stringify(input.dispatchStartJob.payload),input.dispatchStartJob.runAfter]);
       await insertOrderPanelSync(transactionClient, {
-        orderId: input.order.id, version: input.order.version, kind: 'ORDER_SUBMITTED_CHANNEL_SYNC', now: new Date(input.order.updatedAt)
+        orderId: input.order.id,
+        version: input.order.version,
+        kind: "ORDER_SUBMITTED_CHANNEL_SYNC",
+        now: new Date(input.order.updatedAt),
       });
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
-      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      await transactionClient.query("ROLLBACK").catch(() => undefined);
       throw mapPostgresOrderError(error);
     } finally {
-      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+      if (
+        "release" in transactionClient &&
+        typeof transactionClient.release === "function"
+      ) {
         transactionClient.release();
       }
     }
@@ -1157,45 +1430,85 @@ WHERE order_id = $1
     previewId: string;
     now: Date;
   }): Promise<void> {
-    const transactionClient = this.pool ? await this.pool.connect() : this.client;
+    const transactionClient = this.pool
+      ? await this.pool.connect()
+      : this.client;
     try {
-      await transactionClient.query('BEGIN');
-      const previewResult = await transactionClient.query<CancellationPreviewRow>(
-        'SELECT * FROM cancellation_previews WHERE id = $1 FOR UPDATE',
-        [input.previewId]
+      await transactionClient.query("BEGIN");
+      const previewResult =
+        await transactionClient.query<CancellationPreviewRow>(
+          "SELECT * FROM cancellation_previews WHERE id = $1 FOR UPDATE",
+          [input.previewId],
+        );
+      const preview = previewResult.rows[0]
+        ? mapCancellationPreviewRow(previewResult.rows[0])
+        : null;
+      const currentOrderResult = await transactionClient.query<OrderRow>(
+        "SELECT * FROM orders WHERE id = $1 FOR UPDATE",
+        [input.order.id],
       );
-      const preview = previewResult.rows[0] ? mapCancellationPreviewRow(previewResult.rows[0]) : null;
-      const currentOrderResult = await transactionClient.query<OrderRow>('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [input.order.id]);
-      const currentOrder = currentOrderResult.rows[0] ? mapOrderRow(currentOrderResult.rows[0]) : null;
+      const currentOrder = currentOrderResult.rows[0]
+        ? mapOrderRow(currentOrderResult.rows[0])
+        : null;
       const currentReservationResult = preview?.fundReservationId
-        ? await transactionClient.query<FundReservationRow>('SELECT * FROM fund_reservations WHERE id = $1 FOR UPDATE', [preview.fundReservationId])
+        ? await transactionClient.query<FundReservationRow>(
+            "SELECT * FROM fund_reservations WHERE id = $1 FOR UPDATE",
+            [preview.fundReservationId],
+          )
         : { rows: [] as FundReservationRow[] };
-      const currentReservations = currentReservationResult.rows.map(mapFundReservationRow);
-      if (!currentOrder || !preview || !isCancellationPreviewCurrent(preview, currentOrder, currentReservations, input.now)) {
-        throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+      const currentReservations = currentReservationResult.rows.map(
+        mapFundReservationRow,
+      );
+      if (
+        !currentOrder ||
+        !preview ||
+        !isCancellationPreviewCurrent(
+          preview,
+          currentOrder,
+          currentReservations,
+          input.now,
+        )
+      ) {
+        throw new OrderError(
+          "CANCELLATION_PREVIEW_STALE",
+          "Refresh the cancellation preview before retrying.",
+        );
       }
-      const updated = await updateCancelledOrder(transactionClient, input.order, input.expectedVersion);
+      const updated = await updateCancelledOrder(
+        transactionClient,
+        input.order,
+        input.expectedVersion,
+      );
       if ((updated.rowCount ?? 0) !== 1) {
-        throw new OrderError('CONFLICT', 'Order version is stale.');
+        throw new OrderError("CONFLICT", "Order version is stale.");
       }
       if (input.reservationEvent) {
-        await insertFundReservationEvent(transactionClient, input.reservationEvent);
+        await insertFundReservationEvent(
+          transactionClient,
+          input.reservationEvent,
+        );
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
       await insertOrderPanelSync(transactionClient, {
-        orderId: input.order.id, version: input.order.version, kind: 'ORDER_CANCELLED_CHANNEL_SYNC', now: input.now
+        orderId: input.order.id,
+        version: input.order.version,
+        kind: "ORDER_CANCELLED_CHANNEL_SYNC",
+        now: input.now,
       });
       await transactionClient.query(
         `UPDATE cancellation_previews SET status = 'APPLIED', applied_at = $2 WHERE id = $1 AND status = 'ISSUED'`,
-        [input.previewId, input.now.toISOString()]
+        [input.previewId, input.now.toISOString()],
       );
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {
-      await transactionClient.query('ROLLBACK').catch(() => undefined);
+      await transactionClient.query("ROLLBACK").catch(() => undefined);
       throw mapPostgresOrderError(error);
     } finally {
-      if ('release' in transactionClient && typeof transactionClient.release === 'function') {
+      if (
+        "release" in transactionClient &&
+        typeof transactionClient.release === "function"
+      ) {
         transactionClient.release();
       }
     }
@@ -1203,22 +1516,25 @@ WHERE order_id = $1
 }
 
 const activeOrderStatuses = new Set<OrderStatus>([
-  'DRAFT',
-  'PENDING_DISPATCH',
-  'ACCEPTED',
-  'IN_SERVICE',
-  'PENDING_CONFIRMATION',
-  'EXCEPTION'
+  "DRAFT",
+  "PENDING_DISPATCH",
+  "ACCEPTED",
+  "IN_SERVICE",
+  "PENDING_CONFIRMATION",
+  "EXCEPTION",
 ]);
 
 const activeFundReservationStatuses: FundReservationStatus[] = [
-  'PENDING',
-  'ACTIVE',
-  'DISPUTED',
-  'PARTIALLY_SETTLED'
+  "PENDING",
+  "ACTIVE",
+  "DISPUTED",
+  "PARTIALLY_SETTLED",
 ];
 
-function sumActiveReservedMinor(reservations: FundReservationRecord[], nextReservation: FundReservationRecord): number {
+function sumActiveReservedMinor(
+  reservations: FundReservationRecord[],
+  nextReservation: FundReservationRecord,
+): number {
   return reservations.reduce((sum, reservation) => {
     if (
       reservation.userId === nextReservation.userId &&
@@ -1237,8 +1553,14 @@ function assertCommitAvailableBalance(input: {
   activeReservedMinor: number;
   amountMinor: number;
 }): void {
-  if (input.ledgerBalanceMinor - input.activeReservedMinor < input.amountMinor) {
-    throw new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient at commit time.');
+  if (
+    input.ledgerBalanceMinor - input.activeReservedMinor <
+    input.amountMinor
+  ) {
+    throw new OrderError(
+      "INSUFFICIENT_AVAILABLE_BALANCE",
+      "Available balance is insufficient at commit time.",
+    );
   }
 }
 
@@ -1254,9 +1576,9 @@ function buildSubmitAuditSnapshot(prepared: PreparedSubmitOrderWrite): unknown {
       amountMinor: prepared.reservation.amountMinor,
       currency: prepared.reservation.currency,
       status: prepared.reservation.status,
-      version: prepared.reservation.version
+      version: prepared.reservation.version,
     },
-    ledgerBalanceMinor: prepared.ledgerBalanceMinor
+    ledgerBalanceMinor: prepared.ledgerBalanceMinor,
   };
 }
 
@@ -1273,14 +1595,14 @@ export async function prepareCreateOrder(input: {
   if (existing) {
     return {
       data: toApiOrder(existing),
-      statusCode: 200
+      statusCode: 200,
     };
   }
 
   const order = buildDraftOrder({
     binding,
     channelSpec: input.input.channelSpec,
-    now: input.now
+    now: input.now,
   });
   return {
     data: toApiOrder(order),
@@ -1288,16 +1610,16 @@ export async function prepareCreateOrder(input: {
     order,
     event: buildOrderEvent({
       order,
-      eventType: 'CREATED',
+      eventType: "CREATED",
       fromStatus: null,
-      toStatus: 'DRAFT',
+      toStatus: "DRAFT",
       actor: input.actor,
       now: input.now,
       sequence: 1,
       payload: {
-        channelSpec: order.channelSpec
-      }
-    })
+        channelSpec: order.channelSpec,
+      },
+    }),
   };
 }
 
@@ -1308,8 +1630,13 @@ export async function getOrder(input: {
   orderId: string;
 }): Promise<OrderApiRecord> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
-  const matching = await input.orderStore.getMatchingProgress?.(order.id) ?? null;
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
+  const matching =
+    (await input.orderStore.getMatchingProgress?.(order.id)) ?? null;
   return toApiOrder(order, null, matching);
 }
 
@@ -1323,26 +1650,65 @@ export async function prepareUpdateOrder(input: {
   now: Date;
 }): Promise<PreparedOrderWrite> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
   validateDraftOrderVersion(order, input.input.expectedVersion);
   validateUpdateOrderInput(input.input);
   let updated: OrderRecord;
   if (input.input.serviceCatalogId && input.input.unitCount) {
-    const service = await input.catalogStore.getById(input.input.serviceCatalogId);
+    const service = await input.catalogStore.getById(
+      input.input.serviceCatalogId,
+    );
     assertAvailableService(service);
-    if (input.input.unitCount < service.minimumUnits) throw new OrderError('VALIDATION_ERROR', 'unitCount must be at least the service minimum.');
-    updated = applyServiceSnapshot({order,service,unitCount:input.input.unitCount,region:input.input.region ?? service.region,notes:input.input.notes ?? order.notes,voiceChannelId:input.input.voiceChannelId ?? order.channelSpec.voiceChannelId,preferredPlayerDiscordUserIds:input.input.preferredPlayerDiscordUserIds ?? order.preferredPlayerDiscordUserIds ?? [],now:input.now});
+    if (input.input.unitCount < service.minimumUnits)
+      throw new OrderError(
+        "VALIDATION_ERROR",
+        "unitCount must be at least the service minimum.",
+      );
+    updated = applyServiceSnapshot({
+      order,
+      service,
+      unitCount: input.input.unitCount,
+      region: input.input.region ?? service.region,
+      notes: input.input.notes ?? order.notes,
+      voiceChannelId:
+        input.input.voiceChannelId ?? order.channelSpec.voiceChannelId,
+      preferredPlayerDiscordUserIds:
+        input.input.preferredPlayerDiscordUserIds ??
+        order.preferredPlayerDiscordUserIds ??
+        [],
+      now: input.now,
+    });
   } else {
-    updated={...clone(order),version:order.version+1,notes:input.input.notes===undefined?order.notes:input.input.notes,preferredPlayerDiscordUserIds:input.input.preferredPlayerDiscordUserIds??order.preferredPlayerDiscordUserIds??[],channelSpec:{...order.channelSpec,voiceChannelId:input.input.voiceChannelId===undefined?order.channelSpec.voiceChannelId:input.input.voiceChannelId},updatedAt:input.now.toISOString()};
+    updated = {
+      ...clone(order),
+      version: order.version + 1,
+      notes: input.input.notes === undefined ? order.notes : input.input.notes,
+      preferredPlayerDiscordUserIds:
+        input.input.preferredPlayerDiscordUserIds ??
+        order.preferredPlayerDiscordUserIds ??
+        [],
+      channelSpec: {
+        ...order.channelSpec,
+        voiceChannelId:
+          input.input.voiceChannelId === undefined
+            ? order.channelSpec.voiceChannelId
+            : input.input.voiceChannelId,
+      },
+      updatedAt: input.now.toISOString(),
+    };
   }
   return {
     data: toApiOrder(updated),
     order: updated,
     event: buildOrderEvent({
       order: updated,
-      eventType: 'DETAILS_UPDATED',
-      fromStatus: 'DRAFT',
-      toStatus: 'DRAFT',
+      eventType: "DETAILS_UPDATED",
+      fromStatus: "DRAFT",
+      toStatus: "DRAFT",
       actor: input.actor,
       now: input.now,
       sequence: updated.version,
@@ -1352,9 +1718,9 @@ export async function prepareUpdateOrder(input: {
         unitCount: updated.unitCount,
         amountMinor: updated.amountMinor,
         currency: updated.currency,
-        preferredPlayerDiscordUserIds: updated.preferredPlayerDiscordUserIds
-      }
-    })
+        preferredPlayerDiscordUserIds: updated.preferredPlayerDiscordUserIds,
+      },
+    }),
   };
 }
 
@@ -1367,14 +1733,59 @@ export async function prepareRecoverOrderChannel(input: {
   now: Date;
 }): Promise<PreparedOrderWrite> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
-  if (!activeOrderStatuses.has(order.status)) throw new OrderError('CONFLICT', 'Only an active order channel can be recovered.');
-  if (!Number.isInteger(input.input.expectedVersion) || input.input.expectedVersion !== order.version) throw new OrderError('CONFLICT', 'Order version is stale.');
-  if (input.input.previousChannelId !== order.channelSpec.channelId) throw new OrderError('CONFLICT', 'The order channel mapping has already changed.');
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
+  if (!activeOrderStatuses.has(order.status))
+    throw new OrderError(
+      "CONFLICT",
+      "Only an active order channel can be recovered.",
+    );
+  if (
+    !Number.isInteger(input.input.expectedVersion) ||
+    input.input.expectedVersion !== order.version
+  )
+    throw new OrderError("CONFLICT", "Order version is stale.");
+  if (input.input.previousChannelId !== order.channelSpec.channelId)
+    throw new OrderError(
+      "CONFLICT",
+      "The order channel mapping has already changed.",
+    );
   validateChannelSpec(input.input.channelSpec);
-  if (input.input.channelSpec.channelId === input.input.previousChannelId) throw new OrderError('VALIDATION_ERROR', 'A replacement channel is required.');
-  const updated: OrderRecord = {...clone(order),version:order.version+1,channelSpec:{...input.input.channelSpec,voiceChannelId:order.channelSpec.voiceChannelId},updatedAt:input.now.toISOString()};
-  return {data:toApiOrder(updated),order:updated,event:buildOrderEvent({order:updated,eventType:'CHANNEL_LINKED',fromStatus:order.status,toStatus:order.status,actor:input.actor,now:input.now,sequence:updated.version,payload:{recovered:true,previousChannelId:order.channelSpec.channelId,channelSpec:updated.channelSpec}})};
+  if (input.input.channelSpec.channelId === input.input.previousChannelId)
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "A replacement channel is required.",
+    );
+  const updated: OrderRecord = {
+    ...clone(order),
+    version: order.version + 1,
+    channelSpec: {
+      ...input.input.channelSpec,
+      voiceChannelId: order.channelSpec.voiceChannelId,
+    },
+    updatedAt: input.now.toISOString(),
+  };
+  return {
+    data: toApiOrder(updated),
+    order: updated,
+    event: buildOrderEvent({
+      order: updated,
+      eventType: "CHANNEL_LINKED",
+      fromStatus: order.status,
+      toStatus: order.status,
+      actor: input.actor,
+      now: input.now,
+      sequence: updated.version,
+      payload: {
+        recovered: true,
+        previousChannelId: order.channelSpec.channelId,
+        channelSpec: updated.channelSpec,
+      },
+    }),
+  };
 }
 
 export async function estimateOrder(input: {
@@ -1386,7 +1797,11 @@ export async function estimateOrder(input: {
   now: Date;
 }): Promise<OrderEstimateResult> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
   validateDraftOrderVersion(order, input.input.expectedVersion);
   if (
     !order.serviceCatalogId ||
@@ -1395,7 +1810,10 @@ export async function estimateOrder(input: {
     !order.billingUnitMinutes ||
     order.amountMinor <= 0
   ) {
-    throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order draft is not ready to estimate.');
+    throw new OrderError(
+      "BUSINESS_RULE_VIOLATION",
+      "Order draft is not ready to estimate.",
+    );
   }
   return {
     serviceCatalogId: order.serviceCatalogId,
@@ -1404,7 +1822,7 @@ export async function estimateOrder(input: {
     billingUnitMinutes: order.billingUnitMinutes,
     amountMinor: order.amountMinor,
     currency: order.currency,
-    validUntil: new Date(input.now.getTime() + 5 * 60_000).toISOString()
+    validUntil: new Date(input.now.getTime() + 5 * 60_000).toISOString(),
   };
 }
 
@@ -1420,41 +1838,56 @@ export async function prepareSubmitOrder(input: {
   now: Date;
 }): Promise<PreparedSubmitOrderWrite> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
   validateSubmitOrderInput(input.input);
   validateDraftOrderVersion(order, input.input.expectedVersion);
-  const requirementEstimate = await input.orderStore.getActiveRequirementEstimate?.(order.id) ?? null;
+  const requirementEstimate =
+    (await input.orderStore.getActiveRequirementEstimate?.(order.id)) ?? null;
   if (requirementEstimate?.count) {
-    if (requirementEstimate.amountMinor !== order.amountMinor || order.amountMinor <= 0) {
-      throw new OrderError('CONFLICT', 'Order requirement estimate is stale.');
+    if (
+      requirementEstimate.amountMinor !== order.amountMinor ||
+      order.amountMinor <= 0
+    ) {
+      throw new OrderError("CONFLICT", "Order requirement estimate is stale.");
     }
   } else {
     validateSubmittableDraft(order);
     await validateCurrentCatalogSnapshot(input.catalogStore, order);
   }
 
-  if (order.currency !== 'CAT') throw new OrderError('VALIDATION_ERROR', 'Orders must use USD.');
-  const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
+  if (order.currency !== "CAT")
+    throw new OrderError("VALIDATION_ERROR", "Orders must use USD.");
+  const walletBalance = await input.walletFunding.getBalance({
+    userId: binding.userId,
+    now: input.now,
+  });
   const reservedMinor = walletBalance.reservedMinor;
   const availableMinor = walletBalance.availableMinor;
   if (availableMinor < order.amountMinor) {
-    throw new OrderError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
+    throw new OrderError(
+      "INSUFFICIENT_AVAILABLE_BALANCE",
+      "Available balance is insufficient.",
+    );
   }
 
   const reservation = buildOrderReservation({
     order,
     binding,
-    providerKey: 'INTERNAL_WALLET',
-    mode: 'LOCAL_RESERVATION',
+    providerKey: "INTERNAL_WALLET",
+    mode: "LOCAL_RESERVATION",
     idempotencyKey: input.idempotencyKey,
-    now: input.now
+    now: input.now,
   });
   const activatedReservation: FundReservationRecord = {
     ...reservation,
-    status: 'ACTIVE',
+    status: "ACTIVE",
     provider: null,
     providerHoldRef: null,
-    activatedAt: input.now.toISOString()
+    activatedAt: input.now.toISOString(),
   };
   const submittedOrder = applySubmitOrder(order, input.now);
   const nextSequence = await input.orderStore.nextEventSequence(order.id);
@@ -1463,37 +1896,40 @@ export async function prepareSubmitOrder(input: {
     actor: input.actor,
     now: input.now,
     idempotencyKey: `${input.idempotencyKey}:reservation`,
-    amountMinor: order.amountMinor
+    amountMinor: order.amountMinor,
   });
   const orderEvent = buildOrderEvent({
     order: submittedOrder,
-    eventType: 'SUBMITTED',
-    fromStatus: 'DRAFT',
-    toStatus: 'PENDING_DISPATCH',
+    eventType: "SUBMITTED",
+    fromStatus: "DRAFT",
+    toStatus: "PENDING_DISPATCH",
     actor: input.actor,
     now: input.now,
     sequence: nextSequence,
     payload: {
       reservationId: activatedReservation.id,
       amountMinor: activatedReservation.amountMinor,
-      currency: activatedReservation.currency
-    }
+      currency: activatedReservation.currency,
+    },
   });
 
   return {
     data: {
       orderId: submittedOrder.id,
-      status: 'PENDING_DISPATCH',
+      status: "PENDING_DISPATCH",
       version: submittedOrder.version,
       reservation: toApiReservationSummary(activatedReservation),
       balance: {
         ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
         reservedMinor: reservedMinor + activatedReservation.amountMinor,
-        availableMinor: walletBalance.ledgerBalanceMinor - reservedMinor - activatedReservation.amountMinor,
-        currency: 'CAT',
+        availableMinor:
+          walletBalance.ledgerBalanceMinor -
+          reservedMinor -
+          activatedReservation.amountMinor,
+        currency: "CAT",
         calculatedAt: walletBalance.calculatedAt,
-        version: walletBalance.version
-      }
+        version: walletBalance.version,
+      },
     },
     order: submittedOrder,
     orderEvent,
@@ -1501,12 +1937,6 @@ export async function prepareSubmitOrder(input: {
     reservationEvent,
     ledgerBalanceMinor: walletBalance.ledgerBalanceMinor,
     externalTransactions: [],
-    dispatchStartJob: {
-      id: crypto.randomUUID(), type: 'DISPATCH_START', status: 'PENDING', aggregateType: 'order', aggregateId: submittedOrder.id,
-      dedupeKey: `${input.idempotencyKey}:dispatch-start`, payload: { orderId: submittedOrder.id, expectedVersion: submittedOrder.version, trigger: 'ORDER_SUBMITTED' },
-      attempts: 0, maxAttempts: 8, runAfter: input.now.toISOString(), lockedAt: null, lockedBy: null, completedAt: null,
-      lastError: null, version: 1, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
-    }
   };
 }
 
@@ -1521,33 +1951,56 @@ export async function prepareCancelOrder(input: {
   now: Date;
 }): Promise<PreparedCancelOrderWrite> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
   validateCancelOrderInput(input.input);
-  const preview = await input.orderStore.findCancellationPreview(input.input.previewId);
-  const currentReservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
+  const preview = await input.orderStore.findCancellationPreview(
+    input.input.previewId,
+  );
+  const currentReservation =
+    (await input.orderStore.findActiveReservationByOrder?.(order.id)) ?? null;
   if (
     !preview ||
     preview.reasonCode !== input.input.reasonCode ||
-    !isCancellationPreviewCurrent(preview, order, currentReservation ? [currentReservation] : [], input.now)
+    !isCancellationPreviewCurrent(
+      preview,
+      order,
+      currentReservation ? [currentReservation] : [],
+      input.now,
+    )
   ) {
-    throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    throw new OrderError(
+      "CANCELLATION_PREVIEW_STALE",
+      "Refresh the cancellation preview before retrying.",
+    );
   }
   if (order.version !== input.input.expectedVersion) {
-    throw new OrderError('CANCELLATION_PREVIEW_STALE', 'Refresh the cancellation preview before retrying.');
+    throw new OrderError(
+      "CANCELLATION_PREVIEW_STALE",
+      "Refresh the cancellation preview before retrying.",
+    );
   }
-  if (preview.disposition === 'STAFF_REVIEW_REQUIRED') {
+  if (preview.disposition === "STAFF_REVIEW_REQUIRED") {
     if (!input.staffTaskStore) {
-      throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is not configured.');
+      throw new OrderError(
+        "BUSINESS_RULE_VIOLATION",
+        "Staff task store is not configured.",
+      );
     }
     const staffTask = await createOrderStaffTask({
       store: input.staffTaskStore,
       order,
-      type: 'CANCELLATION_ASSIST',
-      reasonCode: isOrderAutomationPausedFor(order, 'CANCELLATION') ? 'AUTOMATION_PAUSED' : 'CUSTOMER_CANCEL_AFTER_ACCEPT',
+      type: "CANCELLATION_ASSIST",
+      reasonCode: isOrderAutomationPausedFor(order, "CANCELLATION")
+        ? "AUTOMATION_PAUSED"
+        : "CUSTOMER_CANCEL_AFTER_ACCEPT",
       note: input.input.note ?? null,
       voiceChannelId: order.channelSpec.voiceChannelId,
       actor: input.actor,
-      now: input.now
+      now: input.now,
     });
     await input.orderStore.applyCancellationPreview(preview.id, input.now);
     return {
@@ -1555,12 +2008,12 @@ export async function prepareCancelOrder(input: {
         orderId: order.id,
         status: order.status,
         version: order.version,
-        fundAction: 'NONE',
+        fundAction: "NONE",
         amountMinor: 0,
         currency: order.currency,
         reservation: null,
         refundTransaction: null,
-        staffTaskId: staffTask.id
+        staffTaskId: staffTask.id,
       },
       order,
       expectedVersion: input.input.expectedVersion,
@@ -1568,15 +2021,19 @@ export async function prepareCancelOrder(input: {
       reservation: null,
       reservationEvent: null,
       staffTask,
-      previewId: preview.id
+      previewId: preview.id,
     };
   }
-  if (!['DRAFT', 'PENDING_DISPATCH'].includes(order.status)) {
-    throw new OrderError('CONFLICT', 'Order cannot be cancelled automatically.');
+  if (!["DRAFT", "PENDING_DISPATCH"].includes(order.status)) {
+    throw new OrderError(
+      "CONFLICT",
+      "Order cannot be cancelled automatically.",
+    );
   }
-  const reservation = order.status === 'PENDING_DISPATCH' ? currentReservation : null;
-  if (order.status === 'PENDING_DISPATCH' && !reservation) {
-    throw new OrderError('CONFLICT', 'Order reservation is not active.');
+  const reservation =
+    order.status === "PENDING_DISPATCH" ? currentReservation : null;
+  if (order.status === "PENDING_DISPATCH" && !reservation) {
+    throw new OrderError("CONFLICT", "Order reservation is not active.");
   }
 
   const releasedReservation = reservation
@@ -1584,55 +2041,58 @@ export async function prepareCancelOrder(input: {
         reservation,
         idempotencyKey: input.idempotencyKey,
         reasonCode: input.input.reasonCode,
-        now: input.now
+        now: input.now,
       })
     : null;
   if (reservation && !releasedReservation) {
     if (!input.staffTaskStore) {
-      throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for an unresolved wallet release.');
+      throw new OrderError(
+        "BUSINESS_RULE_VIOLATION",
+        "Staff task store is required for an unresolved wallet release.",
+      );
     }
     const exceptionOrder: OrderRecord = {
       ...order,
-      status: 'EXCEPTION',
+      status: "EXCEPTION",
       version: order.version + 1,
-      updatedAt: input.now.toISOString()
+      updatedAt: input.now.toISOString(),
     };
     const staffTask = await input.staffTaskStore.createOrderTask({
       order: exceptionOrder,
-      type: 'AUTOMATION_FAILURE',
-      reasonCode: 'WALLET_RELEASE_UNRESOLVED',
-      note: '供应商预留释放结果未知，需核对 Hold 状态后再处理取消。',
+      type: "AUTOMATION_FAILURE",
+      reasonCode: "WALLET_RELEASE_UNRESOLVED",
+      note: "供应商预留释放结果未知，需核对 Hold 状态后再处理取消。",
       voiceChannelId: order.channelSpec.voiceChannelId,
       actor: input.actor,
-      now: input.now
+      now: input.now,
     });
     const nextSequence = await input.orderStore.nextEventSequence(order.id);
     const orderEvent = buildOrderEvent({
       order: exceptionOrder,
-      eventType: 'EXCEPTION_ENTERED',
+      eventType: "EXCEPTION_ENTERED",
       fromStatus: order.status,
-      toStatus: 'EXCEPTION',
+      toStatus: "EXCEPTION",
       actor: input.actor,
       now: input.now,
       sequence: nextSequence,
       payload: {
-        reasonCode: 'WALLET_RELEASE_UNRESOLVED',
+        reasonCode: "WALLET_RELEASE_UNRESOLVED",
         previewId: input.input.previewId,
         reservationId: reservation.id,
-        staffTaskId: staffTask.id
-      }
+        staffTaskId: staffTask.id,
+      },
     });
     return {
       data: {
         orderId: exceptionOrder.id,
-        status: 'EXCEPTION',
+        status: "EXCEPTION",
         version: exceptionOrder.version,
-        fundAction: 'NONE',
+        fundAction: "NONE",
         amountMinor: 0,
         currency: reservation.currency,
         reservation: toApiReservationSummary(reservation),
         refundTransaction: null,
-        staffTaskId: staffTask.id
+        staffTaskId: staffTask.id,
       },
       order: exceptionOrder,
       expectedVersion: input.input.expectedVersion,
@@ -1640,7 +2100,7 @@ export async function prepareCancelOrder(input: {
       reservation: null,
       reservationEvent: null,
       staffTask,
-      previewId: preview.id
+      previewId: preview.id,
     };
   }
   const cancelledOrder = applyCancelOrder(order, input.now);
@@ -1652,38 +2112,40 @@ export async function prepareCancelOrder(input: {
         now: input.now,
         idempotencyKey: `${input.idempotencyKey}:reservation`,
         amountMinor: releasedReservation.amountMinor,
-        eventType: 'RELEASED',
+        eventType: "RELEASED",
         fromStatus: reservation!.status,
         reasonCode: input.input.reasonCode,
-        sequence: releasedReservation.version
+        sequence: releasedReservation.version,
       })
     : null;
   const orderEvent = buildOrderEvent({
     order: cancelledOrder,
-    eventType: 'DETAILS_UPDATED',
+    eventType: "DETAILS_UPDATED",
     fromStatus: order.status,
-    toStatus: 'CANCELLED',
+    toStatus: "CANCELLED",
     actor: input.actor,
     now: input.now,
     sequence: nextSequence,
     payload: {
       reasonCode: input.input.reasonCode,
       previewId: input.input.previewId,
-      reservationId: releasedReservation?.id ?? null
-    }
+      reservationId: releasedReservation?.id ?? null,
+    },
   });
 
   return {
     data: {
       orderId: cancelledOrder.id,
-      status: 'CANCELLED',
+      status: "CANCELLED",
       version: cancelledOrder.version,
-      fundAction: releasedReservation ? 'RELEASE_RESERVATION' : 'NONE',
+      fundAction: releasedReservation ? "RELEASE_RESERVATION" : "NONE",
       amountMinor: releasedReservation?.amountMinor ?? 0,
       currency: releasedReservation?.currency ?? order.currency,
-      reservation: releasedReservation ? toApiReservationSummary(releasedReservation) : null,
+      reservation: releasedReservation
+        ? toApiReservationSummary(releasedReservation)
+        : null,
       refundTransaction: null,
-      staffTaskId: null
+      staffTaskId: null,
     },
     order: cancelledOrder,
     expectedVersion: input.input.expectedVersion,
@@ -1691,7 +2153,7 @@ export async function prepareCancelOrder(input: {
     reservation: releasedReservation,
     reservationEvent,
     staffTask: null,
-    previewId: preview.id
+    previewId: preview.id,
   };
 }
 
@@ -1704,41 +2166,67 @@ export async function previewOrderCancellation(input: {
   now: Date;
 }): Promise<CancellationPreviewResult> {
   const binding = await requireCurrentBinding(input.accountStore, input.actor);
-  const order = await requireVisibleOrder(input.orderStore, input.orderId, binding);
+  const order = await requireVisibleOrder(
+    input.orderStore,
+    input.orderId,
+    binding,
+  );
   validateCancellationPreviewRequest(input.input);
   if (order.version !== input.input.expectedVersion) {
-    throw new OrderError('CONFLICT', 'Order version is stale.');
+    throw new OrderError("CONFLICT", "Order version is stale.");
   }
-  const reservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
-  const automationPaused = isOrderAutomationPausedFor(order, 'CANCELLATION');
-  const automaticallyProcessable = !automationPaused && (order.status === 'DRAFT' || (order.status === 'PENDING_DISPATCH' && Boolean(reservation)));
-  const releaseAmountMinor = automaticallyProcessable && order.status === 'PENDING_DISPATCH' && reservation ? reservation.amountMinor : 0;
-  const staffTaskRequired = automationPaused || ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status);
+  const reservation =
+    (await input.orderStore.findActiveReservationByOrder?.(order.id)) ?? null;
+  const automationPaused = isOrderAutomationPausedFor(order, "CANCELLATION");
+  const automaticallyProcessable =
+    !automationPaused &&
+    (order.status === "DRAFT" ||
+      (order.status === "PENDING_DISPATCH" && Boolean(reservation)));
+  const releaseAmountMinor =
+    automaticallyProcessable &&
+    order.status === "PENDING_DISPATCH" &&
+    reservation
+      ? reservation.amountMinor
+      : 0;
+  const staffTaskRequired =
+    automationPaused ||
+    ["ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION"].includes(order.status);
   if (!automaticallyProcessable && !staffTaskRequired) {
-    throw new OrderError('CONFLICT', 'Order cannot be cancelled from its current state.');
+    throw new OrderError(
+      "CONFLICT",
+      "Order cannot be cancelled from its current state.",
+    );
   }
   const expiresAt = new Date(input.now.getTime() + 60_000).toISOString();
   const record: CancellationPreviewRecord = {
     id: crypto.randomUUID(),
     orderId: order.id,
-    fundReservationId: automaticallyProcessable ? reservation?.id ?? null : null,
+    fundReservationId: automaticallyProcessable
+      ? (reservation?.id ?? null)
+      : null,
     orderVersionSnapshot: order.version,
-    reservationVersionSnapshot: automaticallyProcessable ? reservation?.version ?? null : null,
-    status: 'ISSUED',
-    disposition: automaticallyProcessable ? 'AUTO_RELEASE' : 'STAFF_REVIEW_REQUIRED',
+    reservationVersionSnapshot: automaticallyProcessable
+      ? (reservation?.version ?? null)
+      : null,
+    status: "ISSUED",
+    disposition: automaticallyProcessable
+      ? "AUTO_RELEASE"
+      : "STAFF_REVIEW_REQUIRED",
     releaseAmountMinor,
     refundAmountMinor: 0,
     currency: order.currency,
-    policyKey: 'ORDER_CANCELLATION_V1',
+    policyKey: "ORDER_CANCELLATION_V1",
     policyVersion: 1,
     reasonCode: input.input.reasonCode,
     requestedByUserId: binding.userId,
     requestedByStaffId: input.actor.actorStaffId,
-    estimatedResolutionAt: automaticallyProcessable ? input.now.toISOString() : null,
+    estimatedResolutionAt: automaticallyProcessable
+      ? input.now.toISOString()
+      : null,
     expiresAt,
     appliedAt: null,
     invalidatedAt: null,
-    createdAt: input.now.toISOString()
+    createdAt: input.now.toISOString(),
   };
   await input.orderStore.issueCancellationPreview(record);
   return {
@@ -1746,14 +2234,16 @@ export async function previewOrderCancellation(input: {
     orderId: order.id,
     orderVersion: order.version,
     automaticallyProcessable,
-    fundAction: releaseAmountMinor > 0 ? 'RELEASE_RESERVATION' : 'NONE',
+    fundAction: releaseAmountMinor > 0 ? "RELEASE_RESERVATION" : "NONE",
     estimatedAmountMinor: releaseAmountMinor,
     releaseAmountMinor,
     refundAmountMinor: 0,
     currency: order.currency,
-    handlingTimeCode: automaticallyProcessable ? 'IMMEDIATE' : 'STAFF_REVIEW_REQUIRED',
+    handlingTimeCode: automaticallyProcessable
+      ? "IMMEDIATE"
+      : "STAFF_REVIEW_REQUIRED",
     staffTaskRequired,
-    validUntil: expiresAt
+    validUntil: expiresAt,
   };
 }
 
@@ -1764,46 +2254,74 @@ export async function preparePauseOrderAutomation(input: {
   orderId: string;
   control: AutomationControlInput;
   now: Date;
-}): Promise<{ order: OrderRecord; expectedVersion: number; data: AutomationControlResult }> {
+}): Promise<{
+  order: OrderRecord;
+  expectedVersion: number;
+  data: AutomationControlResult;
+}> {
   validateAutomationControlInput(input.control, false, input.now);
   if (!input.actor.actorStaffId || !input.actor.actorLevel) {
-    throw new OrderError('PERMISSION_DENIED', 'A staff actor is required to pause automation.');
+    throw new OrderError(
+      "PERMISSION_DENIED",
+      "A staff actor is required to pause automation.",
+    );
   }
   const order = await input.orderStore.findById(input.orderId);
   if (!order) {
-    throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+    throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.version !== input.control.expectedVersion) {
-    throw new OrderError('CONFLICT', 'Order version is stale.');
+    throw new OrderError("CONFLICT", "Order version is stale.");
   }
-  if (!activeOrderStatuses.has(order.status) || order.status === 'DRAFT') {
-    throw new OrderError('CONFLICT', 'Automation cannot be paused for this order state.');
+  if (!activeOrderStatuses.has(order.status) || order.status === "DRAFT") {
+    throw new OrderError(
+      "CONFLICT",
+      "Automation cannot be paused for this order state.",
+    );
   }
-  const claimedTask = await input.staffTaskStore.findClaimedOrderTask?.(order.id, input.actor.actorStaffId) ?? null;
-  if (input.actor.actorLevel === 'L1_SUPPORT' && !claimedTask) {
-    throw new OrderError('PERMISSION_DENIED', 'L1 support may pause only an order task they claimed.');
+  const claimedTask =
+    (await input.staffTaskStore.findClaimedOrderTask?.(
+      order.id,
+      input.actor.actorStaffId,
+    )) ?? null;
+  if (input.actor.actorLevel === "L1_SUPPORT" && !claimedTask) {
+    throw new OrderError(
+      "PERMISSION_DENIED",
+      "L1 support may pause only an order task they claimed.",
+    );
   }
-  if ((order.automationState ?? 'RUNNING') === 'PAUSED') {
+  if ((order.automationState ?? "RUNNING") === "PAUSED") {
     if (order.automationPausedByStaffId !== input.actor.actorStaffId) {
-      throw new OrderError('CONFLICT', 'Order automation is already paused by another staff member.');
+      throw new OrderError(
+        "CONFLICT",
+        "Order automation is already paused by another staff member.",
+      );
     }
-    return { order, expectedVersion: order.version, data: toAutomationControlResult(order, null) };
+    return {
+      order,
+      expectedVersion: order.version,
+      data: toAutomationControlResult(order, null),
+    };
   }
   const paused: OrderRecord = {
     ...order,
     version: order.version + 1,
-    automationState: 'PAUSED',
+    automationState: "PAUSED",
     automationVersion: (order.automationVersion ?? 1) + 1,
     automationPausedByStaffId: input.actor.actorStaffId,
     automationStaffTaskId: claimedTask?.id ?? null,
     automationReasonCode: input.control.reasonCode,
-    automationScope: input.control.scope ?? 'ALL',
+    automationScope: input.control.scope ?? "ALL",
     automationPausedAt: input.now.toISOString(),
     automationResumedAt: null,
     automationExpiresAt: input.control.expiresAt ?? null,
-    updatedAt: input.now.toISOString()
+    updatedAt: input.now.toISOString(),
   };
-  return { order: paused, expectedVersion: order.version, data: toAutomationControlResult(paused, null) };
+  return {
+    order: paused,
+    expectedVersion: order.version,
+    data: toAutomationControlResult(paused, null),
+  };
 }
 
 export async function prepareResumeOrderAutomation(input: {
@@ -1812,32 +2330,57 @@ export async function prepareResumeOrderAutomation(input: {
   orderId: string;
   control: AutomationControlInput;
   now: Date;
-}): Promise<{ order: OrderRecord; expectedVersion: number; data: AutomationControlResult }> {
+}): Promise<{
+  order: OrderRecord;
+  expectedVersion: number;
+  data: AutomationControlResult;
+}> {
   validateAutomationControlInput(input.control, true, input.now);
   if (!input.actor.actorStaffId) {
-    throw new OrderError('PERMISSION_DENIED', 'A staff actor is required to resume automation.');
+    throw new OrderError(
+      "PERMISSION_DENIED",
+      "A staff actor is required to resume automation.",
+    );
   }
   const order = await input.orderStore.findById(input.orderId);
   if (!order) {
-    throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+    throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.version !== input.control.expectedVersion) {
-    throw new OrderError('CONFLICT', 'Order version is stale.');
+    throw new OrderError("CONFLICT", "Order version is stale.");
   }
-  if ((order.automationState ?? 'RUNNING') !== 'PAUSED') {
-    return { order, expectedVersion: order.version, data: toAutomationControlResult(order, input.control.resumeAction ?? null) };
+  if ((order.automationState ?? "RUNNING") !== "PAUSED") {
+    return {
+      order,
+      expectedVersion: order.version,
+      data: toAutomationControlResult(
+        order,
+        input.control.resumeAction ?? null,
+      ),
+    };
   }
   validateResumeAction(order, input.control.resumeAction!);
-  if (['PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status)) {
-    const reservation = await input.orderStore.findActiveReservationByOrder?.(order.id) ?? null;
+  if (
+    [
+      "PENDING_DISPATCH",
+      "ACCEPTED",
+      "IN_SERVICE",
+      "PENDING_CONFIRMATION",
+    ].includes(order.status)
+  ) {
+    const reservation =
+      (await input.orderStore.findActiveReservationByOrder?.(order.id)) ?? null;
     if (!reservation) {
-      throw new OrderError('CONFLICT', 'Active reservation must be restored before automation can resume.');
+      throw new OrderError(
+        "CONFLICT",
+        "Active reservation must be restored before automation can resume.",
+      );
     }
   }
   const resumed: OrderRecord = {
     ...order,
     version: order.version + 1,
-    automationState: 'RUNNING',
+    automationState: "RUNNING",
     automationVersion: (order.automationVersion ?? 1) + 1,
     automationPausedByStaffId: null,
     automationStaffTaskId: null,
@@ -1846,44 +2389,81 @@ export async function prepareResumeOrderAutomation(input: {
     automationPausedAt: null,
     automationResumedAt: input.now.toISOString(),
     automationExpiresAt: null,
-    updatedAt: input.now.toISOString()
+    updatedAt: input.now.toISOString(),
   };
-  return { order: resumed, expectedVersion: order.version, data: toAutomationControlResult(resumed, input.control.resumeAction!) };
+  return {
+    order: resumed,
+    expectedVersion: order.version,
+    data: toAutomationControlResult(resumed, input.control.resumeAction!),
+  };
 }
 
-function validateAutomationControlInput(control: AutomationControlInput, resume: boolean, now: Date): void {
-  if (!control || !Number.isInteger(control.expectedVersion) || control.expectedVersion < 1) {
-    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+function validateAutomationControlInput(
+  control: AutomationControlInput,
+  resume: boolean,
+  now: Date,
+): void {
+  if (
+    !control ||
+    !Number.isInteger(control.expectedVersion) ||
+    control.expectedVersion < 1
+  ) {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expectedVersion must be a positive integer.",
+    );
   }
-  if (!control.reasonCode || !/^[A-Z][A-Z0-9_]{2,63}$/.test(control.reasonCode)) {
-    throw new OrderError('VALIDATION_ERROR', 'reasonCode is invalid.');
+  if (
+    !control.reasonCode ||
+    !/^[A-Z][A-Z0-9_]{2,63}$/.test(control.reasonCode)
+  ) {
+    throw new OrderError("VALIDATION_ERROR", "reasonCode is invalid.");
   }
-  if (control.expiresAt && new Date(control.expiresAt).getTime() <= now.getTime()) {
-    throw new OrderError('VALIDATION_ERROR', 'expiresAt must be in the future.');
+  if (
+    control.expiresAt &&
+    new Date(control.expiresAt).getTime() <= now.getTime()
+  ) {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expiresAt must be in the future.",
+    );
   }
   if (resume && !control.resumeAction) {
-    throw new OrderError('VALIDATION_ERROR', 'resumeAction is required when resuming automation.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "resumeAction is required when resuming automation.",
+    );
   }
 }
 
-function validateResumeAction(order: OrderRecord, action: NonNullable<AutomationControlInput['resumeAction']>): void {
-  const permitted = order.status === 'PENDING_DISPATCH'
-    ? ['REDISPATCH', 'NONE']
-    : order.status === 'ACCEPTED'
-      ? ['RESTART_READINESS_TIMEOUT', 'NONE']
-      : ['NONE'];
+function validateResumeAction(
+  order: OrderRecord,
+  action: NonNullable<AutomationControlInput["resumeAction"]>,
+): void {
+  const permitted =
+    order.status === "PENDING_DISPATCH"
+      ? ["REDISPATCH", "NONE"]
+      : order.status === "ACCEPTED"
+        ? ["RESTART_READINESS_TIMEOUT", "NONE"]
+        : ["NONE"];
   if (!permitted.includes(action)) {
-    throw new OrderError('CONFLICT', 'resumeAction is not valid for the current order state.');
+    throw new OrderError(
+      "CONFLICT",
+      "resumeAction is not valid for the current order state.",
+    );
   }
 }
 
-function toAutomationControlResult(order: OrderRecord, resumeAction: AutomationControlResult['resumeAction']): AutomationControlResult {
+function toAutomationControlResult(
+  order: OrderRecord,
+  resumeAction: AutomationControlResult["resumeAction"],
+): AutomationControlResult {
   return {
     orderId: order.id,
     orderVersion: order.version,
     resumeAction,
     automation: {
-      state: order.automationState ?? 'RUNNING',
+      state: order.automationState ?? "RUNNING",
       version: order.automationVersion ?? 1,
       pausedByStaffId: order.automationPausedByStaffId ?? null,
       staffTaskId: order.automationStaffTaskId ?? null,
@@ -1891,14 +2471,21 @@ function toAutomationControlResult(order: OrderRecord, resumeAction: AutomationC
       scope: order.automationScope ?? null,
       pausedAt: order.automationPausedAt ?? null,
       resumedAt: order.automationResumedAt ?? null,
-      expiresAt: order.automationExpiresAt ?? null
-    }
+      expiresAt: order.automationExpiresAt ?? null,
+    },
   };
 }
 
-function isOrderAutomationPausedFor(order: OrderRecord, scope: NonNullable<OrderRecord['automationScope']>): boolean {
-  return order.automationState === 'PAUSED'
-    && (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === scope);
+function isOrderAutomationPausedFor(
+  order: OrderRecord,
+  scope: NonNullable<OrderRecord["automationScope"]>,
+): boolean {
+  return (
+    order.automationState === "PAUSED" &&
+    (!order.automationScope ||
+      order.automationScope === "ALL" ||
+      order.automationScope === scope)
+  );
 }
 
 export function registerOrderRoutes(
@@ -1911,128 +2498,144 @@ export function registerOrderRoutes(
     staffTaskStore?: StaffTaskStore;
     now?: () => Date;
     auditSink?: AuditSink;
-  }
+  },
 ): void {
   const security = server.securityOptions;
   if (!security) {
-    throw new Error('Order routes require buildApiServer({ security })');
+    throw new Error("Order routes require buildApiServer({ security })");
   }
   const now = options.now ?? (() => new Date());
-  const auditSink = options.auditSink ?? security.auditSink ?? new InMemoryAuditSink();
+  const auditSink =
+    options.auditSink ?? security.auditSink ?? new InMemoryAuditSink();
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/admin/orders/:orderId/automation/pause',
-    permission: 'order.pause',
-    action: 'PAUSE_ORDER_AUTOMATION',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    method: "POST",
+    url: "/api/v1/admin/orders/:orderId/automation/pause",
+    permission: "order.pause",
+    action: "PAUSE_ORDER_AUTOMATION",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    acceptedSources: ["DASHBOARD", "DISCORD_BOT"],
     handler: async (request, actor) => {
       if (!options.staffTaskStore) {
-        throw new OrderError('BUSINESS_RULE_VIOLATION', 'Staff task store is required for automation takeover.');
+        throw new OrderError(
+          "BUSINESS_RULE_VIOLATION",
+          "Staff task store is required for automation takeover.",
+        );
       }
       const prepared = await preparePauseOrderAutomation({
         orderStore: options.orderStore,
         staffTaskStore: options.staffTaskStore,
         actor,
-        orderId: readParams(request).orderId ?? '',
+        orderId: readParams(request).orderId ?? "",
         control: request.body as AutomationControlInput,
-        now: now()
+        now: now(),
       });
       return {
         data: prepared.data,
-        commit: (auditRecord: AuditRecord) => options.orderStore.commitAutomationControl({
-          order: prepared.order,
-          expectedVersion: prepared.expectedVersion,
-          auditRecord: {
-            ...auditRecord,
-            beforeSnapshot: { orderVersion: prepared.expectedVersion, automationState: 'RUNNING' },
-            afterSnapshot: prepared.data
-          },
-          auditSink
-        })
+        commit: (auditRecord: AuditRecord) =>
+          options.orderStore.commitAutomationControl({
+            order: prepared.order,
+            expectedVersion: prepared.expectedVersion,
+            auditRecord: {
+              ...auditRecord,
+              beforeSnapshot: {
+                orderVersion: prepared.expectedVersion,
+                automationState: "RUNNING",
+              },
+              afterSnapshot: prepared.data,
+            },
+            auditSink,
+          }),
       };
     },
     mapError: mapOrderError,
-    fingerprintBody: (request) => request.body
+    fingerprintBody: (request) => request.body,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/admin/orders/:orderId/automation/resume',
-    permission: 'order.resume',
-    action: 'RESUME_ORDER_AUTOMATION',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    method: "POST",
+    url: "/api/v1/admin/orders/:orderId/automation/resume",
+    permission: "order.resume",
+    action: "RESUME_ORDER_AUTOMATION",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    acceptedSources: ["DASHBOARD", "DISCORD_BOT"],
     handler: async (request, actor) => {
       const prepared = await prepareResumeOrderAutomation({
         orderStore: options.orderStore,
         actor,
-        orderId: readParams(request).orderId ?? '',
+        orderId: readParams(request).orderId ?? "",
         control: request.body as AutomationControlInput,
-        now: now()
+        now: now(),
       });
       return {
         data: prepared.data,
-        commit: (auditRecord: AuditRecord) => options.orderStore.commitAutomationControl({
-          order: prepared.order,
-          expectedVersion: prepared.expectedVersion,
-          auditRecord: {
-            ...auditRecord,
-            beforeSnapshot: { orderVersion: prepared.expectedVersion, automationState: 'PAUSED' },
-            afterSnapshot: prepared.data
-          },
-          auditSink
-        })
+        commit: (auditRecord: AuditRecord) =>
+          options.orderStore.commitAutomationControl({
+            order: prepared.order,
+            expectedVersion: prepared.expectedVersion,
+            auditRecord: {
+              ...auditRecord,
+              beforeSnapshot: {
+                orderVersion: prepared.expectedVersion,
+                automationState: "PAUSED",
+              },
+              afterSnapshot: prepared.data,
+            },
+            auditSink,
+          }),
       };
     },
     mapError: mapOrderError,
-    fingerprintBody: (request) => request.body
+    fingerprintBody: (request) => request.body,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders/:orderId/cancellation-preview',
-    permission: 'order.cancellation.preview',
-    action: 'PREVIEW_ORDER_CANCELLATION',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    acceptedSources: ['DISCORD_BOT', 'DASHBOARD'],
-    handler: async (request, actor) => previewOrderCancellation({
-      accountStore: options.accountStore,
-      orderStore: options.orderStore,
-      actor,
-      orderId: readParams(request).orderId ?? '',
-      input: request.body as CancellationPreviewRequest,
-      now: now()
-    }),
+    method: "POST",
+    url: "/api/v1/orders/:orderId/cancellation-preview",
+    permission: "order.cancellation.preview",
+    action: "PREVIEW_ORDER_CANCELLATION",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    acceptedSources: ["DISCORD_BOT", "DASHBOARD"],
+    handler: async (request, actor) =>
+      previewOrderCancellation({
+        accountStore: options.accountStore,
+        orderStore: options.orderStore,
+        actor,
+        orderId: readParams(request).orderId ?? "",
+        input: request.body as CancellationPreviewRequest,
+        now: now(),
+      }),
     mapError: mapOrderError,
-    fingerprintBody: (request) => request.body
+    fingerprintBody: (request) => request.body,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders',
-    permission: 'order.create',
-    action: 'CREATE_ORDER',
-    targetType: 'order',
+    method: "POST",
+    url: "/api/v1/orders",
+    permission: "order.create",
+    action: "CREATE_ORDER",
+    targetType: "order",
     handler: async (request, actor) => {
       const prepared = await prepareCreateOrder({
         accountStore: options.accountStore,
         orderStore: options.orderStore,
         actor,
         input: request.body as CreateOrderInput,
-        now: now()
+        now: now(),
       });
-      if (!('order' in prepared)) {
+      if (!("order" in prepared)) {
         return {
           data: prepared.data,
           statusCode: prepared.statusCode,
           commit: async (auditRecord: AuditRecord) => {
             await auditSink.append(auditRecord);
-          }
+          },
         };
       }
       return {
@@ -2043,86 +2646,98 @@ export function registerOrderRoutes(
             order: prepared.order,
             event: prepared.event,
             auditRecord,
-            auditSink
+            auditSink,
           });
-        }
+        },
       };
     },
-    mapError: mapOrderError
+    mapError: mapOrderError,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders/:orderId/submit',
-    permission: 'order.submit',
-    action: 'SUBMIT_ORDER',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    method: "POST",
+    url: "/api/v1/orders/:orderId/submit",
+    permission: "order.submit",
+    action: "SUBMIT_ORDER",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
     handler: async (request, actor) => {
-      if (!options.walletFunding) throw new OrderError('BUSINESS_RULE_VIOLATION', 'Wallet funding is not configured.');
+      if (!options.walletFunding)
+        throw new OrderError(
+          "BUSINESS_RULE_VIOLATION",
+          "Wallet funding is not configured.",
+        );
       const prepared = await prepareSubmitOrder({
         accountStore: options.accountStore,
         catalogStore: options.catalogStore,
         orderStore: options.orderStore,
         walletFunding: options.walletFunding,
         actor,
-        orderId: readParams(request).orderId ?? '',
+        orderId: readParams(request).orderId ?? "",
         input: request.body as SubmitOrderInput,
         idempotencyKey: readIdempotencyKey(request),
-        now: now()
+        now: now(),
       });
       return {
         data: prepared.data,
         commit: async (auditRecord: AuditRecord) => {
           if (!options.orderStore.commitSubmit) {
-            throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order store cannot submit orders.');
+            throw new OrderError(
+              "BUSINESS_RULE_VIOLATION",
+              "Order store cannot submit orders.",
+            );
           }
           try {
             await options.orderStore.commitSubmit({
               order: prepared.order,
-              expectedVersion: (request.body as SubmitOrderInput).expectedVersion,
+              expectedVersion: (request.body as SubmitOrderInput)
+                .expectedVersion,
               ledgerBalanceMinor: prepared.ledgerBalanceMinor,
               orderEvent: prepared.orderEvent,
               reservation: prepared.reservation,
               reservationEvent: prepared.reservationEvent,
               externalTransactions: prepared.externalTransactions,
-              dispatchStartJob: prepared.dispatchStartJob,
               auditRecord: {
                 ...auditRecord,
                 beforeSnapshot: {
                   orderId: prepared.order.id,
-                  expectedVersion: (request.body as SubmitOrderInput).expectedVersion,
-                  status: 'DRAFT'
+                  expectedVersion: (request.body as SubmitOrderInput)
+                    .expectedVersion,
+                  status: "DRAFT",
                 },
-                afterSnapshot: buildSubmitAuditSnapshot(prepared)
+                afterSnapshot: buildSubmitAuditSnapshot(prepared),
               },
-              auditSink
+              auditSink,
             });
-          } catch (error) { throw error; }
-        }
+          } catch (error) {
+            throw error;
+          }
+        },
       };
     },
-    mapError: mapOrderError
+    mapError: mapOrderError,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders/:orderId/cancel',
+    method: "POST",
+    url: "/api/v1/orders/:orderId/cancel",
     retryCommitFailures: true,
-    permission: 'order.cancel',
-    action: 'CANCEL_ORDER',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    permission: "order.cancel",
+    action: "CANCEL_ORDER",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
     handler: async (request, actor) => {
       const prepared = await prepareCancelOrder({
         accountStore: options.accountStore,
         orderStore: options.orderStore,
         staffTaskStore: options.staffTaskStore,
         actor,
-        orderId: readParams(request).orderId ?? '',
+        orderId: readParams(request).orderId ?? "",
         input: request.body as CancelOrderInput,
         idempotencyKey: readIdempotencyKey(request),
-        now: now()
+        now: now(),
       });
       if (!prepared.orderEvent) {
         return prepared.data;
@@ -2132,7 +2747,10 @@ export function registerOrderRoutes(
         data: prepared.data,
         commit: async (auditRecord: AuditRecord) => {
           if (!options.orderStore.commitCancel) {
-            throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order store cannot cancel orders.');
+            throw new OrderError(
+              "BUSINESS_RULE_VIOLATION",
+              "Order store cannot cancel orders.",
+            );
           }
           await options.orderStore.commitCancel({
             order: prepared.order,
@@ -2144,67 +2762,99 @@ export function registerOrderRoutes(
               ...auditRecord,
               beforeSnapshot: {
                 orderId: prepared.order.id,
-                expectedVersion: prepared.expectedVersion
+                expectedVersion: prepared.expectedVersion,
               },
-              afterSnapshot: prepared.data
+              afterSnapshot: prepared.data,
             },
             auditSink,
             previewId: prepared.previewId,
-            now: now()
+            now: now(),
           });
-        }
+        },
       };
     },
-    mapError: mapOrderError
+    mapError: mapOrderError,
   });
 
   registerSecureReadRoute(server, security, {
-    method: 'GET',
-    url: '/api/v1/orders/:orderId',
-    permission: 'order.read',
-    action: 'GET_ORDER',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    handler: async (request, actor) => getOrder({
-      accountStore: options.accountStore,
-      orderStore: options.orderStore,
-      actor,
-      orderId: readParams(request).orderId ?? ''
-    }),
-    mapError: mapOrderError
+    method: "GET",
+    url: "/api/v1/orders/:orderId",
+    permission: "order.read",
+    action: "GET_ORDER",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    handler: async (request, actor) =>
+      getOrder({
+        accountStore: options.accountStore,
+        orderStore: options.orderStore,
+        actor,
+        orderId: readParams(request).orderId ?? "",
+      }),
+    mapError: mapOrderError,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders/:orderId/channel-recovery',
-    permission: 'order.update',
-    action: 'RECOVER_ORDER_CHANNEL',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    acceptedSources: ['DISCORD_BOT'],
+    method: "POST",
+    url: "/api/v1/orders/:orderId/channel-recovery",
+    permission: "order.update",
+    action: "RECOVER_ORDER_CHANNEL",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    acceptedSources: ["DISCORD_BOT"],
     handler: async (request, actor) => {
-      const prepared = await prepareRecoverOrderChannel({accountStore:options.accountStore,orderStore:options.orderStore,actor,orderId:readParams(request).orderId??'',input:request.body as RecoverOrderChannelInput,now:now()});
-      return {data:prepared.data,commit:(auditRecord:AuditRecord)=>options.orderStore.commitUpdate({order:prepared.order,event:prepared.event,expectedVersion:(request.body as RecoverOrderChannelInput).expectedVersion,auditRecord:{...auditRecord,beforeSnapshot:{channelId:(request.body as RecoverOrderChannelInput).previousChannelId},afterSnapshot:{channelSpec:prepared.order.channelSpec,orderVersion:prepared.order.version}},auditSink})};
+      const prepared = await prepareRecoverOrderChannel({
+        accountStore: options.accountStore,
+        orderStore: options.orderStore,
+        actor,
+        orderId: readParams(request).orderId ?? "",
+        input: request.body as RecoverOrderChannelInput,
+        now: now(),
+      });
+      return {
+        data: prepared.data,
+        commit: (auditRecord: AuditRecord) =>
+          options.orderStore.commitUpdate({
+            order: prepared.order,
+            event: prepared.event,
+            expectedVersion: (request.body as RecoverOrderChannelInput)
+              .expectedVersion,
+            auditRecord: {
+              ...auditRecord,
+              beforeSnapshot: {
+                channelId: (request.body as RecoverOrderChannelInput)
+                  .previousChannelId,
+              },
+              afterSnapshot: {
+                channelSpec: prepared.order.channelSpec,
+                orderVersion: prepared.order.version,
+              },
+            },
+            auditSink,
+          }),
+      };
     },
-    mapError: mapOrderError
+    mapError: mapOrderError,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'PATCH',
-    url: '/api/v1/orders/:orderId',
-    permission: 'order.update',
-    action: 'UPDATE_ORDER',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
+    method: "PATCH",
+    url: "/api/v1/orders/:orderId",
+    permission: "order.update",
+    action: "UPDATE_ORDER",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
     handler: async (request, actor) => {
       const prepared = await prepareUpdateOrder({
         accountStore: options.accountStore,
         catalogStore: options.catalogStore,
         orderStore: options.orderStore,
         actor,
-        orderId: readParams(request).orderId ?? '',
+        orderId: readParams(request).orderId ?? "",
         input: request.body as UpdateOrderInput,
-        now: now()
+        now: now(),
       });
       return {
         data: prepared.data,
@@ -2214,30 +2864,32 @@ export function registerOrderRoutes(
             event: prepared.event,
             expectedVersion: (request.body as UpdateOrderInput).expectedVersion,
             auditRecord,
-            auditSink
+            auditSink,
           });
-        }
+        },
       };
     },
-    mapError: mapOrderError
+    mapError: mapOrderError,
   });
 
   registerSecureWriteRoute(server, security, {
-    method: 'POST',
-    url: '/api/v1/orders/:orderId/estimate',
-    permission: 'order.estimate',
-    action: 'ESTIMATE_ORDER',
-    targetType: 'order',
-    targetId: (request) => readParams(request).orderId ?? '00000000-0000-0000-0000-000000000000',
-    handler: async (request, actor) => estimateOrder({
-      accountStore: options.accountStore,
-      orderStore: options.orderStore,
-      actor,
-      orderId: readParams(request).orderId ?? '',
-      input: request.body as EstimateOrderInput,
-      now: now()
-    }),
-    mapError: mapOrderError
+    method: "POST",
+    url: "/api/v1/orders/:orderId/estimate",
+    permission: "order.estimate",
+    action: "ESTIMATE_ORDER",
+    targetType: "order",
+    targetId: (request) =>
+      readParams(request).orderId ?? "00000000-0000-0000-0000-000000000000",
+    handler: async (request, actor) =>
+      estimateOrder({
+        accountStore: options.accountStore,
+        orderStore: options.orderStore,
+        actor,
+        orderId: readParams(request).orderId ?? "",
+        input: request.body as EstimateOrderInput,
+        now: now(),
+      }),
+    mapError: mapOrderError,
   });
 }
 
@@ -2253,7 +2905,7 @@ function buildDraftOrder(input: {
     customerId: input.binding.userId,
     guildId: input.binding.guildId,
     playerId: null,
-    status: 'DRAFT',
+    status: "DRAFT",
     version: 1,
     serviceCatalogId: null,
     catalogVersion: null,
@@ -2266,12 +2918,12 @@ function buildDraftOrder(input: {
     playerUnitPayoutMinor: null,
     amountMinor: 0,
     playerEarningMinor: 0,
-    currency: 'CAT',
+    currency: "CAT",
     notes: null,
     preferredPlayerDiscordUserIds: [],
     channelSpec: clone(input.channelSpec),
     createdAt,
-    updatedAt: createdAt
+    updatedAt: createdAt,
   };
 }
 
@@ -2296,11 +2948,13 @@ function applyServiceSnapshot(input: {
     game: input.service.game,
     gameDisplayName: input.service.gameDisplayName ?? input.service.game,
     service: input.service.service,
-    serviceDisplayName: input.service.serviceDisplayName ?? input.service.service,
+    serviceDisplayName:
+      input.service.serviceDisplayName ?? input.service.service,
     region: input.region,
-    regionDisplayName: input.region === input.service.region
-      ? input.service.regionDisplayName ?? input.region
-      : input.region,
+    regionDisplayName:
+      input.region === input.service.region
+        ? (input.service.regionDisplayName ?? input.region)
+        : input.region,
     billingUnitMinutes: input.service.billingUnitMinutes,
     unitCount: input.unitCount,
     customerUnitPriceMinor: input.service.customerUnitPriceMinor,
@@ -2312,9 +2966,9 @@ function applyServiceSnapshot(input: {
     preferredPlayerDiscordUserIds: [...input.preferredPlayerDiscordUserIds],
     channelSpec: {
       ...input.order.channelSpec,
-      voiceChannelId: input.voiceChannelId
+      voiceChannelId: input.voiceChannelId,
     },
-    updatedAt: input.now.toISOString()
+    updatedAt: input.now.toISOString(),
   };
 }
 
@@ -2340,20 +2994,29 @@ function buildOrderEvent(input: {
     actorSource: input.actor.actorSource,
     interactionId: input.actor.interactionId,
     payload: input.payload,
-    createdAt: input.now.toISOString()
+    createdAt: input.now.toISOString(),
   };
 }
 
-async function requireCurrentBinding(store: AccountStore, actor: ActorContext): Promise<AccountBindingRecord> {
+async function requireCurrentBinding(
+  store: AccountStore,
+  actor: ActorContext,
+): Promise<AccountBindingRecord> {
   if (!actor.guildId || !actor.discordUserId) {
-    throw new OrderError('VALIDATION_ERROR', 'Discord actor context is required.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "Discord actor context is required.",
+    );
   }
   const binding = await store.findByDiscord({
     guildId: actor.guildId,
-    discordUserId: actor.discordUserId
+    discordUserId: actor.discordUserId,
   });
   if (!binding) {
-    throw new OrderError('ACCOUNT_NOT_BOUND', 'Current Discord actor is not bound.');
+    throw new OrderError(
+      "ACCOUNT_NOT_BOUND",
+      "Current Discord actor is not bound.",
+    );
   }
   return binding;
 }
@@ -2361,111 +3024,191 @@ async function requireCurrentBinding(store: AccountStore, actor: ActorContext): 
 async function requireVisibleOrder(
   store: OrderStore,
   orderId: string,
-  binding: AccountBindingRecord
+  binding: AccountBindingRecord,
 ): Promise<OrderRecord> {
   const order = await store.findById(orderId);
   if (!order) {
-    throw new OrderError('RESOURCE_NOT_FOUND', 'Order was not found.');
+    throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.customerId !== binding.userId) {
-    throw new OrderError('PERMISSION_DENIED', 'Order is not visible to the current actor.');
+    throw new OrderError(
+      "PERMISSION_DENIED",
+      "Order is not visible to the current actor.",
+    );
   }
   return order;
 }
 
-function validateDraftOrderVersion(order: OrderRecord, expectedVersion: number): void {
-  if (order.status !== 'DRAFT') {
-    throw new OrderError('BUSINESS_RULE_VIOLATION', 'Only draft orders can be changed.');
+function validateDraftOrderVersion(
+  order: OrderRecord,
+  expectedVersion: number,
+): void {
+  if (order.status !== "DRAFT") {
+    throw new OrderError(
+      "BUSINESS_RULE_VIOLATION",
+      "Only draft orders can be changed.",
+    );
   }
   if (order.version !== expectedVersion) {
-    throw new OrderError('CONFLICT', 'Order version is stale.');
+    throw new OrderError("CONFLICT", "Order version is stale.");
   }
 }
 
 function validateCreateOrderInput(input: CreateOrderInput): void {
-  if (!input || typeof input !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'Order payload is required.');
+  if (!input || typeof input !== "object") {
+    throw new OrderError("VALIDATION_ERROR", "Order payload is required.");
   }
-  if (input.orderType !== 'IMMEDIATE') {
-    throw new OrderError('VALIDATION_ERROR', 'orderType must be IMMEDIATE.');
+  if (input.orderType !== "IMMEDIATE") {
+    throw new OrderError("VALIDATION_ERROR", "orderType must be IMMEDIATE.");
   }
   validateChannelSpec(input.channelSpec);
 }
 
 function validateUpdateOrderInput(input: UpdateOrderInput): void {
-  if (!input || typeof input !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'Order update payload is required.');
+  if (!input || typeof input !== "object") {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "Order update payload is required.",
+    );
   }
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expectedVersion must be a positive integer.",
+    );
   }
-  if ((input.serviceCatalogId===undefined)!==(input.unitCount===undefined)) throw new OrderError('VALIDATION_ERROR','serviceCatalogId and unitCount must be supplied together.');
-  if (input.serviceCatalogId!==undefined&&!isUuid(input.serviceCatalogId)) throw new OrderError('VALIDATION_ERROR', 'serviceCatalogId must be a uuid.');
-  if (input.unitCount!==undefined&&(!Number.isInteger(input.unitCount)||input.unitCount<1||input.unitCount>1440)) throw new OrderError('VALIDATION_ERROR', 'unitCount must be between 1 and 1440.');
-  if(input.serviceCatalogId===undefined&&input.notes===undefined&&input.voiceChannelId===undefined&&input.preferredPlayerDiscordUserIds===undefined)throw new OrderError('VALIDATION_ERROR','At least one draft field must be supplied.');
-  if (input.region !== undefined && input.region !== null && typeof input.region !== 'string') {
-    throw new OrderError('VALIDATION_ERROR', 'region must be a string or null.');
+  if (
+    (input.serviceCatalogId === undefined) !==
+    (input.unitCount === undefined)
+  )
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "serviceCatalogId and unitCount must be supplied together.",
+    );
+  if (input.serviceCatalogId !== undefined && !isUuid(input.serviceCatalogId))
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "serviceCatalogId must be a uuid.",
+    );
+  if (
+    input.unitCount !== undefined &&
+    (!Number.isInteger(input.unitCount) ||
+      input.unitCount < 1 ||
+      input.unitCount > 1440)
+  )
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "unitCount must be between 1 and 1440.",
+    );
+  if (
+    input.serviceCatalogId === undefined &&
+    input.notes === undefined &&
+    input.voiceChannelId === undefined &&
+    input.preferredPlayerDiscordUserIds === undefined
+  )
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "At least one draft field must be supplied.",
+    );
+  if (
+    input.region !== undefined &&
+    input.region !== null &&
+    typeof input.region !== "string"
+  ) {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "region must be a string or null.",
+    );
   }
-  if (input.notes !== undefined && input.notes !== null && typeof input.notes !== 'string') {
-    throw new OrderError('VALIDATION_ERROR', 'notes must be a string or null.');
+  if (
+    input.notes !== undefined &&
+    input.notes !== null &&
+    typeof input.notes !== "string"
+  ) {
+    throw new OrderError("VALIDATION_ERROR", "notes must be a string or null.");
   }
-  if (input.voiceChannelId !== undefined && input.voiceChannelId !== null && !isSnowflake(input.voiceChannelId)) {
-    throw new OrderError('VALIDATION_ERROR', 'voiceChannelId must be a Discord snowflake or null.');
+  if (
+    input.voiceChannelId !== undefined &&
+    input.voiceChannelId !== null &&
+    !isSnowflake(input.voiceChannelId)
+  ) {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "voiceChannelId must be a Discord snowflake or null.",
+    );
   }
   if (input.preferredPlayerDiscordUserIds !== undefined) {
     if (
       !Array.isArray(input.preferredPlayerDiscordUserIds) ||
       input.preferredPlayerDiscordUserIds.length > 3 ||
-      new Set(input.preferredPlayerDiscordUserIds).size !== input.preferredPlayerDiscordUserIds.length ||
+      new Set(input.preferredPlayerDiscordUserIds).size !==
+        input.preferredPlayerDiscordUserIds.length ||
       input.preferredPlayerDiscordUserIds.some((id) => !isSnowflake(id))
     ) {
-      throw new OrderError('VALIDATION_ERROR', 'preferredPlayerDiscordUserIds must contain at most three unique Discord users.');
+      throw new OrderError(
+        "VALIDATION_ERROR",
+        "preferredPlayerDiscordUserIds must contain at most three unique Discord users.",
+      );
     }
   }
 }
 
 function validateChannelSpec(channelSpec: ChannelSpec): void {
-  if (!channelSpec || typeof channelSpec !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'channelSpec is required.');
+  if (!channelSpec || typeof channelSpec !== "object") {
+    throw new OrderError("VALIDATION_ERROR", "channelSpec is required.");
   }
   if (!isSnowflake(channelSpec.channelId)) {
-    throw new OrderError('VALIDATION_ERROR', 'channelSpec.channelId must be a Discord snowflake.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "channelSpec.channelId must be a Discord snowflake.",
+    );
   }
   if (!isSnowflake(channelSpec.panelMessageId)) {
-    throw new OrderError('VALIDATION_ERROR', 'channelSpec.panelMessageId must be a Discord snowflake.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "channelSpec.panelMessageId must be a Discord snowflake.",
+    );
   }
-  if (channelSpec.voiceChannelId !== null && !isSnowflake(channelSpec.voiceChannelId)) {
-    throw new OrderError('VALIDATION_ERROR', 'channelSpec.voiceChannelId must be a Discord snowflake or null.');
+  if (
+    channelSpec.voiceChannelId !== null &&
+    !isSnowflake(channelSpec.voiceChannelId)
+  ) {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "channelSpec.voiceChannelId must be a Discord snowflake or null.",
+    );
   }
 }
 
-function assertAvailableService(record: ServiceCatalogRecord | null): asserts record is ServiceCatalogRecord & {
+function assertAvailableService(
+  record: ServiceCatalogRecord | null,
+): asserts record is ServiceCatalogRecord & {
   customerUnitPriceMinor: number;
   playerUnitPayoutMinor: number;
 } {
   if (
     !record ||
-    record.status !== 'ACTIVE' ||
-    typeof record.customerUnitPriceMinor !== 'number' ||
+    record.status !== "ACTIVE" ||
+    typeof record.customerUnitPriceMinor !== "number" ||
     record.customerUnitPriceMinor <= 0 ||
-    typeof record.playerUnitPayoutMinor !== 'number' ||
+    typeof record.playerUnitPayoutMinor !== "number" ||
     record.playerUnitPayoutMinor <= 0
   ) {
-    throw new OrderError('SERVICE_NOT_AVAILABLE', 'Service is not available.');
+    throw new OrderError("SERVICE_NOT_AVAILABLE", "Service is not available.");
   }
 }
 
 function toApiOrder(
   order: OrderRecord,
   reservation: FundReservationRecord | null = null,
-  matching: OrderMatchingProgress | null = null
+  matching: OrderMatchingProgress | null = null,
 ): OrderApiRecord {
   return {
     id: order.id,
     publicId: order.publicId,
     status: order.status,
     version: order.version,
-    orderType: 'IMMEDIATE',
+    orderType: "IMMEDIATE",
     serviceCatalogId: order.serviceCatalogId,
     catalogVersion: order.catalogVersion,
     unitCount: order.unitCount,
@@ -2482,15 +3225,15 @@ function toApiOrder(
     matching,
     fundReservation: reservation ? toApiReservationSummary(reservation) : null,
     readiness: {
-      customer: 'NOT_READY',
-      player: 'NOT_READY',
+      customer: "NOT_READY",
+      player: "NOT_READY",
       bothReady: false,
       readyDeadlineAt: null,
       startedAt: null,
-      staffTaskId: null
+      staffTaskId: null,
     },
     automation: {
-      state: order.automationState ?? 'RUNNING',
+      state: order.automationState ?? "RUNNING",
       version: order.automationVersion ?? 1,
       pausedByStaffId: order.automationPausedByStaffId ?? null,
       staffTaskId: order.automationStaffTaskId ?? null,
@@ -2498,41 +3241,55 @@ function toApiOrder(
       scope: order.automationScope ?? null,
       pausedAt: order.automationPausedAt ?? null,
       resumedAt: order.automationResumedAt ?? null,
-      expiresAt: order.automationExpiresAt ?? null
+      expiresAt: order.automationExpiresAt ?? null,
     },
     playerId: order.playerId,
     region: order.region,
     regionDisplayName: order.regionDisplayName ?? order.region,
     notes: order.notes,
-    preferredPlayerDiscordUserIds: [...(order.preferredPlayerDiscordUserIds ?? [])],
+    preferredPlayerDiscordUserIds: [
+      ...(order.preferredPlayerDiscordUserIds ?? []),
+    ],
     channelSpec: clone(order.channelSpec),
     createdAt: order.createdAt,
-    updatedAt: order.updatedAt
+    updatedAt: order.updatedAt,
   };
 }
 
-function toApiReservationSummary(reservation: FundReservationRecord): FundReservationSummary {
+function toApiReservationSummary(
+  reservation: FundReservationRecord,
+): FundReservationSummary {
   return {
     reservationId: reservation.id,
     amountMinor: reservation.amountMinor,
-    capturedMinor: reservation.status === 'CAPTURED' ? reservation.amountMinor : 0,
-    releasedMinor: reservation.status === 'RELEASED' || reservation.status === 'EXPIRED' ? reservation.amountMinor : 0,
+    capturedMinor:
+      reservation.status === "CAPTURED" ? reservation.amountMinor : 0,
+    releasedMinor:
+      reservation.status === "RELEASED" || reservation.status === "EXPIRED"
+        ? reservation.amountMinor
+        : 0,
     currency: reservation.currency,
     status: reservation.status,
     version: reservation.version,
-    expiresAt: reservation.expiresAt
+    expiresAt: reservation.expiresAt,
   };
 }
 
-function toApiReservation(reservation: FundReservationRecord): FundReservationApiRecord {
+function toApiReservation(
+  reservation: FundReservationRecord,
+): FundReservationApiRecord {
   return {
     id: reservation.id,
     sourceType: reservation.sourceType,
     sourceId: reservation.orderId,
     ownerUserId: reservation.userId,
     amountMinor: reservation.amountMinor,
-    capturedMinor: reservation.status === 'CAPTURED' ? reservation.amountMinor : 0,
-    releasedMinor: reservation.status === 'RELEASED' || reservation.status === 'EXPIRED' ? reservation.amountMinor : 0,
+    capturedMinor:
+      reservation.status === "CAPTURED" ? reservation.amountMinor : 0,
+    releasedMinor:
+      reservation.status === "RELEASED" || reservation.status === "EXPIRED"
+        ? reservation.amountMinor
+        : 0,
     currency: reservation.currency,
     status: reservation.status,
     backend: reservation.mode,
@@ -2541,25 +3298,25 @@ function toApiReservation(reservation: FundReservationRecord): FundReservationAp
     version: reservation.version,
     expiresAt: reservation.expiresAt,
     createdAt: reservation.createdAt,
-    updatedAt: reservation.updatedAt
+    updatedAt: reservation.updatedAt,
   };
 }
 
 function applySubmitOrder(order: OrderRecord, now: Date): OrderRecord {
   return {
     ...order,
-    status: 'PENDING_DISPATCH',
+    status: "PENDING_DISPATCH",
     version: order.version + 1,
-    updatedAt: now.toISOString()
+    updatedAt: now.toISOString(),
   };
 }
 
 function applyCancelOrder(order: OrderRecord, now: Date): OrderRecord {
   return {
     ...order,
-    status: 'CANCELLED',
+    status: "CANCELLED",
     version: order.version + 1,
-    updatedAt: now.toISOString()
+    updatedAt: now.toISOString(),
   };
 }
 
@@ -2573,10 +3330,10 @@ async function releaseOrderReservation(input: {
   void input.reasonCode;
   return {
     ...input.reservation,
-    status: 'RELEASED',
+    status: "RELEASED",
     version: input.reservation.version + 1,
     settledAt: input.now.toISOString(),
-    updatedAt: input.now.toISOString()
+    updatedAt: input.now.toISOString(),
   };
 }
 
@@ -2589,7 +3346,7 @@ function buildOrderReservation(input: {
   now: Date;
 }): FundReservationRecord {
   const draft = buildFundReservationDraft({
-    businessSource: { type: 'ORDER', referenceId: input.order.id },
+    businessSource: { type: "ORDER", referenceId: input.order.id },
     userId: input.binding.userId,
     provider: input.providerKey,
     mode: input.mode,
@@ -2597,12 +3354,12 @@ function buildOrderReservation(input: {
     currency: input.order.currency,
     idempotencyKey: input.idempotencyKey,
     ttlMinutes: 30,
-    now: input.now
+    now: input.now,
   });
   return {
     id: draft.id,
     userId: draft.userId,
-    sourceType: 'ORDER',
+    sourceType: "ORDER",
     orderId: input.order.id,
     mode: draft.mode,
     provider: draft.provider,
@@ -2616,7 +3373,7 @@ function buildOrderReservation(input: {
     activatedAt: draft.activatedAt,
     settledAt: draft.settledAt,
     createdAt: draft.createdAt,
-    updatedAt: draft.updatedAt
+    updatedAt: draft.updatedAt,
   };
 }
 
@@ -2635,7 +3392,7 @@ function buildReservationEvent(input: {
     id: crypto.randomUUID(),
     fundReservationId: input.reservation.id,
     sequence: input.sequence ?? 1,
-    eventType: input.eventType ?? 'CREATED',
+    eventType: input.eventType ?? "CREATED",
     fromStatus: input.fromStatus ?? null,
     toStatus: input.reservation.status,
     amountMinor: input.amountMinor,
@@ -2644,44 +3401,66 @@ function buildReservationEvent(input: {
     actorUserId: input.actor.actorUserId,
     actorStaffId: input.actor.actorStaffId,
     actorSource: input.actor.actorSource,
-    reasonCode: input.reasonCode ?? 'ORDER_SUBMIT',
-    createdAt: input.now.toISOString()
+    reasonCode: input.reasonCode ?? "ORDER_SUBMIT",
+    createdAt: input.now.toISOString(),
   };
 }
 
 function validateSubmitOrderInput(input: SubmitOrderInput): void {
-  if (!input || typeof input !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'Submit payload is required.');
+  if (!input || typeof input !== "object") {
+    throw new OrderError("VALIDATION_ERROR", "Submit payload is required.");
   }
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expectedVersion must be a positive integer.",
+    );
   }
 }
 
 function validateCancelOrderInput(input: CancelOrderInput): void {
-  if (!input || typeof input !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'Cancel payload is required.');
+  if (!input || typeof input !== "object") {
+    throw new OrderError("VALIDATION_ERROR", "Cancel payload is required.");
   }
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expectedVersion must be a positive integer.",
+    );
   }
   if (!isUuid(input.previewId)) {
-    throw new OrderError('VALIDATION_ERROR', 'previewId must be a UUID.');
+    throw new OrderError("VALIDATION_ERROR", "previewId must be a UUID.");
   }
-  if (typeof input.reasonCode !== 'string' || input.reasonCode.length < 1 || input.reasonCode.length > 64) {
-    throw new OrderError('VALIDATION_ERROR', 'reasonCode is required.');
+  if (
+    typeof input.reasonCode !== "string" ||
+    input.reasonCode.length < 1 ||
+    input.reasonCode.length > 64
+  ) {
+    throw new OrderError("VALIDATION_ERROR", "reasonCode is required.");
   }
 }
 
-function validateCancellationPreviewRequest(input: CancellationPreviewRequest): void {
-  if (!input || typeof input !== 'object') {
-    throw new OrderError('VALIDATION_ERROR', 'Cancellation preview payload is required.');
+function validateCancellationPreviewRequest(
+  input: CancellationPreviewRequest,
+): void {
+  if (!input || typeof input !== "object") {
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "Cancellation preview payload is required.",
+    );
   }
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-    throw new OrderError('VALIDATION_ERROR', 'expectedVersion must be a positive integer.');
+    throw new OrderError(
+      "VALIDATION_ERROR",
+      "expectedVersion must be a positive integer.",
+    );
   }
-  if (typeof input.reasonCode !== 'string' || input.reasonCode.length < 1 || input.reasonCode.length > 64) {
-    throw new OrderError('VALIDATION_ERROR', 'reasonCode is required.');
+  if (
+    typeof input.reasonCode !== "string" ||
+    input.reasonCode.length < 1 ||
+    input.reasonCode.length > 64
+  ) {
+    throw new OrderError("VALIDATION_ERROR", "reasonCode is required.");
   }
 }
 
@@ -2689,10 +3468,10 @@ function isCancellationPreviewCurrent(
   preview: CancellationPreviewRecord,
   order: OrderRecord,
   reservations: FundReservationRecord[],
-  now: Date
+  now: Date,
 ): boolean {
   if (
-    preview.status !== 'ISSUED' ||
+    preview.status !== "ISSUED" ||
     preview.orderId !== order.id ||
     preview.orderVersionSnapshot !== order.version ||
     Date.parse(preview.expiresAt) < now.getTime()
@@ -2702,12 +3481,14 @@ function isCancellationPreviewCurrent(
   if (!preview.fundReservationId) {
     return preview.reservationVersionSnapshot === null;
   }
-  const reservation = reservations.find((candidate) => candidate.id === preview.fundReservationId);
+  const reservation = reservations.find(
+    (candidate) => candidate.id === preview.fundReservationId,
+  );
   return Boolean(
     reservation &&
     reservation.orderId === order.id &&
     reservation.version === preview.reservationVersionSnapshot &&
-    activeFundReservationStatuses.includes(reservation.status)
+    activeFundReservationStatuses.includes(reservation.status),
   );
 }
 
@@ -2721,20 +3502,38 @@ function validateSubmittableDraft(order: OrderRecord): void {
     !order.customerUnitPriceMinor ||
     !order.playerUnitPayoutMinor
   ) {
-    throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order draft is not ready to submit.');
+    throw new OrderError(
+      "BUSINESS_RULE_VIOLATION",
+      "Order draft is not ready to submit.",
+    );
   }
 }
 
-async function validateCurrentCatalogSnapshot(catalogStore: ServiceCatalogStore, order: OrderRecord): Promise<void> {
+async function validateCurrentCatalogSnapshot(
+  catalogStore: ServiceCatalogStore,
+  order: OrderRecord,
+): Promise<void> {
   if (!order.serviceCatalogId) {
-    throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order draft is missing a service catalog snapshot.');
+    throw new OrderError(
+      "BUSINESS_RULE_VIOLATION",
+      "Order draft is missing a service catalog snapshot.",
+    );
   }
   const catalog = await catalogStore.getById(order.serviceCatalogId);
-  if (!catalog || catalog.status !== 'ACTIVE') {
-    throw new OrderError('SERVICE_NOT_AVAILABLE', 'Service catalog item is no longer active.');
+  if (!catalog || catalog.status !== "ACTIVE") {
+    throw new OrderError(
+      "SERVICE_NOT_AVAILABLE",
+      "Service catalog item is no longer active.",
+    );
   }
-  if (catalog.customerUnitPriceMinor === null || catalog.playerUnitPayoutMinor === null) {
-    throw new OrderError('SERVICE_NOT_AVAILABLE', 'Service catalog item is missing active pricing.');
+  if (
+    catalog.customerUnitPriceMinor === null ||
+    catalog.playerUnitPayoutMinor === null
+  ) {
+    throw new OrderError(
+      "SERVICE_NOT_AVAILABLE",
+      "Service catalog item is missing active pricing.",
+    );
   }
   const unitCount = order.unitCount ?? 0;
   const expectedAmount = catalog.customerUnitPriceMinor * unitCount;
@@ -2751,24 +3550,26 @@ async function validateCurrentCatalogSnapshot(catalogStore: ServiceCatalogStore,
     order.service !== catalog.service ||
     order.region !== catalog.region
   ) {
-    throw new OrderError('CONFLICT', 'Order price snapshot is stale.');
+    throw new OrderError("CONFLICT", "Order price snapshot is stale.");
   }
 }
 
 function readIdempotencyKey(request: FastifyRequest): string {
-  const value = request.headers['idempotency-key'];
-  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
+  const value = request.headers["idempotency-key"];
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
 function readParams(request: FastifyRequest): { orderId?: string } {
   return request.params as { orderId?: string };
 }
 
-function mapOrderError(error: unknown): { statusCode: number; code: string; message: string } | null {
+function mapOrderError(
+  error: unknown,
+): { statusCode: number; code: string; message: string } | null {
   if (!(error instanceof OrderError)) {
     return null;
   }
-  const statusByCode: Record<OrderError['code'], number> = {
+  const statusByCode: Record<OrderError["code"], number> = {
     ACCOUNT_NOT_BOUND: 403,
     BUSINESS_RULE_VIOLATION: 422,
     CANCELLATION_PREVIEW_STALE: 409,
@@ -2777,16 +3578,19 @@ function mapOrderError(error: unknown): { statusCode: number; code: string; mess
     PERMISSION_DENIED: 403,
     RESOURCE_NOT_FOUND: 404,
     SERVICE_NOT_AVAILABLE: 422,
-    VALIDATION_ERROR: 400
+    VALIDATION_ERROR: 400,
   };
   return {
     statusCode: statusByCode[error.code],
     code: error.code,
-    message: error.message
+    message: error.message,
   };
 }
 
-async function insertOrder(client: OrderQueryClient, order: OrderRecord): Promise<void> {
+async function insertOrder(
+  client: OrderQueryClient,
+  order: OrderRecord,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO orders (
@@ -2814,7 +3618,10 @@ VALUES (
       order.customerId,
       order.playerId,
       activeOrderStatuses.has(order.status) ? order.customerId : null,
-      order.playerId && ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(order.status) ? order.playerId : null,
+      order.playerId &&
+      ["ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION"].includes(order.status)
+        ? order.playerId
+        : null,
       order.status,
       order.version,
       order.serviceCatalogId,
@@ -2838,15 +3645,15 @@ VALUES (
       order.channelSpec.panelMessageId,
       order.channelSpec.voiceChannelId,
       new Date(order.createdAt),
-      new Date(order.updatedAt)
-    ]
+      new Date(order.updatedAt),
+    ],
   );
 }
 
 async function updateDraftOrder(
   client: OrderQueryClient,
   order: OrderRecord,
-  expectedVersion: number
+  expectedVersion: number,
 ): Promise<{ rowCount?: number | null }> {
   return client.query(
     `
@@ -2899,16 +3706,25 @@ WHERE id = $1
       order.channelSpec.channelId,
       order.channelSpec.panelMessageId,
       order.channelSpec.voiceChannelId,
-      JSON.stringify({ preferredPlayerDiscordUserIds: order.preferredPlayerDiscordUserIds ?? [] }),
+      JSON.stringify({
+        preferredPlayerDiscordUserIds:
+          order.preferredPlayerDiscordUserIds ?? [],
+      }),
       new Date(order.updatedAt),
-      expectedVersion
-    ]
+      expectedVersion,
+    ],
   );
 }
 
-async function insertOrderPanelSync(client: OrderQueryClient, input: {
-  orderId: string; version: number; kind: string; now: Date;
-}): Promise<void> {
+async function insertOrderPanelSync(
+  client: OrderQueryClient,
+  input: {
+    orderId: string;
+    version: number;
+    kind: string;
+    now: Date;
+  },
+): Promise<void> {
   await client.query(
     `INSERT INTO outbox_events (
        id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
@@ -2916,16 +3732,22 @@ async function insertOrderPanelSync(client: OrderQueryClient, input: {
      ) VALUES (
        gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
      ) ON CONFLICT DO NOTHING`,
-    [input.orderId, `order-panel:${input.kind}:${input.orderId}:v${input.version}`, JSON.stringify({
-      kind: input.kind, orderId: input.orderId
-    }), input.now]
+    [
+      input.orderId,
+      `order-panel:${input.kind}:${input.orderId}:v${input.version}`,
+      JSON.stringify({
+        kind: input.kind,
+        orderId: input.orderId,
+      }),
+      input.now,
+    ],
   );
 }
 
 async function updateSubmittedOrder(
   client: OrderQueryClient,
   order: OrderRecord,
-  expectedVersion: number
+  expectedVersion: number,
 ): Promise<{ rowCount?: number | null }> {
   return client.query(
     `
@@ -2937,14 +3759,20 @@ WHERE id = $1
   AND status = 'DRAFT'
   AND row_version = $5
     `,
-    [order.id, order.status, order.version, new Date(order.updatedAt), expectedVersion]
+    [
+      order.id,
+      order.status,
+      order.version,
+      new Date(order.updatedAt),
+      expectedVersion,
+    ],
   );
 }
 
 async function updateCancelledOrder(
   client: OrderQueryClient,
   order: OrderRecord,
-  expectedVersion: number
+  expectedVersion: number,
 ): Promise<{ rowCount?: number | null }> {
   return client.query(
     `
@@ -2958,18 +3786,29 @@ WHERE id = $1
   AND status = ANY($6::"OrderStatus"[])
   AND row_version = $5
     `,
-    [order.id, order.status, order.version, new Date(order.updatedAt), expectedVersion, ['DRAFT', 'PENDING_DISPATCH']]
+    [
+      order.id,
+      order.status,
+      order.version,
+      new Date(order.updatedAt),
+      expectedVersion,
+      ["DRAFT", "PENDING_DISPATCH"],
+    ],
   );
 }
 
-async function lockUserCurrency(client: OrderQueryClient, userId: string, currency: string): Promise<void> {
+async function lockUserCurrency(
+  client: OrderQueryClient,
+  userId: string,
+  currency: string,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO user_currency_locks (user_id, currency, updated_at)
 VALUES ($1, $2, now())
 ON CONFLICT (user_id, currency) DO NOTHING
     `,
-    [userId, currency]
+    [userId, currency],
   );
   await client.query(
     `
@@ -2979,11 +3818,14 @@ WHERE user_id = $1
   AND currency = $2
 FOR UPDATE
     `,
-    [userId, currency]
+    [userId, currency],
   );
 }
 
-async function validateCatalogSnapshotForCommit(client: OrderQueryClient, order: OrderRecord): Promise<void> {
+async function validateCatalogSnapshotForCommit(
+  client: OrderQueryClient,
+  order: OrderRecord,
+): Promise<void> {
   const requirements = await client.query<{
     estimated_line_price_minor: string;
     current_line_price_minor: string;
@@ -3003,23 +3845,40 @@ async function validateCatalogSnapshotForCommit(client: OrderQueryClient, order:
      JOIN service_offerings offering ON offering.id=version.service_offering_id
      WHERE requirement.order_id=$1 AND requirement.status='ACTIVE'
      FOR SHARE OF requirement,version,offering`,
-    [order.id]
+    [order.id],
   );
   if (requirements.rows.length > 0) {
-    if (requirements.rows.some((requirement) => requirement.catalog_status !== 'ACTIVE'
-      || requirement.archived_at !== null
-      || requirement.snapshot_billing_minutes !== requirement.current_billing_minutes
-      || requirement.estimated_line_price_minor !== requirement.current_line_price_minor)) {
-      throw new OrderError('SERVICE_NOT_AVAILABLE', 'One or more order requirement projects are no longer available.');
+    if (
+      requirements.rows.some(
+        (requirement) =>
+          requirement.catalog_status !== "ACTIVE" ||
+          requirement.archived_at !== null ||
+          requirement.snapshot_billing_minutes !==
+            requirement.current_billing_minutes ||
+          requirement.estimated_line_price_minor !==
+            requirement.current_line_price_minor,
+      )
+    ) {
+      throw new OrderError(
+        "SERVICE_NOT_AVAILABLE",
+        "One or more order requirement projects are no longer available.",
+      );
     }
-    const total = requirements.rows.reduce((sum, requirement) => sum + Number(requirement.estimated_line_price_minor), 0);
+    const total = requirements.rows.reduce(
+      (sum, requirement) =>
+        sum + Number(requirement.estimated_line_price_minor),
+      0,
+    );
     if (!Number.isSafeInteger(total) || total !== order.amountMinor) {
-      throw new OrderError('CONFLICT', 'Order requirement estimate is stale.');
+      throw new OrderError("CONFLICT", "Order requirement estimate is stale.");
     }
     return;
   }
   if (!order.serviceCatalogId) {
-    throw new OrderError('BUSINESS_RULE_VIOLATION', 'Order draft is missing a service catalog snapshot.');
+    throw new OrderError(
+      "BUSINESS_RULE_VIOLATION",
+      "Order draft is missing a service catalog snapshot.",
+    );
   }
   const result = await client.query<{
     status: string;
@@ -3048,14 +3907,23 @@ JOIN service_offerings so ON so.id = scv.service_offering_id
 WHERE scv.id = $1
 FOR SHARE
     `,
-    [order.serviceCatalogId]
+    [order.serviceCatalogId],
   );
   const catalog = result.rows[0];
-  if (!catalog || catalog.status !== 'ACTIVE') {
-    throw new OrderError('SERVICE_NOT_AVAILABLE', 'Service catalog item is no longer active.');
+  if (!catalog || catalog.status !== "ACTIVE") {
+    throw new OrderError(
+      "SERVICE_NOT_AVAILABLE",
+      "Service catalog item is no longer active.",
+    );
   }
-  if (catalog.customer_unit_price_minor === null || catalog.player_unit_payout_minor === null) {
-    throw new OrderError('SERVICE_NOT_AVAILABLE', 'Service catalog item is missing active pricing.');
+  if (
+    catalog.customer_unit_price_minor === null ||
+    catalog.player_unit_payout_minor === null
+  ) {
+    throw new OrderError(
+      "SERVICE_NOT_AVAILABLE",
+      "Service catalog item is missing active pricing.",
+    );
   }
   const customerUnitPriceMinor = Number(catalog.customer_unit_price_minor);
   const playerUnitPayoutMinor = Number(catalog.player_unit_payout_minor);
@@ -3072,13 +3940,13 @@ FOR SHARE
     order.service !== catalog.service_name ||
     order.region !== catalog.region_code
   ) {
-    throw new OrderError('CONFLICT', 'Order price snapshot is stale.');
+    throw new OrderError("CONFLICT", "Order price snapshot is stale.");
   }
 }
 
 async function sumActiveReservedMinorForCommit(
   client: OrderQueryClient,
-  reservation: FundReservationRecord
+  reservation: FundReservationRecord,
 ): Promise<number> {
   const result = await client.query<{ reserved_minor: string }>(
     `
@@ -3089,21 +3957,40 @@ WHERE user_id = $1
   AND status = ANY($3::"FundReservationStatus"[])
   AND id <> $4
     `,
-    [reservation.userId, reservation.currency, activeFundReservationStatuses, reservation.id]
+    [
+      reservation.userId,
+      reservation.currency,
+      activeFundReservationStatuses,
+      reservation.id,
+    ],
   );
   return Number(result.rows[0]?.reserved_minor ?? 0);
 }
 
-async function readLedgerBalanceForCommit(client: OrderQueryClient, userId: string): Promise<number> {
-  const wallet = await client.query<{ id: string }>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE', [userId]);
+async function readLedgerBalanceForCommit(
+  client: OrderQueryClient,
+  userId: string,
+): Promise<number> {
+  const wallet = await client.query<{ id: string }>(
+    "SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE",
+    [userId],
+  );
   if (!wallet.rows[0]) return 0;
-  const result = await client.query<{ ledger_balance_minor: string | number | bigint }>(`SELECT COALESCE(SUM(
+  const result = await client.query<{
+    ledger_balance_minor: string | number | bigint;
+  }>(
+    `SELECT COALESCE(SUM(
     CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END),0) AS ledger_balance_minor
-    FROM wallet_entries WHERE wallet_account_id=$1`, [wallet.rows[0].id]);
+    FROM wallet_entries WHERE wallet_account_id=$1`,
+    [wallet.rows[0].id],
+  );
   return Number(result.rows[0]?.ledger_balance_minor ?? 0);
 }
 
-async function insertFundReservation(client: OrderQueryClient, reservation: FundReservationRecord): Promise<void> {
+async function insertFundReservation(
+  client: OrderQueryClient,
+  reservation: FundReservationRecord,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO fund_reservations (
@@ -3134,12 +4021,15 @@ VALUES (
       reservation.activatedAt ? new Date(reservation.activatedAt) : null,
       reservation.settledAt ? new Date(reservation.settledAt) : null,
       new Date(reservation.createdAt),
-      new Date(reservation.updatedAt)
-    ]
+      new Date(reservation.updatedAt),
+    ],
   );
 }
 
-async function insertFundReservationEvent(client: OrderQueryClient, event: FundReservationEventRecord): Promise<void> {
+async function insertFundReservationEvent(
+  client: OrderQueryClient,
+  event: FundReservationEventRecord,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO fund_reservation_events (
@@ -3167,12 +4057,15 @@ VALUES (
       event.actorStaffId,
       event.actorSource,
       event.reasonCode,
-      new Date(event.createdAt)
-    ]
+      new Date(event.createdAt),
+    ],
   );
 }
 
-async function insertExternalTransaction(client: OrderQueryClient, transaction: ExternalTransactionMirrorRecord): Promise<void> {
+async function insertExternalTransaction(
+  client: OrderQueryClient,
+  transaction: ExternalTransactionMirrorRecord,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO external_transactions (
@@ -3196,12 +4089,15 @@ VALUES (
       transaction.amountMinor,
       transaction.currency,
       transaction.status,
-      new Date(transaction.createdAt)
-    ]
+      new Date(transaction.createdAt),
+    ],
   );
 }
 
-async function insertOrderEvent(client: OrderQueryClient, event: OrderEventRecord): Promise<void> {
+async function insertOrderEvent(
+  client: OrderQueryClient,
+  event: OrderEventRecord,
+): Promise<void> {
   await client.query(
     `
 INSERT INTO order_events (
@@ -3225,12 +4121,15 @@ VALUES (
       event.actorSource,
       event.interactionId,
       JSON.stringify(event.payload ?? {}),
-      new Date(event.createdAt)
-    ]
+      new Date(event.createdAt),
+    ],
   );
 }
 
-async function insertAuditRecord(client: OrderQueryClient, record: AuditRecord): Promise<void> {
+async function insertAuditRecord(
+  client: OrderQueryClient,
+  record: AuditRecord,
+): Promise<void> {
   await insertPostgresAuditRecord(client, record);
 }
 
@@ -3243,8 +4142,8 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerId: row.player_id,
     status: row.status,
     version: row.row_version,
-    sourcePackageVersionId:row.source_package_version_id,
-    compositionMode:row.composition_mode,
+    sourcePackageVersionId: row.source_package_version_id,
+    compositionMode: row.composition_mode,
     serviceCatalogId: row.service_catalog_version_id,
     catalogVersion: row.catalog_version,
     game: row.game_code_snapshot,
@@ -3259,13 +4158,15 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     playerUnitPayoutMinor: toNullableNumber(row.player_unit_payout_minor),
     amountMinor: Number(row.amount_minor ?? 0),
     playerEarningMinor: Number(row.expected_player_earning_minor ?? 0),
-    currency: (row.currency ?? 'CAT') as Currency,
+    currency: (row.currency ?? "CAT") as Currency,
     notes: row.customer_note,
-    preferredPlayerDiscordUserIds: preferredPlayerIdsFromSnapshot(row.requirement_snapshot),
+    preferredPlayerDiscordUserIds: preferredPlayerIdsFromSnapshot(
+      row.requirement_snapshot,
+    ),
     channelSpec: {
-      channelId: row.channel_id ?? '',
-      panelMessageId: row.panel_message_id ?? '',
-      voiceChannelId: row.voice_channel_id
+      channelId: row.channel_id ?? "",
+      panelMessageId: row.panel_message_id ?? "",
+      voiceChannelId: row.voice_channel_id,
     },
     automationState: row.automation_state,
     automationVersion: row.automation_version,
@@ -3273,19 +4174,35 @@ function mapOrderRow(row: OrderRow): OrderRecord {
     automationStaffTaskId: row.automation_staff_task_id,
     automationReasonCode: row.automation_reason_code,
     automationScope: row.automation_scope,
-    automationPausedAt: row.automation_paused_at ? toIsoString(row.automation_paused_at) : null,
-    automationResumedAt: row.automation_resumed_at ? toIsoString(row.automation_resumed_at) : null,
-    automationExpiresAt: row.automation_expires_at ? toIsoString(row.automation_expires_at) : null,
+    automationPausedAt: row.automation_paused_at
+      ? toIsoString(row.automation_paused_at)
+      : null,
+    automationResumedAt: row.automation_resumed_at
+      ? toIsoString(row.automation_resumed_at)
+      : null,
+    automationExpiresAt: row.automation_expires_at
+      ? toIsoString(row.automation_expires_at)
+      : null,
     completedAt: row.completed_at ? toIsoString(row.completed_at) : null,
     createdAt: toIsoString(row.created_at),
-    updatedAt: toIsoString(row.updated_at)
+    updatedAt: toIsoString(row.updated_at),
   };
 }
 
 function preferredPlayerIdsFromSnapshot(snapshot: unknown): string[] {
-  if (!snapshot || typeof snapshot !== 'object' || !('preferredPlayerDiscordUserIds' in snapshot)) return [];
-  const value = (snapshot as { preferredPlayerDiscordUserIds?: unknown }).preferredPlayerDiscordUserIds;
-  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && isSnowflake(id)).slice(0, 3) : [];
+  if (
+    !snapshot ||
+    typeof snapshot !== "object" ||
+    !("preferredPlayerDiscordUserIds" in snapshot)
+  )
+    return [];
+  const value = (snapshot as { preferredPlayerDiscordUserIds?: unknown })
+    .preferredPlayerDiscordUserIds;
+  return Array.isArray(value)
+    ? value
+        .filter((id): id is string => typeof id === "string" && isSnowflake(id))
+        .slice(0, 3)
+    : [];
 }
 
 function mapFundReservationRow(row: FundReservationRow): FundReservationRecord {
@@ -3306,11 +4223,13 @@ function mapFundReservationRow(row: FundReservationRow): FundReservationRecord {
     activatedAt: row.activated_at ? toIsoString(row.activated_at) : null,
     settledAt: row.settled_at ? toIsoString(row.settled_at) : null,
     createdAt: toIsoString(row.created_at),
-    updatedAt: toIsoString(row.updated_at)
+    updatedAt: toIsoString(row.updated_at),
   };
 }
 
-function mapCancellationPreviewRow(row: CancellationPreviewRow): CancellationPreviewRecord {
+function mapCancellationPreviewRow(
+  row: CancellationPreviewRow,
+): CancellationPreviewRecord {
   return {
     id: row.id,
     orderId: row.order_id,
@@ -3327,11 +4246,13 @@ function mapCancellationPreviewRow(row: CancellationPreviewRow): CancellationPre
     reasonCode: row.reason_code,
     requestedByUserId: row.requested_by_user_id,
     requestedByStaffId: row.requested_by_staff_id,
-    estimatedResolutionAt: row.estimated_resolution_at ? toIsoString(row.estimated_resolution_at) : null,
+    estimatedResolutionAt: row.estimated_resolution_at
+      ? toIsoString(row.estimated_resolution_at)
+      : null,
     expiresAt: toIsoString(row.expires_at),
     appliedAt: row.applied_at ? toIsoString(row.applied_at) : null,
     invalidatedAt: row.invalidated_at ? toIsoString(row.invalidated_at) : null,
-    createdAt: toIsoString(row.created_at)
+    createdAt: toIsoString(row.created_at),
   };
 }
 
@@ -3339,8 +4260,11 @@ function mapPostgresOrderError(error: unknown): unknown {
   if (error instanceof OrderError) {
     return error;
   }
-  if (isDatabaseError(error) && error.code === '23505') {
-    return new OrderError('CONFLICT', 'Order conflicts with an existing active order or Discord channel.');
+  if (isDatabaseError(error) && error.code === "23505") {
+    return new OrderError(
+      "CONFLICT",
+      "Order conflicts with an existing active order or Discord channel.",
+    );
   }
   return error;
 }
@@ -3357,14 +4281,14 @@ interface OrderRow {
   player_id: string | null;
   status: OrderStatus;
   row_version: number;
-  source_package_version_id:string|null;
-  composition_mode:'PACKAGE_DEFAULT'|'CUSTOMIZED'|null;
-  automation_state: 'RUNNING' | 'PAUSED';
+  source_package_version_id: string | null;
+  composition_mode: "PACKAGE_DEFAULT" | "CUSTOMIZED" | null;
+  automation_state: "RUNNING" | "PAUSED";
   automation_version: number;
   automation_paused_by_staff_id: string | null;
   automation_staff_task_id: string | null;
   automation_reason_code: string | null;
-  automation_scope: 'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION' | null;
+  automation_scope: "ALL" | "DISPATCH" | "LIFECYCLE" | "CANCELLATION" | null;
   automation_paused_at: Date | string | null;
   automation_resumed_at: Date | string | null;
   automation_expires_at: Date | string | null;
@@ -3396,7 +4320,7 @@ interface OrderRow {
 interface FundReservationRow {
   id: string;
   user_id: string;
-  source_type: 'ORDER';
+  source_type: "ORDER";
   order_id: string;
   mode: FundReservationMode;
   provider: string;
@@ -3419,8 +4343,8 @@ interface CancellationPreviewRow {
   fund_reservation_id: string | null;
   order_version_snapshot: number;
   reservation_version_snapshot: number | null;
-  status: CancellationPreviewRecord['status'];
-  disposition: CancellationPreviewRecord['disposition'];
+  status: CancellationPreviewRecord["status"];
+  disposition: CancellationPreviewRecord["disposition"];
   release_amount_minor: number | string | bigint;
   refund_amount_minor: number | string | bigint;
   currency: string;
@@ -3436,16 +4360,20 @@ interface CancellationPreviewRow {
   created_at: Date | string;
 }
 
-function toNullableNumber(value: number | string | bigint | null): number | null {
+function toNullableNumber(
+  value: number | string | bigint | null,
+): number | null {
   return value === null ? null : Number(value);
 }
 
 function toIsoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function isDatabaseError(error: unknown): error is { code: string } {
-  return Boolean(error && typeof error === 'object' && 'code' in error);
+  return Boolean(error && typeof error === "object" && "code" in error);
 }
 
 function isSnowflake(value: string): boolean {
@@ -3453,7 +4381,11 @@ function isSnowflake(value: string): boolean {
 }
 
 function isUuid(value: string | null): boolean {
-  return Boolean(value?.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i));
+  return Boolean(
+    value?.match(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    ),
+  );
 }
 
 function clone<T>(value: T): T {

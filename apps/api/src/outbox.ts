@@ -1,20 +1,23 @@
-import type { ActorContext, AuditSink, StaffLevel } from './security.js';
+import type { ActorContext, AuditSink, StaffLevel } from "./security.js";
 
 export type JobType =
-  | 'GIFT_ANNOUNCEMENT'
-  | 'GIFT_EXPIRY'
-  | 'DISPATCH_START'
-  | 'DISPATCH_MESSAGE'
-  | 'DISPATCH_TIMEOUT'
-  | 'READINESS_TIMEOUT'
-  | 'CHANNEL_ARCHIVE'
-  | 'PANEL_SYNC'
-  | 'CHANNEL_CREATE_FAILURE'
-  | 'ROLE_RECONCILIATION'
-  | 'WEEKLY_REPORT_GENERATE'
-  | 'WEEKLY_REPORT_NOTIFY';
+  | "GIFT_ANNOUNCEMENT"
+  | "GIFT_EXPIRY"
+  | "DISPATCH_START"
+  | "DISPATCH_MESSAGE"
+  | "DISPATCH_TIMEOUT"
+  | "READINESS_TIMEOUT"
+  | "CHANNEL_ARCHIVE"
+  | "PANEL_SYNC"
+  | "CHANNEL_CREATE_FAILURE"
+  | "ROLE_RECONCILIATION"
+  | "WEEKLY_REPORT_GENERATE"
+  | "WEEKLY_REPORT_NOTIFY"
+  | "SELECTION_POOL_CLOSE"
+  | "SELECTION_POOL_SYNC";
 
-export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type JobStatus =
+  "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface OutboxJob {
   id: string;
@@ -43,7 +46,11 @@ export interface OutboxStore {
     now: Date;
     jobTypes?: readonly JobType[];
   }): Promise<OutboxJob[]>;
-  markSucceeded(input: { jobId: string; workerId: string; now: Date }): Promise<OutboxJob>;
+  markSucceeded(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<OutboxJob>;
   markFailed(input: {
     jobId: string;
     workerId: string;
@@ -51,19 +58,30 @@ export interface OutboxStore {
     retryAt: Date | null;
     now: Date;
   }): Promise<OutboxJob>;
-  retryFailedJob(input: { jobId: string; expectedVersion: number; now: Date }): Promise<OutboxJob>;
+  retryFailedJob(input: {
+    jobId: string;
+    expectedVersion: number;
+    now: Date;
+  }): Promise<OutboxJob>;
   recoverStaleProcessingJobs(input: {
     lockedBefore: Date;
     now: Date;
     error: string;
     jobTypes?: readonly JobType[];
   }): Promise<OutboxJob[]>;
-  renewProcessingJob?(input: { jobId: string; workerId: string; now: Date }): Promise<void>;
+  renewProcessingJob?(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<void>;
   getJob(jobId: string): Promise<OutboxJob | null>;
 }
 
 export interface OutboxQueryClient {
-  query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>;
+  query<Row = Record<string, unknown>>(
+    sql: string,
+    values?: unknown[],
+  ): Promise<{ rows: Row[] }>;
 }
 
 export interface OutboxWorkerOptions {
@@ -77,35 +95,43 @@ export interface OutboxWorkerOptions {
   auditSink?: AuditSink;
 }
 
-type HandlerMap = Partial<Record<JobType, (job: OutboxJob) => Promise<void> | void>>;
+type HandlerMap = Partial<
+  Record<JobType, (job: OutboxJob) => Promise<void> | void>
+>;
 
 const levelRank: Record<StaffLevel, number> = {
   L1_SUPPORT: 1,
   L2_SUPERVISOR: 2,
   L3_OPERATIONS: 3,
-  L4_ADMIN_OWNER: 4
+  L4_ADMIN_OWNER: 4,
 };
 
 const deliveryJobTypes = new Set<JobType>([
-  'GIFT_ANNOUNCEMENT',
-  'GIFT_EXPIRY',
-  'DISPATCH_START',
-  'DISPATCH_MESSAGE',
-  'DISPATCH_TIMEOUT',
-  'READINESS_TIMEOUT',
-  'CHANNEL_ARCHIVE',
-  'PANEL_SYNC',
-  'ROLE_RECONCILIATION',
-  'WEEKLY_REPORT_GENERATE',
-  'WEEKLY_REPORT_NOTIFY'
+  "GIFT_ANNOUNCEMENT",
+  "GIFT_EXPIRY",
+  "DISPATCH_START",
+  "DISPATCH_MESSAGE",
+  "DISPATCH_TIMEOUT",
+  "READINESS_TIMEOUT",
+  "CHANNEL_ARCHIVE",
+  "PANEL_SYNC",
+  "ROLE_RECONCILIATION",
+  "WEEKLY_REPORT_GENERATE",
+  "WEEKLY_REPORT_NOTIFY",
+  "SELECTION_POOL_CLOSE",
+  "SELECTION_POOL_SYNC",
 ]);
 
 export class OutboxError extends Error {
-  readonly code: 'RESOURCE_NOT_FOUND' | 'CONFLICT' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR';
+  readonly code:
+    | "RESOURCE_NOT_FOUND"
+    | "CONFLICT"
+    | "PERMISSION_DENIED"
+    | "VALIDATION_ERROR";
 
-  constructor(code: OutboxError['code'], message: string) {
+  constructor(code: OutboxError["code"], message: string) {
     super(message);
-    this.name = 'OutboxError';
+    this.name = "OutboxError";
     this.code = code;
   }
 }
@@ -129,79 +155,99 @@ export class InMemoryOutboxStore implements OutboxStore {
     assertPositiveLimit(input.limit);
     const claimableTypes = new Set(input.jobTypes ?? deliveryJobTypes);
     const dueJobs = Array.from(this.jobs.values())
-      .filter((job) => claimableTypes.has(job.type)
-        && job.status === 'PENDING'
-        && Date.parse(job.runAfter) <= input.now.getTime())
+      .filter(
+        (job) =>
+          claimableTypes.has(job.type) &&
+          job.status === "PENDING" &&
+          Date.parse(job.runAfter) <= input.now.getTime(),
+      )
       .sort(compareClaimPriority)
       .slice(0, input.limit);
 
     return dueJobs.map((job) => {
       const claimed = {
         ...job,
-        status: 'PROCESSING' as const,
+        status: "PROCESSING" as const,
         attempts: job.attempts + 1,
         lockedAt: input.now.toISOString(),
         lockedBy: input.workerId,
         version: job.version + 1,
-        updatedAt: input.now.toISOString()
+        updatedAt: input.now.toISOString(),
       };
       this.jobs.set(job.id, clone(claimed));
       return clone(claimed);
     });
   }
 
-  async markSucceeded(input: { jobId: string; workerId: string; now: Date }): Promise<OutboxJob> {
+  async markSucceeded(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<OutboxJob> {
     const job = await this.requireProcessingJob(input.jobId, input.workerId);
     const completed = {
       ...job,
-      status: 'COMPLETED' as const,
+      status: "COMPLETED" as const,
       lockedAt: null,
       lockedBy: null,
       completedAt: input.now.toISOString(),
       lastError: null,
       version: job.version + 1,
-      updatedAt: input.now.toISOString()
+      updatedAt: input.now.toISOString(),
     };
     this.jobs.set(job.id, clone(completed));
     return clone(completed);
   }
 
-  async markFailed(input: { jobId: string; workerId: string; error: string; retryAt: Date | null; now: Date }): Promise<OutboxJob> {
+  async markFailed(input: {
+    jobId: string;
+    workerId: string;
+    error: string;
+    retryAt: Date | null;
+    now: Date;
+  }): Promise<OutboxJob> {
     const job = await this.requireProcessingJob(input.jobId, input.workerId);
     const failed = {
       ...job,
-      status: input.retryAt ? ('PENDING' as const) : ('FAILED' as const),
+      status: input.retryAt ? ("PENDING" as const) : ("FAILED" as const),
       runAfter: (input.retryAt ?? input.now).toISOString(),
       lockedAt: null,
       lockedBy: null,
       lastError: input.error,
       version: job.version + 1,
-      updatedAt: input.now.toISOString()
+      updatedAt: input.now.toISOString(),
     };
     this.jobs.set(job.id, clone(failed));
     return clone(failed);
   }
 
-  async retryFailedJob(input: { jobId: string; expectedVersion: number; now: Date }): Promise<OutboxJob> {
+  async retryFailedJob(input: {
+    jobId: string;
+    expectedVersion: number;
+    now: Date;
+  }): Promise<OutboxJob> {
     const job = await this.getJob(input.jobId);
     if (!job) {
-      throw new OutboxError('RESOURCE_NOT_FOUND', 'Job was not found.');
+      throw new OutboxError("RESOURCE_NOT_FOUND", "Job was not found.");
     }
-    if (job.status !== 'FAILED') {
-      throw new OutboxError('VALIDATION_ERROR', 'Only failed jobs can be retried.');
+    if (job.status !== "FAILED") {
+      throw new OutboxError(
+        "VALIDATION_ERROR",
+        "Only failed jobs can be retried.",
+      );
     }
     if (job.version !== input.expectedVersion) {
-      throw new OutboxError('CONFLICT', 'Job version is stale.');
+      throw new OutboxError("CONFLICT", "Job version is stale.");
     }
     const retried = {
       ...job,
-      status: 'PENDING' as const,
+      status: "PENDING" as const,
       runAfter: input.now.toISOString(),
       lockedAt: null,
       lockedBy: null,
       lastError: job.lastError,
       version: job.version + 1,
-      updatedAt: input.now.toISOString()
+      updatedAt: input.now.toISOString(),
     };
     this.jobs.set(job.id, clone(retried));
     return clone(retried);
@@ -215,10 +261,12 @@ export class InMemoryOutboxStore implements OutboxStore {
   }): Promise<OutboxJob[]> {
     const recovered: OutboxJob[] = [];
     const recoverableTypes = new Set(input.jobTypes ?? deliveryJobTypes);
-    for (const job of Array.from(this.jobs.values()).sort(compareClaimPriority)) {
+    for (const job of Array.from(this.jobs.values()).sort(
+      compareClaimPriority,
+    )) {
       if (
         !recoverableTypes.has(job.type) ||
-        job.status !== 'PROCESSING' ||
+        job.status !== "PROCESSING" ||
         !job.lockedAt ||
         Date.parse(job.lockedAt) > input.lockedBefore.getTime()
       ) {
@@ -226,13 +274,16 @@ export class InMemoryOutboxStore implements OutboxStore {
       }
       const nextJob = {
         ...job,
-        status: job.attempts >= job.maxAttempts ? ('FAILED' as const) : ('PENDING' as const),
+        status:
+          job.attempts >= job.maxAttempts
+            ? ("FAILED" as const)
+            : ("PENDING" as const),
         runAfter: input.now.toISOString(),
         lockedAt: null,
         lockedBy: null,
         lastError: input.error,
         version: job.version + 1,
-        updatedAt: input.now.toISOString()
+        updatedAt: input.now.toISOString(),
       };
       this.jobs.set(job.id, clone(nextJob));
       recovered.push(clone(nextJob));
@@ -245,21 +296,35 @@ export class InMemoryOutboxStore implements OutboxStore {
     return job ? clone(job) : null;
   }
 
-  private async requireProcessingJob(jobId: string, workerId: string): Promise<OutboxJob> {
+  private async requireProcessingJob(
+    jobId: string,
+    workerId: string,
+  ): Promise<OutboxJob> {
     const job = await this.getJob(jobId);
     if (!job) {
-      throw new OutboxError('RESOURCE_NOT_FOUND', 'Job was not found.');
+      throw new OutboxError("RESOURCE_NOT_FOUND", "Job was not found.");
     }
-    if (job.status !== 'PROCESSING' || job.lockedBy !== workerId) {
-      throw new OutboxError('CONFLICT', 'Job is not locked by this worker.');
+    if (job.status !== "PROCESSING" || job.lockedBy !== workerId) {
+      throw new OutboxError("CONFLICT", "Job is not locked by this worker.");
     }
     return job;
   }
 
-  async renewProcessingJob(input: { jobId: string; workerId: string; now: Date }): Promise<void> {
+  async renewProcessingJob(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<void> {
     const job = this.jobs.get(input.jobId);
-    if (!job || job.status !== 'PROCESSING' || job.lockedBy !== input.workerId) {
-      throw new OutboxError('CONFLICT', 'Job processing lease is no longer owned by this worker.');
+    if (
+      !job ||
+      job.status !== "PROCESSING" ||
+      job.lockedBy !== input.workerId
+    ) {
+      throw new OutboxError(
+        "CONFLICT",
+        "Job processing lease is no longer owned by this worker.",
+      );
     }
     job.lockedAt = input.now.toISOString();
     job.updatedAt = input.now.toISOString();
@@ -305,12 +370,21 @@ RETURNING job.id, job.event_type, job.aggregate_type, job.aggregate_id, job.dedu
           job.available_at, job.locked_at, job.locked_by, job.completed_at,
           job.last_error, job.created_at, job.updated_at
       `,
-      [input.now, input.workerId, input.limit, Array.from(input.jobTypes ?? deliveryJobTypes)]
+      [
+        input.now,
+        input.workerId,
+        input.limit,
+        Array.from(input.jobTypes ?? deliveryJobTypes),
+      ],
     );
     return result.rows.map(mapOutboxRow);
   }
 
-  async markSucceeded(input: { jobId: string; workerId: string; now: Date }): Promise<OutboxJob> {
+  async markSucceeded(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<OutboxJob> {
     const result = await this.client.query<OutboxRow>(
       `
 UPDATE outbox_events
@@ -327,12 +401,18 @@ RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
           available_at, locked_at, locked_by, completed_at,
           last_error, created_at, updated_at
       `,
-      [input.jobId, input.workerId, input.now]
+      [input.jobId, input.workerId, input.now],
     );
     return requireUpdatedJob(result.rows[0]);
   }
 
-  async markFailed(input: { jobId: string; workerId: string; error: string; retryAt: Date | null; now: Date }): Promise<OutboxJob> {
+  async markFailed(input: {
+    jobId: string;
+    workerId: string;
+    error: string;
+    retryAt: Date | null;
+    now: Date;
+  }): Promise<OutboxJob> {
     const result = await this.client.query<OutboxRow>(
       `
 UPDATE outbox_events
@@ -349,12 +429,23 @@ RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
           available_at, locked_at, locked_by, completed_at,
           last_error, created_at, updated_at
       `,
-      [input.jobId, input.workerId, input.retryAt ? 'PENDING' : 'FAILED', input.retryAt ?? input.now, input.error, input.now]
+      [
+        input.jobId,
+        input.workerId,
+        input.retryAt ? "PENDING" : "FAILED",
+        input.retryAt ?? input.now,
+        input.error,
+        input.now,
+      ],
     );
     return requireUpdatedJob(result.rows[0]);
   }
 
-  async retryFailedJob(input: { jobId: string; expectedVersion: number; now: Date }): Promise<OutboxJob> {
+  async retryFailedJob(input: {
+    jobId: string;
+    expectedVersion: number;
+    now: Date;
+  }): Promise<OutboxJob> {
     const result = await this.client.query<OutboxRow>(
       `
 UPDATE outbox_events
@@ -370,19 +461,22 @@ RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
           available_at, locked_at, locked_by, completed_at,
           last_error, created_at, updated_at
       `,
-      [input.jobId, input.now, input.expectedVersion]
+      [input.jobId, input.now, input.expectedVersion],
     );
     if (result.rows[0]) {
       return mapOutboxRow(result.rows[0]);
     }
     const current = await this.getJob(input.jobId);
     if (!current) {
-      throw new OutboxError('RESOURCE_NOT_FOUND', 'Job was not found.');
+      throw new OutboxError("RESOURCE_NOT_FOUND", "Job was not found.");
     }
-    if (current.status !== 'FAILED') {
-      throw new OutboxError('VALIDATION_ERROR', 'Only failed jobs can be retried.');
+    if (current.status !== "FAILED") {
+      throw new OutboxError(
+        "VALIDATION_ERROR",
+        "Only failed jobs can be retried.",
+      );
     }
-    throw new OutboxError('CONFLICT', 'Job version is stale.');
+    throw new OutboxError("CONFLICT", "Job version is stale.");
   }
 
   async recoverStaleProcessingJobs(input: {
@@ -411,7 +505,12 @@ RETURNING id, event_type, aggregate_type, aggregate_id, dedupe_key,
           available_at, locked_at, locked_by, completed_at,
           last_error, created_at, updated_at
       `,
-      [input.lockedBefore, input.now, input.error, Array.from(input.jobTypes ?? deliveryJobTypes)]
+      [
+        input.lockedBefore,
+        input.now,
+        input.error,
+        Array.from(input.jobTypes ?? deliveryJobTypes),
+      ],
     );
     return result.rows.map(mapOutboxRow);
   }
@@ -426,20 +525,28 @@ SELECT id, event_type, aggregate_type, aggregate_id, dedupe_key,
 FROM outbox_events
 WHERE id = $1
       `,
-      [jobId]
+      [jobId],
     );
     return result.rows[0] ? mapOutboxRow(result.rows[0]) : null;
   }
 
-  async renewProcessingJob(input: { jobId: string; workerId: string; now: Date }): Promise<void> {
+  async renewProcessingJob(input: {
+    jobId: string;
+    workerId: string;
+    now: Date;
+  }): Promise<void> {
     const result = await this.client.query<{ id: string }>(
       `UPDATE outbox_events
        SET locked_at = $3, updated_at = $3
        WHERE id = $1 AND status = 'PROCESSING' AND locked_by = $2
        RETURNING id`,
-      [input.jobId, input.workerId, input.now]
+      [input.jobId, input.workerId, input.now],
     );
-    if (!result.rows[0]) throw new OutboxError('CONFLICT', 'Job processing lease is no longer owned by this worker.');
+    if (!result.rows[0])
+      throw new OutboxError(
+        "CONFLICT",
+        "Job processing lease is no longer owned by this worker.",
+      );
   }
 }
 
@@ -467,22 +574,30 @@ export class OutboxWorker {
   async runOnce(handlers: HandlerMap): Promise<OutboxJob[]> {
     const now = this.now();
     const jobTypes = Object.entries(handlers)
-      .filter((entry): entry is [JobType, NonNullable<HandlerMap[JobType]>] => typeof entry[1] === 'function')
+      .filter(
+        (entry): entry is [JobType, NonNullable<HandlerMap[JobType]>] =>
+          typeof entry[1] === "function",
+      )
       .map(([jobType]) => jobType);
-    const claimed = await this.store.claimDueJobs({ workerId: this.workerId, limit: 1, now, jobTypes });
+    const claimed = await this.store.claimDueJobs({
+      workerId: this.workerId,
+      limit: 1,
+      now,
+      jobTypes,
+    });
     const results: OutboxJob[] = [];
 
     for (const job of claimed) {
       const requestId = `req_${crypto.randomUUID()}`;
       this.logger({
-        event: 'outbox.job_started',
+        event: "outbox.job_started",
         request_id: requestId,
         jobId: job.id,
         jobType: job.type,
         aggregateType: job.aggregateType,
         aggregateId: job.aggregateId,
         workerId: this.workerId,
-        attempt: job.attempts
+        attempt: job.attempts,
       });
       try {
         const handler = handlers[job.type];
@@ -490,33 +605,53 @@ export class OutboxWorker {
           throw new Error(`No handler registered for ${job.type}`);
         }
         await this.runWithHeartbeat(job, handler);
-        const completed = await this.store.markSucceeded({ jobId: job.id, workerId: this.workerId, now: this.now() });
-        await this.appendJobAudit(job, completed, 'SUCCEEDED', requestId, null);
-        this.metric('outbox_job_succeeded_total', { type: job.type, status: completed.status });
+        const completed = await this.store.markSucceeded({
+          jobId: job.id,
+          workerId: this.workerId,
+          now: this.now(),
+        });
+        await this.appendJobAudit(job, completed, "SUCCEEDED", requestId, null);
+        this.metric("outbox_job_succeeded_total", {
+          type: job.type,
+          status: completed.status,
+        });
         this.logger({
-          event: 'outbox.job_succeeded',
+          event: "outbox.job_succeeded",
           request_id: requestId,
           jobId: job.id,
           jobType: job.type,
-          workerId: this.workerId
+          workerId: this.workerId,
         });
         results.push(completed);
       } catch (error) {
         const failedAt = this.now();
         const message = error instanceof Error ? error.message : String(error);
-        const retryDelayMs = retryAfterMs(error) ?? this.backoffForAttempt(job.attempts);
-        const retryAt = job.attempts >= job.maxAttempts ? null : new Date(failedAt.getTime() + retryDelayMs);
+        const retryDelayMs =
+          retryAfterMs(error) ?? this.backoffForAttempt(job.attempts);
+        const retryAt =
+          job.attempts >= job.maxAttempts
+            ? null
+            : new Date(failedAt.getTime() + retryDelayMs);
         const failed = await this.store.markFailed({
           jobId: job.id,
           workerId: this.workerId,
           error: storedDeliveryFailure(requestId),
           retryAt,
-          now: failedAt
+          now: failedAt,
         });
-        await this.appendJobAudit(job, failed, 'FAILED', requestId, 'DELIVERY_HANDLER_FAILED');
-        this.metric('outbox_job_failed_total', { type: job.type, status: failed.status });
+        await this.appendJobAudit(
+          job,
+          failed,
+          "FAILED",
+          requestId,
+          "DELIVERY_HANDLER_FAILED",
+        );
+        this.metric("outbox_job_failed_total", {
+          type: job.type,
+          status: failed.status,
+        });
         this.logger({
-          event: 'outbox.job_failed',
+          event: "outbox.job_failed",
           request_id: requestId,
           jobId: job.id,
           jobType: job.type,
@@ -524,7 +659,7 @@ export class OutboxWorker {
           aggregateId: job.aggregateId,
           workerId: this.workerId,
           attempt: job.attempts,
-          error_code: 'DELIVERY_HANDLER_FAILED'
+          error_code: "DELIVERY_HANDLER_FAILED",
         });
         results.push(failed);
       }
@@ -533,16 +668,30 @@ export class OutboxWorker {
     return results;
   }
 
-  private async runWithHeartbeat(job: OutboxJob, handler: (job: OutboxJob) => Promise<void> | void): Promise<void> {
+  private async runWithHeartbeat(
+    job: OutboxJob,
+    handler: (job: OutboxJob) => Promise<void> | void,
+  ): Promise<void> {
     const renew = this.store.renewProcessingJob?.bind(this.store);
-    if (!renew) { await handler(job); return; }
+    if (!renew) {
+      await handler(job);
+      return;
+    }
     let pending: Promise<void> | null = null;
     let heartbeatError: unknown = null;
     const timer = setInterval(() => {
       if (pending) return;
-      pending = renew({ jobId: job.id, workerId: this.workerId, now: this.now() })
-        .catch((error) => { heartbeatError = error; })
-        .finally(() => { pending = null; });
+      pending = renew({
+        jobId: job.id,
+        workerId: this.workerId,
+        now: this.now(),
+      })
+        .catch((error) => {
+          heartbeatError = error;
+        })
+        .finally(() => {
+          pending = null;
+        });
     }, this.heartbeatMs);
     try {
       await handler(job);
@@ -557,21 +706,21 @@ export class OutboxWorker {
   private async appendJobAudit(
     before: OutboxJob,
     after: OutboxJob,
-    outcome: 'SUCCEEDED' | 'FAILED',
+    outcome: "SUCCEEDED" | "FAILED",
     requestId: string,
-    reason: string | null
+    reason: string | null,
   ): Promise<void> {
     await this.auditSink.append({
       id: crypto.randomUUID(),
       actorId: null,
       actorStaffId: null,
       actorLevel: null,
-      actorSource: 'SYSTEM_JOB',
-      clientId: 'OUTBOX_WORKER',
+      actorSource: "SYSTEM_JOB",
+      clientId: "OUTBOX_WORKER",
       interactionId: null,
-      permissionCode: 'operations.failure.report',
+      permissionCode: "operations.failure.report",
       action: `PROCESS_${before.type}`,
-      targetType: 'outbox_event',
+      targetType: "outbox_event",
       targetId: before.id,
       outcome,
       reason,
@@ -579,34 +728,45 @@ export class OutboxWorker {
       idempotencyKey: `job:${before.id}:${before.attempts}`,
       approvalRequestId: null,
       jobId: before.id,
-      triggerSource: 'OUTBOX',
+      triggerSource: "OUTBOX",
       retryAttempt: before.attempts,
       occurredAt: after.updatedAt,
       beforeSnapshot: snapshotJob(before),
       afterSnapshot: snapshotJob(after),
       changes: [
         {
-          targetType: 'outbox_event',
+          targetType: "outbox_event",
           targetId: before.id,
-          changeType: 'STATE_TRANSITION',
+          changeType: "STATE_TRANSITION",
           beforeSnapshot: snapshotJob(before),
           afterSnapshot: snapshotJob(after),
-          changedFields: ['status', 'version', 'lockedAt', 'lockedBy', 'lastError', 'runAfter']
+          changedFields: [
+            "status",
+            "version",
+            "lockedAt",
+            "lockedBy",
+            "lastError",
+            "runAfter",
+          ],
         },
         {
           targetType: before.aggregateType,
           targetId: before.aggregateId,
-          changeType: 'UPDATE',
+          changeType: "UPDATE",
           beforeSnapshot: null,
           afterSnapshot: { trigger: before.type, outcome },
-          changedFields: ['trigger', 'outcome']
-        }
-      ]
+          changedFields: ["trigger", "outcome"],
+        },
+      ],
     });
   }
 
   private backoffForAttempt(attempt: number): number {
-    return this.backoffMs[Math.min(Math.max(attempt - 1, 0), this.backoffMs.length - 1)] ?? 1_000;
+    return (
+      this.backoffMs[
+        Math.min(Math.max(attempt - 1, 0), this.backoffMs.length - 1)
+      ] ?? 1_000
+    );
   }
 }
 
@@ -615,8 +775,15 @@ function storedDeliveryFailure(requestId: string): string {
 }
 
 function retryAfterMs(error: unknown): number | null {
-  const value = error && typeof error === 'object' ? (error as { retryAfterMs?: unknown }).retryAfterMs : null;
-  return Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 86_400_000 ? Number(value) : null;
+  const value =
+    error && typeof error === "object"
+      ? (error as { retryAfterMs?: unknown }).retryAfterMs
+      : null;
+  return Number.isSafeInteger(value) &&
+    Number(value) > 0 &&
+    Number(value) <= 86_400_000
+    ? Number(value)
+    : null;
 }
 
 export async function retryJob(input: {
@@ -629,8 +796,14 @@ export async function retryJob(input: {
   requestId: string;
   now: Date;
 }): Promise<OutboxJob> {
-  if (!input.actor.actorLevel || levelRank[input.actor.actorLevel] < levelRank.L2_SUPERVISOR) {
-    throw new OutboxError('PERMISSION_DENIED', 'job.retry requires L2_SUPERVISOR or above.');
+  if (
+    !input.actor.actorLevel ||
+    levelRank[input.actor.actorLevel] < levelRank.L2_SUPERVISOR
+  ) {
+    throw new OutboxError(
+      "PERMISSION_DENIED",
+      "job.retry requires L2_SUPERVISOR or above.",
+    );
   }
   return retryJobWithAudit(input);
 }
@@ -653,7 +826,7 @@ async function retryJobWithAudit(input: {
   const retried = await input.store.retryFailedJob({
     jobId: input.jobId,
     expectedVersion: input.expectedVersion,
-    now: input.now
+    now: input.now,
   });
   await input.auditSink.append({
     id: crypto.randomUUID(),
@@ -663,36 +836,41 @@ async function retryJobWithAudit(input: {
     actorSource: input.actor.actorSource,
     clientId: input.actor.clientId,
     interactionId: input.actor.interactionId,
-    permissionCode: 'job.retry',
-    action: 'RETRY_JOB',
-    targetType: 'outbox_event',
+    permissionCode: "job.retry",
+    action: "RETRY_JOB",
+    targetType: "outbox_event",
     targetId: input.jobId,
-    outcome: 'SUCCEEDED',
+    outcome: "SUCCEEDED",
     reason: input.reasonCode,
     requestId: input.requestId,
     idempotencyKey: `job-retry:${input.jobId}:${input.expectedVersion}`,
     approvalRequestId: null,
     jobId: input.jobId,
-    triggerSource: 'DASHBOARD',
+    triggerSource: "DASHBOARD",
     retryAttempt: before?.attempts ?? null,
     occurredAt: input.now.toISOString(),
     beforeSnapshot: snapshotJob(before),
     afterSnapshot: snapshotJob(retried),
-    changes: [{
-      targetType: 'outbox_event',
-      targetId: input.jobId,
-      changeType: 'STATE_TRANSITION',
-      beforeSnapshot: snapshotJob(before),
-      afterSnapshot: snapshotJob(retried),
-      changedFields: ['status', 'version', 'runAfter']
-    }]
+    changes: [
+      {
+        targetType: "outbox_event",
+        targetId: input.jobId,
+        changeType: "STATE_TRANSITION",
+        beforeSnapshot: snapshotJob(before),
+        afterSnapshot: snapshotJob(retried),
+        changedFields: ["status", "version", "runAfter"],
+      },
+    ],
   });
   return retried;
 }
 
 function assertPositiveLimit(limit: number): void {
   if (!Number.isInteger(limit) || limit < 1) {
-    throw new OutboxError('VALIDATION_ERROR', 'Outbox claim limit must be a positive integer.');
+    throw new OutboxError(
+      "VALIDATION_ERROR",
+      "Outbox claim limit must be a positive integer.",
+    );
   }
 }
 
@@ -710,7 +888,7 @@ function compareClaimPriority(left: OutboxJob, right: OutboxJob): number {
 
 function requireUpdatedJob(row: OutboxRow | undefined): OutboxJob {
   if (!row) {
-    throw new OutboxError('CONFLICT', 'Job is not locked by this worker.');
+    throw new OutboxError("CONFLICT", "Job is not locked by this worker.");
   }
   return mapOutboxRow(row);
 }
@@ -724,7 +902,7 @@ function snapshotJob(job: OutboxJob | null): unknown {
     attempts: job.attempts,
     lastError: job.lastError,
     runAfter: job.runAfter,
-    version: job.version
+    version: job.version,
   };
 }
 
@@ -767,16 +945,21 @@ function mapOutboxRow(row: OutboxRow): OutboxJob {
     lastError: row.last_error,
     version: row.row_version,
     createdAt: toIso(row.created_at),
-    updatedAt: toIso(row.updated_at)
+    updatedAt: toIso(row.updated_at),
   };
 }
 
 function toIso(value: string | Date): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function assertDeliveryJobType(value: string): asserts value is JobType {
   if (!deliveryJobTypes.has(value as JobType)) {
-    throw new OutboxError('VALIDATION_ERROR', `Outbox job type ${value} is not a supported delivery job.`);
+    throw new OutboxError(
+      "VALIDATION_ERROR",
+      `Outbox job type ${value} is not a supported delivery job.`,
+    );
   }
 }

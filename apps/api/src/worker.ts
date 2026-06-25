@@ -1,114 +1,189 @@
-import { writeFile, unlink } from 'node:fs/promises';
-import { hostname } from 'node:os';
-import { Pool } from 'pg';
-import { validateRuntimeEnv } from '@blackcat/platform/env';
-import { PostgresAuditSink } from './security.js';
-import { PostgresDispatchPlayerPool, PostgresDispatchStore, dispatchOrder, expireDispatchAttempt } from './dispatch.js';
-import { PostgresBotConfigStore, resolveBotConfigBoolean } from './bot-config.js';
-import { PostgresGiftStore, createGiftAnnouncementHandler, createGiftExpiryHandler } from './gifts.js';
-import { PostgresOrderStore } from './orders.js';
-import { OutboxWorker, PostgresOutboxStore } from './outbox.js';
-import { PostgresServiceLifecycleStore, handleReadinessTimeoutJob } from './service-lifecycle.js';
-import { DiscordRestWorkerAdapter, PostgresOrderPanelProjectionStore } from './worker-adapters.js';
-import { DiscordRestDeliveryAdapter, PostgresDispatchMessageStore } from './worker-delivery.js';
+import { writeFile, unlink } from "node:fs/promises";
+import { hostname } from "node:os";
+import { Pool } from "pg";
+import { validateRuntimeEnv } from "@blackcat/platform/env";
+import { PostgresAuditSink } from "./security.js";
+import {
+  PostgresGiftStore,
+  createGiftAnnouncementHandler,
+  createGiftExpiryHandler,
+} from "./gifts.js";
+import { OutboxWorker, PostgresOutboxStore } from "./outbox.js";
+import {
+  PostgresServiceLifecycleStore,
+  handleReadinessTimeoutJob,
+} from "./service-lifecycle.js";
+import {
+  DiscordRestWorkerAdapter,
+  PostgresOrderPanelProjectionStore,
+} from "./worker-adapters.js";
+import { DiscordRestDeliveryAdapter } from "./worker-delivery.js";
 import {
   createChannelArchiveHandler,
-  createDispatchMessageHandler,
-  createDispatchStartHandler,
-  createDispatchTimeoutHandler,
   createReadinessTimeoutHandler,
-  createRoleReconciliationHandler
-} from './worker-handlers.js';
-import { ProductionOutboxRuntime, createPanelSyncHandler, createProductionHandlerMap } from './worker-runtime.js';
-import { PostgresWeeklyReportStore, createWeeklyReportGenerationHandler, createWeeklyReportNotificationHandler } from './weekly-reports.js';
+  createRoleReconciliationHandler,
+} from "./worker-handlers.js";
+import {
+  ProductionOutboxRuntime,
+  createPanelSyncHandler,
+  createProductionHandlerMap,
+} from "./worker-runtime.js";
+import {
+  createSelectionPoolCloseHandler,
+  createSelectionPoolSyncHandler,
+  DiscordSelectionPoolAdapter,
+  PostgresSelectionPoolWorkerStore,
+  SelectionPoolWorkerService,
+} from "./selection-pool-worker.js";
+import {
+  PostgresWeeklyReportStore,
+  createWeeklyReportGenerationHandler,
+  createWeeklyReportNotificationHandler,
+} from "./weekly-reports.js";
 
-const READY_FILE = '/tmp/blackcat-worker-ready';
-const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: false });
+const READY_FILE = "/tmp/blackcat-worker-ready";
+const validation = validateRuntimeEnv(process.env, {
+  allowMissingDiscordToken: false,
+});
 if (!validation.ok) {
-  console.error(JSON.stringify({ level: 'error', event: 'worker.config.invalid', errors: validation.errors }));
+  console.error(
+    JSON.stringify({
+      level: "error",
+      event: "worker.config.invalid",
+      errors: validation.errors,
+    }),
+  );
   process.exit(1);
 }
 
 const discordToken = validation.values.discordBotToken!;
-const pool = new Pool({ connectionString: validation.values.databaseUrl, application_name: 'blackcat_worker' });
+const pool = new Pool({
+  connectionString: validation.values.databaseUrl,
+  application_name: "blackcat_worker",
+});
 const outboxStore = new PostgresOutboxStore({ client: pool });
-const orderStore = new PostgresOrderStore({ pool });
-const dispatchStore = new PostgresDispatchStore({ pool });
-const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool });
-const botConfigStore = new PostgresBotConfigStore(pool);
 const lifecycleStore = new PostgresServiceLifecycleStore({ pool });
 const giftStore = new PostgresGiftStore(pool);
-const dispatchMessageStore = new PostgresDispatchMessageStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);
 const weeklyReportStore = new PostgresWeeklyReportStore(pool);
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
-  botServiceToken: validation.values.botServiceToken
+  botServiceToken: validation.values.botServiceToken,
 });
 const panelDiscord = new DiscordRestWorkerAdapter({ token: discordToken });
+const selectionWorkerStore = new PostgresSelectionPoolWorkerStore(pool);
+const selectionWorkerService = new SelectionPoolWorkerService(
+  selectionWorkerStore,
+  new DiscordSelectionPoolAdapter({ token: discordToken }),
+);
 const heartbeatMs = positiveInteger(process.env.WORKER_HEARTBEAT_MS, 60_000);
-const staleLockMs = positiveInteger(process.env.WORKER_STALE_LOCK_MS, 5 * 60_000);
-if (staleLockMs < heartbeatMs * 3) throw new Error('WORKER_STALE_LOCK_MS must be at least three heartbeat intervals.');
+const staleLockMs = positiveInteger(
+  process.env.WORKER_STALE_LOCK_MS,
+  5 * 60_000,
+);
+if (staleLockMs < heartbeatMs * 3)
+  throw new Error(
+    "WORKER_STALE_LOCK_MS must be at least three heartbeat intervals.",
+  );
 const worker = new OutboxWorker({
   store: outboxStore,
   auditSink: new PostgresAuditSink({ client: pool }),
   workerId: `${hostname()}:${process.pid}`,
   heartbeatMs,
-  logger: (entry) => console.log(JSON.stringify({ level: 'info', ...entry })),
-  metric: (name, tags) => console.log(JSON.stringify({ level: 'info', event: 'worker.metric', name, tags }))
+  logger: (entry) => console.log(JSON.stringify({ level: "info", ...entry })),
+  metric: (name, tags) =>
+    console.log(
+      JSON.stringify({ level: "info", event: "worker.metric", name, tags }),
+    ),
 });
 const runtime = new ProductionOutboxRuntime({
   store: outboxStore,
   worker,
   staleLockMs,
   handlers: createProductionHandlerMap({
-    giftAnnouncement: createGiftAnnouncementHandler({ store: giftStore, send: (message) => delivery.sendMessage(message) }),
+    giftAnnouncement: createGiftAnnouncementHandler({
+      store: giftStore,
+      send: (message) => delivery.sendMessage(message),
+    }),
     giftExpiry: createGiftExpiryHandler({ store: giftStore }),
-    dispatchStart:createDispatchStartHandler({start:async(payload,job)=>{const order=await orderStore.findById(payload.orderId);
-      if(order&&!await resolveBotConfigBoolean(botConfigStore,order.guildId,'auto_dispatch_enabled',true))return;
-      return dispatchOrder({orderStore,dispatchStore,playerPool:dispatchPlayerPool,
-        orderId:payload.orderId,expectedVersion:payload.expectedVersion,trigger:payload.trigger,dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
-        botConfigStore,idempotencyKey:job.dedupeKey,now:new Date(),timeoutMinutes:1.5});}}),
-    dispatchMessage: createDispatchMessageHandler({ store: dispatchMessageStore, discord: delivery }),
-    dispatchTimeout: createDispatchTimeoutHandler({
-      expire: async(dispatchAttemptId) => {const now=new Date();const result=await expireDispatchAttempt({orderStore,dispatchStore,dispatchAttemptId,now});
-        if(result.status==='DISPATCH_TIMEOUT'&&result.orderStatus==='PENDING_DISPATCH'){const order=await orderStore.findById(result.orderId);
-          if(order&&await resolveBotConfigBoolean(botConfigStore,order.guildId,'auto_dispatch_enabled',true))await dispatchOrder({orderStore,dispatchStore,
-          playerPool:dispatchPlayerPool,orderId:order.id,expectedVersion:order.version,trigger:'TIMEOUT_RETRY',dispatchChannelId:process.env.DISPATCH_CHANNEL_ID?.trim()||'000000000000000000',
-          botConfigStore,idempotencyKey:`dispatch-timeout-retry:${dispatchAttemptId}`,now,timeoutMinutes:1.5});}return result;}
+    selectionPoolClose: createSelectionPoolCloseHandler({
+      close: (selectionPoolId, deadline) =>
+        selectionWorkerStore.closeExpired(selectionPoolId, deadline),
+    }),
+    selectionPoolSync: createSelectionPoolSyncHandler({
+      sync: (selectionPoolId, phase, notBefore) =>
+        selectionWorkerService.sync(selectionPoolId, phase, notBefore),
+      onTerminalFailure: (selectionPoolId, error, failedAt) =>
+        selectionWorkerStore.createFailureTask(
+          selectionPoolId,
+          error,
+          failedAt,
+        ),
     }),
     readinessTimeout: createReadinessTimeoutHandler({
-      expire: (job) => handleReadinessTimeoutJob({ job, store: lifecycleStore, now: new Date() })
+      expire: (job) =>
+        handleReadinessTimeoutJob({
+          job,
+          store: lifecycleStore,
+          now: new Date(),
+        }),
     }),
-    channelArchive: createChannelArchiveHandler({ archive: (channelId) => delivery.archiveChannel(channelId) }),
-    panelSync: createPanelSyncHandler({ store: panelStore, discord: panelDiscord }),
+    channelArchive: createChannelArchiveHandler({
+      archive: (channelId) => delivery.archiveChannel(channelId),
+    }),
+    panelSync: createPanelSyncHandler({
+      store: panelStore,
+      discord: panelDiscord,
+    }),
     roleReconciliation: createRoleReconciliationHandler({
-      reconcile: (guildId, mappingVersion, observedAt) => delivery.reconcileRoles(guildId, mappingVersion, observedAt)
+      reconcile: (guildId, mappingVersion, observedAt) =>
+        delivery.reconcileRoles(guildId, mappingVersion, observedAt),
     }),
-    weeklyReportGenerate: createWeeklyReportGenerationHandler({ store: weeklyReportStore }),
-    weeklyReportNotify: createWeeklyReportNotificationHandler({ store: weeklyReportStore,
-      sendDirectMessage: (message) => delivery.sendDirectMessage(message) })
-  })
+    weeklyReportGenerate: createWeeklyReportGenerationHandler({
+      store: weeklyReportStore,
+    }),
+    weeklyReportNotify: createWeeklyReportNotificationHandler({
+      store: weeklyReportStore,
+      sendDirectMessage: (message) => delivery.sendDirectMessage(message),
+    }),
+  }),
 });
 
 let stopping = false;
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, () => { stopping = true; });
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    stopping = true;
+  });
 }
 
 try {
   const recovered = await runtime.initialize();
-  await writeFile(READY_FILE, new Date().toISOString(), 'utf8');
-  console.log(JSON.stringify({ level: 'info', event: 'worker.started', recoveredJobs: recovered.length }));
-  const pollIntervalMs = positiveInteger(process.env.WORKER_POLL_INTERVAL_MS, 500);
+  await writeFile(READY_FILE, new Date().toISOString(), "utf8");
+  console.log(
+    JSON.stringify({
+      level: "info",
+      event: "worker.started",
+      recoveredJobs: recovered.length,
+    }),
+  );
+  const pollIntervalMs = positiveInteger(
+    process.env.WORKER_POLL_INTERVAL_MS,
+    500,
+  );
   const reportGuildId = process.env.DISCORD_GUILD_ID?.trim();
   let nextReportScheduleCheckAt = 0;
   while (!stopping) {
     const loopNow = Date.now();
     if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
-      await weeklyReportStore.enqueueScheduledGeneration({ guildId: reportGuildId, scheduleKey: 'weekly-usd',
-        timeZone: process.env.WEEKLY_REPORT_TIME_ZONE?.trim() || 'Asia/Shanghai', now: new Date(loopNow), weekStartsOn: 1 });
+      await weeklyReportStore.enqueueScheduledGeneration({
+        guildId: reportGuildId,
+        scheduleKey: "weekly-usd",
+        timeZone:
+          process.env.WEEKLY_REPORT_TIME_ZONE?.trim() || "Asia/Shanghai",
+        now: new Date(loopNow),
+        weekStartsOn: 1,
+      });
       nextReportScheduleCheckAt = loopNow + 60_000;
     }
     const completed = await runtime.runOnce();
@@ -117,13 +192,14 @@ try {
 } finally {
   await unlink(READY_FILE).catch(() => undefined);
   await pool.end();
-  console.log(JSON.stringify({ level: 'info', event: 'worker.stopped' }));
+  console.log(JSON.stringify({ level: "info", event: "worker.stopped" }));
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
-  if (value === undefined || value.trim() === '') return fallback;
+  if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error('Worker timing values must be positive integers.');
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    throw new Error("Worker timing values must be positive integers.");
   return parsed;
 }
 

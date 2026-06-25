@@ -90,7 +90,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   {
     id: 'orders', label: '订单', href: '/admin/orders', endpoint: '/api/v1/admin/orders', readPermission: 'order.read',
     filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }],
-    actions: [{ id: 'MANUAL_DISPATCH', label: '客服派单', permission: 'dispatch.manual', requiresReason: false, scope: 'ITEM' }]
+    actions: []
   },
   {
     id: 'users', label: '用户', href: '/admin/users', endpoint: '/api/v1/admin/users', readPermission: 'user.read',
@@ -277,19 +277,11 @@ export function buildAdminActionRequest(input: {
   item?: Record<string, unknown>;
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
-  if (input.actionId === 'MANUAL_DISPATCH') {
-    const item = requireItem(input.item);
-    return { method: 'POST', path: `/api/v1/admin/orders/${encodeURIComponent(item.id)}/manual-dispatch`, body: {
-      expectedVersion: item.version,
-      trigger: 'MANUAL_RETRY',
-      targetDiscordUserIds: splitOptionalDiscordIds(input.fields.targetDiscordUserIds)
-    } };
-  }
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
-  if(input.actionId==='EDIT_PLAYER_COMPENSATION'){const item=requirePlayerItem(input.item);const serviceOfferingId=requireText(input.fields.serviceOfferingId,'serviceOfferingId');const type=requireEnum(input.fields.compensationType,['PERCENT_BPS','FIXED_MINOR'],'compensationType');
+  if(input.actionId==='EDIT_PLAYER_COMPENSATION'){const item=requirePlayerItem(input.item);if(typeof input.fields.compensationChangesJson==='string'){const changes=parseCompensationChanges(input.fields.compensationChangesJson);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation`,body:{rules:changes,reasonCode:requireReasonCode(input.fields.reasonCode)}};}const serviceOfferingId=requireText(input.fields.serviceOfferingId,'serviceOfferingId');const type=requireEnum(input.fields.compensationType,['PERCENT_BPS','FIXED_MINOR'],'compensationType');
     const value=type==='PERCENT_BPS'?requirePercentageBps(input.fields.percentage):requirePositiveInteger(input.fields.fixedAmountMinor,'fixedAmountMinor');
     return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation/${encodeURIComponent(serviceOfferingId)}`,body:{expectedVersion:optionalPositiveInteger(input.fields.compensationVersion),type,value,currency:type==='FIXED_MINOR'?'CAT':null,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
@@ -358,6 +350,8 @@ export function buildAdminActionRequest(input: {
   }
   throw new TypeError(`Action ${input.actionId} does not have a complete form and API mapping.`);
 }
+
+function parseCompensationChanges(value:string){let entries:unknown;try{entries=JSON.parse(value);}catch{throw new Error('compensationChangesJson is invalid.');}if(!Array.isArray(entries)||!entries.length)throw new Error('至少需要一条分成改动。');return entries.map((entry)=>{if(!entry||typeof entry!=='object'||Array.isArray(entry))throw new Error('compensation change is invalid.');const item=entry as Record<string,unknown>;const type=requireEnum(item.type as string,['PERCENT_BPS','FIXED_MINOR'],'compensationType');return{serviceOfferingId:requireText(item.serviceOfferingId as string,'serviceOfferingId'),expectedVersion:optionalPositiveInteger(item.expectedVersion as string),type,value:type==='PERCENT_BPS'?requirePercentageBps(item.percentage as string):requirePositiveInteger(item.fixedAmountMinor as string,'fixedAmountMinor'),currency:type==='FIXED_MINOR'?'CAT':null};});}
 
 function requirePageDefinition(page: AdminBusinessPageId): AdminPageDefinition {
   const definition = pageDefinitions.find((candidate) => candidate.id === page);

@@ -102,3 +102,10 @@ GRANT SELECT,INSERT,UPDATE ON selection_pools,selection_applications TO blackcat
 GRANT SELECT,INSERT ON selection_pool_events,selection_application_events TO blackcat_app;
 REVOKE DELETE ON selection_pools,selection_applications,selection_pool_events,selection_application_events FROM blackcat_app;
 REVOKE UPDATE ON selection_pool_events,selection_application_events FROM blackcat_app;
+
+-- Retire queued first-wins work. Historical dispatch attempts remain append-only facts.
+UPDATE outbox_events
+SET status='CANCELLED',row_version=row_version+1,locked_at=NULL,locked_by=NULL,
+    last_error='SUPERSEDED_BY_SELECTION_POOL',updated_at=now()
+WHERE status IN ('PENDING','PROCESSING','FAILED')
+  AND event_type IN ('DISPATCH_START','DISPATCH_MESSAGE','DISPATCH_TIMEOUT');

@@ -209,12 +209,6 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
 
   async function openAction(action:AdminBusinessAction,item?:Record<string,unknown>){
     activeWrite.current=null;
-    if(action.id==='MANUAL_DISPATCH'&&item&&typeof item.id==='string'){
-      const response=await client.get(`/api/v1/orders/${encodeURIComponent(item.id)}/dispatch-candidates`);
-      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>};error?:{message?:string}}|null;
-      if(!response.ok){setActiveAction({action,item});setDispatchCandidateOptions([]);setActionError(`${body?.error?.message??'无法加载合格陪玩。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);setActionStatus('ERROR');return;}
-      setDispatchCandidateOptions(body?.data?.items??[]);
-    }
     if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
       const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
       const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;

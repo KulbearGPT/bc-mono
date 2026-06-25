@@ -9,6 +9,7 @@
     "./piece-manifest": "./src/piece-manifest.ts",
     "./role-sync": "./src/role-sync.ts",
     "./service-center": "./src/service-center.ts",
+    "./selection-discord": "./src/selection-discord.ts",
     "./wallet-display": "./src/wallet-display.ts"
     ,"./onboarding": "./src/onboarding.ts"
   },

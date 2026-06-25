@@ -1,46 +1,53 @@
-import type { JobType, OutboxJob, OutboxStore, OutboxWorker } from './outbox.js';
+import type {
+  JobType,
+  OutboxJob,
+  OutboxStore,
+  OutboxWorker,
+} from "./outbox.js";
 
 export type OutboxHandler = (job: OutboxJob) => Promise<void> | void;
 export type ProductionHandlerMap = Partial<Record<JobType, OutboxHandler>>;
 
 export const productionJobTypes = [
-  'GIFT_ANNOUNCEMENT',
-  'GIFT_EXPIRY',
-  'DISPATCH_START',
-  'DISPATCH_MESSAGE',
-  'DISPATCH_TIMEOUT',
-  'READINESS_TIMEOUT',
-  'CHANNEL_ARCHIVE',
-  'PANEL_SYNC',
-  'ROLE_RECONCILIATION',
-  'WEEKLY_REPORT_GENERATE',
-  'WEEKLY_REPORT_NOTIFY'
+  "GIFT_ANNOUNCEMENT",
+  "GIFT_EXPIRY",
+  "READINESS_TIMEOUT",
+  "CHANNEL_ARCHIVE",
+  "PANEL_SYNC",
+  "ROLE_RECONCILIATION",
+  "WEEKLY_REPORT_GENERATE",
+  "WEEKLY_REPORT_NOTIFY",
+  "SELECTION_POOL_CLOSE",
+  "SELECTION_POOL_SYNC",
 ] as const satisfies readonly JobType[];
 
-export function createProductionHandlerMap(input: {
-  giftAnnouncement: OutboxHandler;
-  giftExpiry: OutboxHandler;
-  dispatchStart: OutboxHandler;
-  dispatchMessage: OutboxHandler;
-  dispatchTimeout: OutboxHandler;
-  readinessTimeout: OutboxHandler;
-  channelArchive: OutboxHandler;
-  panelSync: OutboxHandler;
-  roleReconciliation: OutboxHandler;
-  weeklyReportGenerate?: OutboxHandler;
-  weeklyReportNotify?: OutboxHandler;
-}, options: { m6Enabled?: boolean } = {}): ProductionHandlerMap {
+export function createProductionHandlerMap(
+  input: {
+    giftAnnouncement: OutboxHandler;
+    giftExpiry: OutboxHandler;
+    readinessTimeout: OutboxHandler;
+    channelArchive: OutboxHandler;
+    panelSync: OutboxHandler;
+    roleReconciliation: OutboxHandler;
+    weeklyReportGenerate?: OutboxHandler;
+    weeklyReportNotify?: OutboxHandler;
+    selectionPoolClose?: OutboxHandler;
+    selectionPoolSync?: OutboxHandler;
+  },
+  options: { m6Enabled?: boolean } = {},
+): ProductionHandlerMap {
   const handlers: ProductionHandlerMap = {
     GIFT_ANNOUNCEMENT: input.giftAnnouncement,
     GIFT_EXPIRY: input.giftExpiry,
-    DISPATCH_START: input.dispatchStart,
-    DISPATCH_MESSAGE: input.dispatchMessage,
-    DISPATCH_TIMEOUT: input.dispatchTimeout,
     READINESS_TIMEOUT: input.readinessTimeout,
     CHANNEL_ARCHIVE: input.channelArchive,
     PANEL_SYNC: input.panelSync,
-    ROLE_RECONCILIATION: input.roleReconciliation
+    ROLE_RECONCILIATION: input.roleReconciliation,
   };
+  if (input.selectionPoolClose)
+    handlers.SELECTION_POOL_CLOSE = input.selectionPoolClose;
+  if (input.selectionPoolSync)
+    handlers.SELECTION_POOL_SYNC = input.selectionPoolSync;
   if (options.m6Enabled ?? true) {
     handlers.WEEKLY_REPORT_GENERATE = input.weeklyReportGenerate!;
     handlers.WEEKLY_REPORT_NOTIFY = input.weeklyReportNotify!;
@@ -54,31 +61,38 @@ export function shouldEnqueueWeeklyReport(input: {
   loopNow: number;
   nextReportScheduleCheckAt: number;
 }): boolean {
-  return input.m6Enabled
-    && Boolean(input.reportGuildId)
-    && input.loopNow >= input.nextReportScheduleCheckAt;
+  return (
+    input.m6Enabled &&
+    Boolean(input.reportGuildId) &&
+    input.loopNow >= input.nextReportScheduleCheckAt
+  );
 }
 
 export class ProductionOutboxRuntime {
-  constructor(private readonly input: {
-    store: OutboxStore;
-    worker: OutboxWorker;
-    handlers: ProductionHandlerMap;
-    now?: () => Date;
-    staleLockMs?: number;
-  }) {}
+  constructor(
+    private readonly input: {
+      store: OutboxStore;
+      worker: OutboxWorker;
+      handlers: ProductionHandlerMap;
+      now?: () => Date;
+      staleLockMs?: number;
+    },
+  ) {}
 
   async initialize(): Promise<OutboxJob[]> {
     const now = (this.input.now ?? (() => new Date()))();
     const staleLockMs = this.input.staleLockMs ?? 5 * 60_000;
     const jobTypes = Object.entries(this.input.handlers)
-      .filter((entry): entry is [JobType, OutboxHandler] => typeof entry[1] === 'function')
+      .filter(
+        (entry): entry is [JobType, OutboxHandler] =>
+          typeof entry[1] === "function",
+      )
       .map(([jobType]) => jobType);
     return this.input.store.recoverStaleProcessingJobs({
       lockedBefore: new Date(now.getTime() - staleLockMs),
       now,
-      error: 'WORKER_RESTART_RECOVERY',
-      jobTypes
+      error: "WORKER_RESTART_RECOVERY",
+      jobTypes,
     });
   }
 
@@ -121,17 +135,29 @@ export interface OrderCoordinationRequirement {
 }
 
 export interface OrderPanelProjectionStore {
-  getOrderPanelProjection(orderId: string): Promise<OrderPanelProjection | null>;
+  getOrderPanelProjection(
+    orderId: string,
+  ): Promise<OrderPanelProjection | null>;
   replacePanelMessageId(input: {
     orderId: string;
     expectedPanelMessageId: string;
     panelMessageId: string;
   }): Promise<void>;
-  setVoiceChannelId?(input: { orderId: string; voiceChannelId: string }): Promise<void>;
+  setVoiceChannelId?(input: {
+    orderId: string;
+    voiceChannelId: string;
+  }): Promise<void>;
 }
 
 export interface OrderPanelDiscordAdapter {
-  upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean; voiceChannelId?: string }>;
+  upsertOrderPanel(
+    projection: OrderPanelProjection,
+    notBefore: string,
+  ): Promise<{
+    messageId: string;
+    recreated: boolean;
+    voiceChannelId?: string;
+  }>;
 }
 
 export function createPanelSyncHandler(input: {
@@ -139,22 +165,38 @@ export function createPanelSyncHandler(input: {
   discord: OrderPanelDiscordAdapter;
 }): OutboxHandler {
   return async (job) => {
-    if (job.type !== 'PANEL_SYNC') throw new Error('Expected a PANEL_SYNC job.');
+    if (job.type !== "PANEL_SYNC")
+      throw new Error("Expected a PANEL_SYNC job.");
     const payload = job.payload as { orderId?: unknown } | null;
-    if (!payload || typeof payload.orderId !== 'string' || payload.orderId !== job.aggregateId) {
-      throw new Error('Panel sync payload is invalid.');
+    if (
+      !payload ||
+      typeof payload.orderId !== "string" ||
+      payload.orderId !== job.aggregateId
+    ) {
+      throw new Error("Panel sync payload is invalid.");
     }
-    const projection = await input.store.getOrderPanelProjection(payload.orderId);
-    if (!projection) throw new Error('Order panel projection was not found.');
-    const result = await input.discord.upsertOrderPanel(projection, job.createdAt);
-    if (result.voiceChannelId && result.voiceChannelId !== projection.voiceChannelId) {
-      await input.store.setVoiceChannelId?.({ orderId: projection.orderId, voiceChannelId: result.voiceChannelId });
+    const projection = await input.store.getOrderPanelProjection(
+      payload.orderId,
+    );
+    if (!projection) throw new Error("Order panel projection was not found.");
+    const result = await input.discord.upsertOrderPanel(
+      projection,
+      job.createdAt,
+    );
+    if (
+      result.voiceChannelId &&
+      result.voiceChannelId !== projection.voiceChannelId
+    ) {
+      await input.store.setVoiceChannelId?.({
+        orderId: projection.orderId,
+        voiceChannelId: result.voiceChannelId,
+      });
     }
     if (result.recreated && result.messageId !== projection.panelMessageId) {
       await input.store.replacePanelMessageId({
         orderId: projection.orderId,
         expectedPanelMessageId: projection.panelMessageId,
-        panelMessageId: result.messageId
+        panelMessageId: result.messageId,
       });
     }
   };

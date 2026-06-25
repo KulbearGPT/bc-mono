@@ -121,43 +121,6 @@ enum OrderCompositionMode {
   CUSTOMIZED
 }
 
-enum SelectionPoolStatus {
-  COLLECTING
-  SELECTION
-  FINALIZED
-  CANCELLED
-}
-
-enum SelectionPoolCloseReason {
-  TIME_ELAPSED
-  CUSTOMER_EARLY_CLOSE
-  ORDER_CANCELLED
-}
-
-enum SelectionApplicationStatus {
-  APPLIED
-  WITHDRAWN
-  SELECTED
-  NOT_SELECTED
-  INVALIDATED
-}
-
-enum SelectionPoolEventType {
-  CREATED
-  CLOSED
-  FINALIZED
-  CANCELLED
-  VOICE_SYNC_REQUESTED
-}
-
-enum SelectionApplicationEventType {
-  APPLIED
-  WITHDRAWN
-  SELECTED
-  NOT_SELECTED
-  INVALIDATED
-}
-
 enum StaffLevel {
   L1_SUPPORT
   L2_SUPERVISOR
@@ -250,21 +213,41 @@ enum ResolutionReasonCode {
   ADMIN_CORRECTION
 }
 
-enum DispatchStatus {
-  PENDING
-  ACTIVE
-  ACCEPTED
-  TIMED_OUT
+enum SelectionPoolStatus {
+  COLLECTING
+  SELECTION
+  FINALIZED
   CANCELLED
-  FAILED
 }
 
-enum DispatchCandidateStatus {
-  NOTIFIED
-  ACCEPTED
-  DECLINED
-  EXPIRED
-  LOST_RACE
+enum SelectionPoolCloseReason {
+  TIME_ELAPSED
+  CUSTOMER_EARLY_CLOSE
+  ORDER_CANCELLED
+}
+
+enum SelectionApplicationStatus {
+  APPLIED
+  WITHDRAWN
+  SELECTED
+  NOT_SELECTED
+  INVALIDATED
+}
+
+enum SelectionPoolEventType {
+  CREATED
+  CLOSED
+  FINALIZED
+  CANCELLED
+  VOICE_SYNC_REQUESTED
+}
+
+enum SelectionApplicationEventType {
+  APPLIED
+  WITHDRAWN
+  SELECTED
+  NOT_SELECTED
+  INVALIDATED
 }
 
 enum ExternalTransactionType {
@@ -586,8 +569,6 @@ model User {
   orderParticipations  OrderParticipant[]    @relation("OrderParticipantPlayer")
   activeCustomerOrders Order[]               @relation("ActiveOrderCustomer")
   activePlayerOrders   Order[]               @relation("ActiveOrderPlayer")
-  acceptedDispatches   DispatchAttempt[]     @relation("DispatchAcceptedPlayer")
-  dispatchCandidates   DispatchCandidate[]
   selectionApplications SelectionApplication[]
   sentGiftRequests     GiftRequest[]         @relation("GiftSender")
   receivedGiftRequests GiftRequest[]         @relation("GiftReceiver")
@@ -1360,7 +1341,7 @@ model Order {
   sourcePackageVersion ServicePackageVersion? @relation(fields: [sourcePackageVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   events              OrderEvent[]
   resolutions         OrderResolution[]
-  dispatchAttempts    DispatchAttempt[]
+  selectionPools      SelectionPool[]
   giftRequests        GiftRequest[]
   fundReservation     FundReservation?
   cancellationPreviews CancellationPreview[]
@@ -1374,7 +1355,6 @@ model Order {
   riskEvents          RiskEvent[]
   outboxEvents        OutboxEvent[]
   channelMessageEvents OrderChannelMessageEvent[]
-  selectionPools      SelectionPool[]
 
   @@index([customerId, createdAt])
   @@index([playerId, createdAt])
@@ -1462,7 +1442,6 @@ model OrderRequirement {
   sourcePackageSlot     ServicePackageSlot?          @relation(fields: [sourcePackageSlotId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   participants          OrderParticipant[]
   events                OrderRequirementEvent[]
-  dispatchAttempts      DispatchAttempt[]
   selectionApplications SelectionApplication[]
 
   @@index([orderId, status, createdAt])
@@ -1510,92 +1489,6 @@ model OrderParticipantEvent {
   @@unique([orderParticipantId, sequence])
   @@index([orderParticipantId, createdAt])
   @@map("order_participant_events")
-}
-
-model SelectionPool {
-  id          String                    @id @default(uuid()) @db.Uuid
-  orderId     String                    @map("order_id") @db.Uuid
-  round       Int
-  status      SelectionPoolStatus       @default(COLLECTING)
-  rowVersion  Int                       @default(1) @map("row_version")
-  waitMinutes Int                       @map("wait_minutes")
-  openedAt    DateTime                  @map("opened_at") @db.Timestamptz(3)
-  closesAt    DateTime                  @map("closes_at") @db.Timestamptz(3)
-  closedAt    DateTime?                 @map("closed_at") @db.Timestamptz(3)
-  closeReason SelectionPoolCloseReason? @map("close_reason")
-  finalizedAt DateTime?                 @map("finalized_at") @db.Timestamptz(3)
-  createdAt   DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  order        Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  applications SelectionApplication[]
-  events       SelectionPoolEvent[]
-  outboxEvents OutboxEvent[]
-
-  @@unique([orderId, round])
-  @@index([status, closesAt])
-  @@map("selection_pools")
-}
-
-model SelectionApplication {
-  id                  String                     @id @default(uuid()) @db.Uuid
-  selectionPoolId     String                     @map("selection_pool_id") @db.Uuid
-  orderRequirementId  String                     @map("order_requirement_id") @db.Uuid
-  playerUserId        String                     @map("player_user_id") @db.Uuid
-  status              SelectionApplicationStatus @default(APPLIED)
-  rowVersion          Int                        @default(1) @map("row_version")
-  eligibilitySnapshot Json                       @map("eligibility_snapshot") @db.JsonB
-  appliedAt           DateTime                   @map("applied_at") @db.Timestamptz(3)
-  withdrawnAt         DateTime?                  @map("withdrawn_at") @db.Timestamptz(3)
-  decidedAt           DateTime?                  @map("decided_at") @db.Timestamptz(3)
-  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
-
-  selectionPool SelectionPool               @relation(fields: [selectionPoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  requirement   OrderRequirement             @relation(fields: [orderRequirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  player        User                         @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  events        SelectionApplicationEvent[]
-
-  @@unique([selectionPoolId, orderRequirementId, playerUserId])
-  @@index([playerUserId, status])
-  @@index([orderRequirementId, status])
-  @@map("selection_applications")
-}
-
-model SelectionPoolEvent {
-  id              String                 @id @default(uuid()) @db.Uuid
-  selectionPoolId String                 @map("selection_pool_id") @db.Uuid
-  sequence        Int
-  eventType       SelectionPoolEventType @map("event_type")
-  poolVersion     Int                    @map("pool_version")
-  orderVersion    Int                    @map("order_version")
-  actorUserId     String?                @map("actor_user_id") @db.Uuid
-  actorStaffId    String?                @map("actor_staff_id") @db.Uuid
-  snapshot        Json                   @db.JsonB
-  idempotencyKey  String                 @unique @map("idempotency_key") @db.VarChar(200)
-  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  selectionPool SelectionPool @relation(fields: [selectionPoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@unique([selectionPoolId, sequence])
-  @@map("selection_pool_events")
-}
-
-model SelectionApplicationEvent {
-  id                     String                        @id @default(uuid()) @db.Uuid
-  selectionApplicationId String                        @map("selection_application_id") @db.Uuid
-  sequence               Int
-  eventType              SelectionApplicationEventType @map("event_type")
-  applicationVersion     Int                           @map("application_version")
-  actorUserId            String?                       @map("actor_user_id") @db.Uuid
-  snapshot               Json                          @db.JsonB
-  idempotencyKey         String                        @unique @map("idempotency_key") @db.VarChar(200)
-  createdAt              DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
-
-  application SelectionApplication @relation(fields: [selectionApplicationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@unique([selectionApplicationId, sequence])
-  @@map("selection_application_events")
 }
 
 enum OrderChannelMessageEventType {
@@ -1679,50 +1572,90 @@ model OrderResolution {
   @@map("order_resolutions")
 }
 
-model DispatchAttempt {
-  id                String         @id @default(uuid()) @db.Uuid
-  orderId           String         @map("order_id") @db.Uuid
-  orderRequirementId String?       @map("order_requirement_id") @db.Uuid
-  round             Int
-  status            DispatchStatus @default(PENDING)
-  dispatchChannelId String         @map("dispatch_channel_id") @db.VarChar(32)
-  dispatchMessageId String?        @unique @map("dispatch_message_id") @db.VarChar(32)
-  candidateCriteria Json           @map("candidate_criteria") @db.JsonB
-  acceptedPlayerId  String?        @map("accepted_player_id") @db.Uuid
-  startedAt         DateTime?      @map("started_at") @db.Timestamptz(3)
-  expiresAt         DateTime       @map("expires_at") @db.Timestamptz(3)
-  acceptedAt        DateTime?      @map("accepted_at") @db.Timestamptz(3)
-  finishedAt        DateTime?      @map("finished_at") @db.Timestamptz(3)
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+model SelectionPool {
+  id              String                   @id @default(uuid()) @db.Uuid
+  orderId         String                   @map("order_id") @db.Uuid
+  round           Int
+  status          SelectionPoolStatus      @default(COLLECTING)
+  rowVersion      Int                      @default(1) @map("row_version")
+  waitMinutes     Int                      @map("wait_minutes")
+  openedAt        DateTime                 @map("opened_at") @db.Timestamptz(3)
+  closesAt        DateTime                 @map("closes_at") @db.Timestamptz(3)
+  closedAt        DateTime?                @map("closed_at") @db.Timestamptz(3)
+  closeReason     SelectionPoolCloseReason? @map("close_reason")
+  finalizedAt     DateTime?                @map("finalized_at") @db.Timestamptz(3)
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order          Order               @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  requirement    OrderRequirement?   @relation(fields: [orderRequirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  acceptedPlayer User?               @relation("DispatchAcceptedPlayer", fields: [acceptedPlayerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  candidates     DispatchCandidate[]
-  outboxEvents   OutboxEvent[]
+  order         Order                  @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  applications  SelectionApplication[]
+  events        SelectionPoolEvent[]
+  outboxEvents  OutboxEvent[]
 
   @@unique([orderId, round])
-  @@index([status, expiresAt])
-  @@index([orderRequirementId, status])
-  @@map("dispatch_attempts")
+  @@index([status, closesAt])
+  @@map("selection_pools")
 }
 
-model DispatchCandidate {
-  dispatchAttemptId String                  @map("dispatch_attempt_id") @db.Uuid
-  playerUserId      String                  @map("player_user_id") @db.Uuid
-  status            DispatchCandidateStatus @default(NOTIFIED)
-  notifiedAt        DateTime?               @map("notified_at") @db.Timestamptz(3)
-  respondedAt       DateTime?               @map("responded_at") @db.Timestamptz(3)
-  createdAt         DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+model SelectionApplication {
+  id                   String                     @id @default(uuid()) @db.Uuid
+  selectionPoolId      String                     @map("selection_pool_id") @db.Uuid
+  orderRequirementId   String                     @map("order_requirement_id") @db.Uuid
+  playerUserId         String                     @map("player_user_id") @db.Uuid
+  status               SelectionApplicationStatus @default(APPLIED)
+  rowVersion           Int                        @default(1) @map("row_version")
+  eligibilitySnapshot Json                       @map("eligibility_snapshot") @db.JsonB
+  appliedAt            DateTime                   @map("applied_at") @db.Timestamptz(3)
+  withdrawnAt          DateTime?                  @map("withdrawn_at") @db.Timestamptz(3)
+  decidedAt            DateTime?                  @map("decided_at") @db.Timestamptz(3)
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  dispatchAttempt DispatchAttempt @relation(fields: [dispatchAttemptId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  player          User            @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  selectionPool SelectionPool               @relation(fields: [selectionPoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requirement   OrderRequirement             @relation(fields: [orderRequirementId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  player        User                         @relation(fields: [playerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events        SelectionApplicationEvent[]
 
-  @@id([dispatchAttemptId, playerUserId])
+  @@unique([selectionPoolId, orderRequirementId, playerUserId])
   @@index([playerUserId, status])
-  @@map("dispatch_candidates")
+  @@index([orderRequirementId, status])
+  @@map("selection_applications")
+}
+
+model SelectionPoolEvent {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  selectionPoolId    String                 @map("selection_pool_id") @db.Uuid
+  sequence           Int
+  eventType          SelectionPoolEventType @map("event_type")
+  poolVersion        Int                    @map("pool_version")
+  orderVersion       Int                    @map("order_version")
+  actorUserId        String?                @map("actor_user_id") @db.Uuid
+  actorStaffId       String?                @map("actor_staff_id") @db.Uuid
+  snapshot           Json                   @db.JsonB
+  idempotencyKey     String                 @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt          DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  selectionPool SelectionPool @relation(fields: [selectionPoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([selectionPoolId, sequence])
+  @@map("selection_pool_events")
+}
+
+model SelectionApplicationEvent {
+  id                     String                        @id @default(uuid()) @db.Uuid
+  selectionApplicationId String                        @map("selection_application_id") @db.Uuid
+  sequence               Int
+  eventType              SelectionApplicationEventType @map("event_type")
+  applicationVersion     Int                           @map("application_version")
+  actorUserId            String?                       @map("actor_user_id") @db.Uuid
+  snapshot               Json                          @db.JsonB
+  idempotencyKey         String                        @unique @map("idempotency_key") @db.VarChar(200)
+  createdAt              DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  application SelectionApplication @relation(fields: [selectionApplicationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([selectionApplicationId, sequence])
+  @@map("selection_application_events")
 }
 
 model StaffTask {
@@ -2574,7 +2507,6 @@ model OutboxEvent {
   aggregateId       String       @map("aggregate_id") @db.Uuid
   orderId           String?      @map("order_id") @db.Uuid
   giftRequestId     String?      @map("gift_request_id") @db.Uuid
-  dispatchAttemptId String?      @map("dispatch_attempt_id") @db.Uuid
   selectionPoolId   String?      @map("selection_pool_id") @db.Uuid
   dedupeKey         String       @unique @map("dedupe_key") @db.VarChar(200)
   payload           Json         @db.JsonB
@@ -2592,7 +2524,6 @@ model OutboxEvent {
 
   order           Order?           @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   giftRequest     GiftRequest?     @relation(fields: [giftRequestId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  dispatchAttempt DispatchAttempt? @relation(fields: [dispatchAttemptId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   selectionPool   SelectionPool?   @relation(fields: [selectionPoolId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([status, availableAt])

@@ -257,8 +257,8 @@ function AdminActionPanel(props: {
   dispatchCandidateOptions?: Array<Record<string, unknown>>;
 }) {
   const action = props.active.action;
-  const [pendingCompensation,setPendingCompensation]=useState<{fields:Record<string,string|boolean>;offering:Record<string,unknown>}|null>(null);
-  const handleSubmit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const fields=collectActionFields(event.currentTarget);if(action.id==='EDIT_PLAYER_COMPENSATION'){const offering=(props.serviceCatalogOptions??[]).find((item)=>textValue(item.serviceOfferingId)===textValue(fields.serviceOfferingId));if(offering){setPendingCompensation({fields,offering});return;}}props.onSubmit?.(action,props.active.item,fields);};
+  const [pendingCompensation,setPendingCompensation]=useState<{fields:Record<string,string|boolean>;changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>}|null>(null);
+  const handleSubmit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const fields=collectActionFields(event.currentTarget);if(action.id==='EDIT_PLAYER_COMPENSATION'&&typeof fields.compensationChangesJson==='string'){try{const drafts=JSON.parse(fields.compensationChangesJson) as Array<Record<string,string>>;const changes=drafts.map((draft)=>({draft,offering:(props.serviceCatalogOptions??[]).find((item)=>textValue(item.serviceOfferingId)===draft.serviceOfferingId)})).filter((change):change is {offering:Record<string,unknown>;draft:Record<string,string>}=>Boolean(change.offering));if(changes.length){setPendingCompensation({fields,changes});return;}}catch{/* API builder will report malformed drafts. */}}props.onSubmit?.(action,props.active.item,fields);};
   return <>
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
@@ -272,11 +272,11 @@ function AdminActionPanel(props: {
         </div>
       </form>
     </aside>
-    {pendingCompensation&&<DashboardOverlay label="确认项目分成改动" onClose={()=>setPendingCompensation(null)}><CompensationChangeConfirmation offering={pendingCompensation.offering} fields={pendingCompensation.fields} onCancel={()=>setPendingCompensation(null)} onConfirm={()=>{const pending=pendingCompensation;setPendingCompensation(null);props.onSubmit?.(action,props.active.item,pending.fields);}}/></DashboardOverlay>}
+    {pendingCompensation&&<DashboardOverlay label="确认项目分成改动" onClose={()=>setPendingCompensation(null)}><CompensationChangeConfirmation changes={pendingCompensation.changes} onCancel={()=>setPendingCompensation(null)} onConfirm={()=>{const pending=pendingCompensation;setPendingCompensation(null);props.onSubmit?.(action,props.active.item,pending.fields);}}/></DashboardOverlay>}
   </>;
 }
 
-function CompensationChangeConfirmation(props:{offering:Record<string,unknown>;fields:Record<string,string|boolean>;onCancel:()=>void;onConfirm:()=>void}){const rule=props.offering.compensationRule as Record<string,unknown>|undefined;return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后才会写入服务端；返回编辑或关闭此窗口不会保存改动。</p><dl className="compensation-confirmation__facts"><div><dt>项目</dt><dd>{compensationProjectName(props.offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,props.offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(props.fields,props.offering)}</dd></div><div><dt>修改方式</dt><dd>{props.fields.compensationType==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
+function CompensationChangeConfirmation(props:{changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>;onCancel:()=>void;onConfirm:()=>void}){return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动（{props.changes.length} 项）</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后会一次性写入全部项目；任一项目版本冲突或校验失败时，所有改动都不会保存。</p><div className="compensation-confirmation__changes">{props.changes.map(({offering,draft})=>{const rule=offering.compensationRule as Record<string,unknown>|undefined;return <dl className="compensation-confirmation__facts" key={draft.serviceOfferingId}><div><dt>项目</dt><dd>{compensationProjectName(offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(draft,offering)}</dd></div><div><dt>修改方式</dt><dd>{draft.type==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl>;})}</div><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存全部</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
 
 function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
   if(action.id==='MANUAL_DISPATCH')return <ManualDispatchFields candidates={dispatchCandidateOptions??[]}/>;
@@ -316,6 +316,7 @@ function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unk
   const rule=selectedOffering?.compensationRule as Record<string,unknown>|undefined;
   const draft=compensationDrafts[selected]??compensationDraft(selectedOffering);
   const updateDraft=(next:Partial<CompensationDraft>)=>setCompensationDrafts((current)=>({...current,[selected]:{...draft,...next}}));
+  const changedDrafts=offerings.flatMap((item)=>{const serviceOfferingId=textValue(item.serviceOfferingId);const itemDraft=compensationDrafts[serviceOfferingId]??compensationDraft(item);return compensationDraftChanged(itemDraft,item.compensationRule as Record<string,unknown>|undefined)?[{serviceOfferingId,expectedVersion:typeof (item.compensationRule as Record<string,unknown>|undefined)?.version==='number'?String((item.compensationRule as Record<string,unknown>).version):'',...itemDraft}]:[];});
   return <>
     <section className="field field--full player-compensation-browser" aria-labelledby="player-compensation-title">
       <div className="player-compensation-browser__heading"><div><span id="player-compensation-title">陪玩项目分成</span><p>全部项目与当前规则同时展示；选择一项后在下方编辑。</p></div><strong>{offerings.length} 个项目</strong></div>
@@ -327,7 +328,8 @@ function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unk
         </label>;
       })}</div>}
     </section>
-    {selectedOffering&&<><div className="field field--full player-compensation-editor-heading"><span>编辑 {compensationProjectName(selectedOffering)}</span><small>本次只保存这一条个人覆盖规则</small></div>
+    <input type="hidden" name="compensationChangesJson" value={JSON.stringify(changedDrafts)}/>
+    {selectedOffering&&<><div className="field field--full player-compensation-editor-heading"><span>编辑 {compensationProjectName(selectedOffering)}</span><small>本次将保存全部已缓存的项目草稿</small></div>
       <input type="hidden" name="compensationVersion" value={typeof rule?.version==='number'?rule.version:''}/>
       <label className="field"><span>分成方式</span><select name="compensationType" value={draft.type} onChange={(event)=>updateDraft({type:event.currentTarget.value as CompensationDraft['type']})}><option value="PERCENT_BPS">按客户价格比例</option><option value="FIXED_MINOR">每计费单位固定金额</option></select></label>
       {draft.type==='PERCENT_BPS'?<label className="field"><span>分成比例（%）</span><input name="percentage" type="number" required min="0.01" max="100" step="0.01" placeholder="例如 60" value={draft.percentage} onChange={(event)=>updateDraft({percentage:event.currentTarget.value})}/></label>:<label className="field"><span>每单位固定收益（minor units）</span><input name="fixedAmountMinor" type="number" required min="1" step="1" value={draft.fixedAmountMinor} onChange={(event)=>updateDraft({fixedAmountMinor:event.currentTarget.value})}/></label>}

@@ -1,39 +1,62 @@
-import { describe,expect,test,vi } from 'vitest';
-import { readFile } from 'node:fs/promises';
-import { createDispatchStartHandler } from '../apps/api/src/worker-handlers.js';
-import { botCopy } from '../apps/bot/src/bot-copy.js';
-import type { OutboxJob } from '../apps/api/src/outbox.js';
+import { describe, expect, test } from "vitest";
+import { readFile } from "node:fs/promises";
+import { buildSubmittedOrderMessage } from "@blackcat/bot/service-center";
 
-const job:OutboxJob={id:'00000000-0000-0000-0000-000000009013',type:'DISPATCH_START',status:'PROCESSING',aggregateType:'order',aggregateId:'00000000-0000-0000-0000-000000009014',
-  dedupeKey:'order-submit:dispatch-start',payload:{orderId:'00000000-0000-0000-0000-000000009014',expectedVersion:5,trigger:'ORDER_SUBMITTED'},attempts:1,maxAttempts:8,
-  runAfter:'2026-08-02T00:00:00Z',lockedAt:'2026-08-02T00:00:00Z',lockedBy:'worker',lastError:null,version:2,createdAt:'2026-08-02T00:00:00Z',updatedAt:'2026-08-02T00:00:00Z'};
+describe("M9-US-13 candidate-pool dispatch replacement", () => {
+  test("order submission no longer enqueues first-wins work and offers a customer-selected wait window", async () => {
+    const [orders, worker] = await Promise.all([
+      readFile("apps/api/src/orders.ts", "utf8"),
+      readFile("apps/api/src/worker.ts", "utf8"),
+    ]);
+    expect(orders).not.toContain("'DISPATCH_START'");
+    expect(orders).not.toContain("dispatchStartJob");
+    expect(worker).toContain("createSelectionPoolCloseHandler");
+    expect(worker).not.toContain("TIMEOUT_RETRY");
+    const message = buildSubmittedOrderMessage({
+      orderId: "00000000-0000-0000-0000-000000009014",
+      status: "PENDING_DISPATCH",
+      version: 5,
+      reservation: {
+        id: "00000000-0000-0000-0000-000000009015",
+        status: "ACTIVE",
+        amountMinor: 100,
+        currency: "CAT",
+        version: 1,
+      },
+      balance: {
+        ledgerBalanceMinor: 1000,
+        reservedMinor: 100,
+        availableMinor: 900,
+        currency: "CAT",
+        calculatedAt: "2026-08-04T00:00:00Z",
+        version: 1,
+      },
+    });
+    const wait = message.components[0]!.components[0]!;
+    expect(wait.type).toBe("STRING_SELECT");
+    expect(wait.options?.map((option) => option.value)).toEqual([
+      "1",
+      "3",
+      "5",
+      "10",
+      "15",
+      "30",
+    ]);
+  });
 
-describe('M9-US-13 automatic 90-second dispatch rounds',()=>{
-  test('worker consumes the submit-time dispatch start job',async()=>{const start=vi.fn();await createDispatchStartHandler({start})(job);expect(start).toHaveBeenCalledWith(
-    {orderId:job.aggregateId,expectedVersion:5,trigger:'ORDER_SUBMITTED'},job);});
-  test('submit persists DISPATCH_START atomically and worker uses 90-second rounds with timeout retry',async()=>{const orders=await readFile('apps/api/src/orders.ts','utf8');const worker=await readFile('apps/api/src/worker.ts','utf8');
-    expect(orders).toContain("'DISPATCH_START'");expect(orders).toContain('dispatchStartJob');expect(worker).toContain('timeoutMinutes:1.5');expect(worker).toContain("trigger:'TIMEOUT_RETRY'");});
-  test('dispatch buttons acknowledge Discord before calling the API and always render API failures',async()=>{
-    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
-    const deferIndex=handler.indexOf('await interaction.deferReply({ ephemeral: true })');
-    const apiIndex=handler.indexOf('await api.acceptOrder(');
-    expect(deferIndex).toBeGreaterThan(-1);
-    expect(deferIndex).toBeLessThan(apiIndex);
-    expect(handler).toContain('error instanceof BotApiError');
-    expect(handler).toContain('await interaction.editReply(');
-  });
-  test('accepted reply links the player directly to the order text channel',async()=>{
-    expect(botCopy.dispatch.accepted('120000000000000001')).toContain('<#120000000000000001>');
-    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
-    expect(handler).toContain('const accepted = await api.acceptOrder(');
-    expect(handler).toContain('accepted.channelSpec.channelId');
-  });
-  test('a repeated accept resolves the trusted order before explaining that the player already joined',async()=>{
-    expect(botCopy.dispatch.alreadyAccepted('120000000000000001')).toContain('已经接过这张委托');
-    expect(botCopy.dispatch.alreadyAccepted('120000000000000001')).toContain('<#120000000000000001>');
-    const handler=await readFile('apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts','utf8');
-    expect(handler).toContain("error.code === 'CONFLICT' || error.code === 'PLAYER_NOT_ELIGIBLE'");
-    expect(handler).toContain('const currentOrder = await api.getOrder(parsed.orderId, actor);');
-    expect(handler).toContain('botCopy.dispatch.alreadyAccepted(currentOrder.channelSpec.channelId)');
+  test("Discord handler acknowledges before applying and never exposes first-wins accept/decline", async () => {
+    const handler = await readFile(
+      "apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts",
+      "utf8",
+    );
+    expect(handler.indexOf("await interaction.deferReply(")).toBeGreaterThan(
+      -1,
+    );
+    expect(handler.indexOf("await interaction.deferReply(")).toBeLessThan(
+      handler.indexOf("await api.applyToSelectionPool("),
+    );
+    expect(handler).toContain("error instanceof BotApiError");
+    expect(handler).not.toContain("acceptOrder(");
+    expect(handler).not.toContain("declineOrderOffer(");
   });
 });
