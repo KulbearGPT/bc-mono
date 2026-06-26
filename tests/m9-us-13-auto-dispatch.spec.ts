@@ -32,16 +32,11 @@ describe("M9-US-13 candidate-pool dispatch replacement", () => {
         version: 1,
       },
     });
-    const wait = message.components[0]!.components[0]!;
-    expect(wait.type).toBe("STRING_SELECT");
-    expect(wait.options?.map((option) => option.value)).toEqual([
-      "1",
-      "3",
-      "5",
-      "10",
-      "15",
-      "30",
-    ]);
+    const waits = message.components.slice(0, 2).flatMap((row) => row.components);
+    expect(waits.every((component) => component.type === "STRING_SELECT")).toBe(true);
+    expect(waits.flatMap((component) => component.options?.map((option) => option.value) ?? [])).toEqual(
+      Array.from({ length: 30 }, (_, index) => String(index + 1)),
+    );
   });
 
   test("Discord handler acknowledges before applying and never exposes first-wins accept/decline", async () => {
