@@ -195,6 +195,8 @@ describe("M11-US-03 Discord selection flow", () => {
       method: string;
       body: Record<string, unknown> | null;
     }> = [];
+    let voiceCreated = false;
+    const postedMessages = new Map<string, Array<{ nonce: string; timestamp: string }>>();
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -207,17 +209,32 @@ describe("M11-US-03 Discord selection flow", () => {
           url.endsWith("/guilds/999999999999999999/channels") &&
           init?.method === "GET"
         )
-          return Response.json([]);
+          return Response.json(
+            voiceCreated
+              ? [{ id: "666666666666666666", name: "selection-p-m11", type: 2, parent_id: null }]
+              : [],
+          );
         if (
           url.endsWith("/guilds/999999999999999999/channels") &&
           init?.method === "POST"
-        )
+        ) {
+          voiceCreated = true;
           return Response.json({ id: "666666666666666666" });
+        }
         if (url.endsWith("/users/@me/channels"))
           return Response.json({ id: "888888888888888888" });
-        if (url.includes("/messages?limit=100")) return Response.json([]);
-        if (init?.method === "POST")
+        if (url.includes("/messages?limit=100"))
+          return Response.json(postedMessages.get(url.split("/messages?")[0]!) ?? []);
+        if (init?.method === "POST") {
+          if (url.endsWith("/messages") && typeof body?.nonce === "string") {
+            const channel = url.slice(0, -"/messages".length);
+            postedMessages.set(channel, [
+              ...(postedMessages.get(channel) ?? []),
+              { nonce: body.nonce, timestamp: "2026-08-04T12:00:00.000Z" },
+            ]);
+          }
           return Response.json({ id: "999999999999999998" });
+        }
         return new Response(null, { status: 204 });
       },
     );
@@ -243,24 +260,17 @@ describe("M11-US-03 Discord selection flow", () => {
       staffTaskChannelId: "555555555555555555",
       privateOrderCategoryId: null,
       staffRoleIds: ["444444444444444444"],
-      applicants: [
-        {
-          applicationId,
-          discordUserId: "222222222222222222",
-          displayName: "奶糖",
-          status: "APPLIED",
-          applicationVersion: 1,
-          requirementId,
-        },
-        {
-          applicationId: "00000000-0000-0000-0000-000000011061",
-          discordUserId: "333333333333333333",
-          displayName: "团子",
-          status: "APPLIED",
-          applicationVersion: 1,
-          requirementId,
-        },
-      ],
+      applicants: Array.from({ length: 9 }, (_, index) => ({
+        applicationId:
+          index === 0
+            ? applicationId
+            : `00000000-0000-0000-0000-${String(11060 + index).padStart(12, "0")}`,
+        discordUserId: String(222222222222222222n + BigInt(index)),
+        displayName: `候选${index + 1}`,
+        status: "APPLIED",
+        applicationVersion: 1,
+        requirementId,
+      })),
       selectedPlayers: [],
       selectedDiscordUserIds: [],
       requirements: [],
@@ -277,32 +287,39 @@ describe("M11-US-03 Discord selection flow", () => {
         call.method === "POST",
     )!;
     expect(create.body).toMatchObject({ user_limit: 0 });
-    expect(JSON.stringify(create.body)).toContain("333333333333333333");
+    expect(JSON.stringify(create.body)).toContain("222222222222222230");
+    await expect(
+      adapter.sync(projection, "SELECTION", "2026-08-04T12:00:00Z"),
+    ).resolves.toBe(voice);
+    expect(
+      calls.filter(
+        (call) =>
+          call.url.endsWith("/guilds/999999999999999999/channels") &&
+          call.method === "POST",
+      ),
+    ).toHaveLength(1);
+    const selectedPlayers = projection.applicants.slice(0, 3).map((item) => ({
+      discordUserId: item.discordUserId,
+      displayName: item.displayName,
+    }));
     await adapter.sync(
       {
         ...projection,
         poolStatus: "FINALIZED",
         voiceChannelId: voice,
-        selectedPlayers: [
-          { discordUserId: "222222222222222222", displayName: "奶糖" },
-        ],
-        selectedDiscordUserIds: ["222222222222222222"],
+        selectedPlayers,
+        selectedDiscordUserIds: selectedPlayers.map((item) => item.discordUserId),
       },
       "FINALIZED",
       "2026-08-04T12:01:00Z",
     );
-    expect(calls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          url: expect.stringContaining("/permissions/333333333333333333"),
-          method: "PUT",
-        }),
-        expect.objectContaining({
-          url: expect.stringContaining("/members/333333333333333333"),
-          method: "PATCH",
-        }),
-      ]),
-    );
+    expect(
+      calls.filter((call) => call.url.includes("/permissions/") && call.method === "PUT"),
+    ).toHaveLength(6);
+    expect(
+      calls.filter((call) => call.url.includes("/members/") && call.method === "PATCH"),
+    ).toHaveLength(6);
+    expect(JSON.stringify(calls)).toContain("入选陪玩：候选1、候选2、候选3");
   });
 
   test("retires first-wins and manual availability from runtime interaction paths", async () => {
