@@ -50,6 +50,8 @@ describe('M9-US-10 per-player service compensation', () => {
   test('uses the database compensation enum when decoding a batch payload', async () => {
     const source = await readFile('apps/api/src/player-compensation.ts', 'utf8');
     expect(source).toContain('type "PlayerCompensationType"');
+    expect(source).toContain('player_id uuid,service_offering_id uuid');
+    expect(source).toContain('updated_by_staff_id uuid');
   });
 
   test('dashboard submits a selected service and exactly one override mode', () => {

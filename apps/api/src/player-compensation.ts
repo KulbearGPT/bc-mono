@@ -82,7 +82,7 @@ export class PostgresPlayerCompensationStore implements PlayerCompensationStore 
     if(!inputs.length)return [];
     const seen=new Set<string>();for(const input of inputs){if(seen.has(input.serviceOfferingId))throw new PlayerCompensationError('VALIDATION_ERROR','Each service offering can only appear once.');seen.add(input.serviceOfferingId);}
     const result=await this.pool.query<CompensationRow>(`WITH requested(player_id,service_offering_id,type,value,currency,expected_version,updated_by_staff_id,updated_at) AS (
-      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(player_id text,service_offering_id text,type "PlayerCompensationType",value integer,currency text,expected_version integer,updated_by_staff_id text,updated_at timestamptz)
+      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(player_id uuid,service_offering_id uuid,type "PlayerCompensationType",value integer,currency text,expected_version integer,updated_by_staff_id uuid,updated_at timestamptz)
     ), checked AS (
       SELECT requested.*, rule.id AS existing_id, rule.row_version, rule.created_at,
         (SELECT customer_unit_price_minor FROM service_catalog_versions WHERE service_offering_id=requested.service_offering_id AND status='ACTIVE' ORDER BY version DESC LIMIT 1) AS customer_unit_price_minor
