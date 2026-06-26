@@ -47,6 +47,11 @@ describe('M9-US-10 per-player service compensation', () => {
     expect(await store.find('player-1','offering-1')).toMatchObject({value:6000,version:1});
   });
 
+  test('uses the database compensation enum when decoding a batch payload', async () => {
+    const source = await readFile('apps/api/src/player-compensation.ts', 'utf8');
+    expect(source).toContain('type "PlayerCompensationType"');
+  });
+
   test('dashboard submits a selected service and exactly one override mode', () => {
     expect(buildAdminActionRequest({ actionId: 'EDIT_PLAYER_COMPENSATION', item: { playerId: 'player-1', version: 3 }, fields: {
       serviceOfferingId: 'offering-1', compensationType: 'PERCENT_BPS', percentage: '60', fixedAmountMinor: '', reasonCode: 'RATE_UPDATE'
