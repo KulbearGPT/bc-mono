@@ -121,7 +121,7 @@ describe("M7-US-07 Provider funding retirement", () => {
       acceptanceIds: acceptanceIds.join(";"),
     }));
 
-    expect(routeInventory).toHaveLength(93);
+    expect(routeInventory).toHaveLength(94);
     expect(workerInventory).toHaveLength(10);
     const inventory = [...routeInventory, ...workerInventory];
     expect(new Set(inventory.map(({ id }) => id)).size).toBe(inventory.length);
