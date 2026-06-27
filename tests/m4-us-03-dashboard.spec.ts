@@ -112,6 +112,50 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect([...catalog.actions, ...earnings.actions].some((action) => action.id.includes('DELETE'))).toBe(false);
   });
 
+  test('exposes audited order cancellation only with order.resolve and only on resolvable states', () => {
+    const accepted = { id: 'order-accepted', publicId: 'P-ACCEPTED', version: 4, status: 'ACCEPTED', amountMinor: 12_000, playerEarningMinor: 7_200, currency: 'CAT' };
+    const completed = { ...accepted, id: 'order-completed', publicId: 'P-COMPLETED', status: 'COMPLETED' };
+    const l4Model = buildAdminBusinessPage({ page: 'orders', permissions: ['order.read', 'order.resolve'], status: 'READY', items: [accepted, completed] });
+    const l1Model = buildAdminBusinessPage({ page: 'orders', permissions: ['order.read'], status: 'READY', items: [accepted] });
+
+    expect(l4Model.actions.map((action) => action.id)).toContain('CANCEL_ORDER_RESOLUTION');
+    expect(l1Model.actions.map((action) => action.id)).not.toContain('CANCEL_ORDER_RESOLUTION');
+
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model: l4Model, onAction: () => undefined }));
+    expect(html).toContain('订单 P-ACCEPTED');
+    expect(html).toContain('取消订单');
+    expect(html).toContain('订单 P-COMPLETED');
+    expect(html.match(/>取消订单<\/button>/gu)).toHaveLength(1);
+  });
+
+  test('maps the L4 order cancellation form to the atomic resolution API', () => {
+    const item = { id: 'order-1', version: 8, status: 'IN_SERVICE', amountMinor: 50_000, playerEarningMinor: 20_000, currency: 'CAT' };
+    const model = buildAdminBusinessPage({ page: 'orders', permissions: ['order.read', 'order.resolve'], status: 'READY', items: [item] });
+    const action = model.actions.find((candidate) => candidate.id === 'CANCEL_ORDER_RESOLUTION')!;
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, {
+      model, activeAction: { action, item }, onCancelAction: () => undefined, onSubmitAction: () => undefined
+    }));
+
+    expect(html).toContain('取消订单操作表单');
+    expect(html).toContain('name="refundAmountMinor"');
+    expect(html).toContain('name="playerEarningMinor"');
+    expect(html).toContain('name="evidenceNote"');
+    expect(html).toContain('<option value="SERVICE_INTERRUPTED">服务中断</option>');
+    expect(html).toContain('该操作会原子处理预留、退款、陪玩收益和审计');
+
+    expect(buildAdminActionRequest({
+      actionId: 'CANCEL_ORDER_RESOLUTION', item,
+      fields: { refundAmountMinor: '50000', playerEarningMinor: '20000', currency: 'CAT', evidenceNote: '已核对订单频道与服务记录。', reasonCode: 'SERVICE_INTERRUPTED' }
+    })).toEqual({
+      method: 'POST', path: '/api/v1/admin/orders/order-1/resolve',
+      body: {
+        expectedVersion: 8, targetStatus: 'CANCELLED', reasonCode: 'SERVICE_INTERRUPTED',
+        refund: { amountMinor: 50_000, currency: 'CAT' }, playerEarning: { amountMinor: 20_000, currency: 'CAT' },
+        evidenceNote: '已核对订单频道与服务记录。', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
+      }
+    });
+  });
+
   test('formats integer minor units with their currency without client-side arithmetic', () => {
     expect(formatMinorCurrency(123456, 'CAT', 'zh-CN')).toBe('12,345.6 猫条');
     expect(formatMinorCurrency(-500, 'CAT', 'en-US')).toBe('-50.0 猫条');

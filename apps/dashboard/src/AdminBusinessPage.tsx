@@ -135,7 +135,7 @@ function OrderDiscussionGrid(props: {
         <span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span>
         <div className="order-discussion-card__actions">
           {props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-          {itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
+          {itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button className={action.id === 'CANCEL_ORDER_RESOLUTION' ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
         </div>
       </footer>
     </article>;
@@ -244,7 +244,7 @@ function AdminBusinessTable(props: {
   );
 }
 
-function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='MANUAL_DISPATCH')return item.status==='PENDING_DISPATCH';if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };
@@ -264,7 +264,9 @@ function AdminActionPanel(props: {
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={handleSubmit}>
         <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions} />
-        {action.requiresReason && <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>}
+        {action.requiresReason && (action.id === 'CANCEL_ORDER_RESOLUTION'
+          ? <label className="field"><span>取消原因</span><select name="reasonCode" required defaultValue="USER_REQUEST"><option value="USER_REQUEST">客户请求</option><option value="DISPATCH_TIMEOUT">派单超时</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">客户未到场</option><option value="SERVICE_INTERRUPTED">服务中断</option><option value="COMPLETION_DISPUTE">完成争议</option><option value="PAYMENT_FAILURE">资金处理失败</option><option value="REFUND_FAILURE">退款处理失败</option><option value="ADMIN_CORRECTION">管理员纠正</option></select></label>
+          : <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>)}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
           <button className="button-primary" type="submit" disabled={props.status === 'SUBMITTING'}>{props.status === 'SUBMITTING' ? '提交中...' : '提交'}</button>
@@ -279,7 +281,7 @@ function AdminActionPanel(props: {
 function CompensationChangeConfirmation(props:{changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>;onCancel:()=>void;onConfirm:()=>void}){return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动（{props.changes.length} 项）</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后会一次性写入全部项目；任一项目版本冲突或校验失败时，所有改动都不会保存。</p><div className="compensation-confirmation__changes">{props.changes.map(({offering,draft})=>{const rule=offering.compensationRule as Record<string,unknown>|undefined;return <dl className="compensation-confirmation__facts" key={draft.serviceOfferingId}><div><dt>项目</dt><dd>{compensationProjectName(offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(draft,offering)}</dd></div><div><dt>修改方式</dt><dd>{draft.type==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl>;})}</div><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存全部</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
 
 function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
-  if(action.id==='MANUAL_DISPATCH')return <ManualDispatchFields candidates={dispatchCandidateOptions??[]}/>;
+  if(action.id==='CANCEL_ORDER_RESOLUTION')return <OrderCancellationResolutionFields item={item}/>;
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
   if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
   if(action.id==='EDIT_PLAYER_COMPENSATION')return <PlayerCompensationFields offerings={serviceCatalogOptions??[]}/>;
@@ -303,6 +305,19 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
     <label className="field field--full"><span>说明</span><textarea name="notes" required rows={4} maxLength={2000} /></label>
   </>;
   return null;
+}
+
+function OrderCancellationResolutionFields({item}:{item?:Record<string,unknown>}) {
+  const currency=textValue(item?.currency)||'CAT';
+  const amountMinor=numberValue(item?.amountMinor)??0;
+  const playerEarningMinor=numberValue(item?.playerEarningMinor)??0;
+  return <>
+    <div className="field field--full archive-warning"><strong>确认取消并结案？</strong><p>该操作会原子处理预留、退款、陪玩收益和审计；订单进入 CANCELLED 后不能恢复。</p></div>
+    <input type="hidden" name="currency" value={currency}/>
+    <label className="field"><span>退回客户（minor units）</span><input name="refundAmountMinor" type="number" required min={0} max={amountMinor} step={1} defaultValue={amountMinor}/><small>最多 {amountMinor} {currency}；未扣款订单将按此金额释放预留。</small></label>
+    <label className="field"><span>保留陪玩收益（minor units）</span><input name="playerEarningMinor" type="number" required min={0} max={playerEarningMinor} step={1} defaultValue={0}/><small>最多 {playerEarningMinor} {currency}；依据已完成服务量人工核对。</small></label>
+    <label className="field field--full"><span>核对证据与处理说明</span><textarea name="evidenceNote" required rows={4} maxLength={2000} placeholder="说明已核对的订单频道、服务进度与退款/收益依据。"/></label>
+  </>;
 }
 
 function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unknown>>}){const[selected,setSelected]=useState<string[]>([]);return <fieldset className="field field--full tag-checklist"><legend>选择派单范围（最多 3 人）</legend><p className="field-help">不勾选时发送给全部当前合格陪玩；勾选后仅通知指定人选。</p>{candidates.length===0?<p>当前没有符合订单要求且在线可接单的陪玩。</p>:candidates.map((candidate)=>{const id=textValue(candidate.discordUserId);const checked=selected.includes(id);return <label className="checkbox-field" key={id}><input type="checkbox" name="targetDiscordUserIds" value={id} checked={checked} disabled={!checked&&selected.length>=3} onChange={()=>setSelected((current)=>checked?current.filter((value)=>value!==id):[...current,id])}/><span>{`陪玩 ${textValue(candidate.playerId).slice(0,8)} · Discord ${id}`}</span></label>;})}<p className="field-help">已选 {selected.length}/3</p></fieldset>}

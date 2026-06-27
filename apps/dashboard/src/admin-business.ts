@@ -90,7 +90,9 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   {
     id: 'orders', label: '订单', href: '/admin/orders', endpoint: '/api/v1/admin/orders', readPermission: 'order.read',
     filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }],
-    actions: []
+    actions: [
+      { id: 'CANCEL_ORDER_RESOLUTION', label: '取消订单', permission: 'order.resolve', requiresReason: true, scope: 'ITEM' }
+    ]
   },
   {
     id: 'users', label: '用户', href: '/admin/users', endpoint: '/api/v1/admin/users', readPermission: 'user.read',
@@ -277,6 +279,23 @@ export function buildAdminActionRequest(input: {
   item?: Record<string, unknown>;
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
+  if (input.actionId === 'CANCEL_ORDER_RESOLUTION') {
+    const item = requireItem(input.item);
+    requireEnum(input.item?.status, ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'], 'status');
+    const currency = requireCurrency(input.fields.currency);
+    return {
+      method: 'POST', path: `/api/v1/admin/orders/${encodeURIComponent(item.id)}/resolve`,
+      body: {
+        expectedVersion: item.version,
+        targetStatus: 'CANCELLED',
+        reasonCode: requireReasonCode(input.fields.reasonCode),
+        refund: { amountMinor: requireNonNegativeInteger(input.fields.refundAmountMinor, 'refundAmountMinor'), currency },
+        playerEarning: { amountMinor: requireNonNegativeInteger(input.fields.playerEarningMinor, 'playerEarningMinor'), currency },
+        evidenceNote: requireText(input.fields.evidenceNote, 'evidenceNote', 2_000),
+        confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
+      }
+    };
+  }
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
@@ -400,6 +419,11 @@ function requireEnum<T extends string>(value: unknown, allowed: readonly T[], fi
 function requirePositiveInteger(value: unknown, field: string): number {
   const parsed = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new TypeError(`${field} must be a positive integer.`);
+  return parsed;
+}
+function requireNonNegativeInteger(value: unknown, field: string): number {
+  const parsed = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${field} must be a non-negative integer.`);
   return parsed;
 }
 function optionalPositiveInteger(value:string|boolean|undefined):number|null{if(value===undefined||value==='')return null;return requirePositiveInteger(value,'compensationVersion');}
