@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "build:railway": "npm run build && npm run build -w @blackcat/dashboard",
-    "db:migrate:deploy": "sh -c 'DATABASE_URL=${MIGRATION_DATABASE_URL:-$DATABASE_URL} prisma migrate deploy --schema database/prisma/schema.prisma'",
+    "db:migrate:deploy": "dotenv -e .env -- sh -c 'DATABASE_URL=${MIGRATION_DATABASE_URL:-$DATABASE_URL} prisma migrate deploy --schema database/prisma/schema.prisma'",
     "db:validate": "dotenv -e .env.example -- prisma validate --schema database/prisma/schema.prisma",
     "db:verify:migration": "bash scripts/verify-m0-us-02-migration.sh",
     "dev": "dotenv -e .env -e .env.example -- concurrently -n api,worker,bot,dashboard -c blue,yellow,magenta,green \"npm run dev -w @blackcat/api\" \"npm run worker -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",

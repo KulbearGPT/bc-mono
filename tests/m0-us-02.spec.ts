@@ -134,6 +134,7 @@ describe('M0-US-02 P0 database baseline', () => {
 
     expect(rootPackage).toContain('"db:validate"');
     expect(rootPackage).toContain('"db:migrate:deploy"');
+    expect(rootPackage).toContain("dotenv -e .env -- sh -c 'DATABASE_URL=");
     expect(rootPackage).toContain('MIGRATION_DATABASE_URL');
     expect(rootPackage).toContain('"db:verify:migration"');
     expect(rootPackage).toContain('"database"');
