@@ -64,6 +64,11 @@ describe('Dashboard release visual gate', () => {
     for (const width of [375, 768, 1024, 1440]) expect(styles).toContain(`--qa-viewport-${width}`);
   });
 
+  test('clips shared action and detail dialogs to their rounded boundary', () => {
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    expect(styles).toMatch(/\.dashboard-overlay__dialog\s*\{[\s\S]*isolation:\s*isolate[\s\S]*clip-path:\s*inset\(0 round var\(--radius-xl\)\)/u);
+  });
+
   test('adds a restrained gaming-tech layer without replacing the readable operations theme', () => {
     const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
     expect(styles).toContain('--accent-electric');

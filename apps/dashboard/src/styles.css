@@ -975,6 +975,8 @@ textarea:focus-visible {
   width: min(1120px, 100%);
   max-height: calc(100dvh - clamp(28px, 6vw, 76px));
   overflow: auto;
+  isolation: isolate;
+  clip-path: inset(0 round var(--radius-xl));
   border: 1px solid color-mix(in srgb, var(--accent-electric) 38%, var(--border-soft));
   border-radius: var(--radius-xl);
   background: var(--surface-panel);
