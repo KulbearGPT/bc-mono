@@ -107,6 +107,23 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     }
   });
 
+  test('renders the canonical CAT currency in the settlement builder', () => {
+    const model = buildSettlementPage({
+      section: 'settlements',
+      permissions: ['settlement.read', 'settlement.manage'],
+      status: 'READY',
+      items: []
+    });
+    const html = renderToStaticMarkup(createElement(SettlementPage, {
+      model,
+      onAction: () => undefined,
+      onRetry: () => undefined
+    }));
+
+    expect(html).toContain('<option value="CAT" selected="">CAT</option>');
+    expect(html).not.toContain('<option value="USD"');
+  });
+
   test('requires explicit per-item payment outcomes instead of fabricating failed facts', () => {
     const source = readFileSync('apps/dashboard/src/SettlementPage.tsx', 'utf8');
     expect(source).not.toContain('MANUAL_REVIEW_REQUIRED');

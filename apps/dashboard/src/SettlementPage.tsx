@@ -15,7 +15,7 @@ export function SettlementPage(props: { model: SettlementPageModel; onRetry: () 
     </header>
     {props.model.section === 'settlements' && props.model.actions.includes('PREVIEW') && <form className="content-panel form-grid form-grid--compact settlement-builder" onSubmit={(event) => event.preventDefault()}>
       {(['periodStart','periodEnd','cutoffAt'] as const).map((key) => <label className="field" key={key}><span>{key === 'periodStart' ? '周期开始' : key === 'periodEnd' ? '周期结束' : '截止时间'}</span><input type="datetime-local" value={period[key]} onChange={(event) => setPeriod({ ...period, [key]: event.target.value })} /></label>)}
-      <label className="field"><span>币种</span><select value={period.currency} onChange={(event) => setPeriod({ ...period, currency: event.target.value })}><option>USD</option></select></label>
+      <label className="field"><span>币种</span><select value={period.currency} onChange={(event) => setPeriod({ ...period, currency: event.target.value })}><option value="CAT">CAT</option></select></label>
       <div className="form-actions"><button onClick={() => props.onAction('PREVIEW', undefined, isoPeriod(period))}><Eye size={16} />预览</button><button className="button-primary" onClick={() => props.onAction('CREATE', undefined, isoPeriod(period))}><Play size={16} />生成</button></div>
     </form>}
     {props.model.alert && <p className="state-card state-card--compact state-card--warning settlement-alert"><AlertTriangle size={16} />{props.model.alert}</p>}
