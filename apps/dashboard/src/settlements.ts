@@ -3,7 +3,10 @@ export type SettlementAction = 'PREVIEW' | 'CREATE' | 'SUBMIT' | 'APPROVE' | 'EX
 export interface SettlementPageModel {
   section: SettlementSection; kind: 'LOADING' | 'READY' | 'EMPTY' | 'ERROR' | 'FORBIDDEN';
   items: Array<Record<string, unknown>>; actions: SettlementAction[]; requestId: string | null; alert: string | null;
+  emptyMessage: string | null;
 }
+
+export const EMPTY_SETTLEMENT_PREVIEW_MESSAGE = '当前周期没有可结算的已确认收益。';
 
 export function buildSettlementNavigation(permissions: string[], enabledFeatures?: string[]) {
   if (enabledFeatures && !enabledFeatures.includes('M6')) return [];
@@ -15,7 +18,7 @@ export function buildSettlementNavigation(permissions: string[], enabledFeatures
 }
 
 export function buildSettlementPage(input: { section: SettlementSection; permissions: string[]; status: 'LOADING' | 'READY' | 'ERROR';
-  items: Array<Record<string, unknown>>; requestId?: string | null }): SettlementPageModel {
+  items: Array<Record<string, unknown>>; requestId?: string | null; emptyMessage?: string | null }): SettlementPageModel {
   const readPermission = input.section === 'settlements' ? 'settlement.read' : 'weekly_report.read';
   const actions: SettlementAction[] = [];
   if (input.section === 'settlements') {
@@ -27,7 +30,17 @@ export function buildSettlementPage(input: { section: SettlementSection; permiss
     .filter((item) => item && typeof item === 'object' && (item as Record<string, unknown>).paymentStatus === 'FAILED').length;
   return { section: input.section, kind: !input.permissions.includes(readPermission) ? 'FORBIDDEN' : input.status === 'ERROR' ? 'ERROR'
     : input.status === 'LOADING' ? 'LOADING' : input.items.length ? 'READY' : 'EMPTY', items: input.status === 'READY' ? input.items : [],
-    actions, requestId: input.requestId ?? null, alert: failed ? `${failed} 个支付项目失败，可单独重试。` : null };
+    actions, requestId: input.requestId ?? null, alert: failed ? `${failed} 个支付项目失败，可单独重试。` : null,
+    emptyMessage: input.emptyMessage ?? null };
+}
+
+export function buildSettlementPreviewResult(data: Record<string, unknown>): {
+  items: Array<Record<string, unknown>>; emptyMessage: string | null;
+} {
+  const previewItems = Array.isArray(data.items) ? data.items : [];
+  return previewItems.length > 0
+    ? { items: [data], emptyMessage: null }
+    : { items: [], emptyMessage: EMPTY_SETTLEMENT_PREVIEW_MESSAGE };
 }
 
 export function buildSettlementRequest(input: { action: SettlementAction; batchId?: string; version?: number; fields: Record<string, unknown> }) {

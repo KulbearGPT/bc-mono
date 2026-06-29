@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import {
   buildSettlementNavigation,
   buildSettlementPage,
+  buildSettlementPreviewResult,
   buildSettlementRequest,
   type SettlementPageModel
 } from '@blackcat/dashboard/settlements';
@@ -122,6 +123,32 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
 
     expect(html).toContain('<option value="CAT" selected="">CAT</option>');
     expect(html).not.toContain('<option value="USD"');
+  });
+
+  test('renders an empty-period message instead of an error for an empty preview', () => {
+    const result = buildSettlementPreviewResult({
+      periodStart: '2026-08-01T00:00:00.000Z',
+      periodEnd: '2026-08-10T00:00:00.000Z',
+      cutoffAt: '2026-08-10T00:00:00.000Z',
+      currency: 'CAT',
+      grossAmountMinor: 0,
+      adjustmentAmountMinor: 0,
+      netAmountMinor: 0,
+      deferredAdjustmentMinor: 0,
+      items: []
+    });
+    const model = buildSettlementPage({
+      section: 'settlements', permissions: ['settlement.read', 'settlement.manage'],
+      status: 'READY', items: result.items, emptyMessage: result.emptyMessage
+    });
+    const html = renderToStaticMarkup(createElement(SettlementPage, {
+      model, onAction: () => undefined, onRetry: () => undefined
+    }));
+
+    expect(model.kind).toBe('EMPTY');
+    expect(html).toContain('当前周期没有可结算的已确认收益');
+    expect(html).not.toContain('载入失败');
+    expect(html).not.toContain('request_id');
   });
 
   test('requires explicit per-item payment outcomes instead of fabricating failed facts', () => {

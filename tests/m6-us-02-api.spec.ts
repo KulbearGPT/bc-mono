@@ -108,6 +108,32 @@ async function approve(f: Awaited<ReturnType<typeof fixture>>, actor: string, ve
 }
 
 describe('M6-US-02 settlement review, export, and payment API', () => {
+  test('returns a successful empty preview but rejects creation of an empty batch', async () => {
+    const store = new InMemorySettlementStore();
+    const server = buildApiServer({
+      env,
+      security: {
+        staffDirectory: { resolveByDiscord: ({ discordUserId }) => discordUserId === 'operator'
+          ? account(checkerId, 'L3_OPERATIONS') : null },
+        stepUpVerifier: { verify: () => true }
+      },
+      settlements: { store, now: () => now, manualDualReviewFromMinor: 400_000, l4ReviewFromMinor: 500_000 }
+    });
+    const payload = batchInput();
+    const preview = await server.inject({
+      method: 'POST', url: '/api/v1/admin/settlement-batches/preview', headers: headers('operator'), payload
+    });
+    const create = await server.inject({
+      method: 'POST', url: '/api/v1/admin/settlement-batches', headers: headers('operator', 'm6:empty:create:0001'), payload
+    });
+
+    expect({ statusCode: preview.statusCode, body: preview.json() }).toMatchObject({ statusCode: 200, body: { data: {
+      grossAmountMinor: 0, adjustmentAmountMinor: 0, netAmountMinor: 0, items: []
+    } } });
+    expect(create.statusCode).toBe(409);
+    expect(create.json()).toMatchObject({ error: { code: 'NO_ELIGIBLE_SOURCES' } });
+  });
+
   test('rejects malformed settlement dates as validation errors', async () => {
     const f = await fixture();
     const response = await f.server.inject({

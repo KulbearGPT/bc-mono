@@ -725,20 +725,28 @@ function parseCreateInput(value: unknown, actor: ActorContext | null): Settlemen
     throw new SettlementError('VALIDATION_ERROR', 'source, periodStart, periodEnd, timeZone, and currency are required.');
   }
   const players = body.playerUserIds;
-  if (players !== undefined && (!Array.isArray(players) || players.some((id) => typeof id !== 'string'))) {
+  if (players !== undefined && players !== null && (!Array.isArray(players) || players.some((id) => typeof id !== 'string'))) {
     throw new SettlementError('VALIDATION_ERROR', 'playerUserIds must be an array of user IDs.');
   }
-  const periodEnd = new Date(body.periodEnd).toISOString();
+  const periodStart = parseIsoDateTime(body.periodStart, 'periodStart');
+  const periodEnd = parseIsoDateTime(body.periodEnd, 'periodEnd');
   return {
     guildId: actor ? requireGuild(actor) : '',
     source: body.source as SettlementBatchSource,
     scheduleKey: typeof body.scheduleKey === 'string' ? body.scheduleKey : null,
-    periodStart: new Date(body.periodStart).toISOString(), periodEnd,
-    cutoffAt: typeof body.cutoffAt === 'string' ? new Date(body.cutoffAt).toISOString() : periodEnd,
+    periodStart, periodEnd,
+    cutoffAt: typeof body.cutoffAt === 'string' ? parseIsoDateTime(body.cutoffAt, 'cutoffAt') : periodEnd,
     timeZone: body.timeZone, currency: body.currency,
     playerUserIds: (players as string[] | undefined) ?? null,
     createdByStaffId: actor ? requireStaff(actor).actorStaffId : null
   };
+}
+
+function parseIsoDateTime(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
+    throw new SettlementError('VALIDATION_ERROR', `${field} must be a valid date-time.`);
+  }
+  return new Date(value).toISOString();
 }
 
 function parseMutation(value: unknown): { expectedVersion: number; reason: string } {
