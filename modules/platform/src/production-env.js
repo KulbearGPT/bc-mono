@@ -2,7 +2,7 @@ const REQUIRED_PRODUCTION_ENV = [
   'DATABASE_URL', 'MIGRATION_DATABASE_URL', 'API_BASE_URL', 'BOT_SERVICE_TOKEN', 'BOT_CONFIG_VALIDATION_SECRET',
   'DASHBOARD_CSRF_SECRET', 'DASHBOARD_MFA_ENCRYPTION_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_OAUTH_CLIENT_ID',
   'DISCORD_OAUTH_CLIENT_SECRET', 'DISCORD_OAUTH_REDIRECT_URI', 'DISCORD_GUILD_ID', 'DASHBOARD_URL',
-  'BUSINESS_ENV', 'PILOT_PHASE'
+  'BUSINESS_ENV'
 ];
 
 const SENSITIVE_PRODUCTION_ENV = new Set([
@@ -22,9 +22,6 @@ export function validateProductionEnv(env) {
   }
   if (!['SANDBOX', 'PRODUCTION'].includes(env.BUSINESS_ENV ?? '')) {
     errors.push('BUSINESS_ENV must be SANDBOX or PRODUCTION.');
-  }
-  if (!['CORE_ORDER', 'CORE_ORDER_AND_GIFTS', 'OFF'].includes(env.PILOT_PHASE ?? '')) {
-    errors.push('PILOT_PHASE must be CORE_ORDER, CORE_ORDER_AND_GIFTS, or OFF.');
   }
   if (env.DATABASE_URL && env.MIGRATION_DATABASE_URL && env.DATABASE_URL === env.MIGRATION_DATABASE_URL) {
     errors.push('Application and migration database credentials must be separate.');

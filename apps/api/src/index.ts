@@ -49,7 +49,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
-const pilotFeaturePolicy = createPilotFeaturePolicy(process.env.PILOT_PHASE ?? (process.env.NODE_ENV === 'production' ? undefined : 'OFF'));
+const pilotFeaturePolicy = createPilotFeaturePolicy('OFF');
 const businessEnvironment = process.env.BUSINESS_ENV === 'SANDBOX' || process.env.BUSINESS_ENV === 'PRODUCTION'
   ? process.env.BUSINESS_ENV
   : process.env.NODE_ENV === 'production'
