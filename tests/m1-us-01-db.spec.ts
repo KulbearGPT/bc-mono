@@ -143,6 +143,26 @@ VALUES (
     });
   });
 
+  test('backfills legacy service offering codes with business-tag display names', async () => {
+    await client.query(`
+INSERT INTO skill_tags(id,type,code,display_name,enabled,row_version,created_at,updated_at) VALUES
+  ('00000000-0000-0000-0000-00000000a201','GAME','LOLNA','英雄联盟美服',true,1,now(),now()),
+  ('00000000-0000-0000-0000-00000000a202','SERVICE','RANKED','上分陪玩',true,1,now(),now());
+INSERT INTO service_offerings(id,code,game_code,game_name,service_code,service_name,region_code,created_at,updated_at)
+VALUES ('00000000-0000-0000-0000-00000000f201','LOLNA|RANKED|','LOLNA','LOLNA','RANKED','RANKED',NULL,now(),now());
+    `);
+
+    await execFile('psql', [
+      '-h', socketDir, '-p', String(port), '-d', 'blackcat_m1_catalog', '-v', 'ON_ERROR_STOP=1',
+      '-f', 'database/prisma/migrations/000030_service_offering_display_names/migration.sql'
+    ]);
+    const result = await client.query<{ game_name: string; service_name: string }>(
+      "SELECT game_name,service_name FROM service_offerings WHERE id='00000000-0000-0000-0000-00000000f201'"
+    );
+
+    expect(result.rows[0]).toEqual({ game_name: '英雄联盟美服', service_name: '上分陪玩' });
+  });
+
   test('rolls back catalog writes when the same transaction violates the active-version constraint', async () => {
     const store = new PostgresServiceCatalogStore({ client });
 

@@ -13,6 +13,7 @@ import {
   type CatalogQueryClient,
   type ServiceCatalogRecord
 } from '@blackcat/api/catalog';
+import { InMemoryBusinessTagStore } from '@blackcat/api/business-tags';
 
 const env = {
   NODE_ENV: 'development',
@@ -125,6 +126,45 @@ function dashboardHeaders(discordUserId: string, extra: Record<string, string> =
 }
 
 describe('M1-US-01 service catalog API contract', () => {
+  test('persists business-tag display names instead of repeating service codes', async () => {
+    const store = new InMemoryServiceCatalogStore({ records: [] });
+    const businessTags = new InMemoryBusinessTagStore([
+      { id: '00000000-0000-0000-0000-00000000a101', type: 'GAME', code: 'LOLNA', displayName: '英雄联盟美服', enabled: true, version: 1 },
+      { id: '00000000-0000-0000-0000-00000000a102', type: 'SERVICE', code: 'RANKED', displayName: '上分陪玩', enabled: true, version: 1 }
+    ]);
+    const server = buildApiServer({
+      env,
+      security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore(), staffDirectory }
+    });
+    registerCatalogRoutes(server, { store, businessTags, now: () => now });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/v1/admin/service-catalog',
+      headers: dashboardHeaders('333333333333333333', { 'idempotency-key': 'dashboard:catalog:display-names' }),
+      payload: {
+        gameTagId: '00000000-0000-0000-0000-00000000a101',
+        serviceTagId: '00000000-0000-0000-0000-00000000a102',
+        regionTagId: null,
+        billingUnitMinutes: 60,
+        minimumUnits: 1,
+        customerUnitPrice: { amountMinor: 300, currency: 'CAT' },
+        playerUnitPayout: { amountMinor: 200, currency: 'CAT' },
+        enabled: true,
+        reasonCode: 'DISPLAY_NAME_REGRESSION'
+      }
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({ data: {
+      game: 'LOLNA', gameDisplayName: '英雄联盟美服',
+      service: 'RANKED', serviceDisplayName: '上分陪玩', version: 1
+    } });
+    await expect(store.list()).resolves.toEqual([
+      expect.objectContaining({ gameDisplayName: '英雄联盟美服', serviceDisplayName: '上分陪玩' })
+    ]);
+  });
+
   test('customer-facing list and estimate accept a trusted non-staff Discord actor', async () => {
     const { server } = buildCatalogServer();
 
@@ -497,10 +537,10 @@ describe('M1-US-01 Postgres service catalog store', () => {
             {
               id: values?.[0],
               service_offering_id: '00000000-0000-0000-0000-00000000f001',
-              game_code: 'VALORANT',
-              game_name: 'VALORANT',
-              service_code: 'ENTERTAINMENT',
-              service_name: 'ENTERTAINMENT',
+              game_code: 'LOLNA',
+              game_name: '英雄联盟美服',
+              service_code: 'RANKED',
+              service_name: '上分陪玩',
               region_code: 'NA',
               billing_unit_minutes: 60,
               minimum_units: 1,
@@ -523,6 +563,11 @@ describe('M1-US-01 Postgres service catalog store', () => {
     const saved = await store.save(
       service({
         id: '00000000-0000-0000-0000-00000000c010',
+        offeringKey: 'LOLNA|RANKED|NA',
+        game: 'LOLNA',
+        gameDisplayName: '英雄联盟美服',
+        service: 'RANKED',
+        serviceDisplayName: '上分陪玩',
         customerUnitPriceMinor: 7200,
         playerUnitPayoutMinor: 5000,
         version: 2
@@ -535,6 +580,7 @@ describe('M1-US-01 Postgres service catalog store', () => {
       playerUnitPayoutMinor: 5000,
       version: 2
     });
+    expect(queries[0]?.values).toEqual(expect.arrayContaining(['英雄联盟美服', '上分陪玩']));
     expect(queries.map((query) => query.sql).join('\n')).toContain('ON CONFLICT (code)');
     expect(queries.map((query) => query.sql).join('\n')).not.toMatch(/UPDATE\s+service_catalog_versions\s+SET\s+customer_unit_price_minor/i);
   });

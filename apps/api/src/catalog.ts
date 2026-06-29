@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { BusinessTagStore } from './business-tags.js';
+import type { BusinessTagRecord, BusinessTagStore } from './business-tags.js';
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -121,8 +121,11 @@ export interface CatalogPool extends CatalogQueryClient {
 
 export interface CreateServiceCatalogInput {
   game: string;
+  gameDisplayName?: string;
   service: string;
+  serviceDisplayName?: string;
   region: string | null;
+  regionDisplayName?: string | null;
   billingUnitMinutes: number;
   minimumUnits: number;
   customerUnitPrice: MoneyInput | null;
@@ -336,7 +339,7 @@ WITH offering AS (
   INSERT INTO service_offerings (
     id, code, game_code, game_name, service_code, service_name, region_code, archived_at, created_at, updated_at
   )
-  VALUES ($13, $14, $2, $2, $3, $3, $4, $19, $15, $15)
+  VALUES ($13, $14, $2, $20, $3, $21, $4, $19, $15, $15)
   ON CONFLICT (code) DO UPDATE
     SET game_name = EXCLUDED.game_name,
         service_name = EXCLUDED.service_name,
@@ -392,7 +395,9 @@ JOIN offering ON offering.id = version_upsert.service_offering_id
       record.activatedAt ? new Date(record.activatedAt) : null,
       record.retiredAt ? new Date(record.retiredAt) : null,
       record.defaultPlayerPayoutBps ?? Math.floor((record.playerUnitPayoutMinor ?? 0) * 10000 / (record.customerUnitPriceMinor ?? 1)),
-      record.archivedAt ? new Date(record.archivedAt) : null
+      record.archivedAt ? new Date(record.archivedAt) : null,
+      record.gameDisplayName ?? record.game,
+      record.serviceDisplayName ?? record.service
     ]
   );
   if (!result.rows[0]) {
@@ -704,8 +709,11 @@ function normalizeCreateInput(input: CreateServiceCatalogInput): NormalizedCreat
   return {
     ...input,
     game: input.game.trim(),
+    gameDisplayName: input.gameDisplayName?.trim() || input.game.trim(),
     service: input.service.trim(),
+    serviceDisplayName: input.serviceDisplayName?.trim() || input.service.trim(),
     region: input.region?.trim() || null,
+    regionDisplayName: input.regionDisplayName?.trim() || input.region?.trim() || null,
     customerUnitPrice: input.customerUnitPrice,
     playerUnitPayout: input.playerUnitPayout
   };
@@ -717,7 +725,15 @@ async function catalogCreateInput(value: unknown, tags?: BusinessTagStore): Prom
   const game = await singleTag(tags, input.gameTagId, 'GAME', 'gameTagId', false);
   const service = await singleTag(tags, input.serviceTagId, 'SERVICE', 'serviceTagId', false);
   const region = await singleTag(tags, input.regionTagId, 'REGION', 'regionTagId', true);
-  return { ...(input as unknown as CreateServiceCatalogInput), game: game!, service: service!, region };
+  return {
+    ...(input as unknown as CreateServiceCatalogInput),
+    game: game!.code,
+    gameDisplayName: game!.displayName,
+    service: service!.code,
+    serviceDisplayName: service!.displayName,
+    region: region?.code ?? null,
+    regionDisplayName: region?.displayName ?? null
+  };
 }
 
 async function catalogUpdateInput(value: unknown, tags?: BusinessTagStore): Promise<UpdateServiceCatalogInput> {
@@ -729,12 +745,12 @@ async function catalogUpdateInput(value: unknown, tags?: BusinessTagStore): Prom
   };
 }
 
-async function singleTag(tags: BusinessTagStore, value: unknown, type: 'GAME' | 'SERVICE' | 'REGION', field: string, optional: boolean): Promise<string | null> {
+async function singleTag(tags: BusinessTagStore, value: unknown, type: 'GAME' | 'SERVICE' | 'REGION', field: string, optional: boolean): Promise<BusinessTagRecord | null> {
   if (optional && (value === null || value === undefined || value === '')) return null;
   if (typeof value !== 'string' || !value) throw new CatalogError('BUSINESS_RULE_VIOLATION', `${field} must reference an enabled business tag.`);
   try {
     const [tag] = await tags.resolveEnabled([value], [type]);
-    return tag.code;
+    return tag;
   } catch {
     throw new CatalogError('BUSINESS_RULE_VIOLATION', `${field} must reference an enabled ${type} tag.`);
   }
@@ -751,8 +767,11 @@ function buildCreatedCatalogRecord(input: {
     id: crypto.randomUUID(),
     offeringKey: input.offeringKey,
     game: input.normalized.game,
+    gameDisplayName: input.normalized.gameDisplayName,
     service: input.normalized.service,
+    serviceDisplayName: input.normalized.serviceDisplayName,
     region: input.normalized.region,
+    regionDisplayName: input.normalized.regionDisplayName,
     billingUnitMinutes: input.normalized.billingUnitMinutes,
     minimumUnits: input.normalized.minimumUnits,
     customerUnitPriceMinor: input.normalized.customerUnitPrice.amountMinor,

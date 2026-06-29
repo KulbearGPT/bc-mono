@@ -197,6 +197,27 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(html).not.toContain('<table');
   });
 
+  test('renders service display names as the card title and keeps codes in facts', () => {
+    const model = buildAdminBusinessPage({
+      page: 'serviceCatalog',
+      permissions: ['catalog.read'],
+      status: 'READY',
+      items: [{
+        id: 'catalog-lol-ranked', offeringKey: 'LOLNA|RANKED|',
+        game: 'LOLNA', gameDisplayName: '英雄联盟美服',
+        service: 'RANKED', serviceDisplayName: '上分陪玩',
+        region: null, regionDisplayName: null, billingUnitMinutes: 60,
+        customerUnitPriceMinor: 300, currency: 'CAT', status: 'ACTIVE', version: 1
+      }]
+    });
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model }));
+
+    expect(html).toContain('<h2>英雄联盟美服 · 上分陪玩</h2>');
+    expect(html).not.toContain('<h2>LOLNA · RANKED</h2>');
+    expect(html).toContain('title="RANKED">RANKED</dd>');
+    expect(html).toContain('title="1">1</dd>');
+  });
+
   test('renders a clear action panel with mandatory reasonCode', () => {
     const item = { id: 'user-1', version: 3, displayName: 'Customer A' };
     const model = buildAdminBusinessPage({
