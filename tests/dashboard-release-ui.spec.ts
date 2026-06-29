@@ -106,6 +106,20 @@ describe('Dashboard release visual gate', () => {
     expect(styles).toMatch(/\.data-column--actions\s*\{[\s\S]*width:\s*190px/u);
   });
 
+  test('keeps the settlement payment editor on the dark operations palette', () => {
+    const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
+    const editor = styles.match(/\.payment-editor\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const item = styles.match(/\.payment-editor__item\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const legend = styles.match(/\.payment-editor__item legend\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(editor).toMatch(/background:[^;]*var\(--surface-raised\)/u);
+    expect(editor).toMatch(/border:[^;]*var\(--border-soft\)/u);
+    expect(item).toMatch(/background:[^;]*var\(--surface-panel\)/u);
+    expect(item).toMatch(/border:[^;]*var\(--border-soft\)/u);
+    expect(legend).toMatch(/color:\s*var\(--text-secondary\)/u);
+    expect(`${editor}${item}${legend}`).not.toMatch(/#f8fafc|#fff|#dce3eb|#d8e1e9|#4a5870/u);
+  });
+
   test('offers a persistent floating cute-theme preview without changing business behavior', () => {
     const source = readFileSync('apps/dashboard/src/App.tsx', 'utf8');
     const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
