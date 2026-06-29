@@ -1000,16 +1000,16 @@ textarea:focus-visible {
   position: sticky;
   z-index: 5;
   top: 0;
-  margin: calc(clamp(16px, 2vw, 22px) * -1) calc(clamp(16px, 2vw, 22px) * -1) 18px;
-  padding: 18px clamp(16px, 2vw, 22px);
+  margin: calc(clamp(16px, 2vw, 22px) * -1) 0 18px;
+  padding: 18px 0;
   border-bottom: 1px solid var(--border-soft);
   background: color-mix(in srgb, var(--surface-panel) 92%, transparent);
   backdrop-filter: blur(16px);
 }
 
 .dashboard-overlay .action-panel .panel-heading {
-  margin: calc(clamp(18px, 2.5vw, 28px) * -1) calc(clamp(18px, 2.5vw, 28px) * -1) 22px;
-  padding-inline: clamp(18px, 2.5vw, 28px);
+  margin: calc(clamp(18px, 2.5vw, 28px) * -1) 0 22px;
+  padding-inline: 0;
 }
 
 @keyframes dashboard-overlay-in {

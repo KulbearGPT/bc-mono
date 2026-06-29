@@ -80,4 +80,15 @@ describe('M4-US-01 dashboard visual shell', () => {
     expect(css).toMatch(/\.dashboard-nav__group/u);
     expect(css).toMatch(/\.status-rail/u);
   });
+
+  test('keeps sticky overlay headings inside the dialog content edges', () => {
+    const css = readFileSync(new URL('../apps/dashboard/src/styles.css', import.meta.url), 'utf8');
+    const detailHeading = css.match(/\.dashboard-overlay \.panel-heading\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const actionHeading = css.match(/\.dashboard-overlay \.action-panel \.panel-heading\s*\{([^}]*)\}/u)?.[1] ?? '';
+
+    expect(detailHeading).toMatch(/margin:\s*calc\([^;]+\)\s+0\s+18px;/u);
+    expect(detailHeading).toMatch(/padding:\s*18px\s+0;/u);
+    expect(actionHeading).toMatch(/margin:\s*calc\([^;]+\)\s+0\s+22px;/u);
+    expect(actionHeading).toMatch(/padding-inline:\s*0;/u);
+  });
 });
