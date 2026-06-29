@@ -88,6 +88,8 @@ describe('M4-US-01 dashboard visual shell', () => {
 
     expect(detailHeading).toMatch(/margin:\s*calc\([^;]+\)\s+0\s+18px;/u);
     expect(detailHeading).toMatch(/padding:\s*18px\s+0;/u);
+    expect(detailHeading).toMatch(/background:\s*transparent;/u);
+    expect(detailHeading).toMatch(/backdrop-filter:\s*none;/u);
     expect(actionHeading).toMatch(/margin:\s*calc\([^;]+\)\s+0\s+22px;/u);
     expect(actionHeading).toMatch(/padding-inline:\s*0;/u);
   });

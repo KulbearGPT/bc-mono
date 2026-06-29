@@ -1003,8 +1003,8 @@ textarea:focus-visible {
   margin: calc(clamp(16px, 2vw, 22px) * -1) 0 18px;
   padding: 18px 0;
   border-bottom: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--surface-panel) 92%, transparent);
-  backdrop-filter: blur(16px);
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .dashboard-overlay .action-panel .panel-heading {
