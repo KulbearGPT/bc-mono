@@ -120,6 +120,12 @@ async function seed() {
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL,
       player_id uuid NOT NULL, status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE staff_tasks
+      ADD COLUMN first_responded_at timestamptz,
+      ADD COLUMN first_response_event_id uuid;
+    CREATE TABLE order_support_ratings (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL UNIQUE
+    );
     INSERT INTO users (id,display_name,status,row_version,created_at,updated_at) VALUES
       ('${customerId}','Customer','ACTIVE',1,now(),now()),
       ('${staffUserId}','Supervisor','ACTIVE',1,now(),now());

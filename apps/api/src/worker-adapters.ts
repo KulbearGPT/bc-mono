@@ -76,7 +76,20 @@ SELECT orders.id AS order_id,
        orders.submitted_at,
        orders.accepted_at,
        orders.amount_minor,
-       orders.currency
+       orders.currency,
+       (orders.status='COMPLETED'
+        AND orders.completed_at IS NOT NULL
+        AND orders.completed_at+interval '24 hours'>=now()
+        AND EXISTS (
+          SELECT 1 FROM staff_tasks support_task
+           WHERE support_task.order_id=orders.id
+             AND support_task.first_responded_at IS NOT NULL
+             AND support_task.first_response_event_id IS NOT NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM order_support_ratings support_rating
+           WHERE support_rating.order_id=orders.id
+        )) AS support_rating_eligible
 FROM orders AS orders
 JOIN users AS customer ON customer.id = orders.customer_id
 JOIN discord_accounts AS customer_discord
@@ -308,6 +321,9 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     acceptedAt: nullableDateText(row.accepted_at, 'accepted_at'),
     amountMinor: integer(row.amount_minor, 'amount_minor'),
     currency: text(row.currency, 'currency').trim()
+    ,...(typeof row.support_rating_eligible === 'boolean'
+      ? { supportRatingEligible: row.support_rating_eligible }
+      : {})
     ,guildId: text(row.guild_id, 'guild_id')
     ,voiceChannelId: nullableText(row.voice_channel_id, 'voice_channel_id')
     ,privateOrderCategoryId: nullableConfigText(config.private_order_category_id)
@@ -512,6 +528,12 @@ function panelActions(projection: OrderPanelProjection): Array<{ type: 2; style:
   }
   if (projection.status === 'PENDING_CONFIRMATION') {
     return [{ type: 2, style: 1, label: '确认完成', custom_id: route('confirm') }, support];
+  }
+  if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
+    return [
+      { type: 2, style: 1, label: '评价客服', custom_id: `bc:support-rating:${projection.orderId}:start` },
+      support
+    ];
   }
   return [support];
 }

@@ -38,6 +38,7 @@ import { PostgresOrderRequirementStore } from './order-requirements.js';
 import { PostgresSelectionPoolStore } from './selection-pools.js';
 import { PostgresServicePackageStore } from './service-packages.js';
 import { PostgresSupportOperationsStore } from './support-operations.js';
+import { PostgresSupportRatingStore } from './support-response-rating.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -112,6 +113,7 @@ const dashboardOAuthConfig = {
   mfaEncryptionKey: process.env.DASHBOARD_MFA_ENCRYPTION_KEY?.trim()
 };
 const operationsStore = new PostgresOperationsStore(databasePool);
+const supportRatingStore = new PostgresSupportRatingStore(databasePool);
 const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
   ? new PostgresDashboardAuthStore({
       client: databasePool,
@@ -246,6 +248,9 @@ const server = buildApiServer({
   },
   supportOperations: {
     store: new PostgresSupportOperationsStore(databasePool)
+  },
+  supportRatings: {
+    store: supportRatingStore
   },
   adminDirectory: {
     store: new PostgresAdminDirectoryStore(databasePool),

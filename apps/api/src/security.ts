@@ -263,6 +263,7 @@ const authenticatedActorPermissions = new Set([
   "order.readiness.confirm",
   "order.request_completion",
   "order.confirm",
+  "order.support_rating.create",
   "order.legacy_start.reject",
   "staff_task.request",
   "player.workspace.read",

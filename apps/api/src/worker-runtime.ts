@@ -129,6 +129,7 @@ export interface OrderPanelProjection {
   privateOrderCategoryId?: string | null;
   staffTaskChannelId?: string | null;
   staffRoleIds?: string[];
+  supportRatingEligible?: boolean;
 }
 
 export interface OrderCoordinationRequirement {

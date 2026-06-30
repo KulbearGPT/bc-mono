@@ -661,6 +661,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string,
   ): Promise<OrderCompletionSummary>;
+  submitSupportRating(
+    orderId: string,
+    input: { score: number; reason?: string | null; comment?: string | null },
+    actor: BotActorContext,
+    idempotencyKey: string,
+  ): Promise<unknown>;
   syncDiscordPresence(
     input: SyncDiscordPresenceRequest,
     actor: BotActorContext,
@@ -1256,6 +1262,18 @@ export class HttpBotApiClient implements BotApiClient {
     );
   }
 
+  public async submitSupportRating(
+    orderId: string,
+    input: { score: number; reason?: string | null; comment?: string | null },
+    actor: BotActorContext,
+    idempotencyKey: string,
+  ): Promise<unknown> {
+    return this.request(
+      `/api/v1/orders/${encodeURIComponent(orderId)}/support-rating`,
+      { method: "POST", actor, idempotencyKey, body: input },
+    );
+  }
+
   public async syncDiscordPresence(
     input: SyncDiscordPresenceRequest,
     actor: BotActorContext,
@@ -1612,6 +1630,7 @@ export type BotFlowResult =
   | { kind: "SHOW_MODAL"; modal: ModalSpec }
   | { kind: "SHOW_SERVICE_CENTER"; message: MessageSpec }
   | { kind: "SHOW_PLAYER_WORKBENCH"; message: MessageSpec }
+  | { kind: "SHOW_SUPPORT_RATING"; message: MessageSpec }
   | { kind: "OPEN_EXISTING_CHANNEL"; channelId: string; orderId: string }
   | {
       kind: "CREATE_PRIVATE_CHANNEL";
@@ -1627,6 +1646,13 @@ export type ServiceCenterRoute =
       area: "entry";
       action: "create-order" | "service-center" | "player-workbench";
     }
+  | {
+      area: "support-rating";
+      orderId: string;
+      score: number | null;
+      reason: string | null;
+    }
+  | { area: "support-rating-comment"; orderId: string; score: 1 | 2 }
   | {
       area: "cancellation-action";
       action: "confirm";
@@ -4223,9 +4249,143 @@ export async function handleRequirementNoteSubmit(input: {
   };
 }
 
+export function buildSupportRatingMessage(orderId: string): MessageSpec {
+  return {
+    title: "评价客服体验",
+    body: "请评价本次订单中实际为你回复的客服。评价不会影响订单扣款或陪玩收益。",
+    visibility: "EPHEMERAL",
+    components: [
+      {
+        type: "ACTION_ROW",
+        components: [1, 2, 3, 4, 5].map(
+          (score): ComponentSpec => ({
+            type: "BUTTON",
+            style: score <= 2 ? "DANGER" : "SECONDARY",
+            customId: `bc:support-rating:${orderId}:s${score}`,
+            label: `${score} 分`,
+          }),
+        ),
+      },
+    ],
+  };
+}
+
+export function buildLowRatingReasonMessage(
+  orderId: string,
+  score: number,
+): MessageSpec {
+  const reasons = [
+    ["RUDE_LANGUAGE", "言语不礼貌"],
+    ["COLD_OR_DISMISSIVE", "态度冷淡"],
+    ["RESPONSIBILITY_SHIRKING", "推卸责任"],
+    ["PRESSURING_CUSTOMER", "催促或施压"],
+    ["OTHER", "其他"],
+  ] as const;
+  return {
+    title: "请选择主要原因",
+    body: "低分需要选择一个固定原因，仅用于事实记录。",
+    visibility: "EPHEMERAL",
+    components: [
+      {
+        type: "ACTION_ROW",
+        components: reasons.map(([reason, label]) => ({
+          type: "BUTTON" as const,
+          style: "SECONDARY" as const,
+          customId: `bc:support-rating:${orderId}:s${score}:r${reason}`,
+          label,
+        })),
+      },
+    ],
+  };
+}
+
+export async function handleSupportRatingAction(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+  score: number | null;
+  reason: string | null;
+  idempotencyKey: string;
+}): Promise<BotFlowResult> {
+  if (input.score === null) {
+    return {
+      kind: "SHOW_SUPPORT_RATING",
+      message: buildSupportRatingMessage(input.orderId),
+    };
+  }
+  if (input.score <= 2 && !input.reason) {
+    return {
+      kind: "SHOW_SUPPORT_RATING",
+      message: buildLowRatingReasonMessage(input.orderId, input.score),
+    };
+  }
+  if (input.reason === "OTHER") {
+    return {
+      kind: "SHOW_MODAL",
+      modal: {
+        title: "补充客服评价",
+        customId: `bc:support-rating-comment:${input.orderId}:s${input.score}`,
+        components: [
+          {
+            type: "TEXT_INPUT",
+            customId: "comment",
+            label: "请简要说明",
+            style: "PARAGRAPH",
+            required: true,
+            maxLength: 500,
+          },
+        ],
+      },
+    };
+  }
+  try {
+    await input.api.submitSupportRating(
+      input.orderId,
+      { score: input.score, reason: input.reason },
+      input.actor,
+      input.idempotencyKey,
+    );
+    return { kind: "EPHEMERAL_MESSAGE", message: "感谢评价，已记录。" };
+  } catch (error) {
+    return {
+      kind: "EPHEMERAL_MESSAGE",
+      message: formatApiError(error, "客服评价提交失败"),
+    };
+  }
+}
+
 export function parseServiceCenterCustomId(
   customId: string,
 ): ServiceCenterRoute {
+  const ratingStart = /^bc:support-rating:([0-9a-f-]{36}):start$/u.exec(
+    customId,
+  );
+  if (ratingStart)
+    return {
+      area: "support-rating",
+      orderId: ratingStart[1]!,
+      score: null,
+      reason: null,
+    };
+  const rating =
+    /^bc:support-rating:([0-9a-f-]{36}):s([1-5])(?::r([A-Z_]+))?$/u.exec(
+      customId,
+    );
+  if (rating)
+    return {
+      area: "support-rating",
+      orderId: rating[1]!,
+      score: Number(rating[2]),
+      reason: rating[3] ?? null,
+    };
+  const ratingComment =
+    /^bc:support-rating-comment:([0-9a-f-]{36}):s([12])$/u.exec(customId);
+  if (ratingComment)
+    return {
+      area: "support-rating-comment",
+      orderId: ratingComment[1]!,
+      score: Number(ratingComment[2]) as 1 | 2,
+    };
   const giftOpen = /^bc:gift:open:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(
     customId,
   );

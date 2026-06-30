@@ -30,7 +30,7 @@ describe('M12-US-03 response jobs and transcript projection', () => {
   });
 
   test('migration atomically schedules fixed reminder and overdue jobs', () => {
-    const sql = readFileSync('database/prisma/migrations/000031_m12_support_response_jobs/migration.sql','utf8');
+    const sql = readFileSync('database/prisma/migrations/000032_m12_support_response_jobs/migration.sql','utf8');
     expect(sql).toContain("NEW.created_at + interval '4 minutes'");
     expect(sql).toContain("NEW.created_at + interval '5 minutes'");
     expect(sql).toContain("'SUPPORT_RESPONSE_OVERDUE'");

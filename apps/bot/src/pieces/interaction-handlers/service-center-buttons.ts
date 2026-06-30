@@ -48,6 +48,7 @@ import {
   handleOpenPlayerWorkbench,
   handleOpenServiceCenterFromPublicEntry,
   handleServiceLifecycleAction,
+  handleSupportRatingAction,
   handleSubmitFinalOrder,
   parseServiceCenterCustomId,
   type BotActorContext,
@@ -77,6 +78,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       route.area === "reports" ||
       route.area === "gift" ||
       route.area === "gift-recipient-page"
+      || route.area === "support-rating"
       ? this.some(route)
       : this.none();
   }
@@ -128,6 +130,11 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           ),
         ),
       );
+      return;
+    }
+
+    if (parsedData.area === "support-rating") {
+      await this.handleSupportRating(interaction, parsedData);
       return;
     }
 
@@ -573,6 +580,46 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
     await interaction.reply({
       content: "暂时无法处理订单状态。request_id: local-unhandled-result",
+      ephemeral: true,
+    });
+  }
+
+  private async handleSupportRating(
+    interaction: ButtonInteraction,
+    route: Extract<ServiceCenterRoute, { area: "support-rating" }>,
+  ): Promise<void> {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) {
+      await interaction.reply({
+        content: "请在服务器内评价客服。",
+        ephemeral: true,
+      });
+      return;
+    }
+    const result = await handleSupportRatingAction({
+      api: createBotApiClient(),
+      actor,
+      orderId: route.orderId,
+      score: route.score,
+      reason: route.reason,
+      idempotencyKey: buildDiscordIdempotencyKey(
+        "support:rating",
+        interaction.id,
+      ),
+    });
+    if (result.kind === "SHOW_MODAL") {
+      await interaction.showModal(toDiscordModal(result.modal));
+      return;
+    }
+    if (result.kind === "SHOW_SUPPORT_RATING") {
+      await interaction.reply(toDiscordReply(result.message));
+      return;
+    }
+    await interaction.reply({
+      content:
+        result.kind === "EPHEMERAL_MESSAGE"
+          ? result.message
+          : "评价暂时无法提交。",
       ephemeral: true,
     });
   }

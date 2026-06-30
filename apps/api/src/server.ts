@@ -120,6 +120,10 @@ import {
   registerSupportOperationsRoutes,
   type SupportOperationsStore,
 } from "./support-operations.js";
+import {
+  registerSupportRatingRoutes,
+  type SupportRatingStore,
+} from "./support-response-rating.js";
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -207,6 +211,7 @@ export interface ApiServerOptions {
   };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   supportOperations?: { store: SupportOperationsStore; now?: () => Date };
+  supportRatings?: { store: SupportRatingStore; now?: () => Date };
   adminDirectory?: {
     store: AdminDirectoryStore;
     businessTags?: BusinessTagStore;
@@ -479,6 +484,8 @@ export function buildApiServer(
     });
   if (options.supportOperations)
     registerSupportOperationsRoutes(server, options.supportOperations);
+  if (options.supportRatings)
+    registerSupportRatingRoutes(server, options.supportRatings);
   if (options.adminDirectory)
     registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);
