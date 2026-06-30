@@ -30,6 +30,7 @@
     "./dispatch": "./src/dispatch.ts",
     "./service-lifecycle": "./src/service-lifecycle.ts",
     "./staff-tasks": "./src/staff-tasks.ts",
+    "./support-operations": "./src/support-operations.ts",
     "./risk-events": "./src/risk-events.ts",
     "./admin-order-actions": "./src/admin-order-actions.ts",
     "./admin-directory": "./src/admin-directory.ts",

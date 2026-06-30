@@ -37,6 +37,7 @@ import { PostgresOrderParticipantStore } from './order-participants.js';
 import { PostgresOrderRequirementStore } from './order-requirements.js';
 import { PostgresSelectionPoolStore } from './selection-pools.js';
 import { PostgresServicePackageStore } from './service-packages.js';
+import { PostgresSupportOperationsStore } from './support-operations.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -242,6 +243,9 @@ const server = buildApiServer({
   } : undefined,
   supportWorkbench: {
     store: new PostgresSupportWorkbenchStore(databasePool)
+  },
+  supportOperations: {
+    store: new PostgresSupportOperationsStore(databasePool)
   },
   adminDirectory: {
     store: new PostgresAdminDirectoryStore(databasePool),

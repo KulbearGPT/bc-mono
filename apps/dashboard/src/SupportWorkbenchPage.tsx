@@ -28,6 +28,8 @@ interface DashboardMetrics {
 
 interface DashboardSummaryData { windowStart:string;windowEnd:string;timeZone:string;currency:string;metrics:DashboardMetrics }
 export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:string|null;data:DashboardSummaryData|null};
+interface SupportShift { id:string;staffId:string;clockedInAt:string;clockedOutAt:string|null }
+interface SupportSummaryItem { staffId:string;displayName:string;clockedIn:boolean;shiftSeconds:number;handledTaskCount:number;overdueTaskCount:number;ratingCount:number;averageRating:number|null }
 
 export function DashboardMetricSummaryLoader(){
   const [state,setState]=useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
@@ -44,6 +46,8 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
+  const [shift, setShift] = useState<SupportShift | null>(null);
+  const [supportSummary, setSupportSummary] = useState<SupportSummaryItem[]>([]);
   const client = useMemo(() => createDashboardApiClient(), []);
   const load = useCallback(async () => {
     const response = await client.get('/api/v1/admin/staff-tasks');
@@ -62,6 +66,17 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   }, [client]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadSupportOperations = useCallback(async () => {
+    const [shiftResponse, summaryResponse] = await Promise.all([
+      client.get('/api/v1/admin/support-shifts/me'),
+      client.get('/api/v1/admin/support/summary')
+    ]);
+    if (shiftResponse.ok) setShift((await shiftResponse.json() as { data: SupportShift | null }).data);
+    if (summaryResponse.ok) setSupportSummary((await summaryResponse.json() as { data: { items: SupportSummaryItem[] } }).data.items);
+  }, [client]);
+
+  useEffect(() => { void loadSupportOperations(); }, [loadSupportOperations]);
 
   const view = buildSupportWorkbench({
     guildId: '',
@@ -106,10 +121,37 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     setSelectedOrder((await response.json() as { data: OrderContext }).data);
   }
 
+  async function toggleShift() {
+    const response = await client.post(
+      shift ? '/api/v1/admin/support-shifts/clock-out' : '/api/v1/admin/support-shifts/clock-in',
+      {}
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+      setError(payload?.error?.code === 'ACTIVE_CLAIMED_TASKS'
+        ? '你还有已认领、未处理完的任务，暂时不能下班。'
+        : '打卡操作失败，请重试。');
+      return;
+    }
+    setError(null);
+    await loadSupportOperations();
+  }
+
   return (
     <section className="dashboard-page" aria-labelledby="support-title">
       <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div></header>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+      <section className="content-panel" aria-label="客服打卡">
+        <div className="panel-heading"><div><h2>今日打卡</h2><p>{shift ? `上班时间 ${new Date(shift.clockedInAt).toLocaleString()}` : '当前未上班'}</p></div>
+          {['L1_SUPPORT','L2_SUPERVISOR'].includes(capabilities.level ?? '') && <button className="button-primary" type="button" onClick={() => void toggleShift()}>{shift ? '下班打卡' : '上班打卡'}</button>}
+        </div>
+      </section>
+      <section className="content-panel" aria-label="最近 30 天客服记录">
+        <div className="panel-heading"><div><h2>最近 30 天客服记录</h2><p>仅展示事实记录，不计算奖惩或绩效积分。</p></div></div>
+        <div className="table-shell"><table><thead><tr><th>客服</th><th>班次</th><th>时长</th><th>认领任务</th><th>超时首响</th><th>评分</th></tr></thead><tbody>
+          {supportSummary.map((item) => <tr key={item.staffId}><td>{item.displayName}</td><td>{item.clockedIn ? '上班中' : '未上班'}</td><td>{Math.floor(item.shiftSeconds / 60)} 分钟</td><td>{item.handledTaskCount}</td><td>{item.overdueTaskCount}</td><td>{item.averageRating === null ? '暂无' : `${item.averageRating} / 5（${item.ratingCount}）`}</td></tr>)}
+        </tbody></table></div>
+      </section>
       <DashboardMetricSummaryLoader/>
       <div className="segmented-control support-filters" role="tablist" aria-label="任务筛选">
         {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}

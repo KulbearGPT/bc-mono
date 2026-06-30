@@ -116,6 +116,10 @@ import {
   registerSelectionPoolRoutes,
   type SelectionPoolStore,
 } from "./selection-pools.js";
+import {
+  registerSupportOperationsRoutes,
+  type SupportOperationsStore,
+} from "./support-operations.js";
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -202,6 +206,7 @@ export interface ApiServerOptions {
     now?: () => Date;
   };
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
+  supportOperations?: { store: SupportOperationsStore; now?: () => Date };
   adminDirectory?: {
     store: AdminDirectoryStore;
     businessTags?: BusinessTagStore;
@@ -472,6 +477,8 @@ export function buildApiServer(
       ...options.supportWorkbench,
       registerOrderRoute: !options.adminDirectory?.timelineStore,
     });
+  if (options.supportOperations)
+    registerSupportOperationsRoutes(server, options.supportOperations);
   if (options.adminDirectory)
     registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);

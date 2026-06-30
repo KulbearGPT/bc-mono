@@ -357,6 +357,21 @@ enum StaffTaskStatus {
   CANCELLED
 }
 
+enum SupportResponseStatus {
+  NOT_REQUIRED
+  PENDING
+  MET
+  OVERDUE
+}
+
+enum SupportRatingReason {
+  RUDE_LANGUAGE
+  COLD_OR_DISMISSIVE
+  RESPONSIBILITY_SHIRKING
+  PRESSURING_CUSTOMER
+  OTHER
+}
+
 enum ApprovalAction {
   GIFT_APPROVE
   REFUND_EXECUTE
@@ -591,6 +606,7 @@ model User {
   auditLogs            AuditLog[]            @relation("AuditActorUser")
   orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
   customerProfileNotes CustomerProfileNote[]
+  supportRatings       OrderSupportRating[] @relation("SupportRatingCustomer")
 
   @@index([status])
   @@map("users")
@@ -832,6 +848,8 @@ model StaffAccount {
   settlementPaymentsRecorded SettlementItem[]       @relation("SettlementPaymentRecordedBy")
   settlementPaymentResults   SettlementPaymentResult[] @relation("SettlementPaymentResultRecordedBy")
   weeklyReportRevisions      WeeklyReportRevision[] @relation("WeeklyReportRevisionCreatedBy")
+  supportShifts              SupportShift[]
+  attributedSupportRatings   OrderSupportRating[] @relation("SupportRatingAttributedStaff")
 
   @@index([level, status])
   @@map("staff_accounts")
@@ -1355,6 +1373,7 @@ model Order {
   riskEvents          RiskEvent[]
   outboxEvents        OutboxEvent[]
   channelMessageEvents OrderChannelMessageEvent[]
+  supportRating        OrderSupportRating?
 
   @@index([customerId, createdAt])
   @@index([playerId, createdAt])
@@ -1517,6 +1536,7 @@ model OrderChannelMessageEvent {
   discordEditedAt      DateTime?                    @map("discord_edited_at") @db.Timestamptz(3)
   observedAt           DateTime                     @default(now()) @map("observed_at") @db.Timestamptz(3)
   order                Order                        @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  firstResponseForTasks StaffTask[]                 @relation("StaffTaskFirstResponseEvent")
 
   @@index([orderPublicId, observedAt])
   @@index([orderId, observedAt])
@@ -1676,6 +1696,10 @@ model StaffTask {
   claimedAt             DateTime?       @map("claimed_at") @db.Timestamptz(3)
   verifiedAt            DateTime?       @map("verified_at") @db.Timestamptz(3)
   resolvedAt            DateTime?       @map("resolved_at") @db.Timestamptz(3)
+  responseStatus        SupportResponseStatus @default(NOT_REQUIRED) @map("response_status")
+  responseDueAt         DateTime?       @map("response_due_at") @db.Timestamptz(3)
+  firstRespondedAt      DateTime?       @map("first_responded_at") @db.Timestamptz(3)
+  firstResponseEventId  String?         @map("first_response_event_id") @db.Uuid
   createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1686,6 +1710,7 @@ model StaffTask {
   resolvedBy       StaffAccount?     @relation("TaskResolvedBy", fields: [resolvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   notes            StaffTaskNote[]
   approvalRequests ApprovalRequest[]
+  firstResponseEvent OrderChannelMessageEvent? @relation("StaffTaskFirstResponseEvent", fields: [firstResponseEventId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([status, type, createdAt])
   @@index([claimedByStaffId, status])
@@ -1705,6 +1730,41 @@ model StaffTaskNote {
 
   @@index([staffTaskId, createdAt])
   @@map("staff_task_notes")
+}
+
+model SupportShift {
+  id             String    @id @default(uuid()) @db.Uuid
+  guildId        String    @map("guild_id") @db.VarChar(32)
+  staffAccountId String    @map("staff_account_id") @db.Uuid
+  clockedInAt    DateTime  @map("clocked_in_at") @db.Timestamptz(3)
+  clockedOutAt   DateTime? @map("clocked_out_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount @relation(fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([guildId, staffAccountId, clockedInAt])
+  @@map("support_shifts")
+}
+
+model OrderSupportRating {
+  id                String               @id @default(uuid()) @db.Uuid
+  orderId           String               @unique @map("order_id") @db.Uuid
+  customerId        String               @map("customer_id") @db.Uuid
+  attributedStaffId String?              @map("attributed_staff_id") @db.Uuid
+  score             Int
+  reason            SupportRatingReason?
+  reasonSnapshot    String?              @map("reason_snapshot") @db.VarChar(100)
+  comment           String?              @db.VarChar(500)
+  expiresAt         DateTime             @map("expires_at") @db.Timestamptz(3)
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer        User          @relation("SupportRatingCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attributedStaff StaffAccount? @relation("SupportRatingAttributedStaff", fields: [attributedStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([attributedStaffId, createdAt])
+  @@map("order_support_ratings")
 }
 
 model ApprovalRequest {
