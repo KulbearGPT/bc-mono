@@ -1715,6 +1715,7 @@ model StaffTask {
   @@index([status, type, createdAt])
   @@index([claimedByStaffId, status])
   @@index([orderId, createdAt])
+  @@index([responseStatus, responseDueAt])
   @@map("staff_tasks")
 }
 

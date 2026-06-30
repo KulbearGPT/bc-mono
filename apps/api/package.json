@@ -31,6 +31,7 @@
     "./service-lifecycle": "./src/service-lifecycle.ts",
     "./staff-tasks": "./src/staff-tasks.ts",
     "./support-operations": "./src/support-operations.ts",
+    "./support-response-jobs": "./src/support-response-jobs.ts",
     "./risk-events": "./src/risk-events.ts",
     "./admin-order-actions": "./src/admin-order-actions.ts",
     "./admin-directory": "./src/admin-directory.ts",

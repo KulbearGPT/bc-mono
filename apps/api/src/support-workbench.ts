@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import { PostgresOrderStore, type InMemoryOrderStore, type OrderRecord } from './orders.js';
-import type { InMemoryStaffTaskStore, StaffTaskRecord, StaffTaskStatus, StaffTaskType } from './staff-tasks.js';
+import type { InMemoryStaffTaskStore, StaffTaskRecord, StaffTaskStatus, StaffTaskType, SupportResponseStatus } from './staff-tasks.js';
 import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type StaffLevel } from './security.js';
 
 export interface SupportTaskNote {
@@ -266,10 +266,13 @@ interface StaffTaskRow {
   id: string; public_id: string; type: StaffTaskType; reason_code: string; status: StaffTaskStatus; row_version: number;
   order_id: string | null; gift_request_id: string | null; claimed_by_staff_id: string | null; resolved_by_staff_id: string | null;
   voice_channel_id: string | null; context_snapshot: unknown; created_at: Date | string; updated_at: Date | string;
+  response_status: SupportResponseStatus; response_due_at: Date|string|null; first_responded_at: Date|string|null;
 }
 function mapTask(row: StaffTaskRow): StaffTaskRecord {
   return { id: row.id, publicId: row.public_id, type: row.type, reasonCode: row.reason_code, status: row.status, version: row.row_version,
     orderId: row.order_id, giftRequestId: row.gift_request_id, claimedBy: row.claimed_by_staff_id, resolvedBy: row.resolved_by_staff_id,
     requiredLevel: 'L1_SUPPORT', voiceChannelId: row.voice_channel_id, contextSnapshot: row.context_snapshot,
+    responseStatus:row.response_status,responseDueAt:row.response_due_at?new Date(row.response_due_at).toISOString():null,
+    firstRespondedAt:row.first_responded_at?new Date(row.first_responded_at).toISOString():null,
     createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() };
 }

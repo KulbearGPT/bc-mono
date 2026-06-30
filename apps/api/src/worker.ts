@@ -40,6 +40,11 @@ import {
   createWeeklyReportGenerationHandler,
   createWeeklyReportNotificationHandler,
 } from "./weekly-reports.js";
+import {
+  PostgresSupportResponseJobStore,
+  createSupportResponseOverdueHandler,
+  createSupportResponseReminderHandler,
+} from "./support-response-jobs.js";
 
 const READY_FILE = "/tmp/blackcat-worker-ready";
 const validation = validateRuntimeEnv(process.env, {
@@ -66,6 +71,7 @@ const lifecycleStore = new PostgresServiceLifecycleStore({ pool });
 const giftStore = new PostgresGiftStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);
 const weeklyReportStore = new PostgresWeeklyReportStore(pool);
+const supportResponseStore = new PostgresSupportResponseJobStore(pool);
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
@@ -146,6 +152,13 @@ const runtime = new ProductionOutboxRuntime({
     weeklyReportNotify: createWeeklyReportNotificationHandler({
       store: weeklyReportStore,
       sendDirectMessage: (message) => delivery.sendDirectMessage(message),
+    }),
+    supportResponseReminder: createSupportResponseReminderHandler({
+      store: supportResponseStore,
+      send: (message) => delivery.sendMessage(message),
+    }),
+    supportResponseOverdue: createSupportResponseOverdueHandler({
+      store: supportResponseStore,
     }),
   }),
 });

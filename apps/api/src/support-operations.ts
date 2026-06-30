@@ -156,7 +156,7 @@ export class PostgresSupportOperationsStore implements SupportOperationsStore {
       FROM support_shifts WHERE guild_id = $1 AND clocked_in_at <= $3 AND COALESCE(clocked_out_at, $3) >= $5 GROUP BY staff_account_id
     ), task_stats AS (
       SELECT st.claimed_by_staff_id staff_id, count(*)::int claimed_count,
-        count(*) FILTER (WHERE st.response_status = 'OVERDUE')::int overdue_count
+        count(*) FILTER (WHERE st.response_status = 'OVERDUE' OR st.first_responded_at > st.response_due_at)::int overdue_count
       FROM staff_tasks st LEFT JOIN orders o ON o.id = st.order_id
       WHERE st.claimed_at >= $5 AND COALESCE(o.guild_id, st.context_snapshot->>'guildId') = $1 GROUP BY st.claimed_by_staff_id
     ), rating_stats AS (
@@ -169,7 +169,8 @@ export class PostgresSupportOperationsStore implements SupportOperationsStore {
       LEFT JOIN rating_stats rs ON rs.staff_id=gs.id ORDER BY gs.level, gs.id`,
     [input.guildId, input.staffId, input.now, selfOnly, start]);
     const unclaimed = await this.pool.query<{ count: number }>(`SELECT count(*)::int count FROM staff_tasks st
-      LEFT JOIN orders o ON o.id=st.order_id WHERE st.claimed_by_staff_id IS NULL AND st.response_status='OVERDUE'
+      LEFT JOIN orders o ON o.id=st.order_id WHERE st.claimed_by_staff_id IS NULL
+      AND (st.response_status='OVERDUE' OR st.first_responded_at > st.response_due_at)
       AND st.created_at >= $2 AND COALESCE(o.guild_id, st.context_snapshot->>'guildId')=$1`, [input.guildId, start]);
     return {
       windowStartedAt: start.toISOString(), calculatedAt: input.now.toISOString(),

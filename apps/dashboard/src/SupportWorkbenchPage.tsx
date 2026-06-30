@@ -5,6 +5,9 @@ import { formatMinorCurrency } from './admin-business.js';
 
 interface StaffTaskPayload extends SupportTaskCardInput {
   version: number;
+  responseStatus?: 'NOT_REQUIRED' | 'PENDING' | 'MET' | 'OVERDUE';
+  responseDueAt?: string | null;
+  firstRespondedAt?: string | null;
   contextSnapshot?: { guildId?: string; channelId?: string; voiceChannelId?: string };
 }
 
@@ -160,7 +163,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         {(filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed]).map((task) => (
           <article className="content-panel task-card" key={task.id}>
             <div className="task-card__header">
-              <div><strong className="task-card__id">{task.publicId}</strong><div className="task-card__meta">{task.type} · {task.statusLabel}</div></div>
+              <div><strong className="task-card__id">{task.publicId}</strong><div className="task-card__meta">{task.type} · {task.statusLabel} · {supportResponseLabel(task)}</div></div>
               <div className="inline-actions task-card__actions">
                 {task.links.orderChannel && <a href={task.links.orderChannel} target="_blank" rel="noreferrer">订单频道</a>}
                 {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">语音频道</a>}
@@ -222,3 +225,9 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
 }
 
 function moneyOrHidden(value:number|null,currency:string){return value===null?'无权限':formatMinorCurrency(value,currency);}
+function supportResponseLabel(task:StaffTaskPayload){
+  if(task.responseStatus==='PENDING'&&task.responseDueAt)return `等待首响（截止 ${new Date(task.responseDueAt).toLocaleTimeString()}）`;
+  if(task.responseStatus==='OVERDUE')return '首响已超时';
+  if(task.responseStatus==='MET')return task.firstRespondedAt?`已首响 ${new Date(task.firstRespondedAt).toLocaleTimeString()}`:'已首响';
+  return '无需首响';
+}

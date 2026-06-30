@@ -9,6 +9,9 @@ export interface SupportTaskCardInput {
   channelId: string | null;
   voiceChannelId: string | null;
   guildId?: string;
+  responseStatus?: 'NOT_REQUIRED' | 'PENDING' | 'MET' | 'OVERDUE';
+  responseDueAt?: string | null;
+  firstRespondedAt?: string | null;
   createdAt: string;
 }
 

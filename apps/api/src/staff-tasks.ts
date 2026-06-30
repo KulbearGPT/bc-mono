@@ -19,6 +19,7 @@ export type StaffTaskType =
   | 'AUTOMATION_FAILURE';
 
 export type StaffTaskStatus = 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'RESOLVED' | 'CANCELLED';
+export type SupportResponseStatus = 'NOT_REQUIRED' | 'PENDING' | 'MET' | 'OVERDUE';
 
 export interface StaffTaskRecord {
   id: string;
@@ -34,6 +35,9 @@ export interface StaffTaskRecord {
   requiredLevel: 'L1_SUPPORT';
   voiceChannelId: string | null;
   contextSnapshot: unknown;
+  responseStatus?: SupportResponseStatus;
+  responseDueAt?: string | null;
+  firstRespondedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -144,6 +148,9 @@ export class InMemoryStaffTaskStore implements StaffTaskStore {
         playerId: input.order.playerId,
         note: input.note ?? null
       },
+      responseStatus: 'PENDING',
+      responseDueAt: new Date(input.now.getTime() + 5 * 60_000).toISOString(),
+      firstRespondedAt: null,
       createdAt: input.now.toISOString(),
       updatedAt: input.now.toISOString()
     };
@@ -664,6 +671,9 @@ interface StaffTaskRow {
   resolved_by_staff_id: string | null;
   voice_channel_id: string | null;
   context_snapshot: unknown;
+  response_status: SupportResponseStatus;
+  response_due_at: Date | string | null;
+  first_responded_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -683,6 +693,9 @@ function mapStaffTaskRow(row: StaffTaskRow): StaffTaskRecord {
     requiredLevel: 'L1_SUPPORT',
     voiceChannelId: row.voice_channel_id,
     contextSnapshot: row.context_snapshot,
+    responseStatus: row.response_status,
+    responseDueAt: row.response_due_at ? new Date(row.response_due_at).toISOString() : null,
+    firstRespondedAt: row.first_responded_at ? new Date(row.first_responded_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString()
   };
