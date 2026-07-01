@@ -5,11 +5,15 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['junit', { outputFile: 'evidence/P0/dashboard-e2e/junit.xml' }], ['html', { outputFolder: 'evidence/P0/dashboard-e2e/html', open: 'never' }]] : [['list'], ['html', { outputFolder: 'evidence/P0/dashboard-e2e/html', open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:5173',
+    launchOptions: {
+      slowMo: Number(process.env.E2E_SLOW_MO ?? 0)
+    },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure'

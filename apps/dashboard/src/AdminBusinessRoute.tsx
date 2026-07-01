@@ -46,17 +46,22 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
 
   async function load(cursor: string | null = null, activeFilters = filters) {
     setStatus('LOADING');
-    const response = await client.get(`${definition.endpoint}${buildAdminResourceQuery({ cursor, limit: 25, ...activeFilters })}`);
-    const body = await response.json().catch(() => null) as { requestId?: string; data?: { items?: Array<Record<string, unknown>>; nextCursor?: string | null } } | null;
-    if (!response.ok || !body?.data) {
-      setRequestId(body?.requestId ?? null);
+    try {
+      const response = await client.get(`${definition.endpoint}${buildAdminResourceQuery({ cursor, limit: 25, ...activeFilters })}`);
+      const body = await response.json().catch(() => null) as { requestId?: string; data?: { items?: Array<Record<string, unknown>>; nextCursor?: string | null } } | null;
+      if (!response.ok || !body?.data) {
+        setRequestId(body?.requestId ?? null);
+        setStatus('ERROR');
+        return;
+      }
+      setItems(body.data.items ?? []);
+      setNextCursor(body.data.nextCursor ?? null);
+      setRequestId(null);
+      setStatus('READY');
+    } catch {
+      setRequestId(null);
       setStatus('ERROR');
-      return;
     }
-    setItems(body.data.items ?? []);
-    setNextCursor(body.data.nextCursor ?? null);
-    setRequestId(null);
-    setStatus('READY');
   }
 
   useEffect(() => {
