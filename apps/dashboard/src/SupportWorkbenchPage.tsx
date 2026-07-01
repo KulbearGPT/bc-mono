@@ -90,8 +90,8 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
 
   async function claim(task: StaffTaskPayload) {
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/claim`, { expectedVersion: task.version });
-    if (!response.ok) setError('任务已被认领或状态已变化，请刷新后重试。');
     await load();
+    if (!response.ok) setError('任务已被认领或状态已变化，请刷新后重试。');
   }
 
   async function addNote(task: StaffTaskPayload) {

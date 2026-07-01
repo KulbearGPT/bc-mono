@@ -13,6 +13,10 @@ async function loginAsSupervisor(page: import('@playwright/test').Page) {
 }
 
 test.describe('Dashboard browser E2E: authentication and support workbench', () => {
+  test.beforeEach(async ({ request }) => {
+    await request.post('http://127.0.0.1:3000/__e2e/reset');
+  });
+
   test('DE2E-AUTH-001 anonymous visitors receive the signed-out gate', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: '登录客服管理后台' })).toBeVisible();
