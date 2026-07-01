@@ -297,9 +297,9 @@ export function buildAdminActionRequest(input: {
     };
   }
   if(input.actionId==='APPROVE_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/approve`,body:{expectedVersion:item.version,
-    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitOptionalTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
-    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
+    gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitOptionalTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_PLAYER_COMPENSATION'){const item=requirePlayerItem(input.item);if(typeof input.fields.compensationChangesJson==='string'){const changes=parseCompensationChanges(input.fields.compensationChangesJson);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation`,body:{rules:changes,reasonCode:requireReasonCode(input.fields.reasonCode)}};}const serviceOfferingId=requireText(input.fields.serviceOfferingId,'serviceOfferingId');const type=requireEnum(input.fields.compensationType,['PERCENT_BPS','FIXED_MINOR'],'compensationType');
     const value=type==='PERCENT_BPS'?requirePercentageBps(input.fields.percentage):requirePositiveInteger(input.fields.fixedAmountMinor,'fixedAmountMinor');
     return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation/${encodeURIComponent(serviceOfferingId)}`,body:{expectedVersion:optionalPositiveInteger(input.fields.compensationVersion),type,value,currency:type==='FIXED_MINOR'?'CAT':null,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
@@ -401,6 +401,7 @@ function requireReasonCode(value: unknown): string {
   if (!/^[A-Z0-9_]{3,100}$/.test(reasonCode)) throw new TypeError('reasonCode must contain 3-100 uppercase letters, numbers, or underscores.');
   return reasonCode;
 }
+function splitOptionalTags(value:string|boolean|undefined):string[]{return value===undefined?[]:splitTags(value);}
 
 function requireText(value: unknown, field: string, maxLength = Number.POSITIVE_INFINITY): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength) throw new TypeError(`${field} is required.`);
