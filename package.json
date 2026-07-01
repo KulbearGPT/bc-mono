@@ -16,6 +16,8 @@
     "db:verify:migration": "bash scripts/verify-m0-us-02-migration.sh",
     "dev": "dotenv -e .env -e .env.example -- concurrently -n api,worker,bot,dashboard -c blue,yellow,magenta,green \"npm run dev -w @blackcat/api\" \"npm run worker -w @blackcat/api\" \"npm run dev -w @blackcat/bot\" \"npm run dev -w @blackcat/dashboard\"",
     "m0:verify": "vitest run tests/m0-us-01.spec.ts tests/m0-us-02.spec.ts tests/m0-us-03.spec.ts tests/m0-us-04.spec.ts tests/m0-us-05.spec.ts",
+    "e2e:db:prepare": "bash scripts/e2e/prepare-dashboard-e2e-db.sh",
+    "test:e2e:dashboard": "playwright test --project=chromium",
     "start:web": "node apps/api/dist/index.js",
     "start:bot": "node apps/bot/dist/index.js",
     "start:worker": "node apps/api/dist/worker.js",
@@ -26,6 +28,7 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.20.0",
     "@vitejs/plugin-react": "^6.0.3",

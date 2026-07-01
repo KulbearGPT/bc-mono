@@ -10,6 +10,10 @@ coverage/
 .DS_Store
 **/.DS_Store
 .playwright-cli/
+test-results/
+playwright-report/
+evidence/P0/dashboard-e2e/html/
+evidence/P0/dashboard-e2e/junit.xml
 work/
 .worktrees/
 outputs/.DS_Store
