@@ -13,7 +13,7 @@ export function CustomerWalletPanel(props:{userId:string;balance:WalletBalance;e
     <div className="wallet-balance-grid"><Metric label="账本余额" value={props.balance.ledgerBalanceMinor}/><Metric label="已预留" value={props.balance.reservedMinor}/><Metric label="可用余额" value={props.balance.availableMinor}/></div>
     <div role="group" aria-label="资金操作" className="wallet-tabs"><button type="button" aria-pressed={kind==='TOP_UP'} onClick={()=>setKind('TOP_UP')}>充值</button><button type="button" aria-pressed={kind==='CASH_REFUND_DEBIT'} onClick={()=>setKind('CASH_REFUND_DEBIT')}>渠道退款扣款</button></div>
     <form onSubmit={submit} className="wallet-form">
-      <label>{kind==='TOP_UP'?'实收金额（USD）':'扣回金额（猫条）'}<input name="amount" type="number" min="0.01" step={kind==='TOP_UP'?'0.01':'0.1'} required disabled={props.busy}/></label>
+      <label>{kind==='TOP_UP'?'实收金额（USD）':'扣回金额（猫条）'}<input name="amount" type="number" min={kind==='TOP_UP'?'0.01':'0.1'} step={kind==='TOP_UP'?'0.01':'0.1'} required disabled={props.busy}/></label>
       {kind==='TOP_UP'&&<p>固定按 1 USD = 10 猫条发放。例如 USD 25.50 将增加 255.0 猫条。</p>}
       <label>支付方式<select name="paymentChannel" required disabled={props.busy}><option value="ZELLE">Zelle</option><option value="PAYPAL">PayPal</option><option value="BANK_TRANSFER">银行转账</option><option value="CASH">现金</option><option value="OTHER">其他</option></select></label>
       <label>收据号 / 渠道交易号<input name="externalTransactionId" required maxLength={200} disabled={props.busy}/></label>
