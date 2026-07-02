@@ -60,7 +60,7 @@ test.describe('Dashboard browser E2E: authentication and support workbench', () 
     await expect(page.getByRole('heading', { name: '系统运营' })).toBeVisible();
     await expect(page.getByText('PANEL_SYNC')).toBeVisible();
     page.once('dialog', (dialog) => dialog.accept('MANUAL_DISPLAY_RECOVERY'));
-    await page.getByRole('region', { name: '失败任务' }).getByRole('button', { name: '重试', exact: true }).click();
+    await page.getByRole('row').filter({ hasText: 'PANEL_SYNC' }).getByRole('button', { name: '重试', exact: true }).click();
     await expect(page.getByText('PANEL_SYNC')).toHaveCount(0);
   });
 });

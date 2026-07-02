@@ -50,7 +50,9 @@ const auditSink = new InMemoryAuditSink();
 const faults = new Set<string>();
 type Job = { id: string; type: string; status: 'FAILED' | 'COMPLETED'; attempts: number; lastError: string | null; runAfter: string; version: number };
 const initialJob: Job = { id: '00000000-0000-0000-0000-000000000401', type: 'PANEL_SYNC', status: 'FAILED', attempts: 1, lastError: 'Discord timeout', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
+const nonRetryableJob: Job = { id: '00000000-0000-0000-0000-000000000402', type: 'SETTLEMENT_EXECUTION', status: 'FAILED', attempts: 1, lastError: 'External transfer is manual', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
 const jobs = new Map<string, Job>();
+const policySetting = { key: 'L2_REFUND_LIMIT_MINOR', integerValue: 50_000, currency: 'CAT' as string | null, version: 1 };
 type StaffTask = {
   id: string; publicId: string; type: string; status: 'OPEN' | 'CLAIMED' | 'ESCALATED'; version: number;
   claimedBy: string | null; orderId: string | null; channelId: string | null; voiceChannelId: string | null; guildId: string; createdAt: string; notes: string[];
@@ -81,6 +83,8 @@ function resetState() {
   tasks.set(initialTask.id, { ...initialTask, notes: [] });
   jobs.clear();
   jobs.set(initialJob.id, { ...initialJob });
+  jobs.set(nonRetryableJob.id, { ...nonRetryableJob });
+  Object.assign(policySetting, { integerValue: 50_000, currency: 'CAT', version: 1 });
   Object.assign(orderRecord, { version: 3, status: 'ACCEPTED' });
   orderResolutionCount = 0;
   Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
@@ -410,11 +414,36 @@ for (const [url, payload] of [
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/audit-logs', permission: 'audit.read', action: 'LIST_E2E_AUDIT_LOGS', targetType: 'audit_log', acceptedSources: ['DASHBOARD'],
-  handler: () => ({ items: [], nextCursor: null })
+  handler: (request) => {
+    const cursor = (request.query as { cursor?: string }).cursor;
+    const records = auditSink.records.map((record, index) => ({ id: `audit-${index + 1}`, actorId: record.actorStaffId ?? null, actorLevel: record.actorLevel ?? null, actorSource: record.actorSource ?? 'DASHBOARD', clientId: record.clientId ?? 'DASHBOARD', interactionId: record.interactionId ?? null, permissionCode: record.permissionCode ?? '', action: record.action, targetType: record.targetType, targetId: record.targetId ?? '', reason: record.reason ?? null, requestId: record.requestId, approvalRequestId: null, occurredAt: typeof record.occurredAt === 'string' ? record.occurredAt : new Date(record.occurredAt).toISOString() }));
+    return cursor ? { items: records.slice(1), nextCursor: null } : { items: records.slice(0, 1), nextCursor: records.length > 1 ? 'audit-page-2' : null };
+  }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/jobs', permission: 'job.read', action: 'LIST_E2E_JOBS', targetType: 'job', acceptedSources: ['DASHBOARD'],
   handler: () => ({ items: Array.from(jobs.values()).filter((job) => job.status === 'FAILED'), nextCursor: null })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/policy-settings', permission: 'policy.read', action: 'LIST_E2E_POLICIES', targetType: 'policy_setting', acceptedSources: ['DASHBOARD'], handler: () => ({ items: [{ ...policySetting }], nextCursor: null })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PUT', url: '/api/v1/admin/policy-settings/:key', permission: 'policy.manage', action: 'UPDATE_E2E_POLICY', targetType: 'policy_setting', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_POLICY' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The policy version changed.' } : error instanceof Error && error.message === 'INVALID_POLICY' ? { statusCode: 422, code: 'VALIDATION_ERROR', message: 'The policy value is invalid.' } : null,
+  handler: (request) => {
+    const body = request.body as { expectedVersion?: unknown; integerValue?: unknown; currency?: unknown; reasonCode?: unknown };
+    if (body.expectedVersion !== policySetting.version) throw new Error('STALE_POLICY');
+    if (!Number.isSafeInteger(body.integerValue) || Number(body.integerValue) < 0 || body.currency !== 'CAT' || typeof body.reasonCode !== 'string') throw new Error('INVALID_POLICY');
+    policySetting.integerValue = Number(body.integerValue); policySetting.version += 1; return { ...policySetting };
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/panel-repair', permission: 'job.retry', action: 'CREATE_E2E_PANEL_REPAIR', targetType: 'job', acceptedSources: ['DASHBOARD'],
+  handler: (request) => {
+    const id = `panel-repair-${jobs.size + 1}`;
+    jobs.set(id, { id, type: 'PANEL_SYNC', status: 'FAILED', attempts: 0, lastError: null, runAfter: new Date().toISOString(), version: 1 });
+    return { id, type: 'PANEL_SYNC', status: 'QUEUED' };
+  }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/jobs/:jobId/retry', permission: 'job.retry', action: 'RETRY_E2E_JOB', targetType: 'job', targetId: (request) => String((request.params as { jobId: string }).jobId), acceptedSources: ['DASHBOARD'],
@@ -434,6 +463,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, auditCount: auditSink.records.length }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
