@@ -71,14 +71,15 @@ const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availa
 const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'CAT'; sourceType: string; sourceId: string; occurredAt: string }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
 const compensationRules: Array<{ serviceOfferingId: string; type: 'PERCENT_BPS' | 'FIXED_MINOR'; value: number; currency: 'CAT' | null; version: number }> = [];
-const businessTags = [
+const initialBusinessTags = [
   { id: 'tag-game-valorant', code: 'VALORANT', type: 'GAME', displayName: '无畏契约', enabled: true, version: 1 },
   { id: 'tag-service-escort', code: 'ESCORT', type: 'SERVICE', displayName: '护航', enabled: true, version: 1 },
   { id: 'tag-language-zh', code: 'ZH_CN', type: 'LANGUAGE', displayName: '中文', enabled: true, version: 1 },
   { id: 'tag-region-na', code: 'NA', type: 'REGION', displayName: '北美', enabled: true, version: 1 },
   { id: 'tag-gift-celebration', code: 'CELEBRATION', type: 'GIFT_CATEGORY', displayName: '庆祝', enabled: true, version: 1 },
   { id: 'tag-game-retired', code: 'RETIRED_GAME', type: 'GAME', displayName: '已停用游戏', enabled: false, version: 2 }
-] as const;
+] as Array<{ id: string; code: string; type: string; displayName: string; enabled: boolean; version: number }>;
+const businessTags: Array<{ id: string; code: string; type: string; displayName: string; enabled: boolean; version: number }> = [];
 const initialCatalog = { id: '00000000-0000-0000-0000-000000000701', serviceOfferingId: 'offering-e2e-valorant', game: 'VALORANT', gameDisplayName: '无畏契约', service: 'ESCORT', serviceDisplayName: '护航', region: 'NA', regionDisplayName: '北美', status: 'ACTIVE', enabled: true, billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 4000, playerUnitPriceMinor: 2400, defaultPlayerPayoutBps: 6000, currency: 'CAT', version: 1, historicalReferenceCount: 1 };
 const catalogRecords: Array<Record<string, unknown>> = [];
 const initialPackages = [
@@ -107,6 +108,7 @@ function resetState() {
   walletEntries.length = 0;
   Object.assign(playerRecord, { reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [] });
   compensationRules.length = 0;
+  businessTags.splice(0, businessTags.length, ...initialBusinessTags.map((tag) => ({ ...tag })));
   catalogRecords.splice(0, catalogRecords.length, { ...initialCatalog });
   packageRecords.splice(0, packageRecords.length, ...initialPackages.map((item) => ({ ...item, slots: item.slots.map((slot) => ({ ...slot })) })));
   giftRecords.splice(0, giftRecords.length, { ...initialGift });
@@ -346,7 +348,27 @@ for (const definition of businessLists) {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/business-tags', permission: 'dashboard.view', action: 'LIST_E2E_BUSINESS_TAGS', targetType: 'business_tag', acceptedSources: ['DASHBOARD'],
-  handler: (request) => ({ items: (request.query as { enabled?: string }).enabled === 'true' ? businessTags.filter((tag) => tag.enabled) : businessTags, nextCursor: null })
+  handler: (request) => (request.query as { enabled?: string }).enabled === 'true' ? businessTags.filter((tag) => tag.enabled) : businessTags
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/business-tags', permission: 'catalog.manage', action: 'CREATE_E2E_BUSINESS_TAG', targetType: 'business_tag', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+  handler: (request) => {
+    const body = request.body as { type?: unknown; code?: unknown; displayName?: unknown };
+    const code = String(body.code ?? '').trim().toUpperCase();
+    if (!['GAME', 'SERVICE', 'REGION', 'LANGUAGE', 'GIFT_CATEGORY'].includes(String(body.type)) || !/^[A-Z][A-Z0-9_]{1,79}$/u.test(code) || typeof body.displayName !== 'string') throw new Error('INVALID_TAG');
+    if (businessTags.some((tag) => tag.type === body.type && tag.code === code)) throw new Error('DUPLICATE_TAG');
+    const tag = { id: `tag-created-${businessTags.length}`, type: String(body.type), code, displayName: body.displayName.trim(), enabled: true, version: 1 };
+    businessTags.push(tag); return tag;
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/business-tags/:tagId', permission: 'catalog.manage', action: 'UPDATE_E2E_BUSINESS_TAG', targetType: 'business_tag', acceptedSources: ['DASHBOARD'],
+  handler: (request) => {
+    const tag = businessTags.find((item) => item.id === (request.params as { tagId: string }).tagId);
+    const body = request.body as { expectedVersion?: unknown; displayName?: unknown; enabled?: unknown };
+    if (!tag || tag.version !== body.expectedVersion || typeof body.displayName !== 'string' || typeof body.enabled !== 'boolean') throw new Error('STALE_TAG');
+    tag.displayName = body.displayName.trim(); tag.enabled = body.enabled; tag.version += 1; return { ...tag };
+  }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/gift-catalog/:giftId', permission: 'gift_catalog.read', action: 'GET_E2E_GIFT', targetType: 'gift_catalog', acceptedSources: ['DASHBOARD'],
@@ -590,6 +612,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
