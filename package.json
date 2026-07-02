@@ -20,6 +20,7 @@
     "test:e2e:dashboard": "playwright test --project=chromium",
     "test:e2e:dashboard:headed": "E2E_SLOW_MO=500 playwright test --project=chromium --headed --workers=1",
     "test:e2e:dashboard:debug": "PWDEBUG=1 playwright test --project=chromium --workers=1",
+    "test:e2e:dashboard:compat": "playwright test tests/e2e/dashboard/dashboard-cross-browser.spec.ts --project=chromium --project=firefox --project=webkit",
     "start:web": "node apps/api/dist/index.js",
     "start:bot": "node apps/bot/dist/index.js",
     "start:worker": "node apps/api/dist/worker.js",
