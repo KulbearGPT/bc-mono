@@ -393,12 +393,13 @@ function ServicePackageFields({catalogs,item}:{catalogs:Array<Record<string,unkn
   const initialCatalog=catalogs.find(catalog=>textValue(catalog.id)===initialSlots[0]?.serviceCatalogVersionId);
   const[selectedGame,setSelectedGame]=useState(()=>textValue(item?.game)||textValue(initialCatalog?.game)||games[0]?.[0]||'');
   const[slots,setSlots]=useState<Array<{key:string;serviceCatalogVersionId:string;unitCount:number;customerNoteTemplate:string}>>(()=>initialSlots);
-  const availableCatalogs=catalogs.filter(catalog=>textValue(catalog.game)===selectedGame);
+  const effectiveSelectedGame=games.some(([code])=>code===selectedGame)?selectedGame:games[0]?.[0]||'';
+  const availableCatalogs=catalogs.filter(catalog=>textValue(catalog.game)===effectiveSelectedGame);
   const derivedTotalMinor=slots.reduce<number|null>((total,slot)=>{const catalog=catalogs.find(item=>textValue(item.id)===slot.serviceCatalogVersionId);const unitPrice=numberValue(catalog?.customerUnitPriceMinor);return total===null||unitPrice===undefined||!Number.isSafeInteger(slot.unitCount)||slot.unitCount<1?null:total+unitPrice*slot.unitCount;},0);
   const serialized=JSON.stringify(slots.map(({serviceCatalogVersionId,unitCount,customerNoteTemplate})=>({serviceCatalogVersionId,unitCount,customerNoteTemplate:customerNoteTemplate.trim()||null})));
   return <>
   {item&&<p className="field-help field--full">将基于当前版本创建一份可编辑的新版本；历史订单与原版本不会被改写。</p>}
-  <label className="field"><span>套餐所属游戏</span><select value={selectedGame} onChange={(event)=>{const game=event.currentTarget.value;setSelectedGame(game);setSlots(current=>current.map(slot=>catalogs.some(catalog=>textValue(catalog.id)===slot.serviceCatalogVersionId&&textValue(catalog.game)===game)?slot:{...slot,serviceCatalogVersionId:''}));}}>{games.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select><small>一个套餐只能包含同一游戏的服务项目，归属由 API 根据席位校验并固化。</small></label>
+  <label className="field"><span>套餐所属游戏</span><select value={effectiveSelectedGame} onChange={(event)=>{const game=event.currentTarget.value;setSelectedGame(game);setSlots(current=>current.map(slot=>catalogs.some(catalog=>textValue(catalog.id)===slot.serviceCatalogVersionId&&textValue(catalog.game)===game)?slot:{...slot,serviceCatalogVersionId:''}));}}>{games.map(([code,name])=><option key={code} value={code}>{name}</option>)}</select><small>一个套餐只能包含同一游戏的服务项目，归属由 API 根据席位校验并固化。</small></label>
   <label className="field"><span>稳定代码</span><input name="code" required maxLength={100} pattern="[A-Z0-9_]{2,100}" placeholder="DELTA_ESCORT" defaultValue={textValue(item?.code)}/></label>
   <label className="field"><span>展示名称</span><input name="displayName" required maxLength={100} placeholder="三角洲护航" defaultValue={textValue(item?.displayName)}/></label>
   <label className="field field--full"><span>套餐说明</span><textarea name="description" required rows={3} maxLength={1000} placeholder="两只技术猫猫护航，也可以把其中一席换成聊天陪伴。" defaultValue={textValue(item?.description)}/></label>

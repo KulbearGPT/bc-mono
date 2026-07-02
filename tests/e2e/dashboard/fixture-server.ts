@@ -75,8 +75,17 @@ const businessTags = [
   { id: 'tag-game-valorant', code: 'VALORANT', type: 'GAME', displayName: '无畏契约', enabled: true, version: 1 },
   { id: 'tag-service-escort', code: 'ESCORT', type: 'SERVICE', displayName: '护航', enabled: true, version: 1 },
   { id: 'tag-language-zh', code: 'ZH_CN', type: 'LANGUAGE', displayName: '中文', enabled: true, version: 1 },
+  { id: 'tag-region-na', code: 'NA', type: 'REGION', displayName: '北美', enabled: true, version: 1 },
+  { id: 'tag-gift-celebration', code: 'CELEBRATION', type: 'GIFT_CATEGORY', displayName: '庆祝', enabled: true, version: 1 },
   { id: 'tag-game-retired', code: 'RETIRED_GAME', type: 'GAME', displayName: '已停用游戏', enabled: false, version: 2 }
 ] as const;
+const initialCatalog = { id: '00000000-0000-0000-0000-000000000701', serviceOfferingId: 'offering-e2e-valorant', game: 'VALORANT', gameDisplayName: '无畏契约', service: 'ESCORT', serviceDisplayName: '护航', region: 'NA', regionDisplayName: '北美', status: 'ACTIVE', enabled: true, billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 4000, playerUnitPriceMinor: 2400, defaultPlayerPayoutBps: 6000, currency: 'CAT', version: 1, historicalReferenceCount: 1 };
+const catalogRecords: Array<Record<string, unknown>> = [];
+const initialPackages = [
+  { id: 'package-active-v1', code: 'E2E_PACK', displayName: 'E2E 套餐', description: '历史启用版本', status: 'ACTIVE', version: 1, currency: 'CAT', game: 'VALORANT', defaultCustomerPriceMinor: 4000, slots: [{ id: 'slot-v1', position: 1, serviceCatalogVersionId: initialCatalog.id, unitCount: 1, game: 'VALORANT', service: 'ESCORT' }] },
+  { id: 'package-draft-v2', code: 'E2E_PACK', displayName: 'E2E 套餐新版', description: '待发布版本', status: 'DRAFT', version: 2, currency: 'CAT', game: 'VALORANT', defaultCustomerPriceMinor: 8000, slots: [{ id: 'slot-v2', position: 1, serviceCatalogVersionId: initialCatalog.id, unitCount: 2, game: 'VALORANT', service: 'ESCORT' }] }
+];
+const packageRecords: Array<Record<string, unknown>> = [];
 
 function resetState() {
   tasks.clear();
@@ -93,6 +102,8 @@ function resetState() {
   walletEntries.length = 0;
   Object.assign(playerRecord, { reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [] });
   compensationRules.length = 0;
+  catalogRecords.splice(0, catalogRecords.length, { ...initialCatalog });
+  packageRecords.splice(0, packageRecords.length, ...initialPackages.map((item) => ({ ...item, slots: item.slots.map((slot) => ({ ...slot })) })));
   auditSink.records.length = 0;
   faults.clear();
   for (const actor of Object.values(actors)) authStore.setCurrentPermissionsVersion(actor.staffId, actor.permissionsVersion);
@@ -197,6 +208,37 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     return entry;
   }
 });
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/service-packages/:packageId', permission: 'catalog.read', action: 'GET_E2E_PACKAGE', targetType: 'service_package', acceptedSources: ['DASHBOARD'],
+  handler: (request) => packageRecords.find((item) => item.id === (request.params as { packageId: string }).packageId) ?? initialPackages[0]
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/service-packages', permission: 'catalog.manage', action: 'CREATE_E2E_PACKAGE', targetType: 'service_package', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'CROSS_GAME_PACKAGE' ? { statusCode: 422, code: 'CROSS_GAME_PACKAGE', message: 'All package slots must use one game.' } : null,
+  handler: (request) => {
+    const body = request.body as { code?: unknown; displayName?: unknown; description?: unknown; currency?: unknown; activate?: unknown; slots?: Array<{ serviceCatalogVersionId?: unknown; unitCount?: unknown }> };
+    if (typeof body.code !== 'string' || typeof body.displayName !== 'string' || body.currency !== 'CAT' || !Array.isArray(body.slots) || !body.slots.length) throw new Error('INVALID_PACKAGE');
+    const games = new Set(body.slots.map((slot) => slot.serviceCatalogVersionId === 'catalog-other-game' ? 'OTHER_GAME' : catalogRecords.find((item) => item.id === slot.serviceCatalogVersionId)?.game));
+    if (games.size !== 1 || games.has(undefined)) throw new Error('CROSS_GAME_PACKAGE');
+    const total = body.slots.reduce((sum, slot) => sum + Number(catalogRecords.find((item) => item.id === slot.serviceCatalogVersionId)?.customerUnitPriceMinor ?? 3000) * Number(slot.unitCount), 0);
+    const priorVersions = packageRecords.filter((item) => item.code === body.code);
+    const record = { id: `package-created-${packageRecords.length}`, code: body.code, displayName: body.displayName, description: body.description, status: body.activate ? 'ACTIVE' : 'DRAFT', version: priorVersions.length + 1, currency: 'CAT', game: [...games][0], defaultCustomerPriceMinor: total, slots: body.slots.map((slot, index) => ({ id: `slot-created-${index}`, position: index + 1, ...slot })) };
+    if (body.activate) for (const prior of priorVersions) if (prior.status === 'ACTIVE') prior.status = 'RETIRED';
+    packageRecords.push(record); return record;
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/service-packages/:packageId', permission: 'catalog.manage', action: 'UPDATE_E2E_PACKAGE_STATUS', targetType: 'service_package', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'PACKAGE_CONFLICT' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The package status changed.' } : null,
+  handler: (request) => {
+    const record = packageRecords.find((item) => item.id === (request.params as { packageId: string }).packageId);
+    const body = request.body as { expectedStatus?: unknown; action?: unknown };
+    if (!record || record.status !== body.expectedStatus) throw new Error('PACKAGE_CONFLICT');
+    if (body.action === 'ACTIVATE' && record.status === 'DRAFT') { for (const prior of packageRecords) if (prior.code === record.code && prior.status === 'ACTIVE') prior.status = 'RETIRED'; record.status = 'ACTIVE'; return { ...record }; }
+    if (body.action === 'RETIRE' && record.status === 'ACTIVE') { record.status = 'RETIRED'; return { ...record }; }
+    throw new Error('PACKAGE_CONFLICT');
+  }
+});
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/users/:userId/external-refund-debits', permission: 'wallet.external_refund', action: 'CREATE_E2E_EXTERNAL_REFUND', targetType: 'wallet_entry', acceptedSources: ['DASHBOARD'],
   mapError: (error) => error instanceof Error && error.message === 'STALE_WALLET' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The wallet version changed.' } : null,
@@ -269,8 +311,8 @@ const businessLists = [
   { url: '/api/v1/admin/orders', permission: 'order.read', target: 'order', items: [orderRecord, { id: '00000000-0000-0000-0000-000000000302', publicId: 'P-E2E-002', version: 1, status: 'COMPLETED', customerDiscordId: 'customer-second', amountMinor: 6_000, currency: 'USD', createdAt: '2026-08-04T00:00:00.000Z' }] },
   { url: '/api/v1/admin/users', permission: 'user.read', target: 'user', items: [userRecord] },
   { url: '/api/v1/admin/players', permission: 'player.read', target: 'player', items: [playerRecord] },
-  { url: '/api/v1/admin/service-catalog', permission: 'catalog.read', target: 'service_catalog', items: [{ id: '00000000-0000-0000-0000-000000000701', serviceOfferingId: 'offering-e2e-valorant', game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航', status: 'ACTIVE', enabled: true, customerUnitPriceMinor: 4000, playerUnitPriceMinor: 2400, defaultPlayerPayoutBps: 6000, currency: 'CAT', version: 1 }] },
-  { url: '/api/v1/admin/service-packages', permission: 'catalog.read', target: 'service_package', items: [{ id: '00000000-0000-0000-0000-000000000702', name: 'E2E 双人套餐', status: 'DRAFT', version: 1, currency: 'USD' }] },
+  { url: '/api/v1/admin/service-catalog', permission: 'catalog.read', target: 'service_catalog', items: catalogRecords },
+  { url: '/api/v1/admin/service-packages', permission: 'catalog.read', target: 'service_package', items: packageRecords },
   { url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.read', target: 'gift_catalog', items: [{ id: '00000000-0000-0000-0000-000000000703', name: 'E2E 星光礼物', category: 'CELEBRATION', priceMinor: 1000, currency: 'USD', enabled: true, version: 1 }] },
   { url: '/api/v1/admin/gift-requests', permission: 'gift_request.read', target: 'gift_request', items: [{ id: '00000000-0000-0000-0000-000000000704', publicId: 'G-E2E-001', status: 'PENDING_REVIEW', amountMinor: 1000, currency: 'USD', createdAt: '2026-08-05T01:00:00.000Z' }] },
   { url: '/api/v1/admin/commissions', permission: 'commission.read', target: 'commission', items: [{ id: '00000000-0000-0000-0000-000000000705', publicId: 'C-E2E-001', sourceUserDisplay: '用户 ••••0011', status: 'PENDING', amountMinor: 200, currency: 'USD' }] },
@@ -283,7 +325,7 @@ for (const definition of businessLists) {
     handler: (request) => {
       if (faults.has(definition.target)) throw new Error(`E2E_${definition.target.toUpperCase()}_FAILURE`);
       const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string };
-      let items = definition.items.filter((item) => (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
+      let items = definition.items.filter((item) => (definition.target !== 'service_catalog' || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
       if (query.query) items = items.filter((item) => JSON.stringify(item).toLowerCase().includes(query.query!.toLowerCase()));
       if (definition.target === 'order' && !query.query && !query.status) {
         return query.cursor ? { items: items.slice(1), nextCursor: null } : { items: items.slice(0, 1), nextCursor: 'order-page-2' };
@@ -296,6 +338,36 @@ for (const definition of businessLists) {
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/business-tags', permission: 'dashboard.view', action: 'LIST_E2E_BUSINESS_TAGS', targetType: 'business_tag', acceptedSources: ['DASHBOARD'],
   handler: (request) => ({ items: (request.query as { enabled?: string }).enabled === 'true' ? businessTags.filter((tag) => tag.enabled) : businessTags, nextCursor: null })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/service-catalog/:catalogId', permission: 'catalog.read', action: 'GET_E2E_CATALOG', targetType: 'service_catalog', acceptedSources: ['DASHBOARD'],
+  handler: (request) => catalogRecords.find((item) => item.id === (request.params as { catalogId: string }).catalogId) ?? initialCatalog
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/service-catalog', permission: 'catalog.manage', action: 'CREATE_E2E_CATALOG', targetType: 'service_catalog', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'INVALID_CATALOG' ? { statusCode: 422, code: 'VALIDATION_ERROR', message: 'Catalog pricing and tags are invalid.' } : null,
+  handler: (request) => {
+    const body = request.body as { gameTagId?: unknown; serviceTagId?: unknown; regionTagId?: unknown; billingUnitMinutes?: unknown; minimumUnits?: unknown; customerUnitPrice?: { amountMinor?: unknown; currency?: unknown }; playerUnitPayout?: { amountMinor?: unknown; currency?: unknown }; defaultPlayerPayoutBps?: unknown; enabled?: unknown };
+    if (body.gameTagId !== 'tag-game-valorant' || body.serviceTagId !== 'tag-service-escort' || (body.regionTagId && body.regionTagId !== 'tag-region-na') || body.customerUnitPrice?.currency !== 'CAT' || body.playerUnitPayout?.currency !== 'CAT' || !Number.isSafeInteger(body.customerUnitPrice.amountMinor) || Number(body.customerUnitPrice.amountMinor) <= 0 || !Number.isSafeInteger(body.playerUnitPayout.amountMinor) || Number(body.playerUnitPayout.amountMinor) <= 0) throw new Error('INVALID_CATALOG');
+    const version = { ...initialCatalog, id: `catalog-created-${catalogRecords.length}`, serviceOfferingId: `offering-created-${catalogRecords.length}`, version: 1, status: body.enabled ? 'ACTIVE' : 'DRAFT', enabled: body.enabled === true, customerUnitPriceMinor: Number(body.customerUnitPrice.amountMinor), playerUnitPriceMinor: Number(body.playerUnitPayout.amountMinor), defaultPlayerPayoutBps: Number(body.defaultPlayerPayoutBps) };
+    catalogRecords.push(version); return version;
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/service-catalog/:catalogId', permission: 'catalog.manage', action: 'UPDATE_E2E_CATALOG', targetType: 'service_catalog', acceptedSources: ['DASHBOARD'],
+  handler: (request) => {
+    const record = catalogRecords.find((item) => item.id === (request.params as { catalogId: string }).catalogId);
+    const body = request.body as { expectedVersion?: unknown; action?: unknown; replacement?: Record<string, unknown> | null };
+    if (!record || record.version !== body.expectedVersion) throw new Error('STALE_CATALOG');
+    if (body.action === 'ARCHIVE') { record.status = 'ARCHIVED'; record.enabled = false; record.version = Number(record.version) + 1; return { ...record }; }
+    if (body.action === 'SUPERSEDE' && body.replacement) {
+      record.status = 'RETIRED'; record.enabled = false;
+      const replacement = { ...initialCatalog, id: `catalog-superseded-${catalogRecords.length}`, serviceOfferingId: record.serviceOfferingId, version: Number(record.version) + 1, status: 'ACTIVE', enabled: true, customerUnitPriceMinor: Number((body.replacement.customerUnitPrice as { amountMinor?: unknown })?.amountMinor), playerUnitPriceMinor: Number((body.replacement.playerUnitPayout as { amountMinor?: unknown })?.amountMinor) };
+      catalogRecords.push(replacement); return replacement;
+    }
+    if (body.action === 'ENABLE' || body.action === 'DISABLE') { record.enabled = body.action === 'ENABLE'; record.status = body.action === 'ENABLE' ? 'ACTIVE' : 'DRAFT'; record.version = Number(record.version) + 1; return { ...record }; }
+    throw new Error('INVALID_CATALOG_ACTION');
+  }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/players/:playerId', permission: 'player.read', action: 'GET_E2E_PLAYER', targetType: 'player', acceptedSources: ['DASHBOARD'], handler: () => ({ ...playerRecord })
@@ -463,6 +535,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, catalogRecords, packageRecords, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
