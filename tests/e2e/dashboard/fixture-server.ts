@@ -86,6 +86,11 @@ const initialPackages = [
   { id: 'package-draft-v2', code: 'E2E_PACK', displayName: 'E2E 套餐新版', description: '待发布版本', status: 'DRAFT', version: 2, currency: 'CAT', game: 'VALORANT', defaultCustomerPriceMinor: 8000, slots: [{ id: 'slot-v2', position: 1, serviceCatalogVersionId: initialCatalog.id, unitCount: 2, game: 'VALORANT', service: 'ESCORT' }] }
 ];
 const packageRecords: Array<Record<string, unknown>> = [];
+const initialGift = { id: '00000000-0000-0000-0000-000000000703', name: 'E2E 星光礼物', giftCategoryTagId: 'tag-gift-celebration', category: 'CELEBRATION', priceMinor: 1000, currency: 'CAT', broadcastTemplate: '{sender} 送给 {receiver} 星光礼物', status: 'ACTIVE', enabled: true, version: 1, historicalRequestCount: 1 };
+const giftRecords: Array<Record<string, unknown>> = [];
+const giftRequestRecords: Array<Record<string, unknown>> = [];
+const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
+let earningPaymentWrites = 0;
 
 function resetState() {
   tasks.clear();
@@ -104,6 +109,10 @@ function resetState() {
   compensationRules.length = 0;
   catalogRecords.splice(0, catalogRecords.length, { ...initialCatalog });
   packageRecords.splice(0, packageRecords.length, ...initialPackages.map((item) => ({ ...item, slots: item.slots.map((slot) => ({ ...slot })) })));
+  giftRecords.splice(0, giftRecords.length, { ...initialGift });
+  giftRequestRecords.splice(0, giftRequestRecords.length, { id: '00000000-0000-0000-0000-000000000704', publicId: 'G-E2E-001', status: 'CAPTURED', amountMinor: 1000, currency: 'CAT', giftCatalogId: initialGift.id, giftCatalogVersionId: initialGift.id, giftName: initialGift.name, giftCode: 'STARLIGHT', broadcastTemplate: initialGift.broadcastTemplate, orderId: orderRecord.id, orderPublicId: orderRecord.publicId, senderDisplayName: 'E2E 用户', senderDiscordUserId: userRecord.discordUserId, receiverDisplayName: playerRecord.displayName, receiverDiscordUserId: 'player-discord-e2e', verifiedByStaffId: 'staff-l2', verifiedAt: '2026-08-05T01:04:00.000Z', approvedByStaffId: 'staff-l2', approvedAt: '2026-08-05T01:05:00.000Z', capturedAt: '2026-08-05T01:06:00.000Z', createdAt: '2026-08-05T01:00:00.000Z', updatedAt: '2026-08-05T01:06:00.000Z', rowVersion: 3 });
+  Object.assign(earningRecord, { status: 'PENDING', version: 1, confirmedAt: null, paidAt: null });
+  earningPaymentWrites = 0;
   auditSink.records.length = 0;
   faults.clear();
   for (const actor of Object.values(actors)) authStore.setCurrentPermissionsVersion(actor.staffId, actor.permissionsVersion);
@@ -313,10 +322,10 @@ const businessLists = [
   { url: '/api/v1/admin/players', permission: 'player.read', target: 'player', items: [playerRecord] },
   { url: '/api/v1/admin/service-catalog', permission: 'catalog.read', target: 'service_catalog', items: catalogRecords },
   { url: '/api/v1/admin/service-packages', permission: 'catalog.read', target: 'service_package', items: packageRecords },
-  { url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.read', target: 'gift_catalog', items: [{ id: '00000000-0000-0000-0000-000000000703', name: 'E2E 星光礼物', category: 'CELEBRATION', priceMinor: 1000, currency: 'USD', enabled: true, version: 1 }] },
-  { url: '/api/v1/admin/gift-requests', permission: 'gift_request.read', target: 'gift_request', items: [{ id: '00000000-0000-0000-0000-000000000704', publicId: 'G-E2E-001', status: 'PENDING_REVIEW', amountMinor: 1000, currency: 'USD', createdAt: '2026-08-05T01:00:00.000Z' }] },
+  { url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.read', target: 'gift_catalog', items: giftRecords },
+  { url: '/api/v1/admin/gift-requests', permission: 'gift_request.read', target: 'gift_request', items: giftRequestRecords },
   { url: '/api/v1/admin/commissions', permission: 'commission.read', target: 'commission', items: [{ id: '00000000-0000-0000-0000-000000000705', publicId: 'C-E2E-001', sourceUserDisplay: '用户 ••••0011', status: 'PENDING', amountMinor: 200, currency: 'USD' }] },
-  { url: '/api/v1/admin/player-earnings', permission: 'earnings.read', target: 'player_earning', items: [{ id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1 }] }
+  { url: '/api/v1/admin/player-earnings', permission: 'earnings.read', target: 'player_earning', items: [earningRecord] }
 ] as const;
 
 for (const definition of businessLists) {
@@ -325,7 +334,7 @@ for (const definition of businessLists) {
     handler: (request) => {
       if (faults.has(definition.target)) throw new Error(`E2E_${definition.target.toUpperCase()}_FAILURE`);
       const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string };
-      let items = definition.items.filter((item) => (definition.target !== 'service_catalog' || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
+      let items = definition.items.filter((item) => (!['service_catalog', 'gift_catalog'].includes(definition.target) || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
       if (query.query) items = items.filter((item) => JSON.stringify(item).toLowerCase().includes(query.query!.toLowerCase()));
       if (definition.target === 'order' && !query.query && !query.status) {
         return query.cursor ? { items: items.slice(1), nextCursor: null } : { items: items.slice(0, 1), nextCursor: 'order-page-2' };
@@ -338,6 +347,52 @@ for (const definition of businessLists) {
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/business-tags', permission: 'dashboard.view', action: 'LIST_E2E_BUSINESS_TAGS', targetType: 'business_tag', acceptedSources: ['DASHBOARD'],
   handler: (request) => ({ items: (request.query as { enabled?: string }).enabled === 'true' ? businessTags.filter((tag) => tag.enabled) : businessTags, nextCursor: null })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/gift-catalog/:giftId', permission: 'gift_catalog.read', action: 'GET_E2E_GIFT', targetType: 'gift_catalog', acceptedSources: ['DASHBOARD'],
+  handler: (request) => giftRecords.find((item) => item.id === (request.params as { giftId: string }).giftId) ?? initialGift
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.manage', action: 'CREATE_E2E_GIFT', targetType: 'gift_catalog', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'INVALID_GIFT' ? { statusCode: 422, code: 'VALIDATION_ERROR', message: 'Gift price or category is invalid.' } : null,
+  handler: (request) => {
+    const body = request.body as { name?: unknown; giftCategoryTagId?: unknown; price?: { amountMinor?: unknown; currency?: unknown }; broadcastTemplate?: unknown; enabled?: unknown };
+    if (typeof body.name !== 'string' || body.giftCategoryTagId !== 'tag-gift-celebration' || body.price?.currency !== 'CAT' || !Number.isSafeInteger(body.price.amountMinor) || Number(body.price.amountMinor) <= 0 || typeof body.broadcastTemplate !== 'string') throw new Error('INVALID_GIFT');
+    const record = { ...initialGift, id: `gift-created-${giftRecords.length}`, name: body.name, priceMinor: Number(body.price.amountMinor), broadcastTemplate: body.broadcastTemplate, status: body.enabled ? 'ACTIVE' : 'DRAFT', enabled: body.enabled === true, version: 1, historicalRequestCount: 0 };
+    giftRecords.push(record); return record;
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/gift-catalog/:giftId', permission: 'gift_catalog.manage', action: 'UPDATE_E2E_GIFT', targetType: 'gift_catalog', acceptedSources: ['DASHBOARD'],
+  handler: (request) => {
+    const record = giftRecords.find((item) => item.id === (request.params as { giftId: string }).giftId);
+    const body = request.body as { expectedVersion?: unknown; action?: unknown; replacement?: { name?: unknown; price?: { amountMinor?: unknown; currency?: unknown }; broadcastTemplate?: unknown } | null };
+    if (!record || record.version !== body.expectedVersion) throw new Error('STALE_GIFT');
+    if (body.action === 'ARCHIVE') { record.status = 'ARCHIVED'; record.enabled = false; record.version = Number(record.version) + 1; return { ...record }; }
+    if (body.action === 'CREATE_REPLACEMENT_VERSION' && body.replacement) {
+      if (body.replacement.price?.currency !== 'CAT' || !Number.isSafeInteger(body.replacement.price.amountMinor) || Number(body.replacement.price.amountMinor) <= 0) throw new Error('INVALID_GIFT');
+      record.status = 'RETIRED'; record.enabled = false;
+      const replacement = { ...initialGift, id: `gift-replacement-${giftRecords.length}`, name: String(body.replacement.name), priceMinor: Number(body.replacement.price.amountMinor), broadcastTemplate: String(body.replacement.broadcastTemplate), version: Number(record.version) + 1, historicalRequestCount: 0 };
+      giftRecords.push(replacement); return replacement;
+    }
+    if (body.action === 'ENABLE' || body.action === 'DISABLE') { record.enabled = body.action === 'ENABLE'; record.status = body.action === 'ENABLE' ? 'ACTIVE' : 'DRAFT'; record.version = Number(record.version) + 1; return { ...record }; }
+    throw new Error('INVALID_GIFT_ACTION');
+  }
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/gift-requests/:giftRequestId', permission: 'gift_request.read', action: 'GET_E2E_GIFT_REQUEST', targetType: 'gift_request', acceptedSources: ['DASHBOARD'],
+  handler: (request) => giftRequestRecords.find((item) => item.id === (request.params as { giftRequestId: string }).giftRequestId) ?? giftRequestRecords[0]
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/player-earnings/:earningId', permission: 'earnings.manage', action: 'UPDATE_E2E_EARNING', targetType: 'player_earning', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_EARNING' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The earning version changed.' } : null,
+  handler: (request) => {
+    const body = request.body as { expectedVersion?: unknown; action?: unknown; reasonCode?: unknown };
+    if ((request.params as { earningId: string }).earningId !== earningRecord.id || body.expectedVersion !== earningRecord.version || typeof body.reasonCode !== 'string') throw new Error('STALE_EARNING');
+    if (body.action === 'CONFIRM' && earningRecord.status === 'PENDING') { earningRecord.status = 'CONFIRMED'; earningRecord.confirmedAt = '2026-08-05T02:00:00.000Z'; earningRecord.version += 1; return { ...earningRecord }; }
+    if (body.action === 'MARK_PAID' && earningRecord.status === 'CONFIRMED') { earningRecord.status = 'PAID'; earningRecord.paidAt = '2026-08-05T03:00:00.000Z'; earningRecord.version += 1; earningPaymentWrites += 1; return { ...earningRecord }; }
+    throw new Error('STALE_EARNING');
+  }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/service-catalog/:catalogId', permission: 'catalog.read', action: 'GET_E2E_CATALOG', targetType: 'service_catalog', acceptedSources: ['DASHBOARD'],
@@ -535,6 +590,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, catalogRecords, packageRecords, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
