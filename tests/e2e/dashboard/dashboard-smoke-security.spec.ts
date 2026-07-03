@@ -21,6 +21,15 @@ test.describe('Dashboard browser E2E: shell and security boundaries', () => {
     expect(browserErrors).toEqual([]);
   });
 
+  test('DE2E-AUTH-002 a Discord user without an active staff account receives Forbidden and no business content', async ({ page }) => {
+    const response = await page.goto('/__e2e/login-nonstaff');
+    expect(response?.status()).toBe(403);
+    await expect(page.getByText(/STAFF_ACCOUNT_REQUIRED/u)).toBeVisible();
+    const content = await page.locator('body').textContent();
+    expect(content).not.toContain('T-E2E-001');
+    expect(content).not.toContain('P-E2E-001');
+  });
+
   test('DE2E-SMK-003 browser navigation, back, forward, and refresh preserve the active route', async ({ page }) => {
     await loginAs(page, 'l2');
     await page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: '系统运营', exact: true }).click();

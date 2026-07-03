@@ -58,6 +58,22 @@ test.describe('Dashboard browser E2E: MFA and step-up', () => {
     expect(accepted.body.data).toEqual({ executed: true });
   });
 
+  test('DE2E-AUTH-009 an expired step-up blocks the next sensitive submission again', async ({ page, request }) => {
+    await login(page, 'l4');
+    await page.getByRole('button', { name: '进行近期验证' }).click();
+    const proof = (await (await request.get('http://127.0.0.1:3000/__e2e/totp/l4')).json()).proof as string;
+    await page.getByLabel('验证码或恢复码').fill(proof);
+    await page.getByRole('button', { name: '使用验证码确认' }).click();
+    await expect(page.locator('.status-message')).toContainText('近期验证有效至');
+    expect((await sensitiveWrite(page, 'sensitive-before-expiry')).status).toBe(200);
+    await request.post('http://127.0.0.1:3000/__e2e/advance-time', { data: { milliseconds: 16 * 60_000 } });
+    const expired = await sensitiveWrite(page, 'sensitive-after-expiry');
+    expect(expired.status).toBe(428);
+    expect(expired.body.error.code).toBe('STEP_UP_REQUIRED');
+    await page.reload();
+    await expect(page.getByRole('button', { name: '进行近期验证' })).toBeVisible();
+  });
+
   test('DE2E-MFA-001 enrollment rejects an incorrect proof then activates with the current TOTP', async ({ page }) => {
     await login(page, 'mfa');
     await page.getByRole('button', { name: '绑定验证器' }).click();

@@ -48,6 +48,9 @@ const actors = { l1: staff, l2: supervisor, l3: operator, l4: owner, mfa: mfaCan
 const authStore = new InMemoryDashboardAuthStore();
 const auditSink = new InMemoryAuditSink();
 const faults = new Set<string>();
+let clockOffsetMs = 0;
+let nextOAuthIsNonStaff = false;
+const fixtureNow = () => new Date(Date.now() + clockOffsetMs);
 type Job = { id: string; type: string; status: 'FAILED' | 'COMPLETED'; attempts: number; lastError: string | null; runAfter: string; version: number };
 const initialJob: Job = { id: '00000000-0000-0000-0000-000000000401', type: 'PANEL_SYNC', status: 'FAILED', attempts: 1, lastError: 'Discord timeout', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
 const nonRetryableJob: Job = { id: '00000000-0000-0000-0000-000000000402', type: 'SETTLEMENT_EXECUTION', status: 'FAILED', attempts: 1, lastError: 'External transfer is manual', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
@@ -94,6 +97,8 @@ const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '0
 let earningPaymentWrites = 0;
 
 function resetState() {
+  clockOffsetMs = 0;
+  nextOAuthIsNonStaff = false;
   tasks.clear();
   tasks.set(initialTask.id, { ...initialTask, notes: [] });
   jobs.clear();
@@ -157,8 +162,9 @@ const directory: StaffDirectory = {
 const oauth: DiscordOAuthProvider = {
   getAuthorizationUrl({ state }) { return `${dashboardUrl}/__e2e/oauth?state=${encodeURIComponent(state)}`; },
   async exchangeCode(code) {
-    if (code !== 'dashboard-e2e-code') throw new Error('invalid E2E OAuth code');
-    return { discordUserId: '111111111111111111' };
+    if (code === 'dashboard-e2e-nonstaff-code') return { discordUserId: '222222222222222222' };
+    if (code === 'dashboard-e2e-code') return { discordUserId: '111111111111111111' };
+    throw new Error('invalid E2E OAuth code');
   }
 };
 
@@ -168,14 +174,17 @@ const server = buildApiServer({
     BOT_SERVICE_TOKEN: 'dashboard-e2e-bot-token', PAGINATION_CURSOR_SIGNING_SECRET: 'dashboard-e2e-pagination-secret-which-is-long-enough'
   },
   security: { staffDirectory: directory, dashboardSessions: authStore, auditSink, businessEnvironment: 'SANDBOX' },
-  dashboardAuth: { store: authStore, oauth, staffDirectory: directory, guildId, dashboardUrl, secureCookies: false },
+  dashboardAuth: { store: authStore, oauth, staffDirectory: directory, guildId, dashboardUrl, secureCookies: false, now: fixtureNow },
   dashboardMetrics: { store: new InMemoryDashboardMetricsStore({ facts: { todayOrderCount: 1, inProgressOrderCount: 1, pendingStaffTaskCount: 1, completedOrderNetConsumptionMinor: 12_500, giftNetConsumptionMinor: 0, activeReservedMinor: 4_000, dispatchAcceptedCount: 19, dispatchStartedCount: 20, exceptionCount: 0 } }) }
 });
 
 server.get('/__e2e/oauth', async (request, reply) => {
   const { state } = request.query as { state?: string };
-  return reply.redirect(`/api/v1/auth/discord/callback?code=dashboard-e2e-code&state=${encodeURIComponent(state ?? '')}`);
+  const code = nextOAuthIsNonStaff ? 'dashboard-e2e-nonstaff-code' : 'dashboard-e2e-code';
+  nextOAuthIsNonStaff = false;
+  return reply.redirect(`/api/v1/auth/discord/callback?code=${code}&state=${encodeURIComponent(state ?? '')}`);
 });
+server.get('/__e2e/login-nonstaff', async (_request, reply) => { nextOAuthIsNonStaff = true; return reply.redirect('/api/v1/auth/discord'); });
 server.get('/__e2e/login/:actor', async (request, reply) => {
   const actor = (request.params as { actor: string }).actor;
   const selected = actors[actor as keyof typeof actors];
@@ -608,9 +617,10 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 server.post('/__e2e/revoke-session', async () => { authStore.setCurrentPermissionsVersion(staff.staffId, 2); return { ok: true }; });
 server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
+server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
 server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
-  return secret ? { proof: generateTotp(secret) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
+  return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
 server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
