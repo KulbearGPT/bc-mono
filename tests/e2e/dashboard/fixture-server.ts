@@ -95,6 +95,7 @@ const giftRecords: Array<Record<string, unknown>> = [];
 const giftRequestRecords: Array<Record<string, unknown>> = [];
 const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
 let earningPaymentWrites = 0;
+const roleMapping = { guildId, discordRoleId: 'role-e2e-l4', targetLevel: 'L4_ADMIN_OWNER', enabled: true, version: 1, reconciliationQueued: false };
 
 function resetState() {
   clockOffsetMs = 0;
@@ -120,6 +121,7 @@ function resetState() {
   giftRequestRecords.splice(0, giftRequestRecords.length, { id: '00000000-0000-0000-0000-000000000704', publicId: 'G-E2E-001', status: 'CAPTURED', amountMinor: 1000, currency: 'CAT', giftCatalogId: initialGift.id, giftCatalogVersionId: initialGift.id, giftName: initialGift.name, giftCode: 'STARLIGHT', broadcastTemplate: initialGift.broadcastTemplate, orderId: orderRecord.id, orderPublicId: orderRecord.publicId, senderDisplayName: 'E2E 用户', senderDiscordUserId: userRecord.discordUserId, receiverDisplayName: playerRecord.displayName, receiverDiscordUserId: 'player-discord-e2e', verifiedByStaffId: 'staff-l2', verifiedAt: '2026-08-05T01:04:00.000Z', approvedByStaffId: 'staff-l2', approvedAt: '2026-08-05T01:05:00.000Z', capturedAt: '2026-08-05T01:06:00.000Z', createdAt: '2026-08-05T01:00:00.000Z', updatedAt: '2026-08-05T01:06:00.000Z', rowVersion: 3 });
   Object.assign(earningRecord, { status: 'PENDING', version: 1, confirmedAt: null, paidAt: null });
   earningPaymentWrites = 0;
+  Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
   auditSink.records.length = 0;
   faults.clear();
   for (const actor of Object.values(actors)) authStore.setCurrentPermissionsVersion(actor.staffId, actor.permissionsVersion);
@@ -288,6 +290,18 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/e2e-sensitive-action', permission: 'access.manage', action: 'E2E_SENSITIVE_ACTION', targetType: 'security_probe', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
   handler: () => ({ executed: true })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/discord-role-mappings', permission: 'access.read', action: 'LIST_E2E_ROLE_MAPPINGS', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
+  handler: () => ({ items: [{ ...roleMapping }] })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PUT', url: '/api/v1/admin/discord-role-mappings/:level', permission: 'access.manage', action: 'UPDATE_E2E_ROLE_MAPPING', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
+  handler: (request) => {
+    const body = request.body as { guildId?: unknown; discordRoleId?: unknown; expectedVersion?: unknown; reasonCode?: unknown };
+    if ((request.params as { level: string }).level !== roleMapping.targetLevel || body.guildId !== guildId || body.expectedVersion !== roleMapping.version || typeof body.discordRoleId !== 'string' || typeof body.reasonCode !== 'string') throw new Error('STALE_ROLE_MAPPING');
+    roleMapping.discordRoleId = body.discordRoleId; roleMapping.version += 1; roleMapping.reconciliationQueued = true; return { ...roleMapping };
+  }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -622,6 +636,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
