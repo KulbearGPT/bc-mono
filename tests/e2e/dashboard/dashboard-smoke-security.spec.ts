@@ -43,6 +43,18 @@ test.describe('Dashboard browser E2E: shell and security boundaries', () => {
     await expect(page.getByRole('heading', { name: '系统运营' })).toBeVisible();
   });
 
+  test('DE2E-SMK-005 a core-only feature profile hides disabled navigation and direct URLs expose no feature data', async ({ page, request }) => {
+    await request.post('http://127.0.0.1:3000/__e2e/features/core-only');
+    const featureRequests: string[] = [];
+    page.on('request', (value) => { if (/\/api\/v1\/admin\/(gift-catalog|gift-requests|commissions|settlement-batches|weekly-reports)/u.test(value.url())) featureRequests.push(value.url()); });
+    await loginAs(page, 'l3');
+    const nav = page.getByRole('navigation', { name: '管理导航' });
+    for (const label of ['礼物目录', '礼物请求', '返佣', '结算', '周报']) await expect(nav.getByRole('link', { name: label, exact: true })).toHaveCount(0);
+    await page.goto('/admin/gift-catalog'); await expect(page.getByRole('heading', { name: '功能暂未开放' })).toBeVisible();
+    await page.goto('/settlements'); await expect(page.getByRole('heading', { name: '功能暂未开放' })).toBeVisible();
+    expect(featureRequests).toEqual([]);
+  });
+
   test('DE2E-AUTH-003 L1-L4 navigation is cumulative and derived from server capabilities', async ({ browser }) => {
     const expectations = {
       l1: { visible: ['客服工作台', '系统运营'], hidden: ['服务目录', '权限管理'] },

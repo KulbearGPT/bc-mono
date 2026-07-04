@@ -30,6 +30,26 @@ test.describe('Dashboard browser E2E: resilience and accessibility', () => {
     await expect(page.getByRole('navigation', { name: '管理导航' })).toBeVisible();
   });
 
+  test('DE2E-RES-001 timeout after commit retries with the original idempotency key and creates one business fact', async ({ page, request }) => {
+    await loginAs(page, 'l2'); await page.getByRole('link', { name: '订单', exact: true }).click(); await page.getByRole('button', { name: '取消订单' }).click(); await page.getByLabel('核对证据与处理说明').fill('timeout-after-commit 自动化核对');
+    let intercepted = false;
+    await page.route('**/api/v1/admin/orders/*/resolve', async (route) => { if (intercepted) return route.continue(); intercepted = true; const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('connectionfailed'); });
+    const dialog = page.getByRole('dialog', { name: '取消订单操作' }); await dialog.getByRole('button', { name: '提交', exact: true }).click(); await expect(dialog.getByRole('alert')).toBeVisible();
+    await page.unroute('**/api/v1/admin/orders/*/resolve'); await dialog.getByRole('button', { name: '提交', exact: true }).click(); await expect(dialog).toHaveCount(0);
+    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.order).toMatchObject({ status: 'CANCELLED', version: 4 }); expect(state.orderResolutionCount).toBe(1);
+  });
+
+  test('DE2E-RES-003 a stopped worker leaves Outbox pending, then recovery converges once without duplicate effects', async ({ request }) => {
+    await request.post('http://127.0.0.1:3000/__e2e/worker/stop'); await request.post('http://127.0.0.1:3000/__e2e/outbox/enqueue');
+    let state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state).toMatchObject({ workerRunning: false, workerSideEffectCount: 0, outboxMessages: [{ status: 'PENDING', attempts: 0 }] });
+    await request.post('http://127.0.0.1:3000/__e2e/worker/start'); await request.post('http://127.0.0.1:3000/__e2e/worker/start'); state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state).toMatchObject({ workerRunning: true, workerSideEffectCount: 1, outboxMessages: [{ status: 'COMPLETED', attempts: 1 }] });
+  });
+
+  test('DE2E-RES-004 API and worker runtime restart preserves the staff session and persisted task recovery', async ({ page, request }) => {
+    await loginAs(page, 'l1'); await page.getByRole('link', { name: '客服工作台', exact: true }).click(); await page.getByRole('button', { name: '认领', exact: true }).click(); await request.post('http://127.0.0.1:3000/__e2e/outbox/enqueue'); const restart = await request.post('http://127.0.0.1:3000/__e2e/restart-runtimes'); expect(await restart.json()).toEqual({ apiRuntimeEpoch: 2, workerRuntimeEpoch: 2 });
+    await page.reload(); await expect(page.getByRole('heading', { name: '客服工作台' })).toBeVisible(); await expect(page.getByText('T-E2E-001')).toBeVisible(); await expect(page.getByLabel('T-E2E-001 处理备注')).toBeVisible(); await request.post('http://127.0.0.1:3000/__e2e/worker/start'); const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.tasks[0]).toMatchObject({ status: 'CLAIMED', version: 2 }); expect(state.outboxMessages[0]).toMatchObject({ status: 'COMPLETED', attempts: 1 });
+  });
+
   test('DE2E-ACC-001 critical navigation and claim actions are keyboard operable and dialogs receive focus', async ({ page }) => {
     await loginAs(page, 'l2');
     const supportLink = page.getByRole('link', { name: '客服工作台', exact: true });

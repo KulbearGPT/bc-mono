@@ -89,4 +89,13 @@ test.describe('Dashboard browser E2E: support workbench', () => {
     await page.getByRole('button', { name: '查看订单' }).click();
     await expect(page.getByRole('heading', { name: '订单 P-E2E-001' })).toBeVisible();
   });
+
+  test('DE2E-SUP-007 staff takeover preserves the original reservation and resume revalidates current facts', async ({ page, request }) => {
+    await login(page, 'l2');
+    const control = async (path: 'pause' | 'resume', body: Record<string, unknown>, key: string) => page.evaluate(async ({ path, body, key, taskId }) => { const csrf = decodeURIComponent(document.cookie.split('; ').find((entry) => entry.startsWith('p0_csrf='))?.split('=').slice(1).join('=') ?? ''); const response = await fetch(`/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/automation/${path}`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-source': 'DASHBOARD', 'x-csrf-token': csrf, 'idempotency-key': key }, body: JSON.stringify({ ...body, taskId, reasonCode: 'STAFF_TAKEOVER' }) }); return { status: response.status, body: await response.json() }; }, { path, body, key, taskId });
+    expect((await control('pause', { expectedOrderVersion: 3 }, 'support-takeover-pause-0001')).status).toBe(200);
+    const stale = await control('resume', { expectedOrderVersion: 2, expectedAutomationVersion: 2 }, 'support-resume-stale-0001'); expect(stale.status).toBe(409); expect(stale.body.error.code).toBe('VERSION_CONFLICT');
+    expect((await control('resume', { expectedOrderVersion: 3, expectedAutomationVersion: 2 }, 'support-resume-current-0001')).status).toBe(200);
+    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.order).toMatchObject({ status: 'ACCEPTED', version: 3 }); expect(state.reservationAmountMinor).toBe(4000); expect(state.reservationCreateCount).toBe(1); expect(state.automationControl).toMatchObject({ state: 'RUNNING', version: 3, resumeValidatedOrderVersion: 3 });
+  });
 });

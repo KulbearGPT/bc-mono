@@ -55,6 +55,9 @@ const faults = new Set<string>();
 let clockOffsetMs = 0;
 let nextOAuthIsNonStaff = false;
 const fixtureNow = () => new Date(Date.now() + clockOffsetMs);
+type FixtureFeature = 'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6';
+const enabledFixtureFeatures: FixtureFeature[] = ['CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6'];
+const fixtureFeaturePolicy = { phase: 'OFF' as const, enabledFeatures: enabledFixtureFeatures, isEnabled: (feature: FixtureFeature) => enabledFixtureFeatures.includes(feature) };
 type Job = { id: string; type: string; status: 'FAILED' | 'COMPLETED'; attempts: number; lastError: string | null; runAfter: string; version: number };
 const initialJob: Job = { id: '00000000-0000-0000-0000-000000000401', type: 'PANEL_SYNC', status: 'FAILED', attempts: 1, lastError: 'Discord timeout', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
 const nonRetryableJob: Job = { id: '00000000-0000-0000-0000-000000000402', type: 'SETTLEMENT_EXECUTION', status: 'FAILED', attempts: 1, lastError: 'External transfer is manual', runAfter: '2026-08-05T00:00:00.000Z', version: 1 };
@@ -74,6 +77,8 @@ const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E
 let orderResolutionCount = 0;
 const orderParticipants: Array<Record<string, unknown>> = [];
 let reservationAmountMinor = 4_000;
+const automationControl = { state: 'RUNNING', version: 1, pausedByStaffId: null as string | null, resumeValidatedOrderVersion: null as number | null };
+let reservationCreateCount = 1;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
@@ -106,10 +111,16 @@ let earningPaymentWrites = 0;
 const roleMapping = { guildId, discordRoleId: 'role-e2e-l4', targetLevel: 'L4_ADMIN_OWNER', enabled: true, version: 1, reconciliationQueued: false };
 const settlementBatches: Array<Record<string, unknown>> = [];
 const weeklyReports: Array<Record<string, unknown>> = [];
+const outboxMessages: Array<{ id: string; status: 'PENDING' | 'COMPLETED'; attempts: number }> = [];
+let workerRunning = true;
+let workerSideEffectCount = 0;
+let apiRuntimeEpoch = 1;
+let workerRuntimeEpoch = 1;
 
 function resetState() {
   clockOffsetMs = 0;
   nextOAuthIsNonStaff = false;
+  enabledFixtureFeatures.splice(0, enabledFixtureFeatures.length, 'CORE_ORDER', 'GIFTS', 'REFERRALS', 'M6');
   tasks.clear();
   tasks.set(initialTask.id, { ...initialTask, notes: [] });
   jobs.clear();
@@ -120,6 +131,8 @@ function resetState() {
   orderResolutionCount = 0;
   orderParticipants.length = 0;
   reservationAmountMinor = 4_000;
+  Object.assign(automationControl, { state: 'RUNNING', version: 1, pausedByStaffId: null, resumeValidatedOrderVersion: null });
+  reservationCreateCount = 1;
   Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
   riskEvents.length = 0;
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
@@ -137,6 +150,7 @@ function resetState() {
   Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
   settlementBatches.length = 0;
   weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'USD', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
+  outboxMessages.length = 0; workerRunning = true; workerSideEffectCount = 0; apiRuntimeEpoch = 1; workerRuntimeEpoch = 1;
   auditSink.records.length = 0;
   faults.clear();
   for (const actor of Object.values(actors)) authStore.setCurrentPermissionsVersion(actor.staffId, actor.permissionsVersion);
@@ -190,7 +204,7 @@ const server = buildApiServer({
     NODE_ENV: 'test', DATABASE_URL: 'postgresql://unused', API_PORT: String(port), API_BASE_URL: `http://${host}:${port}`,
     BOT_SERVICE_TOKEN: 'dashboard-e2e-bot-token', PAGINATION_CURSOR_SIGNING_SECRET: 'dashboard-e2e-pagination-secret-which-is-long-enough'
   },
-  security: { staffDirectory: directory, dashboardSessions: authStore, auditSink, businessEnvironment: 'SANDBOX' },
+  security: { staffDirectory: directory, dashboardSessions: authStore, auditSink, businessEnvironment: 'SANDBOX', pilotFeaturePolicy: fixtureFeaturePolicy },
   dashboardAuth: { store: authStore, oauth, staffDirectory: directory, guildId, dashboardUrl, secureCookies: false, now: fixtureNow },
   dashboardMetrics: { store: new InMemoryDashboardMetricsStore({ facts: { todayOrderCount: 1, inProgressOrderCount: 1, pendingStaffTaskCount: 1, completedOrderNetConsumptionMinor: 12_500, giftNetConsumptionMinor: 0, activeReservedMinor: 4_000, dispatchAcceptedCount: 19, dispatchStartedCount: 20, exceptionCount: 0 } }) }
 });
@@ -400,6 +414,15 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     orderResolutionCount += 1;
     return { order: { ...orderRecord }, reservationStatus: 'RELEASED', refundEntryCount: 1, earningEntryCount: Number(body.playerEarning?.amountMinor) > 0 ? 1 : 0 };
   }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/pause', permission: 'order.reassign', action: 'PAUSE_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  handler: (request, actor) => { const body = request.body as { expectedOrderVersion?: unknown }; if (body.expectedOrderVersion !== orderRecord.version || automationControl.state !== 'RUNNING') throw new Error('STALE_AUTOMATION'); automationControl.state = 'PAUSED'; automationControl.version += 1; automationControl.pausedByStaffId = actor.actorStaffId!; return { orderId: orderRecord.id, orderVersion: orderRecord.version, automation: { ...automationControl }, reservationAmountMinor }; }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/resume', permission: 'order.resume', action: 'RESUME_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_AUTOMATION' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'Current order and reservation facts must be revalidated.' } : null,
+  handler: (request) => { const body = request.body as { expectedOrderVersion?: unknown; expectedAutomationVersion?: unknown }; if (body.expectedOrderVersion !== orderRecord.version || body.expectedAutomationVersion !== automationControl.version || automationControl.state !== 'PAUSED') throw new Error('STALE_AUTOMATION'); automationControl.state = 'RUNNING'; automationControl.version += 1; automationControl.resumeValidatedOrderVersion = orderRecord.version; return { orderId: orderRecord.id, orderVersion: orderRecord.version, automation: { ...automationControl }, reservationAmountMinor }; }
 });
 
 const businessLists = [
@@ -727,13 +750,18 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 server.post('/__e2e/revoke-session', async () => { authStore.setCurrentPermissionsVersion(staff.staffId, 2); return { ok: true }; });
 server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
+server.post('/__e2e/features/core-only', async () => { enabledFixtureFeatures.splice(0, enabledFixtureFeatures.length, 'CORE_ORDER'); return { enabledFeatures: enabledFixtureFeatures }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
 server.post('/__e2e/capture-order', async () => { orderRecord.status = 'COMPLETED'; return { ...orderRecord }; });
 server.post('/__e2e/set-replacement-cycle', async () => { if (settlementBatches[0] && settlementBatches[1]) settlementBatches[1].replacementBatchId = settlementBatches[0].id; return { ok: true }; });
+server.post('/__e2e/worker/stop', async () => { workerRunning = false; return { workerRunning }; });
+server.post('/__e2e/outbox/enqueue', async () => { if (!outboxMessages.some((item) => item.id === 'outbox-e2e-1')) outboxMessages.push({ id: 'outbox-e2e-1', status: 'PENDING', attempts: 0 }); return { items: outboxMessages }; });
+server.post('/__e2e/worker/start', async () => { workerRunning = true; for (const item of outboxMessages) if (item.status === 'PENDING') { item.status = 'COMPLETED'; item.attempts += 1; workerSideEffectCount += 1; } return { workerRunning, items: outboxMessages }; });
+server.post('/__e2e/restart-runtimes', async () => { apiRuntimeEpoch += 1; workerRuntimeEpoch += 1; workerRunning = true; return { apiRuntimeEpoch, workerRuntimeEpoch }; });
 server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
