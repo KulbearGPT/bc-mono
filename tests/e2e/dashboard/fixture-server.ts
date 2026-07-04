@@ -36,6 +36,9 @@ const owner = {
   permissionsVersion: 1,
   status: 'ACTIVE' as const
 };
+const ownerReviewer = {
+  staffId: '00000000-0000-0000-0000-000000000116', userId: '00000000-0000-0000-0000-000000000016', level: 'L4_ADMIN_OWNER' as const, permissionsVersion: 1, status: 'ACTIVE' as const
+};
 const mfaCandidate = {
   staffId: '00000000-0000-0000-0000-000000000115',
   userId: '00000000-0000-0000-0000-000000000015',
@@ -43,7 +46,7 @@ const mfaCandidate = {
   permissionsVersion: 1,
   status: 'ACTIVE' as const
 };
-const actors = { l1: staff, l2: supervisor, l3: operator, l4: owner, mfa: mfaCandidate } as const;
+const actors = { l1: staff, l2: supervisor, l3: operator, l4: owner, l4b: ownerReviewer, mfa: mfaCandidate } as const;
 
 const authStore = new InMemoryDashboardAuthStore();
 const auditSink = new InMemoryAuditSink();
@@ -99,6 +102,8 @@ const giftRequestRecords: Array<Record<string, unknown>> = [];
 const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
 let earningPaymentWrites = 0;
 const roleMapping = { guildId, discordRoleId: 'role-e2e-l4', targetLevel: 'L4_ADMIN_OWNER', enabled: true, version: 1, reconciliationQueued: false };
+const settlementBatches: Array<Record<string, unknown>> = [];
+const weeklyReports: Array<Record<string, unknown>> = [];
 
 function resetState() {
   clockOffsetMs = 0;
@@ -127,6 +132,8 @@ function resetState() {
   Object.assign(earningRecord, { status: 'PENDING', version: 1, confirmedAt: null, paidAt: null });
   earningPaymentWrites = 0;
   Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
+  settlementBatches.length = 0;
+  weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'USD', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
   auditSink.records.length = 0;
   faults.clear();
   for (const actor of Object.values(actors)) authStore.setCurrentPermissionsVersion(actor.staffId, actor.permissionsVersion);
@@ -151,12 +158,12 @@ function generateTotp(secret: string, at = new Date()): string {
 }
 
 const actorTotpSecrets = new Map<string, string>();
-for (const actor of [operator, owner]) {
+for (const [key, actor] of [['l3', operator], ['l4', owner], ['l4b', ownerReviewer]] as const) {
   const enrollment = authStore.beginMfaEnrollment({ staffId: actor.staffId, accountName: `${actor.level}@e2e` });
   const secret = new URL(enrollment.provisioningUri).searchParams.get('secret');
   if (!secret) throw new Error('E2E MFA enrollment did not return a TOTP secret.');
   authStore.verifyMfaEnrollment({ staffId: actor.staffId, enrollmentId: enrollment.enrollmentId, proof: generateTotp(secret) });
-  actorTotpSecrets.set(actor.level === 'L3_OPERATIONS' ? 'l3' : 'l4', secret);
+  actorTotpSecrets.set(key, secret);
 }
 resetState();
 
@@ -307,6 +314,47 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     if ((request.params as { level: string }).level !== roleMapping.targetLevel || body.guildId !== guildId || body.expectedVersion !== roleMapping.version || typeof body.discordRoleId !== 'string' || typeof body.reasonCode !== 'string') throw new Error('STALE_ROLE_MAPPING');
     roleMapping.discordRoleId = body.discordRoleId; roleMapping.version += 1; roleMapping.reconciliationQueued = true; return { ...roleMapping };
   }
+});
+
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/settlement-batches', permission: 'settlement.read', action: 'LIST_E2E_SETTLEMENTS', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'], handler: () => ({ items: settlementBatches })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches/preview', permission: 'settlement.manage', action: 'PREVIEW_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
+  handler: (request) => { const body = request.body as { periodStart?: unknown }; return String(body.periodStart).startsWith('2099') ? { items: [], metrics: { netPayableMinor: 0 } } : { id: 'settlement-preview', publicId: 'PREVIEW', status: 'PREVIEW', periodStart: body.periodStart, periodEnd: (request.body as Record<string, unknown>).periodEnd, currency: 'USD', netAmountMinor: 4000, items: [{ id: 'preview-item', netAmountMinor: 4000 }] }; }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches', permission: 'settlement.manage', action: 'CREATE_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+  handler: (request, actor) => { const body = request.body as { periodStart?: unknown; periodEnd?: unknown; cutoffAt?: unknown; currency?: unknown }; if (body.currency !== 'CAT' && body.currency !== 'USD') throw new Error('INVALID_SETTLEMENT'); const high = String(body.periodStart).includes('2026-09'); const index = settlementBatches.length + 1; const record = { id: `settlement-e2e-${index}`, publicId: `S-E2E-${String(index).padStart(3, '0')}`, status: 'DRAFT', periodStart: body.periodStart, periodEnd: body.periodEnd, cutoffAt: body.cutoffAt, currency: body.currency, netAmountMinor: high ? 600_000 : 4_000, version: 1, createdByStaffId: actor.actorStaffId, approvedByStaffId: null, sourceLocked: false, replacementBatchId: null, items: [{ id: `settlement-item-${index}-1`, playerDisplayName: 'E2E 陪玩 A', netAmountMinor: high ? 350_000 : 2500, paymentStatus: 'UNREGISTERED', version: 1 }, { id: `settlement-item-${index}-2`, playerDisplayName: 'E2E 陪玩 B', netAmountMinor: high ? 250_000 : 1500, paymentStatus: 'UNREGISTERED', version: 1 }] }; settlementBatches.push(record); return record; }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches/:batchId/submit', permission: 'settlement.manage', action: 'SUBMIT_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
+  handler: (request) => { const batch = settlementBatches.find((item) => item.id === (request.params as { batchId: string }).batchId); const body = request.body as { expectedVersion?: unknown }; if (!batch || batch.status !== 'DRAFT' || batch.version !== body.expectedVersion) throw new Error('STALE_SETTLEMENT'); batch.status = 'PENDING_REVIEW'; batch.version = Number(batch.version) + 1; batch.sourceLocked = true; return { ...batch }; }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches/:batchId/approve', permission: 'settlement.approve', action: 'APPROVE_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'SELF_APPROVAL' ? { statusCode: 403, code: 'SEPARATION_OF_DUTIES', message: 'The creator cannot approve this high-value batch.' } : null,
+  handler: (request, actor) => { const batch = settlementBatches.find((item) => item.id === (request.params as { batchId: string }).batchId); const body = request.body as { expectedVersion?: unknown }; if (!batch || batch.status !== 'PENDING_REVIEW' || batch.version !== body.expectedVersion) throw new Error('STALE_SETTLEMENT'); if (Number(batch.netAmountMinor) >= 500_000 && batch.createdByStaffId === actor.actorStaffId) throw new Error('SELF_APPROVAL'); batch.status = 'APPROVED'; batch.version = Number(batch.version) + 1; batch.approvedByStaffId = actor.actorStaffId; return { ...batch }; }
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/settlement-batches/:batchId/exports/:exportType', permission: 'settlement.manage', action: 'EXPORT_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
+  handler: (request) => { const batch = settlementBatches.find((item) => item.id === (request.params as { batchId: string }).batchId); if (!batch) throw new Error('MISSING_SETTLEMENT'); if (batch.status === 'APPROVED') { batch.status = 'EXPORTED'; batch.version = Number(batch.version) + 1; } return `settlement_item_id,player,amount_minor,currency\n${(batch.items as Array<Record<string, unknown>>).map((item) => `${item.id},${item.playerDisplayName},${item.netAmountMinor},${batch.currency}`).join('\n')}\nTOTAL,,${batch.netAmountMinor},${batch.currency}\n`; },
+  rawResponse: (payload, reply) => { reply.header('content-disposition', 'attachment; filename="settlement-transfer-list.csv"'); reply.type('text/csv; charset=utf-8'); return reply.send(`\uFEFF${String(payload)}`); }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches/:batchId/payment-results', permission: 'settlement.manage', action: 'REGISTER_E2E_SETTLEMENT_PAYMENTS', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
+  handler: (request) => { const batch = settlementBatches.find((item) => item.id === (request.params as { batchId: string }).batchId); const body = request.body as { expectedBatchVersion?: unknown; results?: Array<{ settlementItemId?: unknown; expectedVersion?: unknown; result?: unknown; note?: unknown }> }; if (!batch || batch.version !== body.expectedBatchVersion || !Array.isArray(body.results)) throw new Error('STALE_SETTLEMENT'); for (const result of body.results) { const item = (batch.items as Array<Record<string, unknown>>).find((value) => value.id === result.settlementItemId); if (!item || item.version !== result.expectedVersion || item.paymentStatus !== 'UNREGISTERED') throw new Error('STALE_SETTLEMENT_PAYMENT'); item.paymentStatus = result.result; item.paymentNote = result.note; item.version = Number(item.version) + 1; } batch.status = (batch.items as Array<Record<string, unknown>>).every((item) => item.paymentStatus === 'SUCCEEDED') ? 'PAID' : 'PARTIALLY_PAID'; batch.version = Number(batch.version) + 1; return { ...batch }; }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/settlement-batches/:batchId/void', permission: 'settlement.void', action: 'VOID_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
+  mapError: (error) => error instanceof Error && error.message === 'INVALID_REPLACEMENT' ? { statusCode: 422, code: 'INVALID_REPLACEMENT', message: 'Replacement must be same Guild/currency and acyclic.' } : null,
+  handler: (request) => { const batch = settlementBatches.find((item) => item.id === (request.params as { batchId: string }).batchId); const body = request.body as { expectedVersion?: unknown; replacementBatchId?: unknown; replacement?: { guildId?: unknown; currency?: unknown } }; const replacement = settlementBatches.find((item) => item.id === body.replacementBatchId); if (!batch || batch.version !== body.expectedVersion || !['APPROVED', 'EXPORTED'].includes(String(batch.status))) throw new Error('STALE_SETTLEMENT'); if (!replacement || replacement.id === batch.id || replacement.currency !== batch.currency || body.replacement?.guildId !== guildId || body.replacement?.currency !== batch.currency || replacement.replacementBatchId === batch.id) throw new Error('INVALID_REPLACEMENT'); batch.status = 'VOID'; batch.replacementBatchId = replacement.id; batch.version = Number(batch.version) + 1; return { ...batch }; }
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/weekly-reports', permission: 'weekly_report.read', action: 'LIST_E2E_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], handler: () => ({ items: weeklyReports })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/weekly-reports/:reportId/export', permission: 'weekly_report.read', action: 'EXPORT_E2E_WEEKLY_REPORT', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], handler: () => 'period_start,period_end,order_revenue_minor,gift_revenue_minor,adjustments_minor,net_payable_minor,currency\n2026-07-27,2026-08-03,10000,2000,-500,11500,USD\n', rawResponse: (payload, reply) => { reply.type('text/csv; charset=utf-8'); return reply.send(`\uFEFF${String(payload)}`); }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -673,10 +721,11 @@ server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
 server.post('/__e2e/capture-order', async () => { orderRecord.status = 'COMPLETED'; return { ...orderRecord }; });
+server.post('/__e2e/set-replacement-cycle', async () => { if (settlementBatches[0] && settlementBatches[1]) settlementBatches[1].replacementBatchId = settlementBatches[0].id; return { ok: true }; });
 server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
