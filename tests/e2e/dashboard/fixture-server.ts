@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import multipart from '@fastify/multipart';
 import { buildApiServer } from '../../../apps/api/src/server.ts';
 import { InMemoryDashboardAuthStore, type DiscordOAuthProvider } from '../../../apps/api/src/dashboard-auth.ts';
 import { InMemoryDashboardMetricsStore } from '../../../apps/api/src/dashboard-metrics.ts';
@@ -75,8 +76,9 @@ const orderParticipants: Array<Record<string, unknown>> = [];
 let reservationAmountMinor = 4_000;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
-const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'CAT' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
-const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'CAT'; sourceType: string; sourceId: string; occurredAt: string }> = [];
+const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
+const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; occurredAt: string }> = [];
+const receiptAttachments: Array<{ id: string; evidenceId: string; mediaType: string; originalFileName: string; private: true }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
 const compensationRules: Array<{ serviceOfferingId: string; type: 'PERCENT_BPS' | 'FIXED_MINOR'; value: number; currency: 'CAT' | null; version: number }> = [];
 const initialBusinessTags = [
@@ -122,6 +124,7 @@ function resetState() {
   riskEvents.length = 0;
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
   walletEntries.length = 0;
+  receiptAttachments.length = 0;
   Object.assign(playerRecord, { reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [] });
   compensationRules.length = 0;
   businessTags.splice(0, businessTags.length, ...initialBusinessTags.map((tag) => ({ ...tag })));
@@ -191,6 +194,7 @@ const server = buildApiServer({
   dashboardAuth: { store: authStore, oauth, staffDirectory: directory, guildId, dashboardUrl, secureCookies: false, now: fixtureNow },
   dashboardMetrics: { store: new InMemoryDashboardMetricsStore({ facts: { todayOrderCount: 1, inProgressOrderCount: 1, pendingStaffTaskCount: 1, completedOrderNetConsumptionMinor: 12_500, giftNetConsumptionMinor: 0, activeReservedMinor: 4_000, dispatchAcceptedCount: 19, dispatchStartedCount: 20, exceptionCount: 0 } }) }
 });
+server.register(multipart, { limits: { fileSize: 1_048_576, files: 1, fields: 2 } });
 
 server.get('/__e2e/oauth', async (request, reply) => {
   const { state } = request.query as { state?: string };
@@ -218,17 +222,17 @@ registerSecureReadRoute(server, server.securityOptions!, {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary', permission: 'customer_profile.read', action: 'GET_E2E_PROFILE_SUMMARY', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: (request) => ({ user: { id: userRecord.id, discordUserId: userRecord.discordUserId, status: userRecord.status }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderConsumptionMinor: 8_000, giftConsumptionMinor: 1_000, currency: 'CAT' }, preferences: { language: 'zh-CN' }, internalNotes: [], riskFlags: [] })
+  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id, discordUserId: userRecord.discordUserId, status: userRecord.status }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: [], riskFlags: [] })
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/orders', permission: 'customer_profile.read', action: 'LIST_E2E_PROFILE_ORDERS', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: () => ({ items: [{ id: orderRecord.id, publicId: orderRecord.publicId, status: orderRecord.status, amountMinor: orderRecord.amountMinor, currency: 'USD', createdAt: orderRecord.createdAt }], nextCursor: null })
+  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'profile-order-2', publicId: 'P-PROFILE-002', status: 'COMPLETED', amountMinor: 2500, currency: 'USD', createdAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: orderRecord.id, publicId: orderRecord.publicId, status: orderRecord.status, amountMinor: orderRecord.amountMinor, currency: 'USD', createdAt: orderRecord.createdAt }], nextCursor: 'profile-orders-2' }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
-  method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_E2E_WALLET', targetType: 'wallet', acceptedSources: ['DASHBOARD'], handler: () => ({ ...walletBalance })
+  method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_E2E_WALLET', targetType: 'wallet', acceptedSources: ['DASHBOARD'], handler: () => { if (faults.has('wallet')) throw new Error('E2E_WALLET_FAILURE'); return { ...walletBalance }; }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
-  method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_E2E_WALLET_ENTRIES', targetType: 'wallet_entry', acceptedSources: ['DASHBOARD'], handler: () => [...walletEntries]
+  method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_E2E_WALLET_ENTRIES', targetType: 'wallet_entry', acceptedSources: ['DASHBOARD'], handler: () => { if (faults.has('wallet')) throw new Error('E2E_WALLET_FAILURE'); return [...walletEntries]; }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -237,10 +241,14 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     const body = request.body as { paidAmountUsdCents?: unknown; paidCurrency?: unknown; paymentMethod?: unknown; receiptNumber?: unknown; paidAt?: unknown; note?: unknown; reasonCode?: unknown };
     if (!Number.isSafeInteger(body.paidAmountUsdCents) || Number(body.paidAmountUsdCents) <= 0 || body.paidCurrency !== 'USD' || !body.receiptNumber || !body.paidAt || !body.note || !body.reasonCode) throw new Error('INVALID_TOP_UP');
     const amountMinor = Number(body.paidAmountUsdCents);
-    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'MANUAL_TOP_UP', direction: 'CREDIT' as const, amountMinor, currency: 'CAT' as const, sourceType: 'STAFF_TOP_UP', sourceId: String(body.receiptNumber), occurredAt: String(body.paidAt) };
+    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'MANUAL_TOP_UP', direction: 'CREDIT' as const, amountMinor, currency: 'USD' as const, sourceType: 'STAFF_TOP_UP', sourceId: String(body.receiptNumber), occurredAt: String(body.paidAt) };
     walletEntries.push(entry); walletBalance.ledgerBalanceMinor += amountMinor; walletBalance.availableMinor += amountMinor; walletBalance.version += 1;
     return entry;
   }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/users/:userId/receipt-attachments', permission: 'wallet.top_up', action: 'CREATE_E2E_RECEIPT_ATTACHMENT', targetType: 'receipt_attachment', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+  handler: async (request) => { let evidenceId = ''; let mediaType = ''; let originalFileName = ''; for await (const part of request.parts()) { if (part.type === 'field' && part.fieldname === 'evidenceId') evidenceId = String(part.value); if (part.type === 'file') { mediaType = part.mimetype; originalFileName = part.filename; for await (const _chunk of part.file) { /* consume private fixture bytes */ } } } if (!evidenceId || !mediaType) throw new Error('INVALID_RECEIPT'); const attachment = { id: `receipt-attachment-${receiptAttachments.length + 1}`, evidenceId, mediaType, originalFileName, private: true as const }; receiptAttachments.push(attachment); return attachment; }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/service-packages/:packageId', permission: 'catalog.read', action: 'GET_E2E_PACKAGE', targetType: 'service_package', acceptedSources: ['DASHBOARD'],
@@ -281,7 +289,7 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     if (body.expectedWalletVersion !== walletBalance.version) throw new Error('STALE_WALLET');
     if (!Number.isSafeInteger(body.amountMinor) || Number(body.amountMinor) <= 0 || Number(body.amountMinor) > walletBalance.availableMinor) throw new Error('INVALID_REFUND');
     const amountMinor = Number(body.amountMinor);
-    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'EXTERNAL_REFUND_DEBIT', direction: 'DEBIT' as const, amountMinor, currency: 'CAT' as const, sourceType: 'EXTERNAL_REFUND', sourceId: String(body.externalTransactionId), occurredAt: String(body.refundedAt) };
+    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'EXTERNAL_REFUND_DEBIT', direction: 'DEBIT' as const, amountMinor, currency: 'USD' as const, sourceType: 'EXTERNAL_REFUND', sourceId: String(body.externalTransactionId), occurredAt: String(body.refundedAt) };
     walletEntries.push(entry); walletBalance.ledgerBalanceMinor -= amountMinor; walletBalance.availableMinor -= amountMinor; walletBalance.version += 1;
     return entry;
   }
@@ -638,7 +646,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/consumptions', permission: 'user.read', action: 'LIST_E2E_USER_CONSUMPTIONS', targetType: 'user', acceptedSources: ['DASHBOARD'],
-  handler: () => ({ items: [{ id: 'consumption-e2e', type: 'ORDER', amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: null })
+  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'consumption-e2e-2', type: 'GIFT', sourceId: 'gift-2', amountMinor: 1000, currency: 'USD', occurredAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: 'consumption-e2e', type: 'ORDER', sourceId: orderRecord.id, amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'profile-consumptions-2' }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -726,6 +734,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });

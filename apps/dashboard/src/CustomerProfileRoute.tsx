@@ -8,6 +8,7 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   const client = useMemo(() => createDashboardApiClient(), []); const [windowValue, setWindow] = useState<'DAYS_30' | 'DAYS_90' | 'ALL'>('DAYS_30');
   const [modules, setModules] = useState<CustomerProfileModules>(loadingModules());
   const [wallet,setWallet]=useState<{balance:WalletBalance;entries:WalletEntry[];busy:boolean}|null>(null);
+  const [walletError,setWalletError]=useState<string|null>(null);
   const fundingKeys=useRef<Partial<Record<'TOP_UP'|'CASH_REFUND_DEBIT',string>>>({});
   const mayRead = props.capabilities.permissions.includes('customer_profile.read');
 
@@ -24,9 +25,9 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
       internal: { kind: 'READY', data: {}, notes: array(data.internalNotes), riskFlags: stringArray(data.riskFlags) }
     }));
   }
-  async function loadWallet(){const paths=walletPaths(props.userId);const [balanceResponse,entriesResponse]=await Promise.all([client.get(paths.balance),client.get(paths.entries)]);
-    const balanceBody=await balanceResponse.json().catch(()=>null) as Envelope|null;const entriesBody=await entriesResponse.json().catch(()=>null) as {data?:WalletEntry[]}|null;
-    if(balanceResponse.ok&&entriesResponse.ok&&balanceBody?.data&&Array.isArray(entriesBody?.data))setWallet({balance:balanceBody.data as unknown as WalletBalance,entries:entriesBody.data,busy:false});}
+  async function loadWallet(){const paths=walletPaths(props.userId);try{const [balanceResponse,entriesResponse]=await Promise.all([client.get(paths.balance),client.get(paths.entries)]);
+    const balanceBody=await balanceResponse.json().catch(()=>null) as Envelope|null;const entriesBody=await entriesResponse.json().catch(()=>null) as {requestId?:string;data?:WalletEntry[]}|null;
+    if(balanceResponse.ok&&entriesResponse.ok&&balanceBody?.data&&Array.isArray(entriesBody?.data)){setWalletError(null);setWallet({balance:balanceBody.data as unknown as WalletBalance,entries:entriesBody.data,busy:false});return;}setWallet(null);setWalletError(balanceBody?.requestId??entriesBody?.requestId??'—');}catch{setWallet(null);setWalletError('—');}}
   async function fund(kind:'TOP_UP'|'CASH_REFUND_DEBIT',submission:WalletFundingSubmission){if(!wallet||wallet.busy)return;setWallet({...wallet,busy:true});
     const key=fundingKeys.current[kind]??createWalletIdempotencyKey(kind,props.userId);fundingKeys.current[kind]=key;
     const request=buildWalletRequest(kind,props.userId,submission,wallet.balance.version);const response=await client.post(request.path,request.body,key);
@@ -45,7 +46,7 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   function changeWindow(value: 'DAYS_30' | 'DAYS_90' | 'ALL') { setWindow(value); void loadSummary(value); }
   const retry = (module: string) => module === 'orders' || module === 'consumptions' ? void loadPage(module) : void loadSummary();
   return <CustomerProfilePage model={buildCustomerProfileView(modules)} window={windowValue} onWindowChange={changeWindow} onRetryModule={retry}
-    onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet??undefined}
+    onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet??undefined} walletError={walletError}
     onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} />;
 }
 

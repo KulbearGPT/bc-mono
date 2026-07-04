@@ -6,7 +6,7 @@ import type { WalletBalance,WalletEntry,WalletFundingSubmission } from './custom
 export function CustomerProfilePage(props: { model: CustomerProfileView; window: 'DAYS_30' | 'DAYS_90' | 'ALL';
   onWindowChange: (value: 'DAYS_30' | 'DAYS_90' | 'ALL') => void; onRetryModule: (module: string) => void;
   onNextOrders: (cursor: string) => void; onNextConsumptions: (cursor: string) => void;
-  wallet?:{balance:WalletBalance;entries:WalletEntry[];busy:boolean};onTopUp?:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund?:(value:WalletFundingSubmission)=>void|Promise<void> }) {
+  wallet?:{balance:WalletBalance;entries:WalletEntry[];busy:boolean};walletError?:string|null;onTopUp?:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund?:(value:WalletFundingSubmission)=>void|Promise<void> }) {
   const { modules } = props.model; const identity = modules.identity.kind === 'READY' ? modules.identity.data : null;
   return <section className="dashboard-page profile-page" aria-labelledby="profile-title">
     <header className="page-heading"><div><span className="page-eyebrow">CUSTOMER PROFILE</span><h1 id="profile-title">客户 Profile</h1><p>{String(identity?.displayName ?? '客户资料')} · {String(identity?.status ?? '—')}</p></div><div className="page-icon" aria-hidden="true"><UserRound size={24} /></div></header>
@@ -15,6 +15,7 @@ export function CustomerProfilePage(props: { model: CustomerProfileView; window:
       <Module title="余额" state={modules.balance} retry={() => props.onRetryModule('balance')}><Balance data={'data' in modules.balance ? modules.balance.data : undefined} /></Module>
     </div>
     {props.wallet&&props.onTopUp&&props.onExternalRefund?<CustomerWalletPanel userId={String(identity?.userId??'')} {...props.wallet} onTopUp={props.onTopUp} onExternalRefund={props.onExternalRefund}/>:null}
+    {props.walletError&&<section className="content-panel" aria-label="客户钱包"><h2>客户钱包</h2><p className="module-error"><AlertTriangle size={15}/> 钱包模块载入失败</p><small>request_id: {props.walletError}</small></section>}
     <div className="content-panel statistics-panel"><div className="section-title-row"><h2>消费统计</h2><div className="segmented-control" role="group" aria-label="统计窗口">{(['DAYS_30','DAYS_90','ALL'] as const).map((value) => <button key={value} aria-pressed={props.window === value} onClick={() => props.onWindowChange(value)}>{value === 'DAYS_30' ? '30 天' : value === 'DAYS_90' ? '90 天' : '全部'}</button>)}</div></div><Statistics state={modules.statistics} retry={() => props.onRetryModule('statistics')} /></div>
     <div className="profile-detail-stack">
       <DataTable title="订单" module={modules.orders} columns={['编号','状态','服务','陪玩','金额','创建时间']} row={(item) => [item.publicId,item.status,item.serviceKey,item.playerDisplayName,formatProfileMoney(item.amountMinor,item.currency),date(item.createdAt)]} onNext={props.onNextOrders} />
