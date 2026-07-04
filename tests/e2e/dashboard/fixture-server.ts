@@ -68,6 +68,8 @@ const initialTask: StaffTask = {
 const tasks = new Map<string, StaffTask>();
 const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'USD', createdAt: '2026-08-05T00:00:00.000Z' };
 let orderResolutionCount = 0;
+const orderParticipants: Array<Record<string, unknown>> = [];
+let reservationAmountMinor = 4_000;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'CAT' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
@@ -84,6 +86,7 @@ const initialBusinessTags = [
 ] as Array<{ id: string; code: string; type: string; displayName: string; enabled: boolean; version: number }>;
 const businessTags: Array<{ id: string; code: string; type: string; displayName: string; enabled: boolean; version: number }> = [];
 const initialCatalog = { id: '00000000-0000-0000-0000-000000000701', serviceOfferingId: 'offering-e2e-valorant', game: 'VALORANT', gameDisplayName: '无畏契约', service: 'ESCORT', serviceDisplayName: '护航', region: 'NA', regionDisplayName: '北美', status: 'ACTIVE', enabled: true, billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 4000, playerUnitPriceMinor: 2400, defaultPlayerPayoutBps: 6000, currency: 'CAT', version: 1, historicalReferenceCount: 1 };
+const alternateOrderCatalog = { ...initialCatalog, id: 'catalog-e2e-chat', serviceOfferingId: 'offering-e2e-chat', service: 'CHAT', serviceDisplayName: '聊天陪伴', customerUnitPriceMinor: 2500, playerUnitPriceMinor: 1500 };
 const catalogRecords: Array<Record<string, unknown>> = [];
 const initialPackages = [
   { id: 'package-active-v1', code: 'E2E_PACK', displayName: 'E2E 套餐', description: '历史启用版本', status: 'ACTIVE', version: 1, currency: 'CAT', game: 'VALORANT', defaultCustomerPriceMinor: 4000, slots: [{ id: 'slot-v1', position: 1, serviceCatalogVersionId: initialCatalog.id, unitCount: 1, game: 'VALORANT', service: 'ESCORT' }] },
@@ -106,8 +109,10 @@ function resetState() {
   jobs.set(initialJob.id, { ...initialJob });
   jobs.set(nonRetryableJob.id, { ...nonRetryableJob });
   Object.assign(policySetting, { integerValue: 50_000, currency: 'CAT', version: 1 });
-  Object.assign(orderRecord, { version: 3, status: 'ACCEPTED' });
+  Object.assign(orderRecord, { version: 3, status: 'ACCEPTED', amountMinor: 4_000 });
   orderResolutionCount = 0;
+  orderParticipants.length = 0;
+  reservationAmountMinor = 4_000;
   Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
   riskEvents.length = 0;
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
@@ -329,11 +334,11 @@ registerSecureReadRoute(server, server.securityOptions!, {
 
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/resolve', permission: 'order.resolve', action: 'RESOLVE_E2E_ORDER', targetType: 'order', targetId: () => orderRecord.id, acceptedSources: ['DASHBOARD'],
-  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : null,
+  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : error instanceof Error && error.message === 'INVALID_RESOLUTION' ? { statusCode: 422, code: 'RESOLUTION_REJECTED', message: 'The resolution amount exceeds the allowed order facts.' } : null,
   handler: (request) => {
     const body = request.body as { expectedVersion?: unknown; targetStatus?: unknown; refund?: { amountMinor?: unknown; currency?: unknown }; playerEarning?: { amountMinor?: unknown; currency?: unknown } };
     if (body.expectedVersion !== orderRecord.version || orderRecord.status !== 'ACCEPTED') throw new Error('STALE_ORDER');
-    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'USD' || body.playerEarning?.currency !== 'USD') throw new Error('INVALID_RESOLUTION');
+    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'USD' || body.playerEarning?.currency !== 'USD' || !Number.isSafeInteger(body.refund.amountMinor) || Number(body.refund.amountMinor) > orderRecord.amountMinor) throw new Error('INVALID_RESOLUTION');
     orderRecord.status = 'CANCELLED';
     orderRecord.version += 1;
     orderResolutionCount += 1;
@@ -537,12 +542,47 @@ registerSecureWriteRoute(server, server.securityOptions!, {
   }
 });
 
-for (const endpoint of ['participants', 'requirements', 'participant-candidates'] as const) {
-  registerSecureReadRoute(server, server.securityOptions!, {
-    method: 'GET', url: `/api/v1/admin/orders/:orderId/${endpoint}`, permission: 'order.read', action: `READ_E2E_ORDER_${endpoint.toUpperCase()}`, targetType: 'order', acceptedSources: ['DASHBOARD'],
-    handler: () => ({ items: [], nextCursor: null })
-  });
-}
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/orders/:orderId/participants', permission: 'order.read', action: 'READ_E2E_ORDER_PARTICIPANTS', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  handler: () => ({ items: orderParticipants.map((item) => ({ ...item })), derivedTotalMinor: orderParticipants.filter((item) => item.status === 'ACTIVE').reduce((sum, item) => sum + Number(item.linePriceMinor), 0), nextCursor: null })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/orders/:orderId/requirements', permission: 'order.read', action: 'READ_E2E_ORDER_REQUIREMENTS', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  handler: () => ({ items: [], derivedTotalMinor: orderRecord.amountMinor, nextCursor: null })
+});
+registerSecureReadRoute(server, server.securityOptions!, {
+  method: 'GET', url: '/api/v1/admin/orders/:orderId/participant-candidates', permission: 'order.read', action: 'READ_E2E_ORDER_PARTICIPANT_CANDIDATES', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  handler: () => ({ items: Array.from({ length: 9 }, (_, index) => ({ playerId: `player-e2e-${index + 1}`, discordUserId: `discord-player-${index + 1}`, displayName: `E2E 陪玩 ${index + 1}`, projects: [initialCatalog, alternateOrderCatalog] })), nextCursor: null })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/participants', permission: 'order.resolve', action: 'ADD_E2E_ORDER_PARTICIPANT', targetType: 'order_participant', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+  mapError: (error) => error instanceof Error && error.message === 'ORDER_CAPTURED' ? { statusCode: 409, code: 'ORDER_IMMUTABLE', message: 'Captured orders cannot be changed.' } : error instanceof Error && error.message === 'STALE_PARTICIPANT_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : null,
+  handler: (request) => {
+    const body = request.body as { playerId?: unknown; serviceCatalogVersionId?: unknown; unitCount?: unknown; linePriceMinor?: unknown; expectedOrderVersion?: unknown };
+    if (orderRecord.status === 'COMPLETED') throw new Error('ORDER_CAPTURED');
+    if (body.expectedOrderVersion !== orderRecord.version) throw new Error('STALE_PARTICIPANT_ORDER');
+    const catalog = [initialCatalog, alternateOrderCatalog].find((item) => item.id === body.serviceCatalogVersionId);
+    if (!catalog || !Number.isSafeInteger(body.unitCount) || Number(body.unitCount) < 1 || !Number.isSafeInteger(body.linePriceMinor) || Number(body.linePriceMinor) < 1) throw new Error('INVALID_PARTICIPANT');
+    const index = orderParticipants.length + 1;
+    const record = { id: `participant-e2e-${index}`, playerId: String(body.playerId), discordUserId: `discord-${body.playerId}`, discordTag: `player${index}#0001`, displayName: `E2E 陪玩 ${index}`, serviceCatalogVersionId: catalog.id, game: catalog.game, gameDisplayName: catalog.gameDisplayName, service: catalog.service, serviceDisplayName: catalog.serviceDisplayName, region: catalog.region, regionDisplayName: catalog.regionDisplayName, billingUnitMinutes: catalog.billingUnitMinutes, unitCount: Number(body.unitCount), linePriceMinor: Number(body.linePriceMinor), compensationType: 'PERCENT_BPS', compensationValue: 6000, compensationSource: 'CATALOG_DEFAULT', expectedEarningMinor: Math.floor(Number(body.linePriceMinor) * 0.6), status: 'ACTIVE', readiness: 'NOT_READY', version: 1 };
+    orderParticipants.push(record); orderRecord.version += 1; orderRecord.amountMinor = orderParticipants.filter((item) => item.status === 'ACTIVE').reduce((sum, item) => sum + Number(item.linePriceMinor), 0); reservationAmountMinor = orderRecord.amountMinor; return { participant: record, order: { ...orderRecord }, reservationAmountMinor };
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/orders/:orderId/participants/:participantId', permission: 'order.resolve', action: 'UPDATE_E2E_ORDER_PARTICIPANT', targetType: 'order_participant', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'ORDER_CAPTURED' ? { statusCode: 409, code: 'ORDER_IMMUTABLE', message: 'Captured orders cannot be changed.' } : error instanceof Error && error.message === 'STALE_PARTICIPANT_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order or participant version changed.' } : null,
+  handler: (request) => {
+    const participant = orderParticipants.find((item) => item.id === (request.params as { participantId: string }).participantId);
+    const body = request.body as { expectedOrderVersion?: unknown; expectedParticipantVersion?: unknown; action?: unknown; serviceCatalogVersionId?: unknown; unitCount?: unknown; linePriceMinor?: unknown };
+    if (orderRecord.status === 'COMPLETED') throw new Error('ORDER_CAPTURED');
+    if (!participant || body.expectedOrderVersion !== orderRecord.version || body.expectedParticipantVersion !== participant.version) throw new Error('STALE_PARTICIPANT_ORDER');
+    if (body.action === 'REMOVE') participant.status = 'REMOVED';
+    else if (body.action === 'CHANGE_PRICE' && Number.isSafeInteger(body.linePriceMinor) && Number(body.linePriceMinor) > 0) participant.linePriceMinor = Number(body.linePriceMinor);
+    else if (body.action === 'CHANGE_PROJECT') { const catalog = [initialCatalog, alternateOrderCatalog].find((item) => item.id === body.serviceCatalogVersionId); if (!catalog) throw new Error('INVALID_PARTICIPANT'); Object.assign(participant, { serviceCatalogVersionId: catalog.id, service: catalog.service, serviceDisplayName: catalog.serviceDisplayName, unitCount: Number(body.unitCount), linePriceMinor: Number(body.linePriceMinor) }); }
+    else throw new Error('INVALID_PARTICIPANT');
+    participant.version = Number(participant.version) + 1; orderRecord.version += 1; orderRecord.amountMinor = orderParticipants.filter((item) => item.status === 'ACTIVE').reduce((sum, item) => sum + Number(item.linePriceMinor), 0); reservationAmountMinor = orderRecord.amountMinor; return { participant: { ...participant }, order: { ...orderRecord }, reservationAmountMinor };
+  }
+});
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId', permission: 'user.read', action: 'GET_E2E_USER', targetType: 'user', acceptedSources: ['DASHBOARD'],
@@ -632,10 +672,11 @@ server.post('/__e2e/revoke-session', async () => { authStore.setCurrentPermissio
 server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
+server.post('/__e2e/capture-order', async () => { orderRecord.status = 'COMPLETED'; return { ...orderRecord }; });
 server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, user: userRecord, riskEvents, walletBalance, walletEntries, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
