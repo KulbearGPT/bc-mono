@@ -53,6 +53,7 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
     await fillCatalogForm(page, '5500');
     await page.getByLabel('原因码').fill('CATALOG_SUPERSEDE');
     await page.getByRole('dialog', { name: '编辑服务项目操作' }).getByRole('button', { name: '提交', exact: true }).click();
+    await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).catalogRecords.length).toBe(2);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.catalogRecords).toHaveLength(2);
     expect(state.catalogRecords[0]).toMatchObject({ status: 'RETIRED', customerUnitPriceMinor: 4000 });

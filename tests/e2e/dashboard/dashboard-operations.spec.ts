@@ -13,6 +13,7 @@ test.describe('Dashboard browser E2E: audit, jobs, and policies', () => {
     await page.goto('/__e2e/login/l1'); await page.waitForURL('**/');
     await page.getByRole('link', { name: '客服工作台', exact: true }).click();
     await page.getByRole('button', { name: '认领', exact: true }).click();
+    await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).audits.some((record: { action: string }) => record.action === 'CLAIM_E2E_STAFF_TASK')).toBe(true);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     const audit = state.audits.find((record: { action: string }) => record.action === 'CLAIM_E2E_STAFF_TASK');
     expect(audit).toMatchObject({ actorStaffId: '00000000-0000-0000-0000-000000000111', actorLevel: 'L1_SUPPORT', actorSource: 'DASHBOARD', permissionCode: 'staff_task.claim', targetType: 'staff_task', outcome: 'SUCCEEDED' });

@@ -46,8 +46,7 @@ test.describe('Dashboard browser E2E: support workbench', () => {
       const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
       return { status: state.tasks[0].status, version: state.tasks[0].version };
     }).toEqual({ status: 'CLAIMED', version: 2 });
-    const errorCount = await first.page.getByRole('alert').count() + await second.page.getByRole('alert').count();
-    expect(errorCount).toBe(1);
+    await expect.poll(async () => await first.page.getByRole('alert').count() + await second.page.getByRole('alert').count()).toBe(1);
     await first.context.close();
     await second.context.close();
   });
