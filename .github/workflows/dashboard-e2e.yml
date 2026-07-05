@@ -1,0 +1,65 @@
+name: Dashboard E2E
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '30 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: blackcat
+          POSTGRES_PASSWORD: blackcat
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U blackcat -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Prepare isolated database from empty migrations
+        run: npm run e2e:db:prepare
+      - name: PR quick suite
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e:dashboard -- --grep 'DE2E-(SMK|AUTH|SUP-003|ORD-004|WLT-004|PKG-003|SET-003|AUD-001)'
+      - name: Main full suite
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: npm run test:e2e:dashboard
+      - name: Scheduled compatibility suite
+        if: github.event_name == 'schedule'
+        run: |
+          npx playwright install --with-deps firefox webkit
+          npm run test:e2e:dashboard:compat
+      - name: Upload reports and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-e2e-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            evidence/P0/dashboard-e2e/
+            test-results/
