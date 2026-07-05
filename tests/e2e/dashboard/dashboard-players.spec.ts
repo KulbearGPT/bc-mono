@@ -15,8 +15,10 @@ async function approve(page: Page) {
   await page.getByLabel(/护航 · ESCORT/u).check();
   await page.getByLabel(/中文 · ZH_CN/u).check();
   await page.getByLabel('原因码').fill('ONBOARDING_APPROVED');
-  await page.getByRole('dialog', { name: '批准陪玩申请操作' }).getByRole('button', { name: '提交', exact: true }).click();
-  await expect(page.getByText('E2E 陪玩')).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: '批准陪玩申请操作' });
+  await dialog.getByRole('button', { name: '提交', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText('已批准')).toBeVisible();
 }
 
 async function actorPage(browser: Browser) {
@@ -76,9 +78,13 @@ test.describe('Dashboard browser E2E: player onboarding and compensation', () =>
     await page.getByRole('button', { name: '编辑支持范围' }).click();
     await page.getByLabel(/中文 · ZH_CN/u).uncheck();
     await page.getByLabel('原因码').fill('SERVICE_SCOPE_UPDATE');
-    await page.getByRole('dialog', { name: '编辑支持范围操作' }).getByRole('button', { name: '提交', exact: true }).click();
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
-    expect(state.player).toMatchObject({ version: 3, gameTagIds: ['tag-game-valorant'], serviceTagIds: ['tag-service-escort'], languageTagIds: [] });
+    const dialog = page.getByRole('dialog', { name: '编辑支持范围操作' });
+    await dialog.getByRole('button', { name: '提交', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(async () => {
+      const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+      return state.player;
+    }).toMatchObject({ version: 3, gameTagIds: ['tag-game-valorant'], serviceTagIds: ['tag-service-escort'], languageTagIds: [] });
   });
 
   test('DE2E-PLY-006 percentage compensation override is confirmed and persisted per offering', async ({ page, request }) => {
@@ -87,9 +93,13 @@ test.describe('Dashboard browser E2E: player onboarding and compensation', () =>
     await page.getByLabel('分成比例（%）').fill('75');
     await page.getByLabel('原因码').fill('COMPENSATION_UPDATE');
     await page.getByRole('dialog', { name: '设置项目分成操作' }).getByRole('button', { name: '提交', exact: true }).click();
-    await page.getByRole('dialog', { name: '确认项目分成改动' }).getByRole('button', { name: '确认并保存全部' }).click();
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
-    expect(state.compensationRules).toEqual([{ serviceOfferingId: 'offering-e2e-valorant', type: 'PERCENT_BPS', value: 7500, currency: null, version: 1 }]);
+    const confirmation = page.getByRole('dialog', { name: '确认项目分成改动' });
+    await confirmation.getByRole('button', { name: '确认并保存全部' }).click();
+    await expect(confirmation).toBeHidden();
+    await expect.poll(async () => {
+      const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+      return state.compensationRules;
+    }).toEqual([{ serviceOfferingId: 'offering-e2e-valorant', type: 'PERCENT_BPS', value: 7500, currency: null, version: 1 }]);
   });
 
   test('DE2E-PLY-007 concurrent approve and reject accept only one matching version', async ({ browser, request }) => {

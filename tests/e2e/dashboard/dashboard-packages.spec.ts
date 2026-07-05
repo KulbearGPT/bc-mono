@@ -32,6 +32,11 @@ test.describe('Dashboard browser E2E: service package versions', () => {
     const dialog = page.getByRole('dialog', { name: '创建套餐版本操作' });
     await expect(dialog.getByText('800.0 猫条')).toBeVisible();
     await dialog.getByRole('button', { name: '提交', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(async () => {
+      const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+      return state.packageRecords.at(-1)?.code;
+    }).toBe('E2E_DUO');
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     const created = state.packageRecords.at(-1);
     expect(created).toMatchObject({ code: 'E2E_DUO', defaultCustomerPriceMinor: 8000, status: 'DRAFT' });
@@ -77,7 +82,13 @@ test.describe('Dashboard browser E2E: service package versions', () => {
     await active.getByRole('button', { name: '编辑套餐（创建新版本）' }).click();
     await page.getByLabel('展示名称').fill('E2E 套餐复制版');
     await page.getByLabel('原因码').fill('PACKAGE_COPY_EDIT');
-    await page.getByRole('dialog', { name: '编辑套餐（创建新版本）操作' }).getByRole('button', { name: '提交', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '编辑套餐（创建新版本）操作' });
+    await dialog.getByRole('button', { name: '提交', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(async () => {
+      const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+      return state.packageRecords.length;
+    }).toBe(3);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.packageRecords).toHaveLength(3);
     expect(state.packageRecords[0]).toMatchObject({ displayName: 'E2E 套餐', status: 'ACTIVE' });

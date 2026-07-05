@@ -41,14 +41,14 @@ jobs:
       - run: npm ci
       - name: Install browser runtime
         run: npx playwright install --with-deps chromium
-      - name: Prepare isolated database from empty migrations
-        run: npm run e2e:db:prepare
+      - name: Verify plan-to-test coverage
+        run: npm run e2e:coverage:verify
       - name: PR quick suite
         if: github.event_name == 'pull_request'
-        run: npm run test:e2e:dashboard -- --grep 'DE2E-(SMK|AUTH|SUP-003|ORD-004|WLT-004|PKG-003|SET-003|AUD-001)'
+        run: npm run test:e2e:dashboard:isolated -- --grep 'DE2E-(SMK|AUTH|SUP-003|ORD-004|WLT-004|PKG-003|SET-003|AUD-001)'
       - name: Main full suite
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        run: npm run test:e2e:dashboard
+        run: npm run test:e2e:dashboard:isolated
       - name: Scheduled compatibility suite
         if: github.event_name == 'schedule'
         run: |
