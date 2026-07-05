@@ -11,6 +11,7 @@ async function submitAction(page: Page, dialogName: string, reason: string) {
   const dialog = page.getByRole('dialog', { name: dialogName });
   await dialog.getByLabel('原因码').fill(reason);
   await dialog.getByRole('button', { name: '提交', exact: true }).click();
+  await expect(dialog).toBeHidden();
 }
 
 test.describe('Dashboard browser E2E: gifts and player earnings', () => {
@@ -32,8 +33,8 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await dialog.getByLabel('礼物名称').fill('E2E 星光礼物 v2');
     await dialog.getByLabel('价格（minor units）').fill('1500');
     await submitAction(page, '编辑礼物操作', 'GIFT_SUPERSEDE');
+    await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).giftRecords.length).toBe(3);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
-    expect(state.giftRecords).toHaveLength(3);
     expect(state.giftRecords[0]).toMatchObject({ name: 'E2E 星光礼物', priceMinor: 1000, status: 'RETIRED' });
     expect(state.giftRecords[2]).toMatchObject({ name: 'E2E 星光礼物 v2', priceMinor: 1500, status: 'ACTIVE', version: 2 });
   });

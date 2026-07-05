@@ -74,6 +74,12 @@ const initialTask: StaffTask = {
 };
 const tasks = new Map<string, StaffTask>();
 const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'USD', createdAt: '2026-08-05T00:00:00.000Z' };
+type BulkOrder = {
+  id: string; publicId: string; version: number; status: string; customerDiscordId: string; amountMinor: number; currency: 'USD'; createdAt: string;
+  guildId: string; playerEarningMinor: number; reservationStatus: 'ACTIVE' | 'CAPTURED' | 'RELEASED' | 'DISPUTED'; resolutionCount: number;
+  refundMinor: number; earningMinor: number; resolutionReason: string | null;
+};
+const bulkOrders: BulkOrder[] = [];
 let orderResolutionCount = 0;
 const orderParticipants: Array<Record<string, unknown>> = [];
 let reservationAmountMinor = 4_000;
@@ -128,6 +134,7 @@ function resetState() {
   jobs.set(nonRetryableJob.id, { ...nonRetryableJob });
   Object.assign(policySetting, { integerValue: 50_000, currency: 'CAT', version: 1 });
   Object.assign(orderRecord, { version: 3, status: 'ACCEPTED', amountMinor: 4_000 });
+  bulkOrders.length = 0;
   orderResolutionCount = 0;
   orderParticipants.length = 0;
   reservationAmountMinor = 4_000;
@@ -395,24 +402,31 @@ registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/orders/:orderId', permission: 'order.read', action: 'GET_E2E_ORDER_CONTEXT', targetType: 'order', acceptedSources: ['DASHBOARD'],
   handler: (request) => {
     const query = request.query as { timelineCursor?: string };
+    const requestedId = String((request.params as { orderId: string }).orderId);
+    const currentOrder = bulkOrders.find((item) => item.id === requestedId) ?? orderRecord;
     const timeline = query.timelineCursor
       ? { items: [{ id: 'evt-2', type: 'FUND_RESERVED', status: 'COMPLETED', direction: 'DEBIT', amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:01:00.000Z' }], nextCursor: null }
       : { items: [{ id: 'evt-1', type: 'ORDER_ACCEPTED', status: 'COMPLETED', direction: 'INFO', amountMinor: null, currency: null, occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'timeline-2' };
-    return { order: { ...orderRecord, game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航' }, readiness: { customer: 'READY', player: 'PENDING', bothReady: false }, automation: { state: 'RUNNING', reasonCode: null }, matching: { stage: 'ACCEPTED', nextStep: 'WAIT_FOR_READINESS' }, timeline };
+    return { order: { ...currentOrder, game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航' }, readiness: { customer: 'READY', player: currentOrder.status === 'IN_SERVICE' ? 'READY' : 'PENDING', bothReady: currentOrder.status === 'IN_SERVICE' }, automation: { state: bulkOrders.length ? 'PAUSED' : 'RUNNING', reasonCode: bulkOrders.length ? 'SUPPORT_REVIEW' : null }, matching: { stage: currentOrder.status, nextStep: currentOrder.status === 'IN_SERVICE' ? 'SUPPORT_RESOLUTION' : 'WAIT_FOR_READINESS' }, timeline };
   }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
-  method: 'POST', url: '/api/v1/admin/orders/:orderId/resolve', permission: 'order.resolve', action: 'RESOLVE_E2E_ORDER', targetType: 'order', targetId: () => orderRecord.id, acceptedSources: ['DASHBOARD'],
-  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : error instanceof Error && error.message === 'INVALID_RESOLUTION' ? { statusCode: 422, code: 'RESOLUTION_REJECTED', message: 'The resolution amount exceeds the allowed order facts.' } : null,
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/resolve', permission: 'order.resolve', action: 'RESOLVE_E2E_ORDER', targetType: 'order', targetId: (request) => String((request.params as { orderId: string }).orderId), acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : error instanceof Error && error.message === 'TERMINAL_ORDER' ? { statusCode: 409, code: 'ORDER_STATE_CONFLICT', message: 'The order cannot be resolved from its current state.' } : error instanceof Error && error.message === 'INVALID_RESOLUTION' ? { statusCode: 422, code: 'RESOLUTION_REJECTED', message: 'The resolution amount exceeds the allowed order facts.' } : null,
   handler: (request) => {
+    const orderId = String((request.params as { orderId: string }).orderId);
+    const bulkOrder = bulkOrders.find((item) => item.id === orderId);
+    const currentOrder = bulkOrder ?? (orderId === orderRecord.id ? orderRecord : null);
     const body = request.body as { expectedVersion?: unknown; targetStatus?: unknown; refund?: { amountMinor?: unknown; currency?: unknown }; playerEarning?: { amountMinor?: unknown; currency?: unknown } };
-    if (body.expectedVersion !== orderRecord.version || orderRecord.status !== 'ACCEPTED') throw new Error('STALE_ORDER');
-    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'USD' || body.playerEarning?.currency !== 'USD' || !Number.isSafeInteger(body.refund.amountMinor) || Number(body.refund.amountMinor) > orderRecord.amountMinor) throw new Error('INVALID_RESOLUTION');
-    orderRecord.status = 'CANCELLED';
-    orderRecord.version += 1;
-    orderResolutionCount += 1;
-    return { order: { ...orderRecord }, reservationStatus: 'RELEASED', refundEntryCount: 1, earningEntryCount: Number(body.playerEarning?.amountMinor) > 0 ? 1 : 0 };
+    if (!currentOrder || body.expectedVersion !== currentOrder.version) throw new Error('STALE_ORDER');
+    if (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'].includes(currentOrder.status)) throw new Error('TERMINAL_ORDER');
+    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'USD' || body.playerEarning?.currency !== 'USD' || !Number.isSafeInteger(body.refund.amountMinor) || Number(body.refund.amountMinor) > currentOrder.amountMinor) throw new Error('INVALID_RESOLUTION');
+    currentOrder.status = 'CANCELLED';
+    currentOrder.version += 1;
+    if (bulkOrder) { bulkOrder.reservationStatus = 'RELEASED'; bulkOrder.resolutionCount += 1; bulkOrder.refundMinor = Number(body.refund.amountMinor); bulkOrder.earningMinor = Number(body.playerEarning?.amountMinor ?? 0); bulkOrder.resolutionReason = String((request.body as { reasonCode?: unknown }).reasonCode ?? ''); }
+    else orderResolutionCount += 1;
+    return { order: { ...currentOrder }, reservationStatus: 'RELEASED', refundEntryCount: 1, earningEntryCount: Number(body.playerEarning?.amountMinor) > 0 ? 1 : 0 };
   }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -442,10 +456,17 @@ for (const definition of businessLists) {
     method: 'GET', url: definition.url, permission: definition.permission, action: `LIST_E2E_${definition.target.toUpperCase()}`, targetType: definition.target, acceptedSources: ['DASHBOARD'],
     handler: (request) => {
       if (faults.has(definition.target)) throw new Error(`E2E_${definition.target.toUpperCase()}_FAILURE`);
-      const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string };
-      let items = definition.items.filter((item) => (!['service_catalog', 'gift_catalog'].includes(definition.target) || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
+      const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string; limit?: string };
+      const sourceItems: readonly Record<string, unknown>[] = definition.target === 'order' && bulkOrders.length ? bulkOrders : definition.items;
+      let items = sourceItems.filter((item) => (!['service_catalog', 'gift_catalog'].includes(definition.target) || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
       if (query.query) items = items.filter((item) => JSON.stringify(item).toLowerCase().includes(query.query!.toLowerCase()));
       if (definition.target === 'order' && !query.query && !query.status) {
+        if (bulkOrders.length) {
+          const limit = Math.min(50, Math.max(1, Number(query.limit) || 25));
+          const offset = query.cursor?.startsWith('bulk-order:') ? Number(query.cursor.slice('bulk-order:'.length)) : 0;
+          const nextOffset = offset + limit;
+          return { items: items.slice(offset, nextOffset), nextCursor: nextOffset < items.length ? `bulk-order:${nextOffset}` : null };
+        }
         return query.cursor ? { items: items.slice(1), nextCursor: null } : { items: items.slice(0, 1), nextCursor: 'order-page-2' };
       }
       return { items, nextCursor: null };
@@ -749,6 +770,23 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 
 server.post('/__e2e/revoke-session', async () => { authStore.setCurrentPermissionsVersion(staff.staffId, 2); return { ok: true }; });
 server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
+server.post('/__e2e/orders/bulk', async (request, reply) => {
+  const requestedCount = Number((request.body as { count?: unknown })?.count);
+  if (!Number.isSafeInteger(requestedCount) || requestedCount < 1 || requestedCount > 50) return reply.code(400).send({ error: 'count must be an integer from 1 to 50' });
+  const tailStatuses = ['PENDING_DISPATCH', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION'] as const;
+  bulkOrders.splice(0, bulkOrders.length, ...Array.from({ length: requestedCount }, (_, offset): BulkOrder => {
+    const index = offset + 1;
+    const status = index <= 12 ? 'ACCEPTED' : tailStatuses[Math.floor((index - 13) / 4) % tailStatuses.length]!;
+    const reservationStatus: BulkOrder['reservationStatus'] = status === 'COMPLETED' ? 'CAPTURED' : status === 'CANCELLED' ? 'RELEASED' : status === 'EXCEPTION' || status === 'PENDING_CONFIRMATION' ? 'DISPUTED' : 'ACTIVE';
+    const amountMinor = 1_000 + index * 125;
+    return { id: `10000000-0000-0000-0000-${String(index).padStart(12, '0')}`, publicId: `P-BULK-${String(index).padStart(3, '0')}`, version: 1 + (index % 3), status, customerDiscordId: `bulk-customer-${String(index).padStart(3, '0')}`, amountMinor, playerEarningMinor: Math.floor(amountMinor * 0.6), currency: 'USD', createdAt: new Date(Date.UTC(2026, 7, 5, 0, 0, 0) - offset * 60_000).toISOString(), guildId, reservationStatus, resolutionCount: 0, refundMinor: 0, earningMinor: 0, resolutionReason: null };
+  }));
+  const cancellation = bulkOrders.find((order) => order.status === 'ACCEPTED')!;
+  const interruption = bulkOrders.find((order) => order.status === 'IN_SERVICE')!;
+  tasks.set('20000000-0000-0000-0000-000000000001', { id: '20000000-0000-0000-0000-000000000001', publicId: 'T-BULK-CANCEL', type: 'CANCELLATION_ASSIST', status: 'OPEN', version: 1, claimedBy: null, orderId: cancellation.id, channelId: '1200000000000000021', voiceChannelId: null, guildId, createdAt: '2026-08-05T01:00:00.000Z', notes: [] });
+  tasks.set('20000000-0000-0000-0000-000000000002', { id: '20000000-0000-0000-0000-000000000002', publicId: 'T-BULK-INTERRUPT', type: 'SERVICE_INTERRUPTION', status: 'OPEN', version: 1, claimedBy: null, orderId: interruption.id, channelId: '1200000000000000022', voiceChannelId: '1200000000000000032', guildId, createdAt: '2026-08-05T01:05:00.000Z', notes: [] });
+  return reply.code(201).send({ orders: bulkOrders.map((order) => ({ ...order })) });
+});
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
 server.post('/__e2e/features/core-only', async () => { enabledFixtureFeatures.splice(0, enabledFixtureFeatures.length, 'CORE_ORDER'); return { enabledFeatures: enabledFixtureFeatures }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
@@ -762,6 +800,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
