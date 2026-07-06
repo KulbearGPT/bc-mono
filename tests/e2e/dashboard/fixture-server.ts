@@ -92,6 +92,7 @@ const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availa
 const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; occurredAt: string }> = [];
 const receiptAttachments: Array<{ id: string; evidenceId: string; mediaType: string; originalFileName: string; private: true }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
+const bulkPlayers: Array<Record<string, unknown>> = [];
 const compensationRules: Array<{ serviceOfferingId: string; type: 'PERCENT_BPS' | 'FIXED_MINOR'; value: number; currency: 'CAT' | null; version: number }> = [];
 const initialBusinessTags = [
   { id: 'tag-game-valorant', code: 'VALORANT', type: 'GAME', displayName: '无畏契约', enabled: true, version: 1 },
@@ -148,6 +149,7 @@ function resetState() {
   walletEntries.length = 0;
   receiptAttachments.length = 0;
   Object.assign(playerRecord, { reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [] });
+  bulkPlayers.length = 0;
   compensationRules.length = 0;
   businessTags.splice(0, businessTags.length, ...initialBusinessTags.map((tag) => ({ ...tag })));
   catalogRecords.splice(0, catalogRecords.length, { ...initialCatalog });
@@ -459,7 +461,7 @@ for (const definition of businessLists) {
     handler: (request) => {
       if (faults.has(definition.target)) throw new Error(`E2E_${definition.target.toUpperCase()}_FAILURE`);
       const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string; limit?: string };
-      const sourceItems: readonly Record<string, unknown>[] = definition.target === 'order' && bulkOrders.length ? bulkOrders : definition.target === 'user' && bulkUsers.length ? bulkUsers : definition.items;
+      const sourceItems: readonly Record<string, unknown>[] = definition.target === 'order' && bulkOrders.length ? bulkOrders : definition.target === 'user' && bulkUsers.length ? bulkUsers : definition.target === 'player' && bulkPlayers.length ? bulkPlayers : definition.items;
       let items = sourceItems.filter((item) => (!['service_catalog', 'gift_catalog'].includes(definition.target) || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
       if (query.query) items = items.filter((item) => JSON.stringify(item).toLowerCase().includes(query.query!.toLowerCase()));
       if (definition.target === 'order' && !query.query && !query.status) {
@@ -797,6 +799,13 @@ server.post('/__e2e/users/bulk', async (request, reply) => {
   bulkUsers.splice(0, bulkUsers.length, ...parsed as (typeof bulkUsers));
   return reply.code(201).send({ users: bulkUsers.map((user) => ({ ...user })) });
 });
+server.post('/__e2e/players/bulk', async (request, reply) => {
+  const count = Number((request.body as { count?: unknown })?.count);
+  if (!Number.isSafeInteger(count) || count < 1 || count > 30) return reply.code(400).send({ error: 'count must be an integer from 1 to 30' });
+  const others = Array.from({ length: count - 1 }, (_, offset) => ({ id: `daily-profile-${offset + 1}`, playerId: `30000000-0000-0000-0000-${String(offset + 1).padStart(12, '0')}`, displayName: `待审陪玩 ${String(offset + 1).padStart(2, '0')}`, reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [], createdAt: new Date(Date.UTC(2026, 7, 2, 0, offset)).toISOString() }));
+  bulkPlayers.splice(0, bulkPlayers.length, ...others.slice(0, 5), playerRecord, ...others.slice(5));
+  return reply.code(201).send({ players: bulkPlayers.map((player) => ({ ...player })) });
+});
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
 server.post('/__e2e/features/core-only', async () => { enabledFixtureFeatures.splice(0, enabledFixtureFeatures.length, 'CORE_ORDER'); return { enabledFeatures: enabledFixtureFeatures }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
@@ -810,6 +819,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
