@@ -32,10 +32,10 @@ describe("M9-US-13 candidate-pool dispatch replacement", () => {
         version: 1,
       },
     });
-    const waits = message.components.slice(0, 2).flatMap((row) => row.components);
+    const waits = message.components.slice(0, 1).flatMap((row) => row.components);
     expect(waits.every((component) => component.type === "STRING_SELECT")).toBe(true);
     expect(waits.flatMap((component) => component.options?.map((option) => option.value) ?? [])).toEqual(
-      Array.from({ length: 30 }, (_, index) => String(index + 1)),
+      ["3", "5", "10", "15", "30"],
     );
   });
 

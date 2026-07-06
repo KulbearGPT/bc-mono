@@ -3450,24 +3450,23 @@ export function buildSubmittedOrderMessage(
 }
 
 function selectionWaitRows(customId: string): MessageComponentSpec[] {
-  return [
-    { suffix: "a", from: 1, to: 15 },
-    { suffix: "b", from: 16, to: 30 },
-  ].map(({ suffix, from, to }) => ({
-    type: "ACTION_ROW" as const,
+  const waitMinutes = [3, 5, 10, 15, 30];
+  return [{
+    type: "ACTION_ROW",
     components: [
       {
-        type: "STRING_SELECT" as const,
-        customId: `${customId}:${suffix}`,
-        placeholder: `选择 ${from}–${to} 分钟`,
+        type: "STRING_SELECT",
+        customId,
+        placeholder: "选择等待时间",
         minValues: 1,
         maxValues: 1,
-        options: Array.from({ length: to - from + 1 }, (_, index) => from + index).map(
-          (minutes) => ({ label: `等待 ${minutes} 分钟`, value: String(minutes) }),
-        ),
+        options: waitMinutes.map((minutes) => ({
+          label: `等待 ${minutes} 分钟`,
+          value: String(minutes),
+        })),
       },
     ],
-  }));
+  }];
 }
 
 export function buildCancellationResultMessage(

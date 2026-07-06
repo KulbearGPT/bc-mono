@@ -35,7 +35,8 @@ describe('M11-US-01 selection-pool dispatch contract', () => {
     ]);
 
     expect(spec).toContain('M11 候选池选秀式派单补充合同');
-    expect(spec).toContain('客户可选择一至三十分钟');
+    expect(spec).toContain('Bot 提供 3、5、10、15、30 分钟报名等待预设');
+    expect(spec).toContain('API 校验一至三十分钟整数边界');
     expect(spec).toContain('选秀阶段不设置业务超时');
     expect(spec).toContain('报名和进入选秀语音房均不占用活动订单槽位');
     expect(spec).toContain('不以 Discord presence 或手动 AVAILABLE 状态作为报名资格');

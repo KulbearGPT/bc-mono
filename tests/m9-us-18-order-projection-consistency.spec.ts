@@ -24,16 +24,12 @@ describe('M9-US-18 durable order projection consistency', () => {
     expectTransactionalPanelSync(method(source, 'async commitReadinessTimeout(input:', 'export async function rejectLegacyStartService'), 'ORDER_READINESS_TIMEOUT_CHANNEL_SYNC');
   });
 
-  test('submit and cancellation transactions persist a panel sync alongside the order write', async () => {
+  test('automation and cancellation transactions persist a panel sync alongside the order write', async () => {
     const source = await readFile('apps/api/src/orders.ts', 'utf8');
     const postgres = source.slice(source.indexOf('export class PostgresOrderStore'));
     const helper = method(source, 'async function insertOrderPanelSync', 'async function updateSubmittedOrder');
     expect(helper).toContain("'PANEL_SYNC'");
     expect(method(postgres, 'async commitAutomationControl(input:', 'async commitSubmit(input:')).toContain('ORDER_AUTOMATION_CHANNEL_SYNC');
-    const submit = method(postgres, 'async commitSubmit(input:', 'async commitCancel(input:');
-    expect(submit).toContain('insertOrderPanelSync');
-    expect(submit).toContain('ORDER_SUBMITTED_CHANNEL_SYNC');
-    expect(submit.indexOf('insertOrderPanelSync')).toBeLessThan(submit.indexOf("query('COMMIT')"));
     const cancel = method(postgres, 'async commitCancel(input:', 'const activeOrderStatuses');
     expect(cancel).toContain('insertOrderPanelSync');
     expect(cancel).toContain('ORDER_CANCELLED_CHANNEL_SYNC');

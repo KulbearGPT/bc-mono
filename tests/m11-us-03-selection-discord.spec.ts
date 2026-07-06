@@ -19,7 +19,19 @@ const requirementId = "00000000-0000-0000-0000-000000011050";
 const applicationId = "00000000-0000-0000-0000-000000011060";
 
 describe("M11-US-03 Discord selection flow", () => {
-  test("offers every whole-minute wait from one through thirty within Discord select limits", () => {
+  test("does not let the retired pending-dispatch panel overwrite the wait-time selector", async () => {
+    const source = await readFile("apps/api/src/orders.ts", "utf8");
+    const postgres = source.slice(source.indexOf("export class PostgresOrderStore"));
+    const commitSubmit = postgres.slice(
+      postgres.indexOf("async commitSubmit(input:"),
+      postgres.indexOf("async commitCancel(input:"),
+    );
+
+    expect(commitSubmit).not.toContain("ORDER_SUBMITTED_CHANNEL_SYNC");
+    expect(commitSubmit).not.toContain("insertOrderPanelSync");
+  });
+
+  test("offers the five customer-approved wait-time presets", () => {
     const message = buildSubmittedOrderMessage({
       orderId,
       status: "PENDING_DISPATCH",
@@ -45,11 +57,10 @@ describe("M11-US-03 Discord selection flow", () => {
     const selects = message.components.flatMap((row) => row.components).filter(
       (component) => component.type === "STRING_SELECT" && component.customId.startsWith("bc:sp:new:"),
     );
-    expect(selects).toHaveLength(2);
-    expect(selects.every((select) => select.options.length <= 25)).toBe(true);
-    expect(selects.flatMap((select) => select.options.map((option) => Number(option.value)))).toEqual(
-      Array.from({ length: 30 }, (_, index) => index + 1),
-    );
+    expect(selects).toHaveLength(1);
+    expect(selects[0]!.options.map((option) => Number(option.value))).toEqual([
+      3, 5, 10, 15, 30,
+    ]);
   });
 
   test("renders nine-project apply and private customer selection controls under Discord custom-id limits", () => {
