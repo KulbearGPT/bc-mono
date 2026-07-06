@@ -10,6 +10,11 @@ export type AdminBusinessPageId =
   | 'playerEarnings';
 
 export type AdminPageStatus = 'LOADING' | 'READY' | 'ERROR';
+export type AdminCollectionPageId = Extract<AdminBusinessPageId,'orders'|'users'|'players'|'serviceCatalog'|'servicePackages'|'giftCatalog'|'giftRequests'>;
+export type AdminCollectionView = 'CARD' | 'TABLE';
+export type AdminSortDirection = 'asc' | 'desc';
+export interface AdminCollectionState {view:AdminCollectionView;sortBy:string;sortDirection:AdminSortDirection;filters:Record<string,string>}
+export interface AdminCollectionConfig {sortOptions:ReadonlyArray<{id:string;label:string}>;defaultSort:{sortBy:string;sortDirection:AdminSortDirection};columns:ReadonlyArray<{key:string;label:string}>}
 
 export interface AdminBusinessNavigationItem {
   id: AdminBusinessPageId;
@@ -161,6 +166,21 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
   }
 ];
 
+const defaultSort={sortBy:'createdAt',sortDirection:'desc' as const};
+export const adminCollectionConfigs:Record<AdminCollectionPageId,AdminCollectionConfig>={
+  orders:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'amountMinor',label:'订单金额'}],defaultSort,columns:[{key:'publicId',label:'订单号'},{key:'status',label:'状态'},{key:'customerId',label:'老板 ID'},{key:'playerId',label:'陪玩 ID'},{key:'amountMinor',label:'订单金额'},{key:'createdAt',label:'创建时间'}]},
+  users:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'status',label:'状态'},{key:'discordUserId',label:'Discord 用户 ID'},{key:'activeOrderId',label:'当前订单'},{key:'createdAt',label:'创建时间'}]},
+  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'availability',label:'接单状态'},{key:'discordPresence',label:'Discord 在线状态'},{key:'createdAt',label:'创建时间'}]},
+  serviceCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'offeringName',label:'项目名称'},{id:'customerUnitPriceMinor',label:'客户单价'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'gameDisplayName',label:'游戏'},{key:'serviceDisplayName',label:'服务'},{key:'status',label:'状态'},{key:'customerUnitPriceMinor',label:'客户单价'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
+  servicePackages:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'displayName',label:'套餐名称'},{id:'defaultCustomerPriceMinor',label:'套餐价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'displayName',label:'套餐名称'},{key:'status',label:'状态'},{key:'defaultCustomerPriceMinor',label:'套餐价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
+  giftCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'name',label:'礼物名称'},{id:'priceMinor',label:'礼物价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'name',label:'礼物名称'},{key:'status',label:'状态'},{key:'priceMinor',label:'礼物价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
+  giftRequests:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'amountMinor',label:'礼物金额'},{id:'expiresAt',label:'过期时间'}],defaultSort,columns:[{key:'publicId',label:'请求编号'},{key:'giftName',label:'礼物名称'},{key:'status',label:'状态'},{key:'senderDisplayName',label:'赠送用户'},{key:'receiverDisplayName',label:'目标陪玩'},{key:'amountMinor',label:'礼物金额'},{key:'expiresAt',label:'过期时间'}]}
+};
+
+export function isAdminCollectionPage(page:AdminBusinessPageId):page is AdminCollectionPageId{return Object.hasOwn(adminCollectionConfigs,page);}
+export function readAdminCollectionState(page:AdminCollectionPageId,search:string):AdminCollectionState{const config=adminCollectionConfigs[page];const definition=requirePageDefinition(page);const params=new URLSearchParams(search);const view=params.get('view')==='TABLE'?'TABLE':'CARD';const requestedSort=params.get('sortBy');const sortBy=config.sortOptions.some(option=>option.id===requestedSort)?requestedSort!:config.defaultSort.sortBy;const sortDirection=params.get('sortDirection')==='asc'||params.get('sortDirection')==='desc'?params.get('sortDirection') as AdminSortDirection:config.defaultSort.sortDirection;const filters:Record<string,string>={};for(const filter of definition.filters){const value=params.get(filter.id)?.trim();if(value)filters[filter.id]=value;}return{view,sortBy,sortDirection,filters};}
+export function buildAdminCollectionUrl(page:AdminCollectionPageId,state:AdminCollectionState):string{const params=new URLSearchParams({view:state.view,sortBy:state.sortBy,sortDirection:state.sortDirection});const allowed=new Set(requirePageDefinition(page).filters.map(filter=>filter.id));for(const[key,value]of Object.entries(state.filters)){if(allowed.has(key)&&value.trim())params.set(key,value.trim());}return`${requirePageDefinition(page).href}?${params.toString()}`;}
+
 export function buildAdminBusinessNavigation(permissions: string[], enabledFeatures?: string[]): AdminBusinessNavigationItem[] {
   const allowed = new Set(permissions);
   return pageDefinitions
@@ -216,6 +236,8 @@ export function buildAdminResourceQuery(input: {
   status?: string | null;
   reviewStatus?: string | null;
   playerId?: string | null;
+  sortBy?: string | null;
+  sortDirection?: AdminSortDirection | null;
 }): string {
   const params = new URLSearchParams();
   appendTrimmed(params, 'cursor', input.cursor);
@@ -227,6 +249,8 @@ export function buildAdminResourceQuery(input: {
   appendTrimmed(params, 'status', input.status);
   appendTrimmed(params, 'reviewStatus', input.reviewStatus);
   appendTrimmed(params, 'playerId', input.playerId);
+  appendTrimmed(params, 'sortBy', input.sortBy);
+  appendTrimmed(params, 'sortDirection', input.sortDirection);
   const query = params.toString();
   return query ? `?${query}` : '';
 }

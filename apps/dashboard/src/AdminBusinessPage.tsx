@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel } from './admin-business.js';
-import { formatMinorCurrency, readAdminOrderTimeline } from './admin-business.js';
+import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel, AdminCollectionView, AdminSortDirection } from './admin-business.js';
+import { adminCollectionConfigs, formatMinorCurrency, isAdminCollectionPage, readAdminOrderTimeline } from './admin-business.js';
 import type { BusinessTagGroups, BusinessTagRecord } from './business-tags.js';
 import { dashboardFieldLabel } from './table-labels.js';
 
@@ -11,6 +11,12 @@ export function AdminBusinessPage(props: {
   onClearFilters?: () => void;
   onNextPage?: (cursor: string) => void;
   onFilter?: (filters: Record<string, string>) => void;
+  view?: AdminCollectionView;
+  sortBy?: string;
+  sortDirection?: AdminSortDirection;
+  activeFilters?: Record<string,string>;
+  onViewChange?: (view:AdminCollectionView)=>void;
+  onSortChange?: (sortBy:string,sortDirection:AdminSortDirection)=>void;
   onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
   activeAction?: { action: AdminBusinessAction; item?: Record<string, unknown> } | null;
   actionStatus?: 'IDLE' | 'SUBMITTING' | 'ERROR';
@@ -31,6 +37,8 @@ export function AdminBusinessPage(props: {
   onUpdateOrderParticipant?: (fields:Record<string,unknown>)=>void;
 }) {
   const { model } = props;
+  const collectionConfig=isAdminCollectionPage(model.page)?adminCollectionConfigs[model.page]:null;
+  const view=props.view??'CARD';
   if (model.kind === 'FORBIDDEN') {
     return <section className="dashboard-page" aria-labelledby="admin-page-title"><header className="page-heading"><div><span className="page-eyebrow">BUSINESS OPS</span><h1 id="admin-page-title">无权访问</h1><p>当前账号缺少此工作区所需权限：{model.requiredPermission}</p></div></header></section>;
   }
@@ -46,24 +54,14 @@ export function AdminBusinessPage(props: {
         </div>
       </header>
 
-      {model.filters.length > 0 && (
-        <form className="content-panel filter-bar" aria-label="列表筛选" onSubmit={(event) => submitFilters(event, props.onFilter)}>
-          {model.filters.map((filter) => <input key={filter.id} name={filter.id} aria-label={filter.label} placeholder={filter.label} />)}
-          <button className="button-primary" type="submit">筛选</button>
-          <button type="button" onClick={props.onClearFilters}>清除</button>
-        </form>
-      )}
+      {collectionConfig?<AdminCollectionToolbar model={model} config={collectionConfig} view={view} sortBy={props.sortBy??collectionConfig.defaultSort.sortBy} sortDirection={props.sortDirection??collectionConfig.defaultSort.sortDirection} activeFilters={props.activeFilters??{}} onFilter={props.onFilter} onClearFilters={props.onClearFilters} onViewChange={props.onViewChange} onSortChange={props.onSortChange}/>:model.filters.length>0&&<form className="content-panel filter-bar" aria-label="列表筛选" onSubmit={(event)=>submitFilters(event,props.onFilter)}>{model.filters.map((filter)=><input key={filter.id} name={filter.id} aria-label={filter.label} placeholder={filter.label}/>) }<button className="button-primary" type="submit">筛选</button><button type="button" onClick={props.onClearFilters}>清除</button></form>}
 
       {model.kind === 'LOADING' && <div className="state-card" aria-busy="true">正在载入...</div>}
       {model.kind === 'ERROR' && (
         <div className="state-card state-card--error" role="alert"><p>数据暂时无法载入。{model.requestId ? ` request_id: ${model.requestId}` : ''}</p><button type="button" onClick={props.onRetry}>重试</button></div>
       )}
       {model.kind === 'EMPTY' && <div className="state-card"><p>当前筛选下没有记录。</p><button type="button" onClick={props.onClearFilters}>清除筛选</button></div>}
-      {model.kind === 'READY' && (model.page === 'orders'
-        ? <OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
-        : ['players','serviceCatalog','servicePackages'].includes(model.page)
-          ? <BusinessDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
-          : <AdminBusinessTable model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions} />)}
+      {model.kind === 'READY' && (collectionConfig?(view==='TABLE'?<AdminBusinessTable model={model} columns={collectionConfig.columns} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions}/>:model.page==='orders'?<OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail}/>:<BusinessDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail}/>):<AdminBusinessTable model={model} columns={[]} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions}/>)}
 
       {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} serviceCatalogOptions={props.serviceCatalogOptions} participantPlayerOptions={props.participantPlayerOptions} participantMutationError={props.participantMutationError} onAddOrderParticipant={props.onAddOrderParticipant} onUpdateOrderParticipant={props.onUpdateOrderParticipant} /></DashboardOverlay>}
       {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
@@ -74,6 +72,20 @@ export function AdminBusinessPage(props: {
       )}
     </section>
   );
+}
+
+function AdminCollectionToolbar(props:{model:AdminBusinessPageModel;config:(typeof adminCollectionConfigs)[keyof typeof adminCollectionConfigs];view:AdminCollectionView;sortBy:string;sortDirection:AdminSortDirection;activeFilters:Record<string,string>;onFilter?:(filters:Record<string,string>)=>void;onClearFilters?:()=>void;onViewChange?:(view:AdminCollectionView)=>void;onSortChange?:(sortBy:string,direction:AdminSortDirection)=>void}){
+  return <section className="content-panel collection-toolbar" aria-label="集合浏览工具栏">
+    <form className="collection-toolbar__filters" aria-label="列表筛选" key={JSON.stringify(props.activeFilters)} onSubmit={(event)=>submitFilters(event,props.onFilter)}>
+      {props.model.filters.map((filter)=><input key={filter.id} name={filter.id} aria-label={filter.label} placeholder={filter.label} defaultValue={props.activeFilters[filter.id]??''}/>)}
+      {props.model.filters.length>0&&<><button className="button-primary" type="submit">筛选</button><button type="button" onClick={props.onClearFilters}>清除</button></>}
+    </form>
+    <div className="collection-toolbar__controls">
+      <label><span>排序字段</span><select aria-label="排序字段" value={props.sortBy} onChange={(event)=>props.onSortChange?.(event.currentTarget.value,props.sortDirection)}>{props.config.sortOptions.map((option)=><option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+      <label><span>排序方向</span><select aria-label="排序方向" value={props.sortDirection} onChange={(event)=>props.onSortChange?.(props.sortBy,event.currentTarget.value as AdminSortDirection)}><option value="desc">降序</option><option value="asc">升序</option></select></label>
+      <div className="collection-view-switch" role="group" aria-label="视图模式"><button type="button" aria-pressed={props.view==='CARD'} onClick={()=>props.onViewChange?.('CARD')}>卡片</button><button type="button" aria-pressed={props.view==='TABLE'} onClick={()=>props.onViewChange?.('TABLE')}>表格</button></div>
+    </div>
+  </section>;
 }
 
 function DashboardOverlay(props: { label: string; onClose?: () => void; children: ReactNode }) {
@@ -164,6 +176,7 @@ function BusinessDiscussionGrid(props: {
 }
 
 function businessCardContent(page: AdminBusinessPageModel['page'], item: Record<string, unknown>, index: number): { eyebrow: string; title: string; summary: string; status: string; statusLabel: string; facts: Array<{ label: string; value: string; muted?: boolean; strong?: boolean }> } {
+  if(page==='users'){const status=textValue(item.status)||'ACTIVE';return{eyebrow:`用户档案 · ${compactIdentifier(item.id)}`,title:textValue(item.displayName)||textValue(item.discordUsername)||`用户 ${index+1}`,summary:textValue(item.discordUsername)?`Discord · ${textValue(item.discordUsername)}`:'Discord 资料待补充',status,statusLabel:catalogStatusLabel(status),facts:[{label:'Discord 用户 ID',value:textValue(item.discordUserId)||'—'},{label:'当前订单',value:compactIdentifier(item.activeOrderId),muted:!item.activeOrderId},{label:'风险标记',value:Array.isArray(item.riskFlags)&&item.riskFlags.length?`${item.riskFlags.length} 项`:'无'},{label:'创建时间',value:formatOrderDate(item.createdAt)}]};}
   if (page === 'players') {
     const status = textValue(item.reviewStatus) || (item.active === false ? 'INACTIVE' : 'ACTIVE');
     return { eyebrow: `陪玩档案 · ${compactIdentifier(item.playerId || item.id)}`, title: textValue(item.displayName) || textValue(item.discordTag) || `陪玩 ${index + 1}`, summary: [textValue(item.discordTag), textValue(item.gameTags), textValue(item.serviceTags)].filter(Boolean).join(' · ') || '支持范围待配置', status, statusLabel: playerStatusLabel(status), facts: [{ label: 'Discord Tag', value: textValue(item.discordTag) || '—' }, { label: '陪玩编号', value: compactIdentifier(item.playerId || item.id) }, { label: '运营状态', value: item.active === false ? '已停用' : '可参与派单' }, { label: '版本', value: scalarValue(item.version) }] };
@@ -175,6 +188,8 @@ function businessCardContent(page: AdminBusinessPageModel['page'], item: Record<
     const minutes = numberValue(item.billingUnitMinutes);
     return { eyebrow: `服务版本 · ${textValue(item.code) || compactIdentifier(item.id)}`, title: `${game} · ${service}`, summary: [textValue(item.regionDisplayName) || textValue(item.region) || '不限区服', minutes ? `每单位 ${minutes} 分钟` : '计费单位待配置'].join(' · '), status, statusLabel: catalogStatusLabel(status), facts: [{ label: '客户单价', value: priceValue(item.customerUnitPriceMinor, item.currency), strong: typeof item.customerUnitPriceMinor === 'number' }, { label: '服务代码', value: textValue(item.service) || textValue(item.code) || '—' }, { label: '计费单位', value: minutes ? `${minutes} 分钟` : '—' }, { label: '版本', value: scalarValue(item.version) }] };
   }
+  if(page==='giftCatalog'){const status=textValue(item.status)||(item.enabled===false?'INACTIVE':'ACTIVE');return{eyebrow:`礼物版本 · ${textValue(item.code)||compactIdentifier(item.id)}`,title:textValue(item.name)||`礼物 ${index+1}`,summary:textValue(item.giftCategoryTagDetails)||'礼物目录',status,statusLabel:catalogStatusLabel(status),facts:[{label:'礼物价格',value:priceValue(item.priceMinor,item.currency),strong:typeof item.priceMinor==='number'},{label:'稳定代码',value:textValue(item.code)||'—'},{label:'版本',value:scalarValue(item.version)},{label:'创建时间',value:formatOrderDate(item.createdAt)}]};}
+  if(page==='giftRequests'){const status=textValue(item.status)||'PENDING_REVIEW';return{eyebrow:`礼物请求 · ${textValue(item.publicId)||compactIdentifier(item.id)}`,title:textValue(item.giftName)||`礼物请求 ${index+1}`,summary:[textValue(item.senderDisplayName)||'未知用户',textValue(item.receiverDisplayName)||'未知陪玩'].join(' → '),status,statusLabel:catalogStatusLabel(status),facts:[{label:'礼物金额',value:priceValue(item.amountMinor,item.currency),strong:typeof item.amountMinor==='number'},{label:'订单号',value:textValue(item.orderPublicId)||compactIdentifier(item.orderId)},{label:'过期时间',value:formatOrderDate(item.expiresAt)},{label:'创建时间',value:formatOrderDate(item.createdAt)}]};}
   const status = textValue(item.status) || 'DRAFT';
   const slots = Array.isArray(item.slots) ? item.slots : [];
   return { eyebrow: `服务套餐 · ${textValue(item.code) || compactIdentifier(item.id)}`, title: textValue(item.displayName) || textValue(item.code) || `套餐 ${index + 1}`, summary: textValue(item.description) || '套餐说明待补充', status, statusLabel: catalogStatusLabel(status), facts: [{ label: '默认陪玩席位', value: slots.length ? `${slots.length} 个独立席位` : '席位待配置' }, { label: '套餐价格', value: priceValue(item.defaultCustomerPriceMinor, item.currency), strong: typeof item.defaultCustomerPriceMinor === 'number' }, { label: '稳定代码', value: textValue(item.code) || '—' }, { label: '版本', value: scalarValue(item.version) }] };
@@ -216,18 +231,19 @@ function orderStatusLabel(status: string): string {
 
 function AdminBusinessTable(props: {
   model: AdminBusinessPageModel;
+  columns:ReadonlyArray<{key:string;label:string}>;
   onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
   onOpenDetail?: (item: Record<string, unknown>) => void;
   businessTagOptions?: BusinessTagGroups;
 }) {
-  const columns = collectColumns(props.model.items);
+  const columns=props.columns.length?props.columns:props.model.page==='commissions'?[{key:'id',label:'编号'},{key:'status',label:'状态'},{key:'sourceType',label:'来源类型'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}]:[{key:'id',label:'编号'},{key:'playerId',label:'陪玩编号'},{key:'status',label:'状态'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}];
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
   const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftCatalog', 'giftRequests'].includes(props.model.page);
   const hasOperations = itemActions.length > 0 || hasDetail;
   return (
-    <div className="table-scroll content-panel content-panel--flush">
-      <table className="data-table">
-        <thead><tr>{hasOperations && <th className="data-column--actions" scope="col" title="actions">操作</th>}{columns.map((column) => <th className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column} scope="col" title={column}>{dashboardFieldLabel(column)}</th>)}</tr></thead>
+    <div className="content-panel content-panel--flush collection-table-view">
+      <div className="table-scroll collection-desktop-table"><table className="data-table">
+        <thead><tr>{hasOperations && <th className="data-column--actions" scope="col" title="actions">操作</th>}{columns.map((column) => <th className={column.key.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column.key} scope="col" title={column.key}>{column.label||dashboardFieldLabel(column.key)}</th>)}</tr></thead>
         <tbody>{props.model.items.map((item, index) => (
           <tr key={typeof item.id === 'string' ? item.id : index}>
             {hasOperations && <td className="table-actions">
@@ -236,10 +252,11 @@ function AdminBusinessTable(props: {
                 {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
               </div>
             </td>}
-            {columns.map((column) => <td className={column.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column}>{displayValue(column, item[column], item.currency, props.businessTagOptions)}</td>)}
+            {columns.map((column) => <td className={column.key.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column.key}>{displayValue(column.key, item[column.key], item.currency, props.businessTagOptions)}</td>)}
           </tr>
         ))}</tbody>
-      </table>
+      </table></div>
+      <div className="collection-row-list">{props.model.items.map((item,index)=><article className="collection-list-row" key={typeof item.id==='string'?item.id:index} tabIndex={0}><dl>{columns.map((column)=><div key={column.key}><dt>{column.label}</dt><dd>{displayValue(column.key,item[column.key],item.currency,props.businessTagOptions)}</dd></div>)}</dl>{hasOperations&&<div className="table-actions__group">{hasDetail&&<button type="button" onClick={()=>props.onOpenDetail?.(item)}>查看详情</button>}{itemActions.filter((action)=>playerActionApplies(action,item)).map((action)=><button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={()=>props.onAction?.(action,item)}>{action.label}</button>)}</div>}</article>)}</div>
     </div>
   );
 }
@@ -590,10 +607,6 @@ function submitFilters(event: FormEvent<HTMLFormElement>, onFilter?: (filters: R
     if (typeof value === 'string' && value.trim()) values[key] = value.trim();
   }
   onFilter?.(values);
-}
-
-function collectColumns(items: ReadonlyArray<Record<string, unknown>>): string[] {
-  return Array.from(new Set(items.flatMap((item) => Object.keys(item)))).filter((column) => !column.toLowerCase().includes('idempotency'));
 }
 
 function displayValue(column: string, value: unknown, currency: unknown, tags?: BusinessTagGroups): string {
