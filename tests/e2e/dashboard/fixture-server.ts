@@ -86,6 +86,7 @@ let reservationAmountMinor = 4_000;
 const automationControl = { state: 'RUNNING', version: 1, pausedByStaffId: null as string | null, resumeValidatedOrderVersion: null as number | null };
 let reservationCreateCount = 1;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
+const bulkUsers: Array<{ id: string; discordUserId: string; status: string; operationalStatus: string; version: number; createdAt: string }> = [];
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
 const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; occurredAt: string }> = [];
@@ -141,6 +142,7 @@ function resetState() {
   Object.assign(automationControl, { state: 'RUNNING', version: 1, pausedByStaffId: null, resumeValidatedOrderVersion: null });
   reservationCreateCount = 1;
   Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
+  bulkUsers.length = 0;
   riskEvents.length = 0;
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
   walletEntries.length = 0;
@@ -457,7 +459,7 @@ for (const definition of businessLists) {
     handler: (request) => {
       if (faults.has(definition.target)) throw new Error(`E2E_${definition.target.toUpperCase()}_FAILURE`);
       const query = request.query as { query?: string; status?: string; reviewStatus?: string; cursor?: string; limit?: string };
-      const sourceItems: readonly Record<string, unknown>[] = definition.target === 'order' && bulkOrders.length ? bulkOrders : definition.items;
+      const sourceItems: readonly Record<string, unknown>[] = definition.target === 'order' && bulkOrders.length ? bulkOrders : definition.target === 'user' && bulkUsers.length ? bulkUsers : definition.items;
       let items = sourceItems.filter((item) => (!['service_catalog', 'gift_catalog'].includes(definition.target) || !('status' in item) || item.status !== 'ARCHIVED') && (!query.status || !('status' in item) || item.status === query.status) && (!query.reviewStatus || !('reviewStatus' in item) || item.reviewStatus === query.reviewStatus));
       if (query.query) items = items.filter((item) => JSON.stringify(item).toLowerCase().includes(query.query!.toLowerCase()));
       if (definition.target === 'order' && !query.query && !query.status) {
@@ -787,6 +789,14 @@ server.post('/__e2e/orders/bulk', async (request, reply) => {
   tasks.set('20000000-0000-0000-0000-000000000002', { id: '20000000-0000-0000-0000-000000000002', publicId: 'T-BULK-INTERRUPT', type: 'SERVICE_INTERRUPTION', status: 'OPEN', version: 1, claimedBy: null, orderId: interruption.id, channelId: '1200000000000000022', voiceChannelId: '1200000000000000032', guildId, createdAt: '2026-08-05T01:05:00.000Z', notes: [] });
   return reply.code(201).send({ orders: bulkOrders.map((order) => ({ ...order })) });
 });
+server.post('/__e2e/users/bulk', async (request, reply) => {
+  const customers = (request.body as { customers?: unknown })?.customers;
+  if (!Array.isArray(customers) || customers.length < 1 || customers.length > 50) return reply.code(400).send({ error: 'customers must contain 1 to 50 rows' });
+  const parsed = customers.map((customer) => customer as Partial<(typeof bulkUsers)[number]>);
+  if (parsed.some((customer) => typeof customer.id !== 'string' || typeof customer.discordUserId !== 'string' || typeof customer.status !== 'string' || typeof customer.operationalStatus !== 'string' || !Number.isSafeInteger(customer.version) || typeof customer.createdAt !== 'string')) return reply.code(400).send({ error: 'invalid customer row' });
+  bulkUsers.splice(0, bulkUsers.length, ...parsed as (typeof bulkUsers));
+  return reply.code(201).send({ users: bulkUsers.map((user) => ({ ...user })) });
+});
 server.post('/__e2e/fault/:name', async (request) => { faults.add((request.params as { name: string }).name); return { ok: true }; });
 server.post('/__e2e/features/core-only', async () => { enabledFixtureFeatures.splice(0, enabledFixtureFeatures.length, 'CORE_ORDER'); return { enabledFeatures: enabledFixtureFeatures }; });
 server.post('/__e2e/advance-time', async (request) => { clockOffsetMs += Number((request.body as { milliseconds?: unknown })?.milliseconds ?? 0); return { now: fixtureNow().toISOString() }; });
@@ -800,6 +810,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });
