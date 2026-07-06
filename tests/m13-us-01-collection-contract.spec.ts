@@ -69,7 +69,7 @@ describe('M13-US-01 business collection sorting and dual-view contract', () => {
     const todo = read('outputs/Codex-P0开发TODO.md');
     expect(todo).toContain('## M13：业务集合稳定排序与可复用双视图');
     expect(todo).toContain('- [x] `M13-US-01`');
-    expect(todo).toContain('- [ ] `M13-US-02`');
+    expect(todo).toContain('- [x] `M13-US-02`');
     expect(todo).toContain('- [ ] `M13-US-03`');
     expect(todo).toContain('- [ ] `M13-US-04`');
     expect(todo).toContain('不表示排序 API 或双视图运行时已实现');

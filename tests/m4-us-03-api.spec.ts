@@ -30,7 +30,7 @@ function fixture(options: { auditSink?: AuditSink } = {}) {
     ],
     users: [
       { id: '00000000-0000-0000-0000-000000002001', displayName: '用户 A', status: 'ACTIVE', discordUserId: '700000000000000001', discordUsername: 'customer_a', externalAccountDisplay: 'mock-***-001', activeOrderId: '00000000-0000-0000-0000-000000001001', riskFlags: [], version: 1, createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' },
-      { id: '00000000-0000-0000-0000-000000002002', displayName: '用户 B', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: '00000000-0000-0000-0000-000000001002', riskFlags: ['PAYMENT_ANOMALY'], version: 2 }
+      { id: '00000000-0000-0000-0000-000000002002', displayName: '用户 B', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: '00000000-0000-0000-0000-000000001002', riskFlags: ['PAYMENT_ANOMALY'], version: 2, createdAt: '2026-07-18T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' }
     ],
     players: [{ playerId: '00000000-0000-0000-0000-000000003001', userId: '00000000-0000-0000-0000-000000002002', displayName: '陪玩 B', discordUserId: '700000000000000002', discordUsername: 'player_b', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: ['VALORANT'], serviceTags: ['FUN'], languageTags: ['CN'], gameTagDetails: [{ code: 'VALORANT', displayName: '瓦洛兰特' }], serviceTagDetails: [{ code: 'FUN', displayName: '娱乐陪玩' }], languageTagDetails: [{ code: 'CN', displayName: '中文' }], activeOrderId: '00000000-0000-0000-0000-000000001002', version: 3, createdAt: '2026-07-17T00:00:00Z', updatedAt: '2026-07-18T00:00:00Z' }],
     consumptions: [
@@ -89,7 +89,7 @@ describe('M4-US-03 admin directory API', () => {
 
   test('uses resource-bound keyset cursors across every admin directory list', async () => {
     const { server, store } = fixture();
-    store.players.push({ playerId: '00000000-0000-0000-0000-000000003000', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'OFFLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1 });
+    store.players.push({ playerId: '00000000-0000-0000-0000-000000003000', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'OFFLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1, createdAt: '2026-07-16T00:00:00Z' });
     store.gifts.push({ id: '00000000-0000-0000-0000-000000005000', code: 'OLDER', name: 'Older gift', priceMinor: 100, currency: 'CAT', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-17T00:00:00Z' });
     store.giftRequests.push({ id: '00000000-0000-0000-0000-000000006000', publicId: 'G-1000', orderId: '00000000-0000-0000-0000-000000001001', senderId: '00000000-0000-0000-0000-000000002001', receiverId: '00000000-0000-0000-0000-000000003001', status: 'PENDING_REVIEW', rowVersion: 1, giftName: 'Older gift', amountMinor: 100, currency: 'CAT', announcementStatus: 'NOT_QUEUED', createdAt: '2026-07-17T03:00:00Z' });
 
@@ -97,13 +97,13 @@ describe('M4-US-03 admin directory API', () => {
       store.orders.push(adminOrder({ id: '00000000-0000-0000-0000-000000001003', publicId: 'P-1003', createdAt: '2026-07-18T05:00:00Z' }));
     });
     await expectStableSecondPage('/api/v1/admin/users?limit=1', 'id', '00000000-0000-0000-0000-000000002002', '00000000-0000-0000-0000-000000002001', () => {
-      store.users.push({ id: '00000000-0000-0000-0000-000000002999', displayName: 'New user', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: null, riskFlags: [], version: 1 });
+      store.users.push({ id: '00000000-0000-0000-0000-000000002999', displayName: 'New user', status: 'ACTIVE', externalAccountDisplay: null, activeOrderId: null, riskFlags: [], version: 1, createdAt: '2026-07-19T00:00:00Z' });
     });
     await expectStableSecondPage('/api/v1/admin/users/00000000-0000-0000-0000-000000002001/consumptions?limit=1', 'id', '00000000-0000-0000-0000-000000004002', '00000000-0000-0000-0000-000000004001', () => {
       store.consumptions.push({ id: '00000000-0000-0000-0000-000000004003', userId: '00000000-0000-0000-0000-000000002001', guildId: '999999999999999999', type: 'ORDER', sourceId: '00000000-0000-0000-0000-000000001003', amountMinor: 100, currency: 'CAT', status: 'SUCCEEDED', occurredAt: '2026-07-18T05:00:00Z', reversalOf: null });
     });
     await expectStableSecondPage('/api/v1/admin/players?limit=1', 'playerId', '00000000-0000-0000-0000-000000003001', '00000000-0000-0000-0000-000000003000', () => {
-      store.players.push({ playerId: '00000000-0000-0000-0000-000000003999', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1 });
+      store.players.push({ playerId: '00000000-0000-0000-0000-000000003999', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTags: [], serviceTags: [], activeOrderId: null, version: 1, createdAt: '2026-07-19T00:00:00Z' });
     });
     await expectStableSecondPage('/api/v1/admin/gift-catalog?limit=1', 'id', '00000000-0000-0000-0000-000000005001', '00000000-0000-0000-0000-000000005000', () => {
       store.gifts.push({ id: '00000000-0000-0000-0000-000000005999', code: 'NEWER', name: 'Newer gift', priceMinor: 100, currency: 'CAT', enabled: true, version: 1, broadcastTemplate: '{sender} sent {gift}', createdAt: '2026-07-18T05:00:00Z' });

@@ -609,6 +609,9 @@ model User {
   supportRatings       OrderSupportRating[] @relation("SupportRatingCustomer")
 
   @@index([status])
+  @@index([createdAt, id], map: "users_created_at_id_idx")
+  @@index([updatedAt, id], map: "users_updated_at_id_idx")
+  @@index([displayName, id], map: "users_display_name_id_idx")
   @@map("users")
 }
 
@@ -1122,6 +1125,8 @@ model PlayerProfile {
   skills     PlayerSkill[]
 
   @@index([reviewStatus, availability, discordPresence])
+  @@index([createdAt, id], map: "player_profiles_created_at_id_idx")
+  @@index([updatedAt, id], map: "player_profiles_updated_at_id_idx")
   @@map("player_profiles")
 }
 
@@ -1220,6 +1225,9 @@ model ServiceCatalogVersion {
 
   @@unique([serviceOfferingId, version])
   @@index([status, serviceOfferingId])
+  @@index([createdAt, id], map: "service_catalog_versions_created_at_id_idx")
+  @@index([customerUnitPriceMinor, id], map: "service_catalog_versions_price_id_idx")
+  @@index([version, id], map: "service_catalog_versions_version_id_idx")
   @@map("service_catalog_versions")
 }
 
@@ -1262,6 +1270,10 @@ model ServicePackageVersion {
 
   @@unique([servicePackageId, version])
   @@index([status, servicePackageId])
+  @@index([createdAt, id], map: "service_package_versions_created_at_id_idx")
+  @@index([displayName, id], map: "service_package_versions_name_id_idx")
+  @@index([defaultCustomerPriceMinor, id], map: "service_package_versions_price_id_idx")
+  @@index([version, id], map: "service_package_versions_version_id_idx")
   @@map("service_package_versions")
 }
 
@@ -1381,6 +1393,9 @@ model Order {
   @@index([status, readinessDueAt])
   @@index([serviceCatalogVersionId])
   @@index([sourcePackageVersionId])
+  @@index([guildId, createdAt, id], map: "orders_guild_created_at_id_idx")
+  @@index([guildId, updatedAt, id], map: "orders_guild_updated_at_id_idx")
+  @@index([guildId, amountMinor, id], map: "orders_guild_amount_id_idx")
   @@map("orders")
 }
 
@@ -1854,6 +1869,10 @@ model GiftCatalogVersion {
 
   @@unique([giftCatalogItemId, version])
   @@index([status, giftCatalogItemId])
+  @@index([createdAt, giftCatalogItemId], map: "gift_catalog_versions_created_item_idx")
+  @@index([name, giftCatalogItemId], map: "gift_catalog_versions_name_item_idx")
+  @@index([priceMinor, giftCatalogItemId], map: "gift_catalog_versions_price_item_idx")
+  @@index([version, giftCatalogItemId], map: "gift_catalog_versions_version_item_idx")
   @@map("gift_catalog_versions")
 }
 
@@ -1910,6 +1929,10 @@ model GiftRequest {
   @@index([status, expiresAt])
   @@index([orderId, createdAt])
   @@index([orderParticipantId, createdAt])
+  @@index([createdAt, id], map: "gift_requests_created_at_id_idx")
+  @@index([updatedAt, id], map: "gift_requests_updated_at_id_idx")
+  @@index([priceMinor, id], map: "gift_requests_price_id_idx")
+  @@index([expiresAt, id], map: "gift_requests_expires_at_id_idx")
   @@map("gift_requests")
 }
 
