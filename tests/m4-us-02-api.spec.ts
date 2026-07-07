@@ -55,7 +55,7 @@ describe('M4-US-02 L1 support workbench API', () => {
     expect(denied.statusCode).toBe(403);
     const own = await server.inject({ method: 'GET', url: '/api/v1/admin/staff-tasks/00000000-0000-0000-0000-000000002002', headers: headers() });
     expect(own.statusCode).toBe(200);
-    expect(own.json()).toMatchObject({ data: { task: { claimedBy: l1StaffId }, links: {
+    expect(own.json()).toMatchObject({ data: { claimedBy: l1StaffId, links: {
       orderChannel: `https://discord.com/channels/${guildId}/120000000000000001`,
       voiceChannel: `https://discord.com/channels/${guildId}/120000000000000003`
     } } });

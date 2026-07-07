@@ -12,9 +12,31 @@ export interface SupportTaskNote {
   createdAt: string;
 }
 
+export interface SupportTaskTriageSummary {
+  orderPublicId: string | null;
+  customerDisplayName: string | null;
+  gameDisplayName: string | null;
+  serviceDisplayName: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  reasonLabel: string;
+  waitStartedAt: string;
+  nextActionLabel: string;
+}
+
+export interface SupportTaskLinks {
+  orderChannel: string | null;
+  voiceChannel: string | null;
+}
+
+export interface SupportTaskView extends StaffTaskRecord {
+  triage: SupportTaskTriageSummary;
+  links: SupportTaskLinks;
+}
+
 export interface SupportWorkbenchStore {
-  listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): Promise<StaffTaskRecord[]> | StaffTaskRecord[];
-  getTask(input: { taskId: string; actor: ActorContext }): Promise<StaffTaskRecord> | StaffTaskRecord;
+  listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): Promise<SupportTaskView[]> | SupportTaskView[];
+  getTask(input: { taskId: string; actor: ActorContext }): Promise<SupportTaskView> | SupportTaskView;
   addNote(input: { taskId: string; actor: ActorContext; body: string; now: Date }): Promise<SupportTaskNote> | SupportTaskNote;
   escalate(input: { taskId: string; actor: ActorContext; expectedVersion: number; reasonCode: string; note: string; now: Date }): Promise<StaffTaskRecord> | StaffTaskRecord;
   getOrder(input: { orderId: string; taskId: string | null; actor: ActorContext }): Promise<ReturnType<typeof buildOrderView>> | ReturnType<typeof buildOrderView>;
@@ -32,20 +54,21 @@ export class InMemorySupportWorkbenchStore implements SupportWorkbenchStore {
 
   constructor(private readonly input: { tasks: InMemoryStaffTaskStore; orders: InMemoryOrderStore }) {}
 
-  listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): StaffTaskRecord[] {
+  listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): SupportTaskView[] {
     return this.input.tasks.tasks
-      .filter((task) => canViewTask(task, input.actor))
+      .filter((task) => canViewTask(task, input.actor, this.findOrder(task.orderId)))
       .filter((task) => !input.status || task.status === input.status)
       .filter((task) => !input.type || task.type === input.type)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .sort(compareTriagePriority)
       .slice(0, input.limit)
-      .map(clone);
+      .map((task) => buildTaskView(task, input.actor, this.findOrder(task.orderId)));
   }
 
-  getTask(input: { taskId: string; actor: ActorContext }): StaffTaskRecord {
+  getTask(input: { taskId: string; actor: ActorContext }): SupportTaskView {
     const task = this.findTask(input.taskId);
-    if (!canViewTask(task, input.actor)) throw new SupportWorkbenchError('PERMISSION_DENIED', 'The task is outside the current staff scope.');
-    return clone(task);
+    const order = this.findOrder(task.orderId);
+    if (!canViewTask(task, input.actor, order)) throw new SupportWorkbenchError('PERMISSION_DENIED', 'The task is outside the current staff scope.');
+    return buildTaskView(task, input.actor, order);
   }
 
   addNote(input: { taskId: string; actor: ActorContext; body: string; now: Date }): SupportTaskNote {
@@ -83,6 +106,10 @@ export class InMemorySupportWorkbenchStore implements SupportWorkbenchStore {
     if (!task) throw new SupportWorkbenchError('NOT_FOUND', 'Staff task was not found.');
     return task;
   }
+
+  private findOrder(orderId: string | null): OrderRecord | null {
+    return orderId ? this.input.orders.orders.find((candidate) => candidate.id === orderId) ?? null : null;
+  }
 }
 
 export class PostgresSupportWorkbenchStore implements SupportWorkbenchStore {
@@ -92,26 +119,48 @@ export class PostgresSupportWorkbenchStore implements SupportWorkbenchStore {
     this.orders = new PostgresOrderStore({ pool });
   }
 
-  async listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): Promise<StaffTaskRecord[]> {
+  async listTasks(input: { actor: ActorContext; status?: StaffTaskStatus; type?: StaffTaskType; limit: number }): Promise<SupportTaskView[]> {
     requireStaff(input.actor);
     const l1Scope = input.actor.actorLevel === 'L1_SUPPORT';
-    const result = await this.pool.query<StaffTaskRow>(
-      `SELECT * FROM staff_tasks
-       WHERE ($1::boolean = false OR status = 'OPEN' OR claimed_by_staff_id = $2::uuid)
-         AND ($3::text IS NULL OR status::text = $3)
-         AND ($4::text IS NULL OR type::text = $4)
-       ORDER BY created_at ASC, id ASC LIMIT $5`,
-      [l1Scope, input.actor.actorStaffId, input.status ?? null, input.type ?? null, input.limit]
+    const result = await this.pool.query<SupportTaskJoinedRow>(
+      `SELECT task.*, orders.public_id AS order_public_id, orders.guild_id AS order_guild_id,
+              orders.channel_id AS order_channel_id, orders.voice_channel_id AS order_voice_channel_id,
+              orders.game_name_snapshot, orders.game_code_snapshot, orders.service_name_snapshot,
+              orders.service_code_snapshot, orders.amount_minor AS order_amount_minor,
+              orders.currency AS order_currency, customers.display_name AS customer_display_name
+       FROM staff_tasks task
+       LEFT JOIN orders ON orders.id = task.order_id
+       LEFT JOIN users customers ON customers.id = orders.customer_id
+       WHERE ($1::boolean = false OR task.status = 'OPEN' OR task.claimed_by_staff_id = $2::uuid)
+         AND ($3::text IS NULL OR task.status::text = $3)
+         AND ($4::text IS NULL OR task.type::text = $4)
+         AND orders.guild_id = $5
+       ORDER BY CASE task.response_status WHEN 'OVERDUE' THEN 0 WHEN 'PENDING' THEN 1 ELSE 2 END ASC,
+                task.response_due_at ASC NULLS LAST, task.created_at ASC, task.id ASC
+       LIMIT $6`,
+      [l1Scope, input.actor.actorStaffId, input.status ?? null, input.type ?? null, input.actor.guildId, input.limit]
     );
-    return result.rows.map(mapTask);
+    return result.rows.map((row) => buildTaskView(mapTask(row), input.actor, orderContextFromRow(row)));
   }
 
-  async getTask(input: { taskId: string; actor: ActorContext }): Promise<StaffTaskRecord> {
-    const result = await this.pool.query<StaffTaskRow>('SELECT * FROM staff_tasks WHERE id = $1', [input.taskId]);
+  async getTask(input: { taskId: string; actor: ActorContext }): Promise<SupportTaskView> {
+    requireStaff(input.actor);
+    const result = await this.pool.query<SupportTaskJoinedRow>(
+      `SELECT task.*, orders.public_id AS order_public_id, orders.guild_id AS order_guild_id,
+              orders.channel_id AS order_channel_id, orders.voice_channel_id AS order_voice_channel_id,
+              orders.game_name_snapshot, orders.game_code_snapshot, orders.service_name_snapshot,
+              orders.service_code_snapshot, orders.amount_minor AS order_amount_minor,
+              orders.currency AS order_currency, customers.display_name AS customer_display_name
+       FROM staff_tasks task
+       LEFT JOIN orders ON orders.id = task.order_id
+       LEFT JOIN users customers ON customers.id = orders.customer_id
+       WHERE task.id = $1 AND orders.guild_id = $2`,
+      [input.taskId, input.actor.guildId]
+    );
     if (!result.rows[0]) throw new SupportWorkbenchError('NOT_FOUND', 'Staff task was not found.');
     const task = mapTask(result.rows[0]);
-    if (!canViewTask(task, input.actor)) throw new SupportWorkbenchError('PERMISSION_DENIED', 'The task is outside the current staff scope.');
-    return task;
+    if (!canViewTask(task, input.actor, orderContextFromRow(result.rows[0]))) throw new SupportWorkbenchError('PERMISSION_DENIED', 'The task is outside the current staff scope.');
+    return buildTaskView(task, input.actor, orderContextFromRow(result.rows[0]));
   }
 
   async addNote(input: { taskId: string; actor: ActorContext; body: string; now: Date }): Promise<SupportTaskNote> {
@@ -163,8 +212,7 @@ export function registerSupportWorkbenchRoutes(server: FastifyInstance, options:
   registerSecureReadRoute(server, security, {
     method: 'GET', url: '/api/v1/admin/staff-tasks/:staffTaskId', permission: 'staff_task.read', action: 'GET_STAFF_TASK', targetType: 'staff_task',
     targetId: taskId, acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: async (request, actor) => {
-      const task = await options.store.getTask({ taskId: taskId(request), actor });
-      return { task, links: taskLinks(task) };
+      return options.store.getTask({ taskId: taskId(request), actor });
     }, mapError
   });
   registerSecureWriteRoute(server, security, {
@@ -197,8 +245,11 @@ function buildOrderView(order: OrderRecord) {
   return { order: clone(order), matching, readiness, automation, transactions: [], resolutions: [], events: [] };
 }
 
-function canViewTask(task: StaffTaskRecord, actor: ActorContext): boolean {
+function canViewTask(task: StaffTaskRecord, actor: ActorContext, order: TaskOrderContext | OrderRecord | null): boolean {
   requireStaff(actor);
+  const context = task.contextSnapshot as { guildId?: unknown };
+  const taskGuildId = stringValue(context.guildId) ?? order?.guildId ?? null;
+  if (taskGuildId && taskGuildId !== actor.guildId) return false;
   return actor.actorLevel !== 'L1_SUPPORT' || task.status === 'OPEN' || task.claimedBy === actor.actorStaffId;
 }
 
@@ -219,17 +270,6 @@ function requireOrderScope(tasks: StaffTaskRecord[], input: { orderId: string; t
 
 function requireStaff(actor: ActorContext): asserts actor is ActorContext & { actorStaffId: string; actorLevel: StaffLevel } {
   if (!actor.actorStaffId || !actor.actorLevel) throw new SupportWorkbenchError('PERMISSION_DENIED', 'An active staff account is required.');
-}
-
-function taskLinks(task: StaffTaskRecord) {
-  const context = task.contextSnapshot as { guildId?: unknown; channelId?: unknown; voiceChannelId?: unknown };
-  const guildId = typeof context.guildId === 'string' ? context.guildId : null;
-  const channelId = typeof context.channelId === 'string' ? context.channelId : null;
-  const voiceChannelId = typeof context.voiceChannelId === 'string' ? context.voiceChannelId : task.voiceChannelId;
-  return {
-    orderChannel: guildId && channelId ? `https://discord.com/channels/${guildId}/${channelId}` : null,
-    voiceChannel: guildId && voiceChannelId ? `https://discord.com/channels/${guildId}/${voiceChannelId}` : null
-  };
 }
 
 function parseTaskQuery(request: FastifyRequest): { status?: StaffTaskStatus; type?: StaffTaskType; limit: number } {
@@ -268,6 +308,16 @@ interface StaffTaskRow {
   voice_channel_id: string | null; context_snapshot: unknown; created_at: Date | string; updated_at: Date | string;
   response_status: SupportResponseStatus; response_due_at: Date|string|null; first_responded_at: Date|string|null;
 }
+interface SupportTaskJoinedRow extends StaffTaskRow {
+  order_public_id: string | null; order_guild_id: string | null; order_channel_id: string | null; order_voice_channel_id: string | null;
+  game_name_snapshot: string | null; game_code_snapshot: string | null; service_name_snapshot: string | null; service_code_snapshot: string | null;
+  order_amount_minor: string | number | null; order_currency: string | null; customer_display_name: string | null;
+}
+interface TaskOrderContext {
+  publicId: string | null; guildId: string | null; customerDisplayName: string | null; gameDisplayName: string | null;
+  serviceDisplayName: string | null; amountMinor: number | null; currency: string | null;
+  channelSpec: { channelId: string | null; voiceChannelId: string | null };
+}
 function mapTask(row: StaffTaskRow): StaffTaskRecord {
   return { id: row.id, publicId: row.public_id, type: row.type, reasonCode: row.reason_code, status: row.status, version: row.row_version,
     orderId: row.order_id, giftRequestId: row.gift_request_id, claimedBy: row.claimed_by_staff_id, resolvedBy: row.resolved_by_staff_id,
@@ -276,3 +326,72 @@ function mapTask(row: StaffTaskRow): StaffTaskRecord {
     firstRespondedAt:row.first_responded_at?new Date(row.first_responded_at).toISOString():null,
     createdAt: new Date(row.created_at).toISOString(), updatedAt: new Date(row.updated_at).toISOString() };
 }
+
+function orderContextFromRow(row: SupportTaskJoinedRow): TaskOrderContext {
+  return {
+    publicId: row.order_public_id, guildId: row.order_guild_id, customerDisplayName: row.customer_display_name,
+    gameDisplayName: row.game_name_snapshot ?? row.game_code_snapshot,
+    serviceDisplayName: row.service_name_snapshot ?? row.service_code_snapshot,
+    amountMinor: row.order_amount_minor === null ? null : Number(row.order_amount_minor), currency: row.order_currency,
+    channelSpec: { channelId: row.order_channel_id, voiceChannelId: row.order_voice_channel_id }
+  };
+}
+
+function buildTaskView(task: StaffTaskRecord, actor: ActorContext, order: TaskOrderContext | OrderRecord | null): SupportTaskView {
+  const context = task.contextSnapshot as Record<string, unknown>;
+  const guildId = validSnowflake(stringValue(context.guildId) ?? order?.guildId ?? actor.guildId);
+  const channelId = validSnowflake(stringValue(context.channelId) ?? order?.channelSpec.channelId ?? null);
+  const voiceChannelId = validSnowflake(stringValue(context.voiceChannelId) ?? task.voiceChannelId ?? order?.channelSpec.voiceChannelId ?? null);
+  const orderPublicId = stringValue(context.orderPublicId) ?? stringValue(context.publicId) ?? order?.publicId ?? null;
+  const customerDisplayName = stringValue(context.customerDisplayName) ?? stringValue(context.customerDisplay)
+    ?? ('customerDisplayName' in (order ?? {}) ? (order as TaskOrderContext).customerDisplayName : null);
+  const gameDisplayName = stringValue(context.gameDisplayName) ?? stringValue(context.game)
+    ?? ('gameDisplayName' in (order ?? {}) ? order!.gameDisplayName ?? null : null);
+  const serviceDisplayName = stringValue(context.serviceDisplayName) ?? stringValue(context.service)
+    ?? ('serviceDisplayName' in (order ?? {}) ? order!.serviceDisplayName ?? null : null);
+  const contextAmount = integerValue(context.amountMinor) ?? integerValue(context.priceMinor);
+  const amountMinor = contextAmount ?? order?.amountMinor ?? null;
+  const currency = stringValue(context.currency) ?? order?.currency ?? null;
+  return {
+    ...clone(task),
+    triage: {
+      orderPublicId, customerDisplayName, gameDisplayName, serviceDisplayName, amountMinor, currency,
+      reasonLabel: reasonLabel(task.reasonCode, task.type), waitStartedAt: task.createdAt, nextActionLabel: nextActionLabel(task)
+    },
+    links: {
+      orderChannel: guildId && channelId ? discordChannelUrl(guildId, channelId) : null,
+      voiceChannel: guildId && voiceChannelId ? discordChannelUrl(guildId, voiceChannelId) : null
+    }
+  };
+}
+
+function compareTriagePriority(left: StaffTaskRecord, right: StaffTaskRecord): number {
+  const priority = (task: StaffTaskRecord) => task.responseStatus === 'OVERDUE' ? 0 : task.responseStatus === 'PENDING' ? 1 : 2;
+  const byPriority = priority(left) - priority(right);
+  if (byPriority) return byPriority;
+  const byDueAt = (left.responseDueAt ?? '9999').localeCompare(right.responseDueAt ?? '9999');
+  if (byDueAt) return byDueAt;
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function nextActionLabel(task: StaffTaskRecord): string {
+  if (task.status === 'OPEN') return task.responseStatus === 'OVERDUE' ? '立即认领并联系客户' : '认领并联系客户';
+  if (task.status === 'CLAIMED') return '继续处理客户请求';
+  if (task.status === 'PENDING_APPROVAL') return '等待主管处理';
+  return '查看处理结果';
+}
+
+function reasonLabel(reasonCode: string, type: StaffTaskType): string {
+  const labels: Record<string, string> = {
+    ORDER_ASSIST_REQUESTED: '客户请求订单协助', CUSTOMER_CANCEL_AFTER_ACCEPT: '客户申请取消已接订单',
+    GIFT_REQUESTED: '礼物请求待审核', FIRST_RESPONSE_OVERDUE: '客户等待客服首响超时', AUTOMATION_FAILED: '自动流程执行失败'
+  };
+  return labels[reasonCode] ?? ({ ORDER_ASSIST: '订单需要客服协助', CANCELLATION_ASSIST: '取消请求需要客服协助', GIFT_REVIEW: '礼物请求待审核',
+    PLAYER_START_LATE: '陪玩开始服务延迟', PLAYER_NO_SHOW: '陪玩未到场', CUSTOMER_NO_SHOW: '客户未到场', SERVICE_INTERRUPTED: '服务发生中断',
+    COMPLETION_REVIEW: '订单完成待核对', DISPUTE: '订单争议待处理', AUTOMATION_FAILURE: '自动流程执行失败' } satisfies Record<StaffTaskType, string>)[type];
+}
+
+function discordChannelUrl(guildId: string, channelId: string): string { return `https://discord.com/channels/${guildId}/${channelId}`; }
+function validSnowflake(value: string | null): string | null { return value && /^\d{17,20}$/.test(value) ? value : null; }
+function stringValue(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value : null; }
+function integerValue(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }

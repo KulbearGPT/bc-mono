@@ -8,7 +8,6 @@ interface StaffTaskPayload extends SupportTaskCardInput {
   responseStatus?: 'NOT_REQUIRED' | 'PENDING' | 'MET' | 'OVERDUE';
   responseDueAt?: string | null;
   firstRespondedAt?: string | null;
-  contextSnapshot?: { guildId?: string; channelId?: string; voiceChannelId?: string };
 }
 
 interface OrderContext {
@@ -59,12 +58,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       return;
     }
     const payload = await response.json() as { data: { items: StaffTaskPayload[] } };
-    setTasks(payload.data.items.map((task) => ({
-      ...task,
-      guildId: task.contextSnapshot?.guildId ?? task.guildId,
-      channelId: task.contextSnapshot?.channelId ?? task.channelId ?? null,
-      voiceChannelId: task.contextSnapshot?.voiceChannelId ?? task.voiceChannelId ?? null
-    })));
+    setTasks(payload.data.items);
     setError(null);
   }, [client]);
 
