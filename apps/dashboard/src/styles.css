@@ -1548,9 +1548,31 @@ textarea:focus-visible {
   margin: 0 0 12px;
 }
 
+.support-shift-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.support-shift-bar strong { color: var(--text-primary); }
+
+.support-queue { margin-bottom: 18px; }
+.support-queue > .panel-heading { margin-bottom: 12px; }
+.queue-count { color: var(--accent-neon-cyan); font-size: 15px; }
+
 .task-card {
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
+
+.task-card--urgent { border-left: 3px solid #dc6b72; }
 
 .task-card:hover {
   border-color: #cbc5f4;
@@ -1568,6 +1590,40 @@ textarea:focus-visible {
   color: var(--text-secondary);
   font-size: 12px;
 }
+
+.task-pressure {
+  align-self: flex-start;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.task-pressure--urgent { background: #fff0f1; color: #b43d48; }
+
+.task-card__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.task-card__summary > div { min-width: 0; padding: 10px; border-radius: 10px; background: var(--surface-muted); }
+.task-card__summary dt { color: var(--text-tertiary); font-size: 11px; }
+.task-card__summary dd { margin: 4px 0 0; color: var(--text-primary); font-weight: 650; overflow-wrap: anywhere; }
+.action-unavailable { align-self: center; color: var(--text-tertiary); font-size: 12px; }
+
+.task-card__context {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.context-note { margin: 10px 0 0; color: var(--text-secondary); font-size: 12px; }
 
 .task-card__actions a {
   padding: 7px 9px;
@@ -2413,6 +2469,9 @@ textarea:focus-visible {
   .operations-repair button {
     flex: 1 1 auto;
   }
+
+  .support-shift-bar { align-items: stretch; flex-direction: column; }
+  .task-card__summary { grid-template-columns: minmax(0, 1fr); }
 
   .payment-editor {
     width: min(620px, calc(100vw - 58px));

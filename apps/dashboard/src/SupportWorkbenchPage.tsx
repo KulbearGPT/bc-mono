@@ -47,6 +47,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
   const [shift, setShift] = useState<SupportShift | null>(null);
   const [supportSummary, setSupportSummary] = useState<SupportSummaryItem[]>([]);
@@ -81,6 +82,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     permissions: capabilities.permissions,
     tasks
   });
+  const visibleTasks = filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed];
 
   async function claim(task: StaffTaskPayload) {
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/claim`, { expectedVersion: task.version });
@@ -138,9 +140,51 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     <section className="dashboard-page" aria-labelledby="support-title">
       <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div></header>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-      <section className="content-panel" aria-label="客服打卡">
-        <div className="panel-heading"><div><h2>今日打卡</h2><p>{shift ? `上班时间 ${new Date(shift.clockedInAt).toLocaleString()}` : '当前未上班'}</p></div>
+      <section className="support-shift-bar" aria-label="客服打卡">
+        <div><strong>{shift ? '当前上班中' : '当前未上班'}</strong><span>{shift ? ` · ${new Date(shift.clockedInAt).toLocaleString()} 开始` : ' · 打卡只记录班次，不影响任务权限'}</span></div>
           {['L1_SUPPORT','L2_SUPERVISOR'].includes(capabilities.level ?? '') && <button className="button-primary" type="button" onClick={() => void toggleShift()}>{shift ? '下班打卡' : '上班打卡'}</button>}
+      </section>
+      <section className="support-queue" aria-label="当前任务队列">
+        <div className="panel-heading"><div><span className="page-eyebrow">ACTIVE QUEUE</span><h2>当前任务</h2><p>已按超时、首响截止时间和创建时间排列。</p></div><strong className="queue-count">{visibleTasks.length} 项</strong></div>
+        <div className="segmented-control support-filters" role="group" aria-label="任务筛选">
+          {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
+        </div>
+        <div className="task-list">
+          {visibleTasks.map((task) => (
+            <article className={`content-panel task-card${task.responseStatus === 'OVERDUE' ? ' task-card--urgent' : ''}`} key={task.id}>
+              <div className="task-card__header">
+                <div><strong className="task-card__id">订单 {task.triage.orderPublicId ?? '编号待补充'}</strong><div className="task-card__meta">{task.statusLabel} · {formatTaskPressure(task)}</div></div>
+                <span className={`task-pressure task-pressure--${task.responseStatus === 'OVERDUE' ? 'urgent' : 'normal'}`}>{supportResponseLabel(task)}</span>
+              </div>
+              <dl className="task-card__summary">
+                <div><dt>客户</dt><dd>{task.triage.customerDisplayName ?? '待补充'}</dd></div>
+                <div><dt>服务</dt><dd>{[task.triage.gameDisplayName, task.triage.serviceDisplayName].filter(Boolean).join(' · ') || '待补充'}</dd></div>
+                <div><dt>需要处理</dt><dd>{task.triage.reasonLabel}</dd></div>
+                <div><dt>下一步</dt><dd>{task.triage.nextActionLabel}</dd></div>
+              </dl>
+              <div className="inline-actions task-card__actions">
+                <button type="button" aria-expanded={expandedTaskId === task.id} onClick={() => setExpandedTaskId((current) => current === task.id ? null : task.id)}>查看任务上下文</button>
+                {task.links.orderChannel ? <a href={task.links.orderChannel} target="_blank" rel="noreferrer">进入订单频道</a> : <span className="action-unavailable">订单频道暂不可用</span>}
+                {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">进入语音频道</a>}
+                {task.actions.find((action) => action.id === 'CLAIM')?.enabled && <button className="button-primary" type="button" onClick={() => void claim(task)}>认领任务</button>}
+                {task.claimedBy === capabilities.staffId && <button type="button" onClick={() => void openOrder(task)}>查看完整订单</button>}
+              </div>
+              {expandedTaskId === task.id && <div className="task-card__context" role="region" aria-label={`${task.triage.orderPublicId ?? task.publicId} 任务上下文`}>
+                <dl className="definition-list"><div><dt>任务编号</dt><dd>{task.publicId}</dd></div><div><dt>等待开始</dt><dd>{new Date(task.triage.waitStartedAt).toLocaleString()}</dd></div>
+                  <div><dt>订单金额</dt><dd>{task.triage.amountMinor === null || !task.triage.currency ? '待补充' : formatMinorCurrency(task.triage.amountMinor, task.triage.currency)}</dd></div><div><dt>首响状态</dt><dd>{supportResponseLabel(task)}</dd></div></dl>
+                {task.claimedBy !== capabilities.staffId && <p className="context-note">这是认领前只读摘要；完整订单和写入仍按你的任务权限控制。</p>}
+              </div>}
+              {task.claimedBy === capabilities.staffId && task.status === 'CLAIMED' && (
+                <div className="task-card__editor">
+                  <textarea aria-label={`${task.publicId} 处理备注`} value={drafts[task.id] ?? ''}
+                    onChange={(event) => setDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                    maxLength={2000} rows={2} placeholder="记录联系结果或升级原因" />
+                  <div className="inline-actions"><button className="button-primary" type="button" onClick={() => void addNote(task)}>保存备注</button><button type="button" onClick={() => void escalate(task)}>提交主管处理</button></div>
+                </div>
+              )}
+            </article>
+          ))}
+          {visibleTasks.length === 0 && <div className="state-card state-card--compact"><strong>当前没有匹配任务</strong><p>可以切换筛选查看其他任务。</p></div>}
         </div>
       </section>
       <section className="content-panel" aria-label="最近 30 天客服记录">
@@ -150,35 +194,6 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         </tbody></table></div>
       </section>
       <DashboardMetricSummaryLoader/>
-      <div className="segmented-control support-filters" role="tablist" aria-label="任务筛选">
-        {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
-      </div>
-      <div className="task-list">
-        {(filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed]).map((task) => (
-          <article className="content-panel task-card" key={task.id}>
-            <div className="task-card__header">
-              <div><strong className="task-card__id">{task.publicId}</strong><div className="task-card__meta">{task.type} · {task.statusLabel} · {supportResponseLabel(task)}</div></div>
-              <div className="inline-actions task-card__actions">
-                {task.links.orderChannel && <a href={task.links.orderChannel} target="_blank" rel="noreferrer">订单频道</a>}
-                {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">语音频道</a>}
-                {task.actions.find((action) => action.id === 'CLAIM')?.enabled && <button type="button" onClick={() => void claim(task)}>认领</button>}
-                {task.claimedBy === capabilities.staffId && <button type="button" onClick={() => void openOrder(task)}>查看订单</button>}
-              </div>
-            </div>
-            {task.claimedBy === capabilities.staffId && task.status === 'CLAIMED' && (
-              <div className="task-card__editor">
-                <textarea aria-label={`${task.publicId} 处理备注`} value={drafts[task.id] ?? ''}
-                  onChange={(event) => setDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
-                  maxLength={2000} rows={2} placeholder="记录联系结果或升级原因" />
-                <div className="inline-actions">
-                  <button className="button-primary" type="button" onClick={() => void addNote(task)}>保存备注</button>
-                  <button type="button" onClick={() => void escalate(task)}>提交主管处理</button>
-                </div>
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
       {selectedOrder && (
         <aside className="action-panel order-preview">
           <div className="panel-heading"><div><span className="page-eyebrow">ORDER CONTEXT</span><h2>订单 {selectedOrder.order.publicId}</h2></div></div>
@@ -224,4 +239,13 @@ function supportResponseLabel(task:StaffTaskPayload){
   if(task.responseStatus==='OVERDUE')return '首响已超时';
   if(task.responseStatus==='MET')return task.firstRespondedAt?`已首响 ${new Date(task.firstRespondedAt).toLocaleTimeString()}`:'已首响';
   return '无需首响';
+}
+
+function formatTaskPressure(task: StaffTaskPayload): string {
+  const target = task.responseDueAt ?? task.triage.waitStartedAt;
+  const seconds = Math.round((new Date(target).getTime() - Date.now()) / 1000);
+  const absolute = Math.abs(seconds);
+  const [value, unit]: [number, Intl.RelativeTimeFormatUnit] = absolute >= 3600
+    ? [Math.round(seconds / 3600), 'hour'] : [Math.round(seconds / 60), 'minute'];
+  return new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' }).format(value, unit);
 }
