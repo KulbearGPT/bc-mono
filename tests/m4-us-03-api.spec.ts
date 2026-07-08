@@ -83,6 +83,8 @@ describe('M4-US-03 admin directory API', () => {
     expect(first.json()).toMatchObject({ data: { items: [{ publicId: 'P-1002' }], nextCursor: expect.any(String) } });
     const filtered = await server.inject({ method: 'GET', url: '/api/v1/admin/orders?status=ACCEPTED&query=1001', headers: headers('111111111111111111') });
     expect(filtered.json().data.items).toEqual([expect.objectContaining({ publicId: 'P-1001' })]);
+    const inProgress = await server.inject({ method: 'GET', url: '/api/v1/admin/orders?status=IN_PROGRESS', headers: headers('111111111111111111') });
+    expect(inProgress.json().data.items.map((item:{publicId:string})=>item.publicId)).toEqual(['P-1002','P-1001']);
     const invalid = await server.inject({ method: 'GET', url: '/api/v1/admin/orders?status=NOT_A_STATUS', headers: headers('111111111111111111') });
     expect(invalid.statusCode).toBe(400);
   });

@@ -27,6 +27,11 @@ describe('M4-US-09 PostgreSQL dashboard metrics',()=>{
     const summary=await new PostgresDashboardMetricsStore(pool).getSummary({actorStaffId:ids.staff,actorLevel:'L2_SUPERVISOR',guildId:'900000000000009998',now,timeZone:'Asia/Shanghai',currency:'CAT'});
     expect(summary.metrics).toEqual({todayOrderCount:0,inProgressOrderCount:0,pendingStaffTaskCount:0,completedOrderNetConsumptionMinor:0,giftNetConsumptionMinor:0,activeReservedMinor:0,dispatchSuccessRateBps:0,exceptionCount:0});
   });
+
+  test('keeps L4 metrics inside the actor Guild so drilldowns use the same scope',async()=>{
+    const summary=await new PostgresDashboardMetricsStore(pool).getSummary({actorStaffId:ids.staff,actorLevel:'L4_ADMIN_OWNER',guildId:'900000000000009000',now,timeZone:'Asia/Shanghai',currency:'CAT'});
+    expect(summary.metrics).toEqual({todayOrderCount:3,inProgressOrderCount:1,pendingStaffTaskCount:3,completedOrderNetConsumptionMinor:8000,giftNetConsumptionMinor:2500,activeReservedMinor:7000,dispatchSuccessRateBps:5000,exceptionCount:2});
+  });
 });
 
 async function seed(){await pool.query(`

@@ -48,7 +48,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
   const [shift, setShift] = useState<SupportShift | null>(null);
   const [supportSummary, setSupportSummary] = useState<SupportSummaryItem[]>([]);
   const client = useMemo(() => createDashboardApiClient(), []);
@@ -208,10 +208,10 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   if(state.kind==='LOADING')return <section className="state-card state-card--compact" aria-label="运营指标" aria-busy="true">正在载入运营指标...</section>;
   if(state.kind==='ERROR'||!state.data)return <section className="state-card state-card--compact state-card--error" aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` request_id: ${state.requestId}`:''}</p></section>;
   const {metrics,currency,timeZone}=state.data;
-  const values:Array<[string,string|number,string]>=[
-    ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结'],
+  const values:Array<[string,string|number,string,string?]>=[
+    ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中','/admin/orders?status=IN_PROGRESS'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结','/support?taskFilter=ALL'],
     ['已完成净消费',moneyOrHidden(metrics.completedOrderNetConsumptionMinor,currency),'当前业务日'],['礼物净消费',moneyOrHidden(metrics.giftNetConsumptionMinor,currency),'当前业务日'],
-    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency),'当前有效'],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`,'有效派单轮次'],['异常数',metrics.exceptionCount,'尚未关闭']
+    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency),'当前有效'],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`,'有效派单轮次'],['异常数',metrics.exceptionCount,'尚未关闭','/admin/orders?status=EXCEPTION']
   ];
   const money=[
     ['已完成净消费',metrics.completedOrderNetConsumptionMinor],['礼物净消费',metrics.giftNetConsumptionMinor],['有效预留',metrics.activeReservedMinor]
@@ -219,7 +219,7 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   const moneyMax=Math.max(1,...money.map(([,value])=>value??0));
   const dispatchPercent=metrics.dispatchSuccessRateBps/100;
   return <section className="operations-dashboard" aria-label="运营指标"><div className="metric-heading"><div><span className="page-eyebrow">TODAY OVERVIEW</span><h2>今日运营数据</h2></div><small>{timeZone} · 当前业务日</small></div>
-    <div className="operations-kpi-grid">{values.map(([label,value,caption])=><article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
+    <div className="operations-kpi-grid">{values.map(([label,value,caption,href])=>href?<a className="operations-kpi operations-kpi--link" href={href} key={label}><small>{label}</small><strong>{value}</strong><span>{caption} · 查看</span></a>:<article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
     <div className="operations-chart-grid">
       <article className="operations-chart-card operations-money-chart"><div className="chart-card-heading"><div><small>资金健康</small><h3>资金构成</h3></div><span>{currency}</span></div>
         <div className="money-bars" role="img" aria-label="资金构成图">{money.map(([label,value],index)=><div className="money-bar" key={label}><div><span>{label}</span><strong>{moneyOrHidden(value,currency)}</strong></div><svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect className="money-bar__track" width="100" height="8" rx="4"/><rect className={`money-bar__value money-bar__value--${index+1}`} width={value===null?0:Math.max(2,value*100/moneyMax)} height="8" rx="4"/></svg></div>)}</div>

@@ -24,16 +24,18 @@ export function buildSupportWorkbench(input: {
   tasks: SupportTaskCardInput[];
 }) {
   const permissions = new Set(input.permissions);
-  const cards = input.tasks.map((task) => ({
-    ...task,
+  const cards = input.tasks.map((task) => {
+    const triage=task.triage??{orderPublicId:null,customerDisplayName:null,gameDisplayName:null,serviceDisplayName:null,amountMinor:null,currency:null,reasonLabel:'需要客服处理',waitStartedAt:task.createdAt,nextActionLabel:'查看任务并确认下一步'};
+    return ({
+    ...task,triage,
     statusLabel: task.status === 'OPEN' ? '待认领' : task.status === 'CLAIMED' ? '处理中' : '待上级处理',
-    links: { orderChannel: safeDiscordChannelUrl(task.links.orderChannel), voiceChannel: safeDiscordChannelUrl(task.links.voiceChannel) },
+    links: { orderChannel: safeDiscordChannelUrl((task.links as SupportTaskCardInput['links']|undefined)?.orderChannel??null), voiceChannel: safeDiscordChannelUrl((task.links as SupportTaskCardInput['links']|undefined)?.voiceChannel??null) },
     actions: [
       { id: 'CLAIM' as const, enabled: task.status === 'OPEN' && permissions.has('staff_task.claim') },
       { id: 'ADD_NOTE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
       { id: 'ESCALATE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') }
     ]
-  }));
+  });});
   return {
     filters: [
       { id: 'ALL' as const, label: '全部' },

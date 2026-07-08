@@ -19,7 +19,7 @@ import type { BusinessTagStore } from './business-tags.js';
 import { PostgresOrderParticipantStore,type OrderParticipantRecord } from './order-participants.js';
 import { decodeAdminCollectionCursor, paginateAdminCollection, parseAdminCollectionSort, type AdminCollectionResource, type CursorBinding, type SortDirection } from './admin-collection-sort.js';
 
-export type AdminOrderListItem = OrderRecord & { participants?: OrderParticipantRecord[] };
+export type AdminOrderListItem = OrderRecord & { participants?: OrderParticipantRecord[]; customerDisplayName?: string | null; customerDiscordTag?: string | null; playerDisplayNames?: string; serviceSummary?: string };
 export type AdminConsumptionMirrorType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 export interface AdminTagSummary { code: string; displayName: string }
 export interface AdminUserRecord { id: string; displayName: string; status: string; discordUserId?: string | null; discordUsername?: string | null; externalAccountDisplay: string | null; activeOrderId: string | null; riskFlags: string[]; version: number; createdAt?: string; updatedAt?: string }
@@ -81,7 +81,8 @@ export class InMemoryAdminDirectoryStore implements AdminDirectoryStore {
 
   listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string; guildId?: string }) {
     const visibleIds = input.actorLevel === 'L1_SUPPORT' ? new Set(this.visibleOrderIdsByStaffId[input.actorStaffId] ?? []) : null;
-    return collectionPage(this.orders.filter((item) => (!visibleIds || visibleIds.has(item.id)) && (!input.status || item.status === input.status) && (!input.query || `${item.publicId} ${item.id}`.toLowerCase().includes(input.query.toLowerCase()))), input, 'orders', (item) => item.id, (item, sortBy) => sortBy === 'amountMinor' ? item.amountMinor : sortBy === 'updatedAt' ? item.updatedAt : item.createdAt);
+    const items=this.orders.filter((item) => (!visibleIds || visibleIds.has(item.id)) && matchesOrderStatusFilter(item.status,input.status) && (!input.query || `${item.publicId} ${item.id}`.toLowerCase().includes(input.query.toLowerCase()))).map((item)=>projectOrderListItem(item,this.users.find((user)=>user.id===item.customerId)?.displayName??null));
+    return collectionPage(items, input, 'orders', (item) => item.id, (item, sortBy) => sortBy === 'amountMinor' ? item.amountMinor : sortBy === 'updatedAt' ? item.updatedAt : item.createdAt);
   }
   listUsers(input: PageInput & { query?: string }) { return collectionPage(this.users.filter((item) => !input.query || `${item.displayName} ${item.id}`.toLowerCase().includes(input.query.toLowerCase())), input, 'users', (item) => item.id, (item, sortBy) => sortBy === 'displayName' ? item.displayName : sortBy === 'updatedAt' ? item.updatedAt : item.createdAt); }
   getUser(userId: string) { return clone(this.users.find((item) => item.id === userId) ?? null); }
@@ -175,7 +176,7 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
   async listOrders(input: PageInput & { status?: string; query?: string; actorStaffId: string; actorLevel: string; guildId?: string }) {
     const cursor=adminCollectionCursor(input,'orders');const sort=adminSqlSort('orders',input.sortBy??'createdAt',input.sortDirection??'desc');
     const rows = await this.pool.query<{ id: string }>(`SELECT id FROM orders
-      WHERE ($5::text IS NULL OR guild_id=$5) AND ($1::text IS NULL OR status::text = $1) AND ($2::text IS NULL OR public_id ILIKE '%' || $2 || '%' OR id::text = $2)
+      WHERE ($5::text IS NULL OR guild_id=$5) AND ($1::text IS NULL OR status::text = $1 OR ($1::text='IN_PROGRESS' AND status IN ('PENDING_DISPATCH','ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION'))) AND ($2::text IS NULL OR public_id ILIKE '%' || $2 || '%' OR id::text = $2)
       AND ${sqlKeyset(sort,cursor,6,7,'id')}
       AND ($3::text <> 'L1_SUPPORT' OR EXISTS (
         SELECT 1 FROM staff_tasks task WHERE task.order_id = orders.id AND task.claimed_by_staff_id = $4::uuid
@@ -184,7 +185,9 @@ export class PostgresAdminDirectoryStore implements AdminDirectoryStore {
       ORDER BY (${sort.expression} IS NULL) ASC,${sort.expression} ${sort.direction},id ${sort.direction} LIMIT $8`, [input.status ?? null,input.query ?? null,input.actorLevel,input.actorStaffId,input.guildId??null,cursor?.sortValue??null,cursor?.id??null,input.limit+1]);
     const records = await Promise.all(rows.rows.map((row) => this.orders.findById(row.id)));
     const visible=records.filter((record): record is OrderRecord => record !== null);
-    const withParticipants=await Promise.all(visible.map(async(record)=>({...record,participants:await this.listOrderParticipants(record,input)})));
+    const customerRows=visible.length?await this.pool.query<{order_id:string;display_name:string|null;discord_tag:string|null}>(`SELECT o.id AS order_id,u.display_name,COALESCE(da.username,da.discord_user_id) AS discord_tag FROM orders o LEFT JOIN users u ON u.id=o.customer_id LEFT JOIN LATERAL (SELECT username,discord_user_id FROM discord_accounts WHERE user_id=u.id ORDER BY created_at ASC LIMIT 1) da ON true WHERE o.id=ANY($1::uuid[])`,[visible.map((record)=>record.id)]):{rows:[]};
+    const customers=new Map(customerRows.rows.map((row)=>[row.order_id,row]));
+    const withParticipants=await Promise.all(visible.map(async(record)=>{const participants=await this.listOrderParticipants(record,input);const customer=customers.get(record.id);return projectOrderListItem({...record,participants,customerDiscordTag:customer?.discord_tag??null},customer?.display_name??null);}));
     return collectionPage(withParticipants,{...input,cursor:null},'orders',item=>item.id,(item,sortBy)=>sortBy==='amountMinor'?item.amountMinor:sortBy==='updatedAt'?item.updatedAt:item.createdAt);
   }
 
@@ -367,7 +370,7 @@ export function registerAdminDirectoryRoutes(server: FastifyInstance, options: {
       return handler(request, actor);
     }, mapError
   });
-  read('/api/v1/admin/orders', 'order.read', 'LIST_ADMIN_ORDERS', 'order', (request, actor) => { const status=enumQuery(request, 'status', ['DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION']);const query=queryString(request,'query');return options.store.listOrders({ ...collectionPageQuery(request,'orders',actor,{status,query}), status, query, actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId! }); });
+  read('/api/v1/admin/orders', 'order.read', 'LIST_ADMIN_ORDERS', 'order', (request, actor) => { const status=enumQuery(request, 'status', ['DRAFT', 'PENDING_DISPATCH', 'ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION','IN_PROGRESS']);const query=queryString(request,'query');return options.store.listOrders({ ...collectionPageQuery(request,'orders',actor,{status,query}), status, query, actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, guildId: actor.guildId! }); });
   if (options.timelineStore) read('/api/v1/admin/orders/:orderId', 'staff_task.read', 'GET_ADMIN_ORDER', 'order', async (request, actor) => {
     try { return required(await options.timelineStore!.getAdminOrder({ orderId: param(request, 'orderId'), actorStaffId: actor.actorStaffId!, actorLevel: actor.actorLevel!, cursor: timelineCursor(request), limit: timelineLimit(request) }), 'Order'); }
     catch (error) { if (error instanceof TransactionTimelineError) throw new AdminDirectoryError('VALIDATION_ERROR', error.message); throw error; }
@@ -553,6 +556,14 @@ function reason(value: unknown) { const result = text(value, 'reasonCode'); if (
 function currency(value: unknown) { const result = text(value, 'currency', 3); if (!/^[A-Z]{3}$/.test(result)) throw new AdminDirectoryError('VALIDATION_ERROR', 'currency is invalid.'); return result; }
 function mapError(error: unknown) { if (!(error instanceof AdminDirectoryError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'CONFLICT' ? 409 : 400, code: error.code, message: error.message }; }
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
+function matchesOrderStatusFilter(status:string,filter?:string):boolean{return !filter||status===filter||(filter==='IN_PROGRESS'&&['PENDING_DISPATCH','ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION'].includes(status));}
+function projectOrderListItem(item:AdminOrderListItem,customerDisplayName:string|null):AdminOrderListItem{
+  const participants=(item.participants??[]).filter((participant)=>participant.status!=='REMOVED');
+  const playerDisplayNames=participants.map((participant)=>participant.displayName).filter(Boolean).join('、');
+  const services=Array.from(new Set(participants.map((participant)=>[participant.gameDisplayName,participant.serviceDisplayName].filter(Boolean).join(' · ')).filter(Boolean)));
+  const legacyService=[item.gameDisplayName,item.serviceDisplayName].filter(Boolean).join(' · ');
+  return {...item,customerDisplayName:item.customerDisplayName??customerDisplayName,playerDisplayNames:item.playerDisplayNames??playerDisplayNames,serviceSummary:item.serviceSummary??(services.join('；')||legacyService)};
+}
 function timeKey(value: string) { return new Date(value).toISOString(); }
 function orderCursorKeys(item: AdminOrderListItem) { return [timeKey(item.createdAt), item.id]; }
 function userCursorKeys(item: AdminUserRecord) { return [item.id]; }

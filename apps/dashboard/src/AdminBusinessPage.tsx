@@ -129,6 +129,9 @@ function OrderDiscussionGrid(props: {
     const region = participants.length?Array.from(new Set(participants.map((participant)=>textValue(participant.regionDisplayName)||textValue(participant.region)||'不限区服'))).join('、'):textValue(item.regionDisplayName) || textValue(item.region);
     const billing = participants.length?participants.map((participant)=>`${textValue(participant.displayName)||'陪玩'} ${textValue(participant.unitCount)||'—'} 单位`).join(' · '):orderBillingSummary(item);
     const status = textValue(item.status);
+    const customerName=textValue(item.customerDisplayName)||textValue(item.customerDiscordTag)||'客户资料待补充';
+    const playerNames=participants.map((participant)=>textValue(participant.displayName)||textValue(participant.discordTag)).filter(Boolean).join('、')||textValue(item.playerDisplayNames)||'待接单';
+    const operational=orderOperationalState(status);
     return <article className="order-discussion-card" key={textValue(item.id) || publicId}>
       <header className="order-discussion-card__header">
         <div><span className="order-discussion-card__label">订单 {publicId}</span><h2>{game} · {service}{participants.length>1?` +${participants.length-1} 个项目`:''}</h2></div>
@@ -136,15 +139,16 @@ function OrderDiscussionGrid(props: {
       </header>
       <div className="order-discussion-card__summary">
         <p>{[region, billing].filter(Boolean).join(' · ') || '项目资料待补充'}</p>
+        <div className="order-discussion-card__next"><span>下一步</span><strong>{operational.nextAction}</strong></div>
       </div>
       <dl className="order-discussion-card__facts">
-        <OrderFact label="老板 ID" value={textValue(item.customerId) || '—'} />
-        <OrderFact label="陪玩 ID" value={participants.length?participants.map((participant)=>textValue(participant.playerId)).filter(Boolean).join('、'):textValue(item.playerId) || '待接单'} muted={!item.playerId&&participants.length===0} />
+        <OrderFact label="客户" value={customerName} />
+        <OrderFact label="陪玩" value={playerNames} muted={playerNames==='待接单'} />
         <OrderFact label="订单价格" value={orderPrice(item)} strong />
-        <OrderFact label="创建时间" value={formatOrderDate(item.createdAt)} />
+        <OrderFact label="当前阻塞" value={operational.blocker} muted={operational.blocker==='无'} />
       </dl>
       <footer className="order-discussion-card__footer">
-        <span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span>
+        <span title={formatOrderDate(item.updatedAt)}>更新于 {formatRelativeDate(item.updatedAt)} · {formatOrderDate(item.updatedAt)}</span>
         <div className="order-discussion-card__actions">
           {props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
           {itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button className={action.id === 'CANCEL_ORDER_RESOLUTION' ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
@@ -226,7 +230,27 @@ function formatOrderDate(value: unknown): string {
 }
 
 function orderStatusLabel(status: string): string {
-  return ({ DRAFT: '草稿', PENDING_DISPATCH: '等待接单', ACCEPTED: '已接单', IN_SERVICE: '服务中', PENDING_CONFIRMATION: '等待确认', COMPLETED: '已完成', CANCELLED: '已取消', EXCEPTION: '需要处理' } as Record<string, string>)[status] ?? (status || '未知状态');
+  return ({ DRAFT: '草稿', PENDING_DISPATCH: '等待陪玩报名', ACCEPTED: '已接单', IN_SERVICE: '服务中', PENDING_CONFIRMATION: '等待客户确认', COMPLETED: '已完成', CANCELLED: '已取消', EXCEPTION: '需要处理' } as Record<string, string>)[status] ?? (status || '未知状态');
+}
+
+function orderOperationalState(status:string):{blocker:string;nextAction:string}{
+  return ({
+    DRAFT:{blocker:'订单尚未提交',nextAction:'核对项目与价格后提交订单'},
+    PENDING_DISPATCH:{blocker:'尚无陪玩接单',nextAction:'继续等待候选或联系客户'},
+    ACCEPTED:{blocker:'等待双方就绪',nextAction:'确认客户与陪玩均已准备'},
+    IN_SERVICE:{blocker:'无',nextAction:'关注服务进度与异常反馈'},
+    PENDING_CONFIRMATION:{blocker:'等待客户确认完成',nextAction:'提醒客户确认或登记问题'},
+    COMPLETED:{blocker:'无',nextAction:'无需处理'},
+    CANCELLED:{blocker:'订单已取消',nextAction:'核对预留资金已释放'},
+    EXCEPTION:{blocker:'订单存在异常',nextAction:'查看时间线并处理异常'}
+  } as Record<string,{blocker:string;nextAction:string}>)[status]??{blocker:'状态待核对',nextAction:'查看详情并确认订单状态'};
+}
+
+function formatRelativeDate(value:unknown):string{
+  if(typeof value!=='string')return '未知时间';const timestamp=new Date(value).getTime();if(Number.isNaN(timestamp))return value;
+  const seconds=Math.round((timestamp-Date.now())/1000);const absolute=Math.abs(seconds);
+  const [amount,unit]:[number,Intl.RelativeTimeFormatUnit]=absolute<60?[seconds,'second']:absolute<3600?[Math.round(seconds/60),'minute']:absolute<86400?[Math.round(seconds/3600),'hour']:[Math.round(seconds/86400),'day'];
+  return new Intl.RelativeTimeFormat('zh-CN',{numeric:'auto'}).format(amount,unit);
 }
 
 function AdminBusinessTable(props: {
@@ -559,7 +583,9 @@ function GiftRequestDetail({ data }: { data: Record<string, unknown> }) {
 
 function OrderTimelineRegion(props:{data:Record<string,unknown>;pageState?:AdminBusinessDetailState['timelinePage'];onNext?:(cursor:string)=>void;serviceCatalogOptions:Array<Record<string,unknown>>;participantPlayerOptions:Array<Record<string,unknown>>;mutationError?:string|null;onAdd?:(fields:Record<string,unknown>)=>void;onUpdate?:(fields:Record<string,unknown>)=>void}) {
   const timeline=readAdminOrderTimeline(props.data);const order=props.data.order as Record<string,unknown>|undefined;const participantPage=props.data.participants as {items?:Array<Record<string,unknown>>;derivedTotalMinor?:unknown}|undefined;const participants=participantPage?.items??[];const requirementPage=props.data.requirements as {items?:Array<Record<string,unknown>>;derivedTotalMinor?:unknown;catalogSubtotalMinor?:unknown;packageAdjustmentMinor?:unknown}|undefined;
-  return <><section className="order-detail-summary" aria-label="订单基础信息"><h3>订单基础信息</h3><dl className="definition-list">{order&&Object.entries(order).filter(([key])=>['publicId','status','customerId','customerDiscordUserId','customerDiscordTag','sourcePackageVersionId','sourcePackageCode','sourcePackageDisplayName','sourcePackageVersion','compositionMode','amountMinor','currency','notes','createdAt','updatedAt'].includes(key)).map(([key,value])=><div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key,value,order.currency)}</dd></div>)}</dl></section>
+  const operational=orderOperationalState(textValue(order?.status));const customerName=textValue(order?.customerDisplayName)||textValue(order?.customerDiscordTag)||'客户资料待补充';const serviceSummary=textValue(order?.serviceSummary)||participants.map((participant)=>[textValue(participant.gameDisplayName),textValue(participant.serviceDisplayName)].filter(Boolean).join(' · ')).filter(Boolean).join('；')||'项目资料待补充';
+  return <><section className="order-detail-summary order-operational-overview" aria-label="订单处理概览"><div className="subsection-heading"><div><span className="page-eyebrow">订单处理概览</span><h3>订单 {textValue(order?.publicId)||'—'}</h3></div><span className={`order-status order-status--${textValue(order?.status).toLowerCase()}`}>{orderStatusLabel(textValue(order?.status))}</span></div><dl className="order-operational-overview__facts"><OrderFact label="当前阻塞" value={operational.blocker}/><OrderFact label="下一步" value={operational.nextAction} strong/><OrderFact label="客户" value={customerName}/><OrderFact label="服务" value={serviceSummary}/><OrderFact label="订单金额" value={orderPrice(order??{})} strong/><OrderFact label="最近更新" value={`${formatRelativeDate(order?.updatedAt)} · ${formatOrderDate(order?.updatedAt)}`}/></dl>{textValue(order?.notes)&&<p>客户备注：{textValue(order?.notes)}</p>}</section>
+    <details className="order-technical-details"><summary>技术详情与审计字段</summary><dl className="definition-list">{order&&Object.entries(order).filter(([key])=>['id','customerId','customerDiscordUserId','sourcePackageVersionId','sourcePackageCode','sourcePackageDisplayName','sourcePackageVersion','compositionMode','version','createdAt','updatedAt'].includes(key)).map(([key,value])=><div key={key}><dt><strong>{dashboardFieldLabel(key)}</strong></dt><dd>{displayValue(key,value,order.currency)}</dd></div>)}</dl></details>
     <OrderRequirementRegion requirements={requirementPage?.items??[]} derivedTotalMinor={requirementPage?.derivedTotalMinor} catalogSubtotalMinor={requirementPage?.catalogSubtotalMinor} packageAdjustmentMinor={requirementPage?.packageAdjustmentMinor} currency={typeof order?.currency==='string'?order.currency:'CAT'}/>
     <OrderParticipantEditor participants={participants} order={order} derivedTotalMinor={participantPage?.derivedTotalMinor} serviceCatalogOptions={props.serviceCatalogOptions} playerOptions={props.participantPlayerOptions} error={props.mutationError} onAdd={props.onAdd} onUpdate={props.onUpdate}/>
     <section className="subsection" aria-label="交易时间线"><h3>交易时间线</h3>
@@ -582,7 +608,7 @@ function OrderParticipantEditor(props:{participants:Array<Record<string,unknown>
     {props.onAdd&&<ParticipantAddForm players={props.playerOptions} catalogs={props.serviceCatalogOptions} onSubmit={props.onAdd}/>}</section>;
 }
 
-function ParticipantAddForm(props:{players:Array<Record<string,unknown>>;catalogs:Array<Record<string,unknown>>;onSubmit:(fields:Record<string,unknown>)=>void}){return <form className="participant-inline-form" onSubmit={(event)=>{event.preventDefault();props.onSubmit(formRecord(event.currentTarget));}}><h4>添加陪玩明细</h4><label><span>陪玩</span><select name="playerId" required><option value="">请选择</option>{props.players.map((player)=><option key={String(player.playerId)} value={String(player.playerId)}>{String(player.displayName??player.discordTag??player.playerId)}</option>)}</select></label><CatalogSelect catalogs={props.catalogs}/><label><span>计费单位数</span><input name="unitCount" type="number" min="1" required/></label><label><span>明细价格（CAT 最小单位）</span><input name="linePriceMinor" type="number" min="1" required/></label><label><span>原因码</span><input name="reasonCode" defaultValue="ADD_ORDER_PLAYER" pattern="[A-Z0-9_]{3,100}" required/></label><button className="button-primary" type="submit">添加陪玩</button></form>;}
+function ParticipantAddForm(props:{players:Array<Record<string,unknown>>;catalogs:Array<Record<string,unknown>>;onSubmit:(fields:Record<string,unknown>)=>void}){return <details className="advanced-order-action"><summary>高级操作：添加陪玩明细</summary><form className="participant-inline-form" onSubmit={(event)=>{event.preventDefault();props.onSubmit(formRecord(event.currentTarget));}}><input type="hidden" name="reasonCode" value="ADD_ORDER_PLAYER"/><label><span>陪玩</span><select name="playerId" required><option value="">请选择</option>{props.players.map((player)=><option key={String(player.playerId)} value={String(player.playerId)}>{String(player.displayName??player.discordTag??player.playerId)}</option>)}</select></label><CatalogSelect catalogs={props.catalogs}/><label><span>计费单位数</span><input name="unitCount" type="number" min="1" required/></label><label><span>明细价格（CAT 最小单位）</span><input name="linePriceMinor" type="number" min="1" required/></label><button className="button-primary" type="submit">添加陪玩</button></form></details>;}
 function ParticipantUpdateForm(props:{participant:Record<string,unknown>;catalogs:Array<Record<string,unknown>>;onSubmit:(fields:Record<string,unknown>)=>void}){return <form className="participant-inline-form" onSubmit={(event)=>{event.preventDefault();props.onSubmit(formRecord(event.currentTarget));}}><label><span>操作</span><select name="action" defaultValue="CHANGE_PRICE"><option value="CHANGE_PRICE">修改价格</option><option value="CHANGE_PROJECT">更换项目</option><option value="REMOVE">移除陪玩</option></select></label><CatalogSelect catalogs={props.catalogs} defaultValue={String(props.participant.serviceCatalogVersionId??'')}/><label><span>计费单位数</span><input name="unitCount" type="number" min="1" defaultValue={Number(props.participant.unitCount??1)}/></label><label><span>明细价格</span><input name="linePriceMinor" type="number" min="1" defaultValue={Number(props.participant.linePriceMinor??1)}/></label><label><span>原因码</span><input name="reasonCode" defaultValue="UPDATE_ORDER_PLAYER" pattern="[A-Z0-9_]{3,100}" required/></label><button type="submit">保存明细</button></form>;}
 function CatalogSelect({catalogs,defaultValue}:{catalogs:Array<Record<string,unknown>>;defaultValue?:string}){return <label><span>服务项目</span><select name="serviceCatalogVersionId" required defaultValue={defaultValue??''}><option value="">请选择</option>{catalogs.map((catalog)=><option key={String(catalog.id)} value={String(catalog.id)}>{`${String(catalog.gameDisplayName??catalog.game)} · ${String(catalog.serviceDisplayName??catalog.service)}${catalog.regionDisplayName?` · ${String(catalog.regionDisplayName)}`:''}`}</option>)}</select></label>;}
 function formRecord(form:HTMLFormElement){return Object.fromEntries(Array.from(new FormData(form).entries()).filter((entry):entry is [string,string]=>typeof entry[1]==='string'));}
@@ -611,6 +637,7 @@ function submitFilters(event: FormEvent<HTMLFormElement>, onFilter?: (filters: R
 
 function displayValue(column: string, value: unknown, currency: unknown, tags?: BusinessTagGroups): string {
   if (column.endsWith('Minor') && typeof value === 'number' && typeof currency === 'string') return formatMinorCurrency(value, currency);
+  if (column === 'status' && typeof value === 'string') return orderStatusLabel(value);
   if (value === null || value === undefined) return '-';
   const tagType = column === 'gameTags' ? 'GAME' : column === 'serviceTags' ? 'SERVICE' : column === 'languageTags' ? 'LANGUAGE' : null;
   if (tagType && Array.isArray(value)) {

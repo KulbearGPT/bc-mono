@@ -50,13 +50,11 @@ describe('M14-US-01 support-first workbench UX contract', () => {
     }
   });
 
-  test('records only the contract story complete and keeps release mirrors exact', () => {
+  test('records completed implementation stories while keeping the external release gate open and mirrors exact', () => {
     const todo = read('outputs/Codex-P0开发TODO.md');
     expect(todo).toContain('## M14：客服任务优先工作台与可行动订单上下文');
-    expect(todo).toContain('- [x] `M14-US-01`');
-    for (const id of ['M14-US-02', 'M14-US-03', 'M14-US-04', 'M14-US-05']) {
-      expect(todo).toContain(`- [ ] \`${id}\``);
-    }
+    for (const id of ['M14-US-01', 'M14-US-02', 'M14-US-03', 'M14-US-04']) expect(todo).toContain(`- [x] \`${id}\``);
+    expect(todo).toContain('- [ ] `M14-US-05`');
     expect(todo).toContain('不表示客服工作台运行时已实现');
 
     for (const relative of [
