@@ -47,4 +47,29 @@ describe('M14-US-05 support workbench release gate', () => {
     expect(output).toContain('Exact order status or the IN_PROGRESS operational group');
     expect(output).toContain('EXCEPTION, IN_PROGRESS]');
   });
+
+  test('requires real UAT only in the current business Guild while retaining automated Guild-isolation gates', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const [spec, story, backlog, acceptance, todo] = await Promise.all([
+      readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
+      readFile('outputs/P0开发交付包/06-开发计划/M14-客服任务优先工作台与可行动上下文-Story设计提案.md', 'utf8'),
+      readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
+      readFile('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
+      readFile('outputs/Codex-P0开发TODO.md', 'utf8')
+    ]);
+    expect(spec).toContain('真实员工 UAT 只覆盖当前业务 Guild');
+    expect(story).toContain('真实员工 UAT 只覆盖当前业务 Guild');
+
+    const releaseStory = backlog.split('\n').find((line) => line.startsWith('"M14-US-05"')) ?? '';
+    expect(releaseStory).toContain('当前业务 Guild');
+    expect(releaseStory).toContain('跨 Guild 隔离由 API/数据库自动化回归证明');
+    expect(releaseStory).not.toContain('覆盖 L1-L4、已认领与未认领、超时、缺频道、跨 Guild、');
+
+    const automatedSecurityCase = acceptance.split('\n').find((line) => line.startsWith('"AT-SUX-003"')) ?? '';
+    const realUatCase = acceptance.split('\n').find((line) => line.startsWith('"AT-SUX-007"')) ?? '';
+    expect(automatedSecurityCase).toContain('FX-TWO-GUILDS');
+    expect(realUatCase).not.toContain('FX-TWO-GUILDS');
+    expect(realUatCase).toContain('Guild 隔离由 API/数据库自动化回归门禁证明');
+    expect(todo).not.toContain('无 L3 且只有一个 Guild');
+  });
 });
