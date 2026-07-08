@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import { DashboardMetricSummary } from '../apps/dashboard/src/SupportWorkbenchPage.js';
+import { DashboardMetricSummary, SupportOrderContextPreview } from '../apps/dashboard/src/SupportWorkbenchPage.js';
 import { buildSupportWorkbench } from '@blackcat/dashboard/support-workbench';
 
 describe('M14-US-05 support workbench release gate', () => {
@@ -38,6 +38,23 @@ describe('M14-US-05 support workbench release gate', () => {
       id: 'legacy-task', publicId: 'T-LEGACY', type: 'ORDER_ASSIST', status: 'OPEN', version: 1, claimedBy: null, orderId: 'order-1', createdAt: '2026-08-05T19:55:00Z'
     } as never] });
     expect(view.sections.unclaimed[0]).toMatchObject({ links: { orderChannel: null, voiceChannel: null }, triage: { orderPublicId: null, reasonLabel: '需要客服处理', nextActionLabel: '查看任务并确认下一步' } });
+  });
+
+  test('renders the claimed-task order context when the shared admin detail omits lifecycle projections', () => {
+    const html = renderToStaticMarkup(createElement(SupportOrderContextPreview, { context: {
+      order: {
+        publicId: 'P-3810D50D', status: 'PENDING_DISPATCH', game: null, gameDisplayName: null,
+        service: null, serviceDisplayName: null, amountMinor: 200, currency: 'CAT',
+        customerDisplayName: 'OnlyMyKulbear'
+      },
+      timeline: { items: [], nextCursor: null }
+    } }));
+    expect(html).toContain('订单处理概览');
+    expect(html).toContain('等待陪玩报名');
+    expect(html).toContain('OnlyMyKulbear');
+    expect(html).toContain('20.0 猫条');
+    expect(html).toContain('准备状态');
+    expect(html).toContain('待补充');
   });
 
   test('publishes the in-progress drilldown filter in both API contract mirrors', async () => {

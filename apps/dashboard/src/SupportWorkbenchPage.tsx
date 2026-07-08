@@ -11,10 +11,11 @@ interface StaffTaskPayload extends SupportTaskCardInput {
 }
 
 interface OrderContext {
-  order: { publicId: string; status: string; game: string | null; gameDisplayName?: string | null; service: string | null; serviceDisplayName?: string | null; amountMinor: number; currency: string };
-  readiness: { customer: string; player: string; bothReady: boolean };
-  automation: { state: string; reasonCode: string | null };
-  matching: { stage: string; nextStep: string } | null;
+  order: { publicId: string; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
+  readiness?: { customer: string; player: string; bothReady: boolean };
+  automation?: { state: string; reasonCode: string | null };
+  matching?: { stage: string; nextStep: string } | null;
+  timeline?: { items: unknown[]; nextCursor: string | null };
 }
 
 interface DashboardMetrics {
@@ -117,7 +118,13 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       setError('请先认领任务，再查看完整订单。');
       return;
     }
-    setSelectedOrder((await response.json() as { data: OrderContext }).data);
+    const payload = await response.json().catch(() => null) as { data?: OrderContext } | null;
+    if (!payload?.data?.order) {
+      setError('订单详情暂时无法载入。');
+      return;
+    }
+    setError(null);
+    setSelectedOrder(payload.data);
   }
 
   async function toggleShift() {
@@ -194,14 +201,32 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         </tbody></table></div>
       </section>
       <DashboardMetricSummaryLoader/>
-      {selectedOrder && (
-        <aside className="action-panel order-preview">
-          <div className="panel-heading"><div><span className="page-eyebrow">ORDER CONTEXT</span><h2>订单 {selectedOrder.order.publicId}</h2></div></div>
-          <dl className="definition-list"><div><dt>服务</dt><dd>{String(selectedOrder.order.gameDisplayName ?? selectedOrder.order.game)} · {String(selectedOrder.order.serviceDisplayName ?? selectedOrder.order.service)}</dd></div><div><dt>订单状态</dt><dd>{selectedOrder.order.status}</dd></div><div><dt>准备状态</dt><dd>用户 {selectedOrder.readiness.customer} / 陪玩 {selectedOrder.readiness.player}</dd></div><div><dt>匹配状态</dt><dd>{selectedOrder.matching?.stage ?? '不适用'}</dd></div><div><dt>自动流程</dt><dd>{selectedOrder.automation.state}</dd></div></dl>
-        </aside>
-      )}
+      {selectedOrder && <SupportOrderContextPreview context={selectedOrder} />}
     </section>
   );
+}
+
+export function SupportOrderContextPreview({ context }: { context: OrderContext }) {
+  const { order } = context;
+  const service = [order.gameDisplayName ?? order.game, order.serviceDisplayName ?? order.service].filter(Boolean).join(' · ') || '项目资料待补充';
+  const amount = typeof order.amountMinor === 'number' && order.currency ? formatMinorCurrency(order.amountMinor, order.currency) : '金额待补充';
+  const readiness = context.readiness ? `用户 ${context.readiness.customer} / 陪玩 ${context.readiness.player}` : '待补充';
+  return <aside className="action-panel order-preview" aria-label="订单处理概览">
+    <div className="panel-heading"><div><span className="page-eyebrow">订单处理概览</span><h2>订单 {order.publicId}</h2></div></div>
+    <dl className="definition-list">
+      <div><dt>客户</dt><dd>{order.customerDisplayName ?? '客户资料待补充'}</dd></div>
+      <div><dt>服务</dt><dd>{service}</dd></div>
+      <div><dt>订单状态</dt><dd>{supportOrderStatusLabel(order.status)}</dd></div>
+      <div><dt>订单金额</dt><dd>{amount}</dd></div>
+      <div><dt>准备状态</dt><dd>{readiness}</dd></div>
+      <div><dt>匹配状态</dt><dd>{context.matching?.stage ?? '待补充'}</dd></div>
+      <div><dt>自动流程</dt><dd>{context.automation?.state ?? '待补充'}</dd></div>
+    </dl>
+  </aside>;
+}
+
+function supportOrderStatusLabel(status: string): string {
+  return ({ DRAFT:'草稿', PENDING_DISPATCH:'等待陪玩报名', ACCEPTED:'已接单', IN_SERVICE:'服务中', PENDING_CONFIRMATION:'等待客户确认', COMPLETED:'已完成', CANCELLED:'已取消', EXCEPTION:'异常处理中' } as Record<string,string>)[status] ?? status;
 }
 
 export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
