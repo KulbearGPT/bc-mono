@@ -36,15 +36,15 @@ test.describe('Dashboard browser E2E: authentication and support workbench', () 
     await login(page);
     await page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: '客服工作台', exact: true }).click();
     await expect(page.getByRole('heading', { name: '客服工作台' })).toBeVisible();
-    await expect(page.getByText('T-E2E-001')).toBeVisible();
-    await page.getByRole('button', { name: '认领', exact: true }).click();
-    await expect(page.getByRole('button', { name: '认领', exact: true })).toHaveCount(0);
+    await expect(page.getByText('订单 P-E2E-001')).toBeVisible();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
+    await expect(page.getByRole('button', { name: '认领任务', exact: true })).toHaveCount(0);
     await page.getByLabel('T-E2E-001 处理备注').fill('已联系客户并确认服务时间');
     await page.getByRole('button', { name: '保存备注' }).click();
     await expect(page.getByLabel('T-E2E-001 处理备注')).toHaveValue('');
-    await page.getByRole('button', { name: '查看订单' }).click();
+    await page.getByRole('button', { name: '查看完整订单' }).click();
     await expect(page.getByRole('heading', { name: '订单 P-E2E-001' })).toBeVisible();
-    await expect(page.getByText('无畏契约 · 护航')).toBeVisible();
+    await expect(page.getByLabel('订单处理概览').getByText('无畏契约 · 护航')).toBeVisible();
   });
 
   test('DE2E-AUTH-010 a permissions version change expires the current browser session', async ({ page, request }) => {

@@ -73,6 +73,28 @@ const initialTask: StaffTask = {
     guildId, createdAt: '2026-08-05T00:00:00.000Z', notes: []
 };
 const tasks = new Map<string, StaffTask>();
+function projectSupportTask(task: StaffTask) {
+  const order = bulkOrders.find((item) => item.id === task.orderId) ?? (task.orderId === orderRecord.id ? orderRecord : null);
+  return {
+    ...task,
+    links: {
+      orderChannel: task.channelId ? `https://discord.com/channels/${guildId}/${task.channelId}` : null,
+      voiceChannel: task.voiceChannelId ? `https://discord.com/channels/${guildId}/${task.voiceChannelId}` : null
+    },
+    triage: {
+      orderPublicId: order?.publicId ?? null,
+      customerDisplayName: order?.customerDiscordId ?? null,
+      gameDisplayName: '无畏契约', serviceDisplayName: '护航',
+      amountMinor: order?.amountMinor ?? null, currency: order?.currency ?? null,
+      reasonLabel: task.type === 'SERVICE_INTERRUPTION' ? '服务中断待处理' : task.type === 'CANCELLATION_ASSIST' ? '客户取消待处理' : '订单需要客服协助',
+      waitStartedAt: task.createdAt,
+      nextActionLabel: task.status === 'OPEN' ? '认领并联系双方' : '继续跟进并记录结果'
+    },
+    responseStatus: task.status === 'OPEN' ? 'PENDING' : 'MET',
+    responseDueAt: task.status === 'OPEN' ? '2026-08-05T00:05:00.000Z' : null,
+    firstRespondedAt: task.status === 'OPEN' ? null : '2026-08-05T00:01:00.000Z'
+  };
+}
 const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'USD', createdAt: '2026-08-05T00:00:00.000Z' };
 type BulkOrder = {
   id: string; publicId: string; version: number; status: string; customerDiscordId: string; amountMinor: number; currency: 'USD'; createdAt: string;
@@ -242,7 +264,7 @@ server.get('/__e2e/login/:actor', async (request, reply) => {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/staff-tasks', permission: 'staff_task.read', action: 'LIST_E2E_STAFF_TASKS', targetType: 'staff_task', acceptedSources: ['DASHBOARD'],
-  handler: (_request, actor) => ({ items: Array.from(tasks.values()).filter((task) => task.guildId === actor.guildId).map(({ notes: _notes, ...task }) => task), nextCursor: null })
+  handler: (_request, actor) => ({ items: Array.from(tasks.values()).filter((task) => task.guildId === actor.guildId).map(({ notes: _notes, ...task }) => projectSupportTask(task)), nextCursor: null })
 });
 
 registerSecureReadRoute(server, server.securityOptions!, {

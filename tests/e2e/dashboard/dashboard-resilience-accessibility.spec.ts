@@ -46,8 +46,8 @@ test.describe('Dashboard browser E2E: resilience and accessibility', () => {
   });
 
   test('DE2E-RES-004 API and worker runtime restart preserves the staff session and persisted task recovery', async ({ page, request }) => {
-    await loginAs(page, 'l1'); await page.getByRole('link', { name: '客服工作台', exact: true }).click(); await page.getByRole('button', { name: '认领', exact: true }).click(); await request.post('http://127.0.0.1:3000/__e2e/outbox/enqueue'); const restart = await request.post('http://127.0.0.1:3000/__e2e/restart-runtimes'); expect(await restart.json()).toEqual({ apiRuntimeEpoch: 2, workerRuntimeEpoch: 2 });
-    await page.reload(); await expect(page.getByRole('heading', { name: '客服工作台' })).toBeVisible(); await expect(page.getByText('T-E2E-001')).toBeVisible(); await expect(page.getByLabel('T-E2E-001 处理备注')).toBeVisible(); await request.post('http://127.0.0.1:3000/__e2e/worker/start'); const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.tasks[0]).toMatchObject({ status: 'CLAIMED', version: 2 }); expect(state.outboxMessages[0]).toMatchObject({ status: 'COMPLETED', attempts: 1 });
+    await loginAs(page, 'l1'); await page.getByRole('link', { name: '客服工作台', exact: true }).click(); await page.getByRole('button', { name: '认领任务', exact: true }).click(); await request.post('http://127.0.0.1:3000/__e2e/outbox/enqueue'); const restart = await request.post('http://127.0.0.1:3000/__e2e/restart-runtimes'); expect(await restart.json()).toEqual({ apiRuntimeEpoch: 2, workerRuntimeEpoch: 2 });
+    await page.reload(); await expect(page.getByRole('heading', { name: '客服工作台' })).toBeVisible(); await expect(page.getByText('订单 P-E2E-001')).toBeVisible(); await expect(page.getByLabel('T-E2E-001 处理备注')).toBeVisible(); await request.post('http://127.0.0.1:3000/__e2e/worker/start'); const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.tasks[0]).toMatchObject({ status: 'CLAIMED', version: 2 }); expect(state.outboxMessages[0]).toMatchObject({ status: 'COMPLETED', attempts: 1 });
   });
 
   test('DE2E-ACC-001 critical navigation and claim actions are keyboard operable and dialogs receive focus', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Dashboard browser E2E: resilience and accessibility', () => {
     await supportLink.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: '客服工作台' })).toBeVisible();
-    const claim = page.getByRole('button', { name: '认领', exact: true });
+    const claim = page.getByRole('button', { name: '认领任务', exact: true });
     await claim.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByLabel('T-E2E-001 处理备注')).toBeVisible();

@@ -33,7 +33,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     await openCancellation(page);
     await page.getByRole('dialog', { name: '取消订单操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect(page.getByText('P-E2E-001')).toBeVisible();
-    await expect(page.getByText('已取消')).toBeVisible();
+    await expect(page.getByText('已取消').first()).toBeVisible();
     await expect(page.getByRole('button', { name: '取消订单' })).toHaveCount(0);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.order).toMatchObject({ status: 'CANCELLED', version: 4 });
@@ -88,6 +88,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     const requests: Array<Record<string, unknown>> = [];
     page.on('request', (value) => { if (value.method() === 'POST' && value.url().endsWith('/participants')) requests.push(value.postDataJSON()); });
     for (const [player, catalog, price] of [['player-e2e-1', '00000000-0000-0000-0000-000000000701', '2400'], ['player-e2e-2', 'catalog-e2e-chat', '1500']] as const) {
+      await page.getByText('高级操作：添加陪玩明细').click();
       const form = page.locator('.participant-inline-form').last();
       await form.getByLabel('陪玩').selectOption(player);
       await form.getByLabel('服务项目').selectOption(catalog);

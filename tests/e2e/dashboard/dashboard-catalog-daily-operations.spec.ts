@@ -75,6 +75,7 @@ test.describe('Dashboard browser E2E: daily catalog operations', () => {
 
   test('DE2E-GFT-005 a seasonal gift is created and archived while captured gift history stays unchanged', async ({ page, request }) => {
     await loginAndOpen(page, '礼物目录');
+    await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
     await page.getByRole('button', { name: '创建礼物' }).click();
     const create = page.getByRole('dialog', { name: '创建礼物操作' });
     await create.getByLabel('礼物名称').fill('七夕限定烟花');

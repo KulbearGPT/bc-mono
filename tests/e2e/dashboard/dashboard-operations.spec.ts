@@ -12,7 +12,7 @@ test.describe('Dashboard browser E2E: audit, jobs, and policies', () => {
   test('DE2E-AUD-001 Dashboard writes persist actor, permission, action, target, outcome, and request IDs', async ({ page, request }) => {
     await page.goto('/__e2e/login/l1'); await page.waitForURL('**/');
     await page.getByRole('link', { name: '客服工作台', exact: true }).click();
-    await page.getByRole('button', { name: '认领', exact: true }).click();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
     await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).audits.some((record: { action: string }) => record.action === 'CLAIM_E2E_STAFF_TASK')).toBe(true);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     const audit = state.audits.find((record: { action: string }) => record.action === 'CLAIM_E2E_STAFF_TASK');
@@ -33,7 +33,7 @@ test.describe('Dashboard browser E2E: audit, jobs, and policies', () => {
 
   test('DE2E-AUD-003 audit pagination is stable and exposes no mutation controls', async ({ page }) => {
     await page.goto('/__e2e/login/l1'); await page.waitForURL('**/');
-    await page.getByRole('link', { name: '客服工作台', exact: true }).click(); await page.getByRole('button', { name: '认领', exact: true }).click();
+    await page.getByRole('link', { name: '客服工作台', exact: true }).click(); await page.getByRole('button', { name: '认领任务', exact: true }).click();
     await page.getByRole('link', { name: '系统运营', exact: true }).click();
     const audit = page.getByRole('region', { name: '审计记录' });
     await expect(audit.locator('tbody tr')).toHaveCount(1);

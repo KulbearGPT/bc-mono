@@ -31,6 +31,7 @@ test.describe('Dashboard browser E2E: business tags', () => {
     await page.getByRole('button', { name: '创建礼物' }).click();
     await expect(page.getByRole('dialog', { name: '创建礼物操作' }).getByLabel('礼物分类').locator('option')).toHaveCount(1);
     await page.getByRole('button', { name: '关闭' }).click();
+    await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
     await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '查看详情' }).click();
     const detail = page.getByRole('dialog', { name: '业务对象详情' });
     await expect(detail).toContainText('tag-gift-celebration');

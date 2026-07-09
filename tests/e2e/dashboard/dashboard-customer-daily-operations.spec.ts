@@ -17,6 +17,7 @@ async function openCustomerFromDailyList(page: Page, actor: 'l2' | 'l3' = 'l2') 
   await page.goto(`/__e2e/login/${actor}`);
   await page.waitForURL('**/');
   await page.getByRole('link', { name: '用户', exact: true }).click();
+  await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
   await page.getByLabel('Discord ID 或业务用户 ID').fill('customer-e2e');
   await page.getByRole('button', { name: '筛选' }).click();
   const row = page.getByRole('row').filter({ hasText: 'customer-e2e' });
@@ -66,6 +67,7 @@ test.describe('Dashboard browser E2E: daily customer support operations', () => 
   test('DE2E-USR-005 suspicious payment is escalated from an append-only risk note to an L3 service pause', async ({ page, request }) => {
     await page.goto('/__e2e/login/l2'); await page.waitForURL('**/');
     await page.getByRole('link', { name: '用户', exact: true }).click();
+    await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
     await page.getByLabel('Discord ID 或业务用户 ID').fill('customer-e2e'); await page.getByRole('button', { name: '筛选' }).click();
     await page.getByRole('row').filter({ hasText: 'customer-e2e' }).getByRole('button', { name: '记录风险事件' }).click();
     await page.getByLabel('说明').fill('客服核对发现付款人与老板身份不一致，升级主管复核');
@@ -73,6 +75,7 @@ test.describe('Dashboard browser E2E: daily customer support operations', () => 
 
     await page.goto('/__e2e/login/l3'); await page.waitForURL('**/');
     await page.getByRole('link', { name: '用户', exact: true }).click();
+    await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
     await page.getByLabel('Discord ID 或业务用户 ID').fill('customer-e2e'); await page.getByRole('button', { name: '筛选' }).click();
     await page.getByRole('row').filter({ hasText: 'customer-e2e' }).getByRole('button', { name: '更新运营状态' }).click();
     await page.getByLabel('目标状态').selectOption('PAUSED');

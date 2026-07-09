@@ -10,9 +10,15 @@ import {
   buildUpdateOrderParticipantRequest,
   buildAdminResourceQuery,
   buildAdminUserConsumptionRequest,
+  buildAdminCollectionUrl,
+  isAdminCollectionPage,
+  readAdminCollectionState,
   type AdminBusinessAction,
   type AdminBusinessDetailState,
-  type AdminBusinessPageId
+  type AdminBusinessPageId,
+  type AdminCollectionState,
+  type AdminCollectionView,
+  type AdminSortDirection
 } from './admin-business.js';
 import { groupEnabledBusinessTags, type BusinessTagRecord, type BusinessTagGroups } from './business-tags.js';
 
@@ -23,6 +29,9 @@ export function createRetriableDashboardWrite<T>(input: {
   const idempotencyKey = (input.createKey ?? (() => `dashboard:${crypto.randomUUID()}`))();
   return () => input.send(idempotencyKey);
 }
+export function createLatestRequestSequence(){let current=0;return{begin(){current+=1;return current;},invalidate(){current+=1;},isCurrent(sequence:number){return sequence===current;}};}
+
+function initialCollectionState(page:AdminBusinessPageId):AdminCollectionState|null{if(!isAdminCollectionPage(page))return null;return readAdminCollectionState(page,typeof window==='undefined'?'':window.location.search);}
 
 export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilities: DashboardCapabilities }) {
   const client = useMemo(() => createDashboardApiClient(), []);
@@ -30,7 +39,11 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const initialCollection=initialCollectionState(props.page);
+  const [filters, setFilters] = useState<Record<string, string>>(initialCollection?.filters??{});
+  const [view,setView]=useState<AdminCollectionView>(initialCollection?.view??'CARD');
+  const [sortBy,setSortBy]=useState(initialCollection?.sortBy??'createdAt');
+  const [sortDirection,setSortDirection]=useState<AdminSortDirection>(initialCollection?.sortDirection??'desc');
   const [activeAction, setActiveAction] = useState<{ action: AdminBusinessAction; item?: Record<string, unknown> } | null>(null);
   const [actionStatus, setActionStatus] = useState<'IDLE' | 'SUBMITTING' | 'ERROR'>('IDLE');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -41,14 +54,18 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [participantPlayerOptions,setParticipantPlayerOptions]=useState<Array<Record<string,unknown>>>([]);
   const [participantMutationError,setParticipantMutationError]=useState<string|null>(null);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
+  const requestSequence=useRef(createLatestRequestSequence()).current;
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
 
-  async function load(cursor: string | null = null, activeFilters = filters) {
+  async function load(cursor: string | null = null, activeFilters = filters,activeSort={sortBy,sortDirection}) {
+    const sequence=requestSequence.begin();
     setStatus('LOADING');
     try {
-      const response = await client.get(`${definition.endpoint}${buildAdminResourceQuery({ cursor, limit: 25, ...activeFilters })}`);
+      const sorting=isAdminCollectionPage(props.page)?activeSort:{};
+      const response = await client.get(`${definition.endpoint}${buildAdminResourceQuery({ cursor, limit: 25, ...activeFilters,...sorting })}`);
       const body = await response.json().catch(() => null) as { requestId?: string; data?: { items?: Array<Record<string, unknown>>; nextCursor?: string | null } } | null;
+      if(!requestSequence.isCurrent(sequence))return;
       if (!response.ok || !body?.data) {
         setRequestId(body?.requestId ?? null);
         setStatus('ERROR');
@@ -59,17 +76,20 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
       setRequestId(null);
       setStatus('READY');
     } catch {
+      if(!requestSequence.isCurrent(sequence))return;
       setRequestId(null);
       setStatus('ERROR');
     }
   }
 
   useEffect(() => {
+    requestSequence.invalidate();
     setActiveAction(null);
     setDetail(null);
     activeWrite.current = null;
+    const restored=initialCollectionState(props.page);const restoredFilters=restored?.filters??{};setFilters(restoredFilters);setView(restored?.view??'CARD');setSortBy(restored?.sortBy??'createdAt');setSortDirection(restored?.sortDirection??'desc');
     if (!mayReadPage) return;
-    void load(null, {});
+    void load(null, restoredFilters,{sortBy:restored?.sortBy??'createdAt',sortDirection:restored?.sortDirection??'desc'});
     if(['players','serviceCatalog','giftCatalog'].includes(props.page))void client.get('/api/v1/admin/business-tags?enabled=true').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;const items=Array.isArray(body?.data)?body.data:body?.data?.items??[];if(response.ok)setBusinessTagOptions(groupEnabledBusinessTags(items));});
     if(props.page==='players'||props.page==='servicePackages')void client.get('/api/v1/admin/service-catalog?limit=100').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(response.ok)setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));});
   }, [props.page, mayReadPage]);
@@ -222,10 +242,14 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     setActiveAction({action,item});setActionError(null);setActionStatus('IDLE');
   }
 
+  function replaceCollectionUrl(next:AdminCollectionState){if(isAdminCollectionPage(props.page)&&typeof window!=='undefined')window.history.replaceState(null,'',buildAdminCollectionUrl(props.page,next));}
   const model = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status, items, nextCursor, requestId });
   return <AdminBusinessPage model={model} onRetry={() => void load()} onNextPage={(cursor) => void load(cursor)}
-    onClearFilters={() => { setFilters({}); void load(null, {}); }}
-    onFilter={(value) => { setFilters(value); void load(null, value); }}
+    view={view} sortBy={sortBy} sortDirection={sortDirection} activeFilters={filters}
+    onViewChange={(nextView)=>{setView(nextView);replaceCollectionUrl({view:nextView,sortBy,sortDirection,filters});}}
+    onSortChange={(nextSortBy,nextDirection)=>{setSortBy(nextSortBy);setSortDirection(nextDirection);setNextCursor(null);replaceCollectionUrl({view,sortBy:nextSortBy,sortDirection:nextDirection,filters});void load(null,filters,{sortBy:nextSortBy,sortDirection:nextDirection});}}
+    onClearFilters={() => { setFilters({});setNextCursor(null);replaceCollectionUrl({view,sortBy,sortDirection,filters:{}}); void load(null, {}); }}
+    onFilter={(value) => { setFilters(value);setNextCursor(null);replaceCollectionUrl({view,sortBy,sortDirection,filters:value}); void load(null, value); }}
     onAction={(action, item) => { void openAction(action,item); }}
     activeAction={activeAction} actionStatus={actionStatus} actionError={actionError}
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}

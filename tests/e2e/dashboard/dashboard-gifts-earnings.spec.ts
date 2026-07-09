@@ -5,6 +5,7 @@ async function loginAndOpen(page: Page, label: string) {
   await page.waitForURL('**/');
   await page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: label, exact: true }).click();
   await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
+  if (label === '礼物目录') await page.getByRole('group', { name: '视图模式' }).getByRole('button', { name: '表格' }).click();
 }
 
 async function submitAction(page: Page, dialogName: string, reason: string) {
@@ -26,7 +27,7 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await dialog.getByLabel('价格（minor units）').fill('1800');
     await dialog.getByLabel('播报模板').fill('{sender} 送给 {receiver} 月光');
     await submitAction(page, '创建礼物操作', 'GIFT_CREATE');
-    await expect(page.getByText('E2E 月光礼物')).toBeVisible();
+    await expect(page.getByText('E2E 月光礼物').first()).toBeVisible();
 
     await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '编辑礼物' }).click();
     dialog = page.getByRole('dialog', { name: '编辑礼物操作' });
@@ -65,7 +66,7 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await loginAndOpen(page, '陪玩收益');
     await page.getByRole('button', { name: '确认收益' }).click();
     await submitAction(page, '确认收益操作', 'EARNING_CONFIRM');
-    await expect(page.getByText('CONFIRMED', { exact: true })).toBeVisible();
+    await expect(page.getByText('CONFIRMED', { exact: true }).first()).toBeVisible();
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.earningRecord).toMatchObject({ status: 'CONFIRMED', version: 2 });
     expect(state.audits.some((entry: { action: string }) => entry.action === 'UPDATE_E2E_EARNING')).toBe(true);

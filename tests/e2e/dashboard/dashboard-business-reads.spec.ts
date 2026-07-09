@@ -40,7 +40,7 @@ test.describe('Dashboard browser E2E: business read paths', () => {
     const detail = page.getByRole('dialog', { name: '业务对象详情' });
     await expect(detail.getByText('P-E2E-001')).toBeVisible();
     await expect(detail.getByText('ORDER_ACCEPTED')).toBeVisible();
-    await expect(detail.getByText('ACCEPTED', { exact: true }).first()).toBeVisible();
+    await expect(detail.getByText('已接单', { exact: true }).first()).toBeVisible();
   });
 
   test('DE2E-ORD-003 order timeline appends the next cursor in stable event order', async ({ page }) => {
@@ -81,7 +81,7 @@ test.describe('Dashboard browser E2E: business read paths', () => {
   test('DE2E-REF-001 commission list keeps the source customer masked', async ({ page }) => {
     await loginAs(page, 'l3');
     await openWorkspace(page, '返佣');
-    await expect(page.getByText('用户 ••••0011')).toBeVisible();
+    await expect(page.getByText('用户 ••••0011').first()).toBeVisible();
     const text = await page.getByRole('main').textContent();
     expect(text).not.toContain('customer-e2e');
     expect(text).not.toContain('customer-second');

@@ -120,7 +120,7 @@ VALUES (
     }));
 
     const first = await store.listPage({ cursor: null, limit: 1 });
-    const second = await store.listPage({ cursor: decodeCursor(first.nextCursor!), limit: 1 });
+    const second = await store.listPage({ cursor: first.nextCursor!, limit: 1 });
 
     expect(first.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-00000000d012']);
     expect(second.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-00000000d011']);
@@ -217,10 +217,6 @@ function service(overrides: Partial<ServiceCatalogRecord> = {}): ServiceCatalogR
     retiredAt: null,
     ...overrides
   };
-}
-
-function decodeCursor(value: string): { createdAt: string; id: string } {
-  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as { createdAt: string; id: string };
 }
 
 function auditRecord(action: string, reason: string): AuditRecord {

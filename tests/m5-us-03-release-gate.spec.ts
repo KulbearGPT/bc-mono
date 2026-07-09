@@ -24,7 +24,7 @@ describe("M5-US-03 fail-closed release gate", () => {
         checklist.match(new RegExp(`\\b${id}\\b`, "gu")) ?? [],
       ).toHaveLength(1);
     }
-    expect(externalIds).toHaveLength(60);
+    expect(externalIds).toHaveLength(68);
   });
 
   test("blocks the current candidate on external acceptance and unsigned roles", async () => {

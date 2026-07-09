@@ -179,8 +179,8 @@ describe('M4-US-03 Dashboard business object pages', () => {
         id: 'order-uuid-1', publicId: 'P-CAT001', status: 'PENDING_DISPATCH',
         game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'FUN', serviceDisplayName: '娱乐陪玩',
         region: 'NA', regionDisplayName: '北美', billingUnitMinutes: 60, unitCount: 2,
-        customerId: 'customer-uuid-1', playerId: null, amountMinor: 200, currency: 'CAT',
-        createdAt: '2026-08-03T12:00:00.000Z'
+        customerId: 'customer-uuid-1', customerDisplayName: '测试客户', playerId: null, amountMinor: 200, currency: 'CAT',
+        createdAt: '2026-08-03T12:00:00.000Z', updatedAt: '2026-08-03T12:30:00.000Z'
       }]
     });
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, onOpenDetail: () => undefined }));
@@ -189,9 +189,9 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(html).toContain('订单 P-CAT001');
     expect(html).toContain('瓦洛兰特');
     expect(html).toContain('娱乐陪玩');
-    expect(html).toContain('老板 ID');
-    expect(html).toContain('customer-uuid-1');
-    expect(html).toContain('陪玩 ID');
+    expect(html).toContain('测试客户');
+    expect(html).not.toContain('customer-uuid-1');
+    expect(html).toContain('下一步');
     expect(html).toContain('待接单');
     expect(html).toContain('20.0 猫条');
     expect(html).not.toContain('<table');

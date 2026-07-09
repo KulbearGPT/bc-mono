@@ -29,8 +29,8 @@ describe('Dashboard Chinese table headers', () => {
   test('uses Chinese labels while preserving the API field in a tooltip', () => {
     for (const file of ['AdminBusinessPage.tsx', 'OperationsPage.tsx']) {
       const source = readFileSync(`apps/dashboard/src/${file}`, 'utf8');
-      expect(source, file).toContain('dashboardFieldLabel(column)');
-      expect(source, file).toContain('title={column}');
+      expect(source, file).toContain(file==='AdminBusinessPage.tsx'?'dashboardFieldLabel(column.key)':'dashboardFieldLabel(column)');
+      expect(source, file).toContain(file==='AdminBusinessPage.tsx'?'title={column.key}':'title={column}');
       expect(source, file).not.toContain('scope="col">{column}</th>');
     }
   });

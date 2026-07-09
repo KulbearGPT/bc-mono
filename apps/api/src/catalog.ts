@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { BusinessTagRecord, BusinessTagStore } from './business-tags.js';
+import { decodeAdminCollectionCursor, paginateAdminCollection, parseAdminCollectionSort, type CursorBinding, type SortDirection } from './admin-collection-sort.js';
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -92,14 +93,12 @@ export interface ServiceCatalogStore {
   commit?(input: { records: ServiceCatalogRecord[]; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void>;
 }
 
-interface CatalogPageCursor {
-  createdAt: string;
-  id: string;
-}
-
 interface CatalogPageInput {
-  cursor: CatalogPageCursor | null;
+  cursor: string | null;
   limit: number;
+  sortBy: string;
+  sortDirection: SortDirection;
+  binding: CursorBinding;
 }
 
 interface CatalogPage {
@@ -192,7 +191,7 @@ export class InMemoryServiceCatalogStore implements ServiceCatalogStore {
   }
 
   async listPage(input: CatalogPageInput): Promise<CatalogPage> {
-    return pageCatalogRecords(Array.from(this.records.values()).filter((record)=>!record.archivedAt), input);
+    return pageCatalogRecords(Array.from(this.records.values()).filter((record)=>!record.archivedAt), normalizeCatalogPageInput(input));
   }
 
   async getById(id: string): Promise<ServiceCatalogRecord | null> {
@@ -253,6 +252,8 @@ ORDER BY offering.game_code ASC, offering.service_code ASC, offering.region_code
   }
 
   async listPage(input: CatalogPageInput): Promise<CatalogPage> {
+    input=normalizeCatalogPageInput(input);
+    const cursor=decodeCatalogCursor(input);const sort=catalogSqlSort(input.sortBy,input.sortDirection);
     const result = await this.client.query<ServiceCatalogRow>(
       `
 SELECT version.id, version.service_offering_id, offering.game_code, offering.game_name,
@@ -266,13 +267,13 @@ SELECT version.id, version.service_offering_id, offering.game_code, offering.gam
        version.activated_at, version.retired_at
 FROM service_catalog_versions AS version
 JOIN service_offerings AS offering ON offering.id = version.service_offering_id
-WHERE offering.archived_at IS NULL AND ($1::timestamptz IS NULL OR (version.created_at, version.id) < ($1::timestamptz, $2::uuid))
-ORDER BY version.created_at DESC, version.id DESC
-LIMIT $3
+WHERE offering.archived_at IS NULL AND ${catalogKeysetPredicate(sort,cursor!==null)}
+ORDER BY (${sort.expression} IS NULL) ASC, ${sort.expression} ${sort.direction}, version.id ${sort.direction}
+LIMIT $4
       `,
-      [input.cursor?.createdAt ?? null, input.cursor?.id ?? null, input.limit + 1]
+      [cursor?.sortValue ?? null, cursor?.id ?? null, cursor!==null, input.limit + 1]
     );
-    return pageFromCatalogRows(result.rows.map(mapServiceCatalogRow), input.limit);
+    return pageCatalogRecords(result.rows.map(mapServiceCatalogRow),{...input,cursor:null});
   }
 
   async getById(id: string): Promise<ServiceCatalogRecord | null> {
@@ -623,8 +624,8 @@ export function registerCatalogRoutes(
     permission: 'catalog.read',
     action: 'LIST_SERVICE_CATALOG_VERSIONS',
     targetType: 'service_catalog_version',
-    handler: async (request) => {
-      const page = await options.store.listPage(readCatalogPageQuery(request));
+    handler: async (request,actor) => {
+      const page = await options.store.listPage(readCatalogPageQuery(request,actor));
       return { items: page.items.map(toAdminCatalog), nextCursor: page.nextCursor };
     },
     mapError: mapCatalogError
@@ -887,7 +888,7 @@ function readCatalogFilters(request: FastifyRequest): { game?: string; region?: 
   };
 }
 
-function readCatalogPageQuery(request: FastifyRequest): CatalogPageInput {
+function readCatalogPageQuery(request: FastifyRequest,actor:ActorContext): CatalogPageInput {
   const query = request.query as { cursor?: unknown; limit?: unknown };
   const limit = Number(query.limit ?? 20);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
@@ -896,51 +897,19 @@ function readCatalogPageQuery(request: FastifyRequest): CatalogPageInput {
   if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) {
     throw new CatalogError('VALIDATION_ERROR', 'cursor is invalid.');
   }
-  return { cursor: query.cursor === undefined ? null : decodeCatalogCursor(query.cursor as string), limit };
+  const sort=parseAdminCollectionSort('service_catalog',request.query as Record<string,unknown>,message=>new CatalogError('VALIDATION_ERROR',message));
+  return { cursor: query.cursor === undefined ? null : query.cursor as string, limit,...sort,binding:{actorGuildId:actor.guildId??null,actorScope:`${actor.actorLevel}:${actor.actorStaffId}`,filters:{}} };
 }
 
 function pageCatalogRecords(records: ServiceCatalogRecord[], input: CatalogPageInput): CatalogPage {
-  const sorted = records.map(clone).sort(compareCatalogPageKeys);
-  const afterCursor = input.cursor
-    ? sorted.filter((record) => compareCatalogPageKeys(record, input.cursor!) > 0)
-    : sorted;
-  return pageFromCatalogRows(afterCursor, input.limit);
+  try{return paginateAdminCollection(records,{...input,resource:'service_catalog',idOf:record=>record.id,valueOf:record=>catalogSortValue(record,input.sortBy)});}catch(error){if((error as Error).message==='cursor is invalid.')throw new CatalogError('VALIDATION_ERROR','cursor is invalid.');throw error;}
 }
+function normalizeCatalogPageInput(input:CatalogPageInput):CatalogPageInput{return{cursor:input.cursor??null,limit:input.limit,sortBy:input.sortBy??'createdAt',sortDirection:input.sortDirection??'desc',binding:input.binding??{actorGuildId:null,actorScope:'legacy',filters:{}}};}
 
-function pageFromCatalogRows(records: ServiceCatalogRecord[], limit: number): CatalogPage {
-  const items = records.slice(0, limit);
-  const last = items.at(-1);
-  return {
-    items,
-    nextCursor: records.length > limit && last
-      ? encodeCatalogCursor({ createdAt: last.createdAt, id: last.id })
-      : null
-  };
-}
-
-function compareCatalogPageKeys(
-  left: Pick<ServiceCatalogRecord, 'createdAt' | 'id'>,
-  right: Pick<ServiceCatalogRecord, 'createdAt' | 'id'>
-): number {
-  const createdAtDiff = right.createdAt.localeCompare(left.createdAt);
-  return createdAtDiff === 0 ? right.id.localeCompare(left.id) : createdAtDiff;
-}
-
-function encodeCatalogCursor(cursor: CatalogPageCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
-}
-
-function decodeCatalogCursor(value: string): CatalogPageCursor {
-  try {
-    const cursor = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<CatalogPageCursor>;
-    if (typeof cursor.createdAt !== 'string' || Number.isNaN(Date.parse(cursor.createdAt)) || typeof cursor.id !== 'string' || !isCursorUuid(cursor.id)) {
-      throw new Error('invalid cursor');
-    }
-    return { createdAt: new Date(cursor.createdAt).toISOString(), id: cursor.id };
-  } catch {
-    throw new CatalogError('VALIDATION_ERROR', 'cursor is invalid.');
-  }
-}
+function catalogSortValue(record:ServiceCatalogRecord,sortBy:string){if(sortBy==='offeringName')return `${record.gameDisplayName??record.game}\u0001${record.serviceDisplayName??record.service}\u0001${record.regionDisplayName??record.region??''}`;if(sortBy==='customerUnitPriceMinor')return record.customerUnitPriceMinor;if(sortBy==='version')return record.version;return record.createdAt;}
+function decodeCatalogCursor(input:CatalogPageInput){try{return decodeAdminCollectionCursor({...input,resource:'service_catalog'});}catch{throw new CatalogError('VALIDATION_ERROR','cursor is invalid.');}}
+function catalogSqlSort(sortBy:string,direction:SortDirection){const entries:Record<string,{expression:string;cast:string}>={createdAt:{expression:'version.created_at',cast:'timestamptz'},offeringName:{expression:`(COALESCE(offering.game_name, offering.game_code) || chr(1) || COALESCE(offering.service_name, offering.service_code) || chr(1) || COALESCE(offering.region_code, '')) COLLATE "C"`,cast:'text'},customerUnitPriceMinor:{expression:'version.customer_unit_price_minor',cast:'bigint'},version:{expression:'version.version',cast:'integer'}};return{...entries[sortBy]!,direction:direction.toUpperCase()};}
+function catalogKeysetPredicate(sort:{expression:string;cast:string;direction:string},hasCursor:boolean){if(!hasCursor)return`($1::${sort.cast} IS NULL AND $2::uuid IS NULL AND $3::boolean=FALSE)`;const op=sort.direction==='ASC'?'>':'<';return `((${sort.expression} IS NULL AND $1::${sort.cast} IS NULL AND version.id ${op} $2::uuid) OR ($1::${sort.cast} IS NOT NULL AND (${sort.expression} IS NULL OR ${sort.expression} ${op} $1::${sort.cast} OR (${sort.expression} = $1::${sort.cast} AND version.id ${op} $2::uuid)))) AND $3::boolean`;}
 
 function readParams(request: FastifyRequest): { serviceCatalogId?: string } {
   return request.params as { serviceCatalogId?: string };

@@ -1398,12 +1398,6 @@ WHERE order_id = $1
         await insertExternalTransaction(transactionClient, transaction);
       }
       await insertOrderEvent(transactionClient, input.orderEvent);
-      await insertOrderPanelSync(transactionClient, {
-        orderId: input.order.id,
-        version: input.order.version,
-        kind: "ORDER_SUBMITTED_CHANNEL_SYNC",
-        now: new Date(input.order.updatedAt),
-      });
       await insertAuditRecord(transactionClient, input.auditRecord);
       await transactionClient.query('COMMIT');
     } catch (error) {

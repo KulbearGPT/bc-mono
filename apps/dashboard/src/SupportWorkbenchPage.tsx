@@ -8,14 +8,14 @@ interface StaffTaskPayload extends SupportTaskCardInput {
   responseStatus?: 'NOT_REQUIRED' | 'PENDING' | 'MET' | 'OVERDUE';
   responseDueAt?: string | null;
   firstRespondedAt?: string | null;
-  contextSnapshot?: { guildId?: string; channelId?: string; voiceChannelId?: string };
 }
 
 interface OrderContext {
-  order: { publicId: string; status: string; game: string | null; gameDisplayName?: string | null; service: string | null; serviceDisplayName?: string | null; amountMinor: number; currency: string };
-  readiness: { customer: string; player: string; bothReady: boolean };
-  automation: { state: string; reasonCode: string | null };
-  matching: { stage: string; nextStep: string } | null;
+  order: { publicId: string; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
+  readiness?: { customer: string; player: string; bothReady: boolean };
+  automation?: { state: string; reasonCode: string | null };
+  matching?: { stage: string; nextStep: string } | null;
+  timeline?: { items: unknown[]; nextCursor: string | null };
 }
 
 interface DashboardMetrics {
@@ -48,7 +48,8 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>('ALL');
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
   const [shift, setShift] = useState<SupportShift | null>(null);
   const [supportSummary, setSupportSummary] = useState<SupportSummaryItem[]>([]);
   const client = useMemo(() => createDashboardApiClient(), []);
@@ -59,12 +60,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       return;
     }
     const payload = await response.json() as { data: { items: StaffTaskPayload[] } };
-    setTasks(payload.data.items.map((task) => ({
-      ...task,
-      guildId: task.contextSnapshot?.guildId ?? task.guildId,
-      channelId: task.contextSnapshot?.channelId ?? task.channelId ?? null,
-      voiceChannelId: task.contextSnapshot?.voiceChannelId ?? task.voiceChannelId ?? null
-    })));
+    setTasks(payload.data.items);
     setError(null);
   }, [client]);
 
@@ -87,6 +83,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     permissions: capabilities.permissions,
     tasks
   });
+  const visibleTasks = filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed];
 
   async function claim(task: StaffTaskPayload) {
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/claim`, { expectedVersion: task.version });
@@ -121,7 +118,13 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       setError('请先认领任务，再查看完整订单。');
       return;
     }
-    setSelectedOrder((await response.json() as { data: OrderContext }).data);
+    const payload = await response.json().catch(() => null) as { data?: OrderContext } | null;
+    if (!payload?.data?.order) {
+      setError('订单详情暂时无法载入。');
+      return;
+    }
+    setError(null);
+    setSelectedOrder(payload.data);
   }
 
   async function toggleShift() {
@@ -144,9 +147,51 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     <section className="dashboard-page" aria-labelledby="support-title">
       <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div></header>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
-      <section className="content-panel" aria-label="客服打卡">
-        <div className="panel-heading"><div><h2>今日打卡</h2><p>{shift ? `上班时间 ${new Date(shift.clockedInAt).toLocaleString()}` : '当前未上班'}</p></div>
+      <section className="support-shift-bar" aria-label="客服打卡">
+        <div><strong>{shift ? '当前上班中' : '当前未上班'}</strong><span>{shift ? ` · ${new Date(shift.clockedInAt).toLocaleString()} 开始` : ' · 打卡只记录班次，不影响任务权限'}</span></div>
           {['L1_SUPPORT','L2_SUPERVISOR'].includes(capabilities.level ?? '') && <button className="button-primary" type="button" onClick={() => void toggleShift()}>{shift ? '下班打卡' : '上班打卡'}</button>}
+      </section>
+      <section className="support-queue" aria-label="当前任务队列">
+        <div className="panel-heading"><div><span className="page-eyebrow">ACTIVE QUEUE</span><h2>当前任务</h2><p>已按超时、首响截止时间和创建时间排列。</p></div><strong className="queue-count">{visibleTasks.length} 项</strong></div>
+        <div className="segmented-control support-filters" role="group" aria-label="任务筛选">
+          {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
+        </div>
+        <div className="task-list">
+          {visibleTasks.map((task) => (
+            <article className={`content-panel task-card${task.responseStatus === 'OVERDUE' ? ' task-card--urgent' : ''}`} key={task.id}>
+              <div className="task-card__header">
+                <div><strong className="task-card__id">订单 {task.triage.orderPublicId ?? '编号待补充'}</strong><div className="task-card__meta">{task.statusLabel} · {formatTaskPressure(task)}</div></div>
+                <span className={`task-pressure task-pressure--${task.responseStatus === 'OVERDUE' ? 'urgent' : 'normal'}`}>{supportResponseLabel(task)}</span>
+              </div>
+              <dl className="task-card__summary">
+                <div><dt>客户</dt><dd>{task.triage.customerDisplayName ?? '待补充'}</dd></div>
+                <div><dt>服务</dt><dd>{[task.triage.gameDisplayName, task.triage.serviceDisplayName].filter(Boolean).join(' · ') || '待补充'}</dd></div>
+                <div><dt>需要处理</dt><dd>{task.triage.reasonLabel}</dd></div>
+                <div><dt>下一步</dt><dd>{task.triage.nextActionLabel}</dd></div>
+              </dl>
+              <div className="inline-actions task-card__actions">
+                <button type="button" aria-expanded={expandedTaskId === task.id} onClick={() => setExpandedTaskId((current) => current === task.id ? null : task.id)}>查看任务上下文</button>
+                {task.links.orderChannel ? <a href={task.links.orderChannel} target="_blank" rel="noreferrer">进入订单频道</a> : <span className="action-unavailable">订单频道暂不可用</span>}
+                {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">进入语音频道</a>}
+                {task.actions.find((action) => action.id === 'CLAIM')?.enabled && <button className="button-primary" type="button" onClick={() => void claim(task)}>认领任务</button>}
+                {task.claimedBy === capabilities.staffId && <button type="button" onClick={() => void openOrder(task)}>查看完整订单</button>}
+              </div>
+              {expandedTaskId === task.id && <div className="task-card__context" role="region" aria-label={`${task.triage.orderPublicId ?? task.publicId} 任务上下文`}>
+                <dl className="definition-list"><div><dt>任务编号</dt><dd>{task.publicId}</dd></div><div><dt>等待开始</dt><dd>{new Date(task.triage.waitStartedAt).toLocaleString()}</dd></div>
+                  <div><dt>订单金额</dt><dd>{task.triage.amountMinor === null || !task.triage.currency ? '待补充' : formatMinorCurrency(task.triage.amountMinor, task.triage.currency)}</dd></div><div><dt>首响状态</dt><dd>{supportResponseLabel(task)}</dd></div></dl>
+                {task.claimedBy !== capabilities.staffId && <p className="context-note">这是认领前只读摘要；完整订单和写入仍按你的任务权限控制。</p>}
+              </div>}
+              {task.claimedBy === capabilities.staffId && task.status === 'CLAIMED' && (
+                <div className="task-card__editor">
+                  <textarea aria-label={`${task.publicId} 处理备注`} value={drafts[task.id] ?? ''}
+                    onChange={(event) => setDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                    maxLength={2000} rows={2} placeholder="记录联系结果或升级原因" />
+                  <div className="inline-actions"><button className="button-primary" type="button" onClick={() => void addNote(task)}>保存备注</button><button type="button" onClick={() => void escalate(task)}>提交主管处理</button></div>
+                </div>
+              )}
+            </article>
+          ))}
+          {visibleTasks.length === 0 && <div className="state-card state-card--compact"><strong>当前没有匹配任务</strong><p>可以切换筛选查看其他任务。</p></div>}
         </div>
       </section>
       <section className="content-panel" aria-label="最近 30 天客服记录">
@@ -156,53 +201,42 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         </tbody></table></div>
       </section>
       <DashboardMetricSummaryLoader/>
-      <div className="segmented-control support-filters" role="tablist" aria-label="任务筛选">
-        {view.filters.map((item) => <button key={item.id} type="button" aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}</button>)}
-      </div>
-      <div className="task-list">
-        {(filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed]).map((task) => (
-          <article className="content-panel task-card" key={task.id}>
-            <div className="task-card__header">
-              <div><strong className="task-card__id">{task.publicId}</strong><div className="task-card__meta">{task.type} · {task.statusLabel} · {supportResponseLabel(task)}</div></div>
-              <div className="inline-actions task-card__actions">
-                {task.links.orderChannel && <a href={task.links.orderChannel} target="_blank" rel="noreferrer">订单频道</a>}
-                {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">语音频道</a>}
-                {task.actions.find((action) => action.id === 'CLAIM')?.enabled && <button type="button" onClick={() => void claim(task)}>认领</button>}
-                {task.claimedBy === capabilities.staffId && <button type="button" onClick={() => void openOrder(task)}>查看订单</button>}
-              </div>
-            </div>
-            {task.claimedBy === capabilities.staffId && task.status === 'CLAIMED' && (
-              <div className="task-card__editor">
-                <textarea aria-label={`${task.publicId} 处理备注`} value={drafts[task.id] ?? ''}
-                  onChange={(event) => setDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
-                  maxLength={2000} rows={2} placeholder="记录联系结果或升级原因" />
-                <div className="inline-actions">
-                  <button className="button-primary" type="button" onClick={() => void addNote(task)}>保存备注</button>
-                  <button type="button" onClick={() => void escalate(task)}>提交主管处理</button>
-                </div>
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-      {selectedOrder && (
-        <aside className="action-panel order-preview">
-          <div className="panel-heading"><div><span className="page-eyebrow">ORDER CONTEXT</span><h2>订单 {selectedOrder.order.publicId}</h2></div></div>
-          <dl className="definition-list"><div><dt>服务</dt><dd>{String(selectedOrder.order.gameDisplayName ?? selectedOrder.order.game)} · {String(selectedOrder.order.serviceDisplayName ?? selectedOrder.order.service)}</dd></div><div><dt>订单状态</dt><dd>{selectedOrder.order.status}</dd></div><div><dt>准备状态</dt><dd>用户 {selectedOrder.readiness.customer} / 陪玩 {selectedOrder.readiness.player}</dd></div><div><dt>匹配状态</dt><dd>{selectedOrder.matching?.stage ?? '不适用'}</dd></div><div><dt>自动流程</dt><dd>{selectedOrder.automation.state}</dd></div></dl>
-        </aside>
-      )}
+      {selectedOrder && <SupportOrderContextPreview context={selectedOrder} />}
     </section>
   );
+}
+
+export function SupportOrderContextPreview({ context }: { context: OrderContext }) {
+  const { order } = context;
+  const service = [order.gameDisplayName ?? order.game, order.serviceDisplayName ?? order.service].filter(Boolean).join(' · ') || '项目资料待补充';
+  const amount = typeof order.amountMinor === 'number' && order.currency ? formatMinorCurrency(order.amountMinor, order.currency) : '金额待补充';
+  const readiness = context.readiness ? `用户 ${context.readiness.customer} / 陪玩 ${context.readiness.player}` : '待补充';
+  return <aside className="action-panel order-preview" aria-label="订单处理概览">
+    <div className="panel-heading"><div><span className="page-eyebrow">订单处理概览</span><h2>订单 {order.publicId}</h2></div></div>
+    <dl className="definition-list">
+      <div><dt>客户</dt><dd>{order.customerDisplayName ?? '客户资料待补充'}</dd></div>
+      <div><dt>服务</dt><dd>{service}</dd></div>
+      <div><dt>订单状态</dt><dd>{supportOrderStatusLabel(order.status)}</dd></div>
+      <div><dt>订单金额</dt><dd>{amount}</dd></div>
+      <div><dt>准备状态</dt><dd>{readiness}</dd></div>
+      <div><dt>匹配状态</dt><dd>{context.matching?.stage ?? '待补充'}</dd></div>
+      <div><dt>自动流程</dt><dd>{context.automation?.state ?? '待补充'}</dd></div>
+    </dl>
+  </aside>;
+}
+
+function supportOrderStatusLabel(status: string): string {
+  return ({ DRAFT:'草稿', PENDING_DISPATCH:'等待陪玩报名', ACCEPTED:'已接单', IN_SERVICE:'服务中', PENDING_CONFIRMATION:'等待客户确认', COMPLETED:'已完成', CANCELLED:'已取消', EXCEPTION:'异常处理中' } as Record<string,string>)[status] ?? status;
 }
 
 export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   if(state.kind==='LOADING')return <section className="state-card state-card--compact" aria-label="运营指标" aria-busy="true">正在载入运营指标...</section>;
   if(state.kind==='ERROR'||!state.data)return <section className="state-card state-card--compact state-card--error" aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` request_id: ${state.requestId}`:''}</p></section>;
   const {metrics,currency,timeZone}=state.data;
-  const values:Array<[string,string|number,string]>=[
-    ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结'],
+  const values:Array<[string,string|number,string,string?]>=[
+    ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中','/admin/orders?status=IN_PROGRESS'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结','/support?taskFilter=ALL'],
     ['已完成净消费',moneyOrHidden(metrics.completedOrderNetConsumptionMinor,currency),'当前业务日'],['礼物净消费',moneyOrHidden(metrics.giftNetConsumptionMinor,currency),'当前业务日'],
-    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency),'当前有效'],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`,'有效派单轮次'],['异常数',metrics.exceptionCount,'尚未关闭']
+    ['预留总额',moneyOrHidden(metrics.activeReservedMinor,currency),'当前有效'],['派单成功率',`${(metrics.dispatchSuccessRateBps/100).toFixed(2)}%`,'有效派单轮次'],['异常数',metrics.exceptionCount,'尚未关闭','/admin/orders?status=EXCEPTION']
   ];
   const money=[
     ['已完成净消费',metrics.completedOrderNetConsumptionMinor],['礼物净消费',metrics.giftNetConsumptionMinor],['有效预留',metrics.activeReservedMinor]
@@ -210,7 +244,7 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   const moneyMax=Math.max(1,...money.map(([,value])=>value??0));
   const dispatchPercent=metrics.dispatchSuccessRateBps/100;
   return <section className="operations-dashboard" aria-label="运营指标"><div className="metric-heading"><div><span className="page-eyebrow">TODAY OVERVIEW</span><h2>今日运营数据</h2></div><small>{timeZone} · 当前业务日</small></div>
-    <div className="operations-kpi-grid">{values.map(([label,value,caption])=><article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
+    <div className="operations-kpi-grid">{values.map(([label,value,caption,href])=>href?<a className="operations-kpi operations-kpi--link" href={href} key={label}><small>{label}</small><strong>{value}</strong><span>{caption} · 查看</span></a>:<article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
     <div className="operations-chart-grid">
       <article className="operations-chart-card operations-money-chart"><div className="chart-card-heading"><div><small>资金健康</small><h3>资金构成</h3></div><span>{currency}</span></div>
         <div className="money-bars" role="img" aria-label="资金构成图">{money.map(([label,value],index)=><div className="money-bar" key={label}><div><span>{label}</span><strong>{moneyOrHidden(value,currency)}</strong></div><svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect className="money-bar__track" width="100" height="8" rx="4"/><rect className={`money-bar__value money-bar__value--${index+1}`} width={value===null?0:Math.max(2,value*100/moneyMax)} height="8" rx="4"/></svg></div>)}</div>
@@ -230,4 +264,13 @@ function supportResponseLabel(task:StaffTaskPayload){
   if(task.responseStatus==='OVERDUE')return '首响已超时';
   if(task.responseStatus==='MET')return task.firstRespondedAt?`已首响 ${new Date(task.firstRespondedAt).toLocaleTimeString()}`:'已首响';
   return '无需首响';
+}
+
+function formatTaskPressure(task: StaffTaskPayload): string {
+  const target = task.responseDueAt ?? task.triage.waitStartedAt;
+  const seconds = Math.round((new Date(target).getTime() - Date.now()) / 1000);
+  const absolute = Math.abs(seconds);
+  const [value, unit]: [number, Intl.RelativeTimeFormatUnit] = absolute >= 3600
+    ? [Math.round(seconds / 3600), 'hour'] : [Math.round(seconds / 60), 'minute'];
+  return new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' }).format(value, unit);
 }

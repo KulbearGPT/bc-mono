@@ -74,20 +74,20 @@ export class PostgresDashboardMetricsStore implements DashboardMetricsStore {
 const dashboardFactsSql = `
 WITH visible_orders AS (
   SELECT o.* FROM orders o
-  WHERE $2::text IN ('L3_OPERATIONS','L4_ADMIN_OWNER')
-    OR ($2::text='L2_SUPERVISOR' AND o.guild_id=$3::text)
+  WHERE o.guild_id=$3::text AND (
+    $2::text IN ('L2_SUPERVISOR','L3_OPERATIONS','L4_ADMIN_OWNER')
     OR ($2::text='L1_SUPPORT' AND EXISTS (
       SELECT 1 FROM staff_tasks st WHERE st.order_id=o.id AND st.claimed_by_staff_id=$1::uuid
         AND st.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')
-    ))
+    )))
 ), visible_pending_tasks AS (
   SELECT st.* FROM staff_tasks st
   LEFT JOIN orders direct_order ON direct_order.id=st.order_id
   LEFT JOIN gift_requests gr ON gr.id=st.gift_request_id
   LEFT JOIN orders gift_order ON gift_order.id=gr.order_id
-  WHERE st.status IN ('OPEN','CLAIMED','VERIFIED','PENDING_APPROVAL') AND (
-    $2::text IN ('L3_OPERATIONS','L4_ADMIN_OWNER')
-    OR ($2::text='L2_SUPERVISOR' AND COALESCE(direct_order.guild_id,gift_order.guild_id,st.context_snapshot->>'guildId')=$3::text)
+  WHERE st.status IN ('OPEN','CLAIMED','VERIFIED','PENDING_APPROVAL')
+    AND COALESCE(direct_order.guild_id,gift_order.guild_id,st.context_snapshot->>'guildId')=$3::text AND (
+    $2::text IN ('L2_SUPERVISOR','L3_OPERATIONS','L4_ADMIN_OWNER')
     OR ($2::text='L1_SUPPORT' AND st.claimed_by_staff_id=$1::uuid)
   )
 ), reservation_remainders AS (

@@ -91,13 +91,13 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     const order = (await seedOrders(request)).find((item) => item.status === 'IN_SERVICE')!;
     await page.goto('/__e2e/login/l1'); await page.waitForURL('**/');
     await page.getByRole('link', { name: '客服工作台', exact: true }).click();
-    const task = page.locator('.task-card').filter({ hasText: 'T-BULK-INTERRUPT' });
-    await task.getByRole('button', { name: '认领' }).click();
+    const task = page.locator('.task-card').filter({ hasText: 'P-BULK-017' });
+    await task.getByRole('button', { name: '认领任务' }).click();
     const note = task.getByLabel('T-BULK-INTERRUPT 处理备注');
     await expect(note).toBeVisible();
     await note.fill('老板反馈玩到一半网络中断；已联系双方，核对完成约一半服务，提交主管处理。');
     await task.getByRole('button', { name: '保存备注' }).click();
-    await task.getByRole('button', { name: '查看订单' }).click();
+    await task.getByRole('button', { name: '查看完整订单' }).click();
     await expect(page.getByRole('heading', { name: `订单 ${order.publicId}` })).toBeVisible();
     await expect(page.locator('.order-preview')).toContainText('IN_SERVICE');
 

@@ -8,7 +8,7 @@ test.describe('Dashboard browser E2E: compatibility', () => {
     await page.waitForURL('**/');
     await expect(page.getByRole('heading', { name: '运营控制台' })).toBeVisible();
     await page.getByRole('link', { name: '客服工作台', exact: true }).click();
-    await page.getByRole('button', { name: '认领', exact: true }).click();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
     const note = page.getByLabel('T-E2E-001 处理备注');
     await note.fill(`${browserName} compatibility note`);
     await page.getByRole('button', { name: '保存备注' }).click();

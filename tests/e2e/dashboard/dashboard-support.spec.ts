@@ -23,24 +23,24 @@ test.describe('Dashboard browser E2E: support workbench', () => {
 
   test('DE2E-SUP-001 all, mine, and unclaimed filters expose the correct task set', async ({ page }) => {
     await login(page);
-    await expect(page.getByText('T-E2E-001')).toBeVisible();
+    await expect(page.getByText('订单 P-E2E-001')).toBeVisible();
     await page.getByRole('button', { name: '我的任务' }).click();
-    await expect(page.getByText('T-E2E-001')).toHaveCount(0);
+    await expect(page.getByText('订单 P-E2E-001')).toHaveCount(0);
     await page.getByRole('button', { name: '待认领' }).click();
-    await expect(page.getByText('T-E2E-001')).toBeVisible();
-    await page.getByRole('button', { name: '认领', exact: true }).click();
+    await expect(page.getByText('订单 P-E2E-001')).toBeVisible();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
     await page.getByRole('button', { name: '我的任务' }).click();
-    await expect(page.getByText('T-E2E-001')).toBeVisible();
+    await expect(page.getByText('订单 P-E2E-001')).toBeVisible();
     await page.getByRole('button', { name: '待认领' }).click();
-    await expect(page.getByText('T-E2E-001')).toHaveCount(0);
+    await expect(page.getByText('订单 P-E2E-001')).toHaveCount(0);
   });
 
   test('DE2E-SUP-003 two staff sessions cannot both claim the same task version', async ({ browser, request }) => {
     const first = await loggedInPage(browser, 'l1');
     const second = await loggedInPage(browser, 'l2');
     await Promise.all([
-      first.page.getByRole('button', { name: '认领', exact: true }).click(),
-      second.page.getByRole('button', { name: '认领', exact: true }).click()
+      first.page.getByRole('button', { name: '认领任务', exact: true }).click(),
+      second.page.getByRole('button', { name: '认领任务', exact: true }).click()
     ]);
     await expect.poll(async () => {
       const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
@@ -53,7 +53,7 @@ test.describe('Dashboard browser E2E: support workbench', () => {
 
   test('DE2E-SUP-004 the current claimant appends a note under the authenticated actor', async ({ page, request }) => {
     await login(page);
-    await page.getByRole('button', { name: '认领', exact: true }).click();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
     await page.getByLabel('T-E2E-001 处理备注').fill('客户确认延后十五分钟开始');
     await page.getByRole('button', { name: '保存备注' }).click();
     await expect(page.getByLabel('T-E2E-001 处理备注')).toHaveValue('');
@@ -64,7 +64,7 @@ test.describe('Dashboard browser E2E: support workbench', () => {
 
   test('DE2E-SUP-005 a non-claimant cannot append a note and no task fact changes', async ({ browser, request }) => {
     const claimant = await loggedInPage(browser, 'l1');
-    await claimant.page.getByRole('button', { name: '认领', exact: true }).click();
+    await claimant.page.getByRole('button', { name: '认领任务', exact: true }).click();
     const outsider = await loggedInPage(browser, 'l2');
     const status = await outsider.page.evaluate(async (id) => {
       const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('p0_csrf='))?.split('=').slice(1).join('=') ?? '';
@@ -82,10 +82,10 @@ test.describe('Dashboard browser E2E: support workbench', () => {
 
   test('DE2E-SUP-006 order and channel links retain the server-derived Guild and target IDs', async ({ page }) => {
     await login(page);
-    const channel = page.getByRole('link', { name: '订单频道' });
+    const channel = page.getByRole('link', { name: '进入订单频道' });
     await expect(channel).toHaveAttribute('href', 'https://discord.com/channels/999999999999999999/1200000000000000011');
-    await page.getByRole('button', { name: '认领', exact: true }).click();
-    await page.getByRole('button', { name: '查看订单' }).click();
+    await page.getByRole('button', { name: '认领任务', exact: true }).click();
+    await page.getByRole('button', { name: '查看完整订单' }).click();
     await expect(page.getByRole('heading', { name: '订单 P-E2E-001' })).toBeVisible();
   });
 
