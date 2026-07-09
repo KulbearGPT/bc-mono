@@ -97,4 +97,20 @@ test.describe('Dashboard browser E2E: support workbench', () => {
     expect((await control('resume', { expectedOrderVersion: 3, expectedAutomationVersion: 2 }, 'support-resume-current-0001')).status).toBe(200);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.order).toMatchObject({ status: 'ACCEPTED', version: 3 }); expect(state.reservationAmountMinor).toBe(4000); expect(state.reservationCreateCount).toBe(1); expect(state.automationControl).toMatchObject({ state: 'RUNNING', version: 3, resumeValidatedOrderVersion: 3 });
   });
+
+  test('DE2E-SUP-008 a supervisor sees an L1 claimed task and closes it without changing order or reservation facts', async ({ browser, request }) => {
+    const claimant = await loggedInPage(browser, 'l1');
+    await claimant.page.getByRole('button', { name: '认领任务', exact: true }).click();
+    const supervisor = await loggedInPage(browser, 'l2');
+    await expect(supervisor.page.getByText('订单 P-E2E-001')).toBeVisible();
+    await supervisor.page.getByLabel('T-E2E-001 结案说明').fill('已完成双方沟通，底层订单处理结果已经确认。');
+    await supervisor.page.getByRole('button', { name: '确认任务已完成' }).click();
+    await expect(supervisor.page.getByText('订单 P-E2E-001')).toHaveCount(0);
+    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    expect(state.tasks[0]).toMatchObject({ status: 'RESOLVED', version: 3, resolutionCode: 'UNDERLYING_ACTION_COMPLETED', resolutionNote: '已完成双方沟通，底层订单处理结果已经确认。', resolvedBy: '00000000-0000-0000-0000-000000000112' });
+    expect(state.order).toMatchObject({ status: 'ACCEPTED', version: 3 });
+    expect(state.reservationAmountMinor).toBe(4000);
+    await claimant.context.close();
+    await supervisor.context.close();
+  });
 });

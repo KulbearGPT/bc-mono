@@ -64,8 +64,9 @@ const nonRetryableJob: Job = { id: '00000000-0000-0000-0000-000000000402', type:
 const jobs = new Map<string, Job>();
 const policySetting = { key: 'L2_REFUND_LIMIT_MINOR', integerValue: 50_000, currency: 'CAT' as string | null, version: 1 };
 type StaffTask = {
-  id: string; publicId: string; type: string; status: 'OPEN' | 'CLAIMED' | 'ESCALATED'; version: number;
+  id: string; publicId: string; type: string; status: 'OPEN' | 'CLAIMED' | 'ESCALATED' | 'RESOLVED'; version: number;
   claimedBy: string | null; orderId: string | null; channelId: string | null; voiceChannelId: string | null; guildId: string; createdAt: string; notes: string[];
+  resolutionCode?: string; resolutionNote?: string; resolvedBy?: string;
 };
 const initialTask: StaffTask = {
     id: '00000000-0000-0000-0000-000000000201', publicId: 'T-E2E-001', type: 'ORDER_ASSIST', status: 'OPEN', version: 1,
@@ -351,6 +352,18 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     if (!task || task.status !== 'OPEN' || body.expectedVersion !== task.version) throw new Error('STALE_TASK');
     task.status = 'CLAIMED'; task.claimedBy = actor.actorStaffId!; task.version += 1;
     return { id: task.id, status: task.status, version: task.version };
+  }
+});
+
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/staff-tasks/:taskId/resolve', permission: 'staff_task.resolve', action: 'RESOLVE_E2E_STAFF_TASK', targetType: 'staff_task',
+  targetId: (request) => String((request.params as { taskId: string }).taskId), acceptedSources: ['DASHBOARD'],
+  handler: (request, actor) => {
+    const task = tasks.get(String((request.params as { taskId: string }).taskId));
+    const body = request.body as { expectedVersion?: unknown; resolutionCode?: unknown; notes?: unknown };
+    if (!task || task.status !== 'CLAIMED' || body.expectedVersion !== task.version || body.resolutionCode !== 'UNDERLYING_ACTION_COMPLETED' || typeof body.notes !== 'string' || !body.notes.trim()) throw new Error('TASK_RESOLUTION_REJECTED');
+    task.status = 'RESOLVED'; task.version += 1; task.resolutionCode = body.resolutionCode; task.resolutionNote = body.notes.trim(); task.resolvedBy = actor.actorStaffId!;
+    return { id: task.id, status: task.status, version: task.version, resolvedBy: task.resolvedBy };
   }
 });
 

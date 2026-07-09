@@ -24,7 +24,7 @@ export function buildSupportWorkbench(input: {
   tasks: SupportTaskCardInput[];
 }) {
   const permissions = new Set(input.permissions);
-  const cards = input.tasks.map((task) => {
+  const cards = input.tasks.filter((task) => ['OPEN', 'CLAIMED', 'VERIFIED', 'APPROVED', 'PENDING_APPROVAL'].includes(task.status)).map((task) => {
     const triage=task.triage??{orderPublicId:null,customerDisplayName:null,gameDisplayName:null,serviceDisplayName:null,amountMinor:null,currency:null,reasonLabel:'需要客服处理',waitStartedAt:task.createdAt,nextActionLabel:'查看任务并确认下一步'};
     return ({
     ...task,triage,
@@ -33,7 +33,8 @@ export function buildSupportWorkbench(input: {
     actions: [
       { id: 'CLAIM' as const, enabled: task.status === 'OPEN' && permissions.has('staff_task.claim') },
       { id: 'ADD_NOTE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
-      { id: 'ESCALATE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') }
+      { id: 'ESCALATE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
+      { id: 'RESOLVE' as const, enabled: ['CLAIMED', 'VERIFIED', 'APPROVED'].includes(task.status) && permissions.has('staff_task.resolve') }
     ]
   });});
   return {
@@ -43,6 +44,7 @@ export function buildSupportWorkbench(input: {
       { id: 'UNCLAIMED' as const, label: '待认领' }
     ],
     sections: {
+      all: cards,
       mine: cards.filter((task) => task.claimedBy === input.currentStaffId),
       unclaimed: cards.filter((task) => task.status === 'OPEN')
     }

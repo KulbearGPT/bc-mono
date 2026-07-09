@@ -47,6 +47,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [tasks, setTasks] = useState<StaffTaskPayload[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
@@ -83,7 +84,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     permissions: capabilities.permissions,
     tasks
   });
-  const visibleTasks = filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : [...view.sections.mine, ...view.sections.unclaimed];
+  const visibleTasks = filter === 'MINE' ? view.sections.mine : filter === 'UNCLAIMED' ? view.sections.unclaimed : view.sections.all;
 
   async function claim(task: StaffTaskPayload) {
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/claim`, { expectedVersion: task.version });
@@ -108,6 +109,24 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       note
     });
     if (!response.ok) setError('升级请求未提交，请刷新后重试。');
+    await load();
+  }
+
+  async function resolve(task: StaffTaskPayload) {
+    const notes = resolutionDrafts[task.id]?.trim();
+    if (!notes) return;
+    const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/resolve`, {
+      expectedVersion: task.version,
+      resolutionCode: 'UNDERLYING_ACTION_COMPLETED',
+      notes
+    });
+    if (!response.ok) {
+      setError('任务状态已变化或底层业务处理尚未完成，请刷新后重试。');
+      await load();
+      return;
+    }
+    setError(null);
+    setResolutionDrafts((current) => ({ ...current, [task.id]: '' }));
     await load();
   }
 
@@ -187,6 +206,16 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
                     onChange={(event) => setDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
                     maxLength={2000} rows={2} placeholder="记录联系结果或升级原因" />
                   <div className="inline-actions"><button className="button-primary" type="button" onClick={() => void addNote(task)}>保存备注</button><button type="button" onClick={() => void escalate(task)}>提交主管处理</button></div>
+                </div>
+              )}
+              {task.actions.find((action) => action.id === 'RESOLVE')?.enabled && (
+                <div className="task-card__editor task-card__resolution">
+                  <strong>任务结案</strong>
+                  <p className="context-note">仅在订单、退款、礼物或其他底层业务动作已经完成后结案；此操作本身不会修改订单或资金。</p>
+                  <textarea aria-label={`${task.publicId} 结案说明`} value={resolutionDrafts[task.id] ?? ''}
+                    onChange={(event) => setResolutionDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                    maxLength={2000} rows={2} placeholder="填写已完成的处理动作及通知结果" />
+                  <button className="button-primary" type="button" disabled={!resolutionDrafts[task.id]?.trim()} onClick={() => void resolve(task)}>确认任务已完成</button>
                 </div>
               )}
             </article>

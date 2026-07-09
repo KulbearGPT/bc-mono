@@ -26,6 +26,17 @@ describe('M4-US-02 support workbench UI model', () => {
     ] });
     expect(view.sections.unclaimed[0]?.links).toEqual({ orderChannel: null, voiceChannel: null });
   });
+
+  test('lets a supervisor see another staff member claimed task and exposes only the task-resolution action', () => {
+    const view = buildSupportWorkbench({ guildId: '', currentStaffId: 'staff-l2', permissions: ['staff_task.read', 'staff_task.resolve'], tasks: [
+      { id: 't4', publicId: 'T-4', type: 'ORDER_ASSIST', status: 'CLAIMED', version: 3, claimedBy: 'staff-l1', orderId: 'o4', createdAt: '2026-07-18T04:00:00Z',
+        links: { orderChannel: null, voiceChannel: null }, triage: triage('P-4') }
+    ] });
+    expect(view.sections.all).toHaveLength(1);
+    expect(view.sections.mine).toHaveLength(0);
+    expect(view.sections.all[0]?.actions).toContainEqual({ id: 'RESOLVE', enabled: true });
+    expect(view.sections.all[0]?.actions).not.toContainEqual(expect.objectContaining({ id: 'ADD_NOTE', enabled: true }));
+  });
 });
 
 function triage(orderPublicId: string) {
