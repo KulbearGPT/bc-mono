@@ -37,6 +37,20 @@ describe('M4-US-02 support workbench UI model', () => {
     expect(view.sections.all[0]?.actions).toContainEqual({ id: 'RESOLVE', enabled: true });
     expect(view.sections.all[0]?.actions).not.toContainEqual(expect.objectContaining({ id: 'ADD_NOTE', enabled: true }));
   });
+
+  test('separates claimed gift verification from supervisor approval and rejection', () => {
+    const claimed = buildSupportWorkbench({ guildId: '', currentStaffId: 'staff-l1', permissions: ['staff_task.read', 'staff_task.verify'], tasks: [
+      { id: 'gift-task', publicId: 'T-GIFT', type: 'GIFT_REVIEW', status: 'CLAIMED', version: 2, claimedBy: 'staff-l1', orderId: 'order-gift', giftRequestId: 'gift-request', createdAt: '2026-07-18T04:00:00Z', links: { orderChannel: null, voiceChannel: null }, triage: triage('P-GIFT') }
+    ] });
+    expect(claimed.sections.mine[0]?.actions).toContainEqual({ id: 'VERIFY_GIFT', enabled: true });
+    expect(claimed.sections.mine[0]?.actions).not.toContainEqual(expect.objectContaining({ id: 'APPROVE_GIFT', enabled: true }));
+
+    const verified = buildSupportWorkbench({ guildId: '', currentStaffId: 'staff-l2', permissions: ['staff_task.read', 'gift.approve', 'gift.reject'], tasks: [
+      { id: 'gift-task', publicId: 'T-GIFT', type: 'GIFT_REVIEW', status: 'VERIFIED', version: 3, claimedBy: 'staff-l1', orderId: 'order-gift', giftRequestId: 'gift-request', createdAt: '2026-07-18T04:00:00Z', links: { orderChannel: null, voiceChannel: null }, triage: triage('P-GIFT') }
+    ] });
+    expect(verified.sections.all[0]?.actions).toEqual(expect.arrayContaining([{ id: 'APPROVE_GIFT', enabled: true }, { id: 'REJECT_GIFT', enabled: true }]));
+    expect(verified.sections.all[0]?.actions).not.toContainEqual(expect.objectContaining({ id: 'VERIFY_GIFT', enabled: true }));
+  });
 });
 
 function triage(orderPublicId: string) {

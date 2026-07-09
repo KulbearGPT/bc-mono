@@ -64,9 +64,9 @@ const nonRetryableJob: Job = { id: '00000000-0000-0000-0000-000000000402', type:
 const jobs = new Map<string, Job>();
 const policySetting = { key: 'L2_REFUND_LIMIT_MINOR', integerValue: 50_000, currency: 'CAT' as string | null, version: 1 };
 type StaffTask = {
-  id: string; publicId: string; type: string; status: 'OPEN' | 'CLAIMED' | 'ESCALATED' | 'RESOLVED'; version: number;
+  id: string; publicId: string; type: string; status: 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'APPROVED' | 'REJECTED' | 'ESCALATED' | 'RESOLVED'; version: number;
   claimedBy: string | null; orderId: string | null; channelId: string | null; voiceChannelId: string | null; guildId: string; createdAt: string; notes: string[];
-  resolutionCode?: string; resolutionNote?: string; resolvedBy?: string;
+  giftRequestId?: string | null; resolutionCode?: string; resolutionNote?: string; resolvedBy?: string;
 };
 const initialTask: StaffTask = {
     id: '00000000-0000-0000-0000-000000000201', publicId: 'T-E2E-001', type: 'ORDER_ASSIST', status: 'OPEN', version: 1,
@@ -139,6 +139,8 @@ const giftRecords: Array<Record<string, unknown>> = [];
 const giftRequestRecords: Array<Record<string, unknown>> = [];
 const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
 let earningPaymentWrites = 0;
+let giftReservationCaptureCount = 0;
+let giftReservationReleaseCount = 0;
 const roleMapping = { guildId, discordRoleId: 'role-e2e-l4', targetLevel: 'L4_ADMIN_OWNER', enabled: true, version: 1, reconciliationQueued: false };
 const settlementBatches: Array<Record<string, unknown>> = [];
 const weeklyReports: Array<Record<string, unknown>> = [];
@@ -181,6 +183,8 @@ function resetState() {
   giftRequestRecords.splice(0, giftRequestRecords.length, { id: '00000000-0000-0000-0000-000000000704', publicId: 'G-E2E-001', status: 'CAPTURED', amountMinor: 1000, currency: 'CAT', giftCatalogId: initialGift.id, giftCatalogVersionId: initialGift.id, giftName: initialGift.name, giftCode: 'STARLIGHT', broadcastTemplate: initialGift.broadcastTemplate, orderId: orderRecord.id, orderPublicId: orderRecord.publicId, senderDisplayName: 'E2E 用户', senderDiscordUserId: userRecord.discordUserId, receiverDisplayName: playerRecord.displayName, receiverDiscordUserId: 'player-discord-e2e', verifiedByStaffId: 'staff-l2', verifiedAt: '2026-08-05T01:04:00.000Z', approvedByStaffId: 'staff-l2', approvedAt: '2026-08-05T01:05:00.000Z', capturedAt: '2026-08-05T01:06:00.000Z', createdAt: '2026-08-05T01:00:00.000Z', updatedAt: '2026-08-05T01:06:00.000Z', rowVersion: 3 });
   Object.assign(earningRecord, { status: 'PENDING', version: 1, confirmedAt: null, paidAt: null });
   earningPaymentWrites = 0;
+  giftReservationCaptureCount = 0;
+  giftReservationReleaseCount = 0;
   Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
   settlementBatches.length = 0;
   weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'USD', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
@@ -364,6 +368,46 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     if (!task || task.status !== 'CLAIMED' || body.expectedVersion !== task.version || body.resolutionCode !== 'UNDERLYING_ACTION_COMPLETED' || typeof body.notes !== 'string' || !body.notes.trim()) throw new Error('TASK_RESOLUTION_REJECTED');
     task.status = 'RESOLVED'; task.version += 1; task.resolutionCode = body.resolutionCode; task.resolutionNote = body.notes.trim(); task.resolvedBy = actor.actorStaffId!;
     return { id: task.id, status: task.status, version: task.version, resolvedBy: task.resolvedBy };
+  }
+});
+
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/staff-tasks/:taskId/verify', permission: 'staff_task.verify', action: 'VERIFY_E2E_GIFT_TASK', targetType: 'staff_task', acceptedSources: ['DASHBOARD'],
+  handler: (request, actor) => {
+    const task = tasks.get(String((request.params as { taskId: string }).taskId));
+    const body = request.body as { expectedVersion?: unknown; verificationMethod?: unknown; notes?: unknown };
+    const gift = giftRequestRecords.find((item) => item.id === task?.giftRequestId);
+    if (!task || task.type !== 'GIFT_REVIEW' || task.status !== 'CLAIMED' || task.claimedBy !== actor.actorStaffId || task.version !== body.expectedVersion || !['ORDER_CHANNEL', 'DIRECT_MESSAGE', 'VOICE'].includes(String(body.verificationMethod)) || typeof body.notes !== 'string' || !body.notes.trim() || !gift || gift.status !== 'PENDING_REVIEW') throw new Error('GIFT_VERIFICATION_REJECTED');
+    task.status = 'VERIFIED'; task.version += 1; gift.verifiedByStaffId = actor.actorStaffId; gift.verifiedAt = fixtureNow().toISOString(); gift.verificationNote = body.notes.trim(); gift.rowVersion = Number(gift.rowVersion) + 1;
+    return { status: task.status, giftRequestId: gift.id, executionCredential: { payloadHash: 'e2e-gift-payload-hash', expiresAt: new Date(fixtureNow().getTime() + 900_000).toISOString() } };
+  }
+});
+
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/approve', permission: 'gift.approve', action: 'APPROVE_E2E_GIFT_REQUEST', targetType: 'gift_request', acceptedSources: ['DASHBOARD'],
+  handler: (request, actor) => {
+    const id = String((request.params as { giftRequestId: string }).giftRequestId);
+    const gift = giftRequestRecords.find((item) => item.id === id);
+    const task = Array.from(tasks.values()).find((item) => item.giftRequestId === id);
+    const body = request.body as { expectedVersion?: unknown; reason?: unknown };
+    if (!gift || !task || task.status !== 'VERIFIED' || gift.status !== 'PENDING_REVIEW' || gift.rowVersion !== body.expectedVersion || typeof body.reason !== 'string' || !body.reason.trim()) throw new Error('GIFT_APPROVAL_REJECTED');
+    gift.status = 'CAPTURED'; gift.reservationStatus = 'CAPTURED'; gift.approvedByStaffId = actor.actorStaffId; gift.approvedAt = fixtureNow().toISOString(); gift.capturedAt = fixtureNow().toISOString(); gift.rowVersion = Number(gift.rowVersion) + 1;
+    task.status = 'APPROVED'; task.version += 1; giftReservationCaptureCount += 1;
+    return { status: 'CAPTURED', giftRequestId: id, reservation: { status: 'CAPTURED' }, chargeOutcome: { status: 'SUCCEEDED' } };
+  }
+});
+
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/gift-requests/:giftRequestId/reject', permission: 'gift.reject', action: 'REJECT_E2E_GIFT_REQUEST', targetType: 'gift_request', acceptedSources: ['DASHBOARD'],
+  handler: (request, actor) => {
+    const id = String((request.params as { giftRequestId: string }).giftRequestId);
+    const gift = giftRequestRecords.find((item) => item.id === id);
+    const task = Array.from(tasks.values()).find((item) => item.giftRequestId === id);
+    const body = request.body as { expectedVersion?: unknown; reason?: unknown };
+    if (!gift || !task || task.status !== 'VERIFIED' || gift.status !== 'PENDING_REVIEW' || gift.rowVersion !== body.expectedVersion || typeof body.reason !== 'string' || !body.reason.trim()) throw new Error('GIFT_REJECTION_REJECTED');
+    gift.status = 'REJECTED'; gift.reservationStatus = 'RELEASED'; gift.rejectedReason = body.reason.trim(); gift.rowVersion = Number(gift.rowVersion) + 1;
+    task.status = 'REJECTED'; task.version += 1; task.resolvedBy = actor.actorStaffId!; giftReservationReleaseCount += 1;
+    return { status: 'REJECTED', reason: gift.rejectedReason };
   }
 });
 
@@ -809,6 +853,24 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 
 server.post('/__e2e/revoke-session', async () => { authStore.setCurrentPermissionsVersion(staff.staffId, 2); return { ok: true }; });
 server.post('/__e2e/reset', async () => { resetState(); return { ok: true }; });
+server.post('/__e2e/setup/gift-review', async () => {
+  const giftRequestId = '00000000-0000-0000-0000-000000000704';
+  tasks.clear();
+  tasks.set('00000000-0000-0000-0000-000000000204', {
+    id: '00000000-0000-0000-0000-000000000204', publicId: 'T-GIFT-E2E-001', type: 'GIFT_REVIEW', status: 'OPEN', version: 1,
+    claimedBy: null, orderId: orderRecord.id, giftRequestId, channelId: '1200000000000000011', voiceChannelId: null,
+    guildId, createdAt: '2026-08-05T01:00:00.000Z', notes: []
+  });
+  giftRequestRecords.splice(0, giftRequestRecords.length, {
+    id: giftRequestId, publicId: 'G-E2E-REVIEW', status: 'PENDING_REVIEW', amountMinor: 1000, currency: 'CAT',
+    giftCatalogId: initialGift.id, giftCatalogVersionId: initialGift.id, giftName: initialGift.name, giftCode: 'STARLIGHT', broadcastTemplate: initialGift.broadcastTemplate,
+    orderId: orderRecord.id, orderPublicId: orderRecord.publicId, senderDisplayName: 'E2E 用户', senderDiscordUserId: userRecord.discordUserId,
+    receiverDisplayName: playerRecord.displayName, receiverDiscordUserId: 'player-discord-e2e', reservationStatus: 'ACTIVE', verifiedByStaffId: null,
+    verifiedAt: null, verificationNote: null, approvedByStaffId: null, approvedAt: null, capturedAt: null,
+    createdAt: '2026-08-05T01:00:00.000Z', updatedAt: '2026-08-05T01:00:00.000Z', rowVersion: 1
+  });
+  return { ok: true };
+});
 server.post('/__e2e/orders/bulk', async (request, reply) => {
   const requestedCount = Number((request.body as { count?: unknown })?.count);
   if (!Number.isSafeInteger(requestedCount) || requestedCount < 1 || requestedCount > 50) return reply.code(400).send({ error: 'count must be an integer from 1 to 50' });
@@ -854,6 +916,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });

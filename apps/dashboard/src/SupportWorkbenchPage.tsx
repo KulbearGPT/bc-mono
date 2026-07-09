@@ -10,6 +10,9 @@ interface StaffTaskPayload extends SupportTaskCardInput {
   firstRespondedAt?: string | null;
 }
 
+type GiftVerificationMethod = 'ORDER_CHANNEL' | 'DIRECT_MESSAGE' | 'VOICE';
+interface GiftVerificationDraft { method: GiftVerificationMethod; notes: string }
+
 interface OrderContext {
   order: { publicId: string; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
   readiness?: { customer: string; player: string; bothReady: boolean };
@@ -48,6 +51,8 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, string>>({});
+  const [giftVerificationDrafts, setGiftVerificationDrafts] = useState<Record<string, GiftVerificationDraft>>({});
+  const [giftDecisionDrafts, setGiftDecisionDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
@@ -127,6 +132,49 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     }
     setError(null);
     setResolutionDrafts((current) => ({ ...current, [task.id]: '' }));
+    await load();
+  }
+
+  async function verifyGift(task: StaffTaskPayload) {
+    const draft = giftVerificationDrafts[task.id] ?? { method: 'ORDER_CHANNEL' as const, notes: '' };
+    if (!draft.notes.trim()) return;
+    const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/verify`, {
+      expectedVersion: task.version,
+      verificationMethod: draft.method,
+      notes: draft.notes.trim()
+    });
+    if (!response.ok) {
+      setError('礼物核验失败；请确认任务仍由你认领并刷新最新状态。');
+      await load();
+      return;
+    }
+    setError(null);
+    setGiftVerificationDrafts((current) => ({ ...current, [task.id]: { method: draft.method, notes: '' } }));
+    await load();
+  }
+
+  async function decideGift(task: StaffTaskPayload, decision: 'approve' | 'reject') {
+    const giftRequestId = task.giftRequestId;
+    const reason = giftDecisionDrafts[task.id]?.trim();
+    if (!giftRequestId || !reason) return;
+    const detailResponse = await client.get(`/api/v1/admin/gift-requests/${encodeURIComponent(giftRequestId)}`);
+    const detailPayload = await detailResponse.json().catch(() => null) as { data?: { rowVersion?: unknown } } | null;
+    if (!detailResponse.ok || !Number.isInteger(detailPayload?.data?.rowVersion)) {
+      setError('礼物请求最新版本无法载入，未执行批准或拒绝。');
+      return;
+    }
+    const response = await client.post(`/api/v1/admin/gift-requests/${encodeURIComponent(giftRequestId)}/${decision}`, {
+      expectedVersion: detailPayload!.data!.rowVersion,
+      reason
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { error?: { code?: string } } | null;
+      setError(payload?.error?.code === 'STEP_UP_REQUIRED' ? '该金额需要先完成账户安全 step-up，再重新提交。' : '礼物请求状态已变化或资金处理失败，未执行决定。');
+      await load();
+      return;
+    }
+    setError(null);
+    setGiftDecisionDrafts((current) => ({ ...current, [task.id]: '' }));
     await load();
   }
 
@@ -216,6 +264,32 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
                     onChange={(event) => setResolutionDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
                     maxLength={2000} rows={2} placeholder="填写已完成的处理动作及通知结果" />
                   <button className="button-primary" type="button" disabled={!resolutionDrafts[task.id]?.trim()} onClick={() => void resolve(task)}>确认任务已完成</button>
+                </div>
+              )}
+              {task.actions.find((action) => action.id === 'VERIFY_GIFT')?.enabled && (() => {
+                const draft = giftVerificationDrafts[task.id] ?? { method: 'ORDER_CHANNEL' as const, notes: '' };
+                return <div className="task-card__editor task-card__gift-review">
+                  <strong>礼物请求核验</strong>
+                  <label>核验方式<select value={draft.method} onChange={(event) => setGiftVerificationDrafts((current) => ({ ...current, [task.id]: { ...draft, method: event.target.value as GiftVerificationMethod } }))}>
+                    <option value="ORDER_CHANNEL">订单频道</option><option value="DIRECT_MESSAGE">私信</option><option value="VOICE">语音确认</option>
+                  </select></label>
+                  <textarea aria-label={`${task.publicId} 礼物核验说明`} value={draft.notes}
+                    onChange={(event) => setGiftVerificationDrafts((current) => ({ ...current, [task.id]: { ...draft, notes: event.target.value } }))}
+                    maxLength={2000} rows={2} placeholder="记录已核对的赠送人、接收陪玩、礼物、金额和真实意愿" />
+                  <button className="button-primary" type="button" disabled={!draft.notes.trim()} onClick={() => void verifyGift(task)}>确认核验完成</button>
+                </div>;
+              })()}
+              {(task.actions.find((action) => action.id === 'APPROVE_GIFT')?.enabled || task.actions.find((action) => action.id === 'REJECT_GIFT')?.enabled) && (
+                <div className="task-card__editor task-card__gift-decision">
+                  <strong>礼物资金决定</strong>
+                  <p className="context-note">批准会捕获已有礼物预留；拒绝会释放已有礼物预留。金额由服务端快照决定，后台不会重新计算。</p>
+                  <textarea aria-label={`${task.publicId} 礼物决定说明`} value={giftDecisionDrafts[task.id] ?? ''}
+                    onChange={(event) => setGiftDecisionDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                    maxLength={2000} rows={2} placeholder="填写批准依据或拒绝原因" />
+                  <div className="inline-actions">
+                    {task.actions.find((action) => action.id === 'APPROVE_GIFT')?.enabled && <button className="button-primary" type="button" disabled={!giftDecisionDrafts[task.id]?.trim()} onClick={() => void decideGift(task, 'approve')}>批准并捕获预留</button>}
+                    {task.actions.find((action) => action.id === 'REJECT_GIFT')?.enabled && <button type="button" disabled={!giftDecisionDrafts[task.id]?.trim()} onClick={() => void decideGift(task, 'reject')}>拒绝并释放预留</button>}
+                  </div>
                 </div>
               )}
             </article>

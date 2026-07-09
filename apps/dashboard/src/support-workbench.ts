@@ -6,6 +6,7 @@ export interface SupportTaskCardInput {
   version: number;
   claimedBy: string | null;
   orderId: string | null;
+  giftRequestId?: string | null;
   links: { orderChannel: string | null; voiceChannel: string | null };
   triage: {
     orderPublicId: string | null; customerDisplayName: string | null; gameDisplayName: string | null; serviceDisplayName: string | null;
@@ -34,7 +35,10 @@ export function buildSupportWorkbench(input: {
       { id: 'CLAIM' as const, enabled: task.status === 'OPEN' && permissions.has('staff_task.claim') },
       { id: 'ADD_NOTE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
       { id: 'ESCALATE' as const, enabled: task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
-      { id: 'RESOLVE' as const, enabled: ['CLAIMED', 'VERIFIED', 'APPROVED'].includes(task.status) && permissions.has('staff_task.resolve') }
+      { id: 'RESOLVE' as const, enabled: ['CLAIMED', 'VERIFIED', 'APPROVED'].includes(task.status) && (task.type !== 'GIFT_REVIEW' || task.status === 'APPROVED') && permissions.has('staff_task.resolve') },
+      { id: 'VERIFY_GIFT' as const, enabled: task.type === 'GIFT_REVIEW' && Boolean(task.giftRequestId) && task.status === 'CLAIMED' && task.claimedBy === input.currentStaffId && permissions.has('staff_task.verify') },
+      { id: 'APPROVE_GIFT' as const, enabled: task.type === 'GIFT_REVIEW' && Boolean(task.giftRequestId) && task.status === 'VERIFIED' && permissions.has('gift.approve') },
+      { id: 'REJECT_GIFT' as const, enabled: task.type === 'GIFT_REVIEW' && Boolean(task.giftRequestId) && task.status === 'VERIFIED' && permissions.has('gift.reject') }
     ]
   });});
   return {
