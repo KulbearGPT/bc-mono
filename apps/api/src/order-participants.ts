@@ -88,7 +88,8 @@ interface UpdateParticipantInput extends ParticipantScope {
   participantId: string;
   expectedOrderVersion: number;
   expectedParticipantVersion: number;
-  action: 'CHANGE_PROJECT' | 'CHANGE_PRICE' | 'REMOVE';
+  action: 'CHANGE_PROJECT' | 'CHANGE_PRICE' | 'REASSIGN' | 'REMOVE';
+  playerId?: string | null;
   serviceCatalogVersionId: string | null;
   unitCount: number | null;
   linePriceMinor: number | null;
@@ -189,13 +190,17 @@ export class InMemoryOrderParticipantStore implements OrderParticipantStore {
     const now = input.now.toISOString();
     if (input.action === 'REMOVE') return { ...clone(existing), status: 'REMOVED', readiness: 'NOT_READY', version: existing.version + 1, updatedAt: now };
     const catalog = input.action === 'CHANGE_PROJECT' ? this.requireCatalog(requiredString(input.serviceCatalogVersionId, 'serviceCatalogVersionId')) : this.requireCatalog(existing.serviceCatalogVersionId);
-    const player = this.players.find((item) => item.userId === existing.playerId);
+    const playerId = input.action === 'REASSIGN' ? requiredString(input.playerId ?? null, 'playerId') : existing.playerId;
+    if (input.action === 'REASSIGN' && playerId === existing.playerId) throw new OrderParticipantError('VALIDATION_ERROR', 'Replacement player must be different.');
+    if (input.action === 'REASSIGN' && this.participants.some((item) => item.orderId === existing.orderId && item.id !== existing.id && item.playerId === playerId && item.status === 'ACTIVE'))
+      throw new OrderParticipantError('CONFLICT', 'Replacement player already has an active order line.');
+    const player = this.players.find((item) => item.userId === playerId && item.eligible);
     if (!player) throw new OrderParticipantError('BUSINESS_RULE_ERROR', 'Player is not eligible for this order.');
     const unitCount = input.unitCount ?? existing.unitCount;
     const linePriceMinor = input.linePriceMinor ?? existing.linePriceMinor;
     if (input.action === 'CHANGE_PROJECT' && (input.unitCount === null || input.linePriceMinor === null)) throw new OrderParticipantError('VALIDATION_ERROR', 'Project changes require unitCount and linePriceMinor.');
     if (input.action === 'CHANGE_PRICE' && input.linePriceMinor === null) throw new OrderParticipantError('VALIDATION_ERROR', 'Price changes require linePriceMinor.');
-    return buildParticipant({ id: existing.id, orderId: existing.orderId, player, catalog, unitCount, linePriceMinor, compensation: this.findCompensation(player.userId, catalog), version: existing.version + 1, now: input.now, createdAt: existing.createdAt });
+    return buildParticipant({ id: existing.id, orderId: existing.orderId, orderRequirementId: existing.orderRequirementId, player, catalog, unitCount, linePriceMinor, compensation: this.findCompensation(player.userId, catalog), version: existing.version + 1, now: input.now, createdAt: existing.createdAt });
   }
 
   private findCompensation(playerUserId: string, catalog: InMemoryParticipantCatalog) { return this.compensationRules.find((item) => item.playerUserId === playerUserId && item.serviceOfferingId === catalog.serviceOfferingId) ?? null; }
@@ -250,15 +255,24 @@ export class PostgresOrderParticipantStore implements OrderParticipantStore {
     if (input.action === 'REMOVE') {
       next = { ...current, status: 'REMOVED', readiness: 'NOT_READY', version: current.version + 1, updatedAt: input.now.toISOString() };
       await client.query(`UPDATE order_participants SET status='REMOVED',row_version=row_version+1,ready_at=NULL,removed_by_staff_id=$3,removed_reason_code=$4,removed_at=$5,updated_at=$5 WHERE id=$1 AND row_version=$2`, [current.id, current.version, input.actorStaffId, input.reasonCode, input.now.toISOString()]);
+    } else if (input.action === 'REASSIGN') {
+      const replacementPlayerId = requiredString(input.playerId ?? null, 'playerId');
+      if (replacementPlayerId === current.playerId) throw new OrderParticipantError('VALIDATION_ERROR', 'Replacement player must be different.');
+      const facts = await this.catalogFacts(client, replacementPlayerId, current.serviceCatalogVersionId);
+      next = buildParticipant({ id: current.id, orderId: current.orderId, orderRequirementId: current.orderRequirementId,
+        player: { userId: replacementPlayerId, displayName: facts.display_name, eligible: true }, catalog: mapCatalogFacts(facts),
+        unitCount: current.unitCount, linePriceMinor: current.linePriceMinor, compensation: mapCompensationFacts(facts), version: current.version + 1, now: input.now, createdAt: current.createdAt });
+      await client.query(`UPDATE order_participants SET player_id=$3,row_version=row_version+1,player_display_name_snapshot=$4,compensation_type_snapshot=$5,compensation_value_snapshot=$6,compensation_source=$7,expected_earning_minor=$8,ready_at=NULL,updated_at=$9 WHERE id=$1 AND row_version=$2`,
+        [current.id,current.version,next.playerId,next.displayName,next.compensationType,next.compensationValue,next.compensationSource,next.expectedEarningMinor,input.now.toISOString()]);
     } else {
       const catalogId = input.action === 'CHANGE_PROJECT' ? requiredString(input.serviceCatalogVersionId, 'serviceCatalogVersionId') : current.serviceCatalogVersionId;
       if (input.action === 'CHANGE_PROJECT' && (input.unitCount === null || input.linePriceMinor === null)) throw new OrderParticipantError('VALIDATION_ERROR', 'Project changes require unitCount and linePriceMinor.');
       if (input.action === 'CHANGE_PRICE' && input.linePriceMinor === null) throw new OrderParticipantError('VALIDATION_ERROR', 'Price changes require linePriceMinor.');
       const facts = await this.catalogFacts(client, current.playerId, catalogId);
-      next = buildParticipant({ id: current.id, orderId: current.orderId, player: { userId: current.playerId, displayName: facts.display_name, eligible: true }, catalog: mapCatalogFacts(facts), unitCount: input.unitCount ?? current.unitCount, linePriceMinor: input.linePriceMinor ?? current.linePriceMinor, compensation: mapCompensationFacts(facts), version: current.version + 1, now: input.now, createdAt: current.createdAt });
+      next = buildParticipant({ id: current.id, orderId: current.orderId, orderRequirementId: current.orderRequirementId, player: { userId: current.playerId, displayName: facts.display_name, eligible: true }, catalog: mapCatalogFacts(facts), unitCount: input.unitCount ?? current.unitCount, linePriceMinor: input.linePriceMinor ?? current.linePriceMinor, compensation: mapCompensationFacts(facts), version: current.version + 1, now: input.now, createdAt: current.createdAt });
       await client.query(`UPDATE order_participants SET service_catalog_version_id=$3,row_version=row_version+1,player_display_name_snapshot=$4,game_code_snapshot=$5,game_display_name_snapshot=$6,service_code_snapshot=$7,service_display_name_snapshot=$8,region_code_snapshot=$9,region_display_name_snapshot=$10,billing_unit_minutes_snapshot=$11,unit_count=$12,customer_unit_price_minor_snapshot=$13,line_price_minor=$14,compensation_type_snapshot=$15,compensation_value_snapshot=$16,compensation_source=$17,expected_earning_minor=$18,ready_at=NULL,updated_at=$19 WHERE id=$1 AND row_version=$2`, [current.id,current.version,next.serviceCatalogVersionId,next.displayName,next.game,next.gameDisplayName,next.service,next.serviceDisplayName,next.region,next.regionDisplayName,next.billingUnitMinutes,next.unitCount,next.customerUnitPriceMinor,next.linePriceMinor,next.compensationType,next.compensationValue,next.compensationSource,next.expectedEarningMinor,input.now.toISOString()]);
     }
-    return this.finishMutation(client, input, next, input.action === 'REMOVE' ? 'REMOVED' : input.action === 'CHANGE_PROJECT' ? 'PROJECT_CHANGED' : 'PRICE_CHANGED');
+    return this.finishMutation(client, input, next, input.action === 'REMOVE' ? 'REMOVED' : input.action === 'REASSIGN' ? 'REASSIGNED' : input.action === 'CHANGE_PROJECT' ? 'PROJECT_CHANGED' : 'PRICE_CHANGED');
   }
 
   private async finishMutation(client: PoolClient, input: AddParticipantInput | UpdateParticipantInput, participant: OrderParticipantRecord, eventType: string): Promise<ParticipantMutationResult> {
@@ -307,14 +321,14 @@ export function registerOrderParticipantRoutes(server: FastifyInstance, options:
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/orders/:orderId/participants/:participantId', permission: 'order.participants.manage', action: 'UPDATE_ADMIN_ORDER_PARTICIPANT', targetType: 'order_participant', targetId: (request) => param(request, 'participantId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], handler: (request, actor) => options.store.update({ ...actorScope(request, actor), participantId: param(request, 'participantId'), ...parseUpdate(request.body), idempotencyKey: idempotencyKey(request), now: now() }), successReason: (request) => parseUpdate(request.body).reasonCode, mapError });
 }
 
-function buildParticipant(input: { id: string; orderId: string; player: InMemoryParticipantPlayer; catalog: InMemoryParticipantCatalog; unitCount: number; linePriceMinor: number; compensation: InMemoryParticipantCompensation | null; version: number; now: Date; createdAt?: string }): OrderParticipantRecord {
+function buildParticipant(input: { id: string; orderId: string; orderRequirementId?: string | null; player: InMemoryParticipantPlayer; catalog: InMemoryParticipantCatalog; unitCount: number; linePriceMinor: number; compensation: InMemoryParticipantCompensation | null; version: number; now: Date; createdAt?: string }): OrderParticipantRecord {
   positiveInteger(input.unitCount, 'unitCount'); positiveInteger(input.linePriceMinor, 'linePriceMinor'); positiveInteger(input.catalog.customerUnitPriceMinor, 'customerUnitPriceMinor');
   const type = input.compensation?.type ?? 'PERCENT_BPS'; const value = input.compensation?.value ?? input.catalog.defaultPlayerPayoutBps;
   positiveInteger(value, 'compensationValue'); if (type === 'PERCENT_BPS' && value > 10000) throw new OrderParticipantError('VALIDATION_ERROR', 'Percentage compensation is invalid.');
   const expected = type === 'PERCENT_BPS' ? Math.floor(input.linePriceMinor * value / 10000) : value * input.unitCount;
   if (!Number.isSafeInteger(expected) || expected < 0 || expected > input.linePriceMinor) throw new OrderParticipantError('BUSINESS_RULE_ERROR', 'Player compensation exceeds the line price.');
   const timestamp = input.now.toISOString();
-  return { id: input.id, orderId: input.orderId,orderRequirementId:null, playerId: input.player.userId, displayName: input.player.displayName,discordUserId:input.player.discordUserId??null,discordTag:input.player.discordTag??null, serviceCatalogVersionId: input.catalog.id,
+  return { id: input.id, orderId: input.orderId,orderRequirementId:input.orderRequirementId??null, playerId: input.player.userId, displayName: input.player.displayName,discordUserId:input.player.discordUserId??null,discordTag:input.player.discordTag??null, serviceCatalogVersionId: input.catalog.id,
     game: input.catalog.game, gameDisplayName: input.catalog.gameDisplayName, service: input.catalog.service, serviceDisplayName: input.catalog.serviceDisplayName,
     region: input.catalog.region, regionDisplayName: input.catalog.regionDisplayName, billingUnitMinutes: input.catalog.billingUnitMinutes, unitCount: input.unitCount,
     customerUnitPriceMinor: input.catalog.customerUnitPriceMinor, status: 'ACTIVE', linePriceMinor: input.linePriceMinor, compensationType: type, compensationValue: value,
@@ -323,7 +337,18 @@ function buildParticipant(input: { id: string; orderId: string; player: InMemory
 }
 
 function parseAdd(value: unknown): Omit<AddParticipantInput, keyof ParticipantScope | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['playerId','serviceCatalogVersionId','unitCount','linePriceMinor','expectedOrderVersion','reasonCode']); return { playerId: uuid(body.playerId,'playerId'), serviceCatalogVersionId: uuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: positiveInteger(body.unitCount,'unitCount'), linePriceMinor: positiveInteger(body.linePriceMinor,'linePriceMinor'), expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), reasonCode: reason(body.reasonCode) }; }
-function parseUpdate(value: unknown): Omit<UpdateParticipantInput, keyof ParticipantScope | 'participantId' | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','expectedParticipantVersion','action','serviceCatalogVersionId','unitCount','linePriceMinor','reasonCode']); const action = body.action; if (action !== 'CHANGE_PROJECT' && action !== 'CHANGE_PRICE' && action !== 'REMOVE') throw new OrderParticipantError('VALIDATION_ERROR','action is invalid.'); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), expectedParticipantVersion: positiveInteger(body.expectedParticipantVersion,'expectedParticipantVersion'), action, serviceCatalogVersionId: nullableUuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: nullablePositiveInteger(body.unitCount,'unitCount'), linePriceMinor: nullablePositiveInteger(body.linePriceMinor,'linePriceMinor'), reasonCode: reason(body.reasonCode) }; }
+function parseUpdate(value: unknown): Omit<UpdateParticipantInput, keyof ParticipantScope | 'participantId' | 'idempotencyKey' | 'now'> {
+  const body = strictObject(value, ['expectedOrderVersion','expectedParticipantVersion','action','playerId','serviceCatalogVersionId','unitCount','linePriceMinor','reasonCode']);
+  const action = body.action;
+  if (action !== 'CHANGE_PROJECT' && action !== 'CHANGE_PRICE' && action !== 'REASSIGN' && action !== 'REMOVE') throw new OrderParticipantError('VALIDATION_ERROR','action is invalid.');
+  if (action === 'REASSIGN' && [body.serviceCatalogVersionId,body.unitCount,body.linePriceMinor].some((item)=>item !== null && item !== undefined))
+    throw new OrderParticipantError('VALIDATION_ERROR','REASSIGN preserves project, quantity, and line price.');
+  if (action !== 'REASSIGN' && body.playerId !== null && body.playerId !== undefined)
+    throw new OrderParticipantError('VALIDATION_ERROR','playerId is only accepted for REASSIGN.');
+  return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), expectedParticipantVersion: positiveInteger(body.expectedParticipantVersion,'expectedParticipantVersion'), action,
+    playerId: action==='REASSIGN'?uuid(body.playerId,'playerId'):null, serviceCatalogVersionId: nullableUuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'),
+    unitCount: nullablePositiveInteger(body.unitCount,'unitCount'), linePriceMinor: nullablePositiveInteger(body.linePriceMinor,'linePriceMinor'), reasonCode: reason(body.reasonCode) };
+}
 function strictObject(value: unknown, allowed: string[]) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OrderParticipantError('VALIDATION_ERROR','Object payload is required.'); const body=value as Record<string,unknown>; const extra=Object.keys(body).filter((key)=>!allowed.includes(key)); if(extra.length)throw new OrderParticipantError('VALIDATION_ERROR',`Unexpected fields: ${extra.join(', ')}.`); return body; }
 function pageInput(request: FastifyRequest) { const query=request.query as Record<string,unknown>; const limit=query.limit===undefined?25:positiveInteger(Number(query.limit),'limit'); if(limit>100)throw new OrderParticipantError('VALIDATION_ERROR','limit cannot exceed 100.'); return { cursor: typeof query.cursor==='string'&&query.cursor?query.cursor:null, limit }; }
 function queryText(request:FastifyRequest){const value=(request.query as Record<string,unknown>).query;if(value===undefined||value==='')return null;if(typeof value!=='string'||value.trim().length>100)throw new OrderParticipantError('VALIDATION_ERROR','query is invalid.');return value.trim();}

@@ -1843,6 +1843,12 @@ textarea:focus-visible {
   justify-self: start;
 }
 
+.participant-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .module-error {
   display: flex;
   align-items: center;

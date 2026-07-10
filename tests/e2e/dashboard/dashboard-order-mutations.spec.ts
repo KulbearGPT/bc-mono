@@ -138,4 +138,18 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.orderParticipants[0]).toMatchObject({ linePriceMinor: 1001, version: 1 }); expect(state.order.version).toBe(4); expect(state.reservationAmountMinor).toBe(1001);
   });
+
+  test('DE2E-ORD-017 support reassigns one player slot without changing the other player, total, or reservation',async({page,request})=>{
+    await page.goto('/__e2e/login/l2');await page.waitForURL('**/');
+    expect((await apiAddParticipant(page,1,3)).status).toBe(201);expect((await apiAddParticipant(page,2,4,'catalog-e2e-chat')).status).toBe(201);
+    await page.getByRole('link',{name:'订单',exact:true}).click();await page.getByRole('button',{name:'查看详情'}).click();
+    const first=page.locator('.participant-detail-card').nth(0);await first.getByRole('button',{name:'改派陪玩'}).click();
+    await first.getByLabel('新陪玩').selectOption('player-e2e-3');
+    const responsePromise=page.waitForResponse((response)=>response.request().method()==='PATCH'&&response.url().includes('/participants/participant-e2e-1'));
+    await first.getByRole('button',{name:'保存明细'}).click();expect((await responsePromise).status()).toBe(200);
+    await expect(page.locator('.participant-detail-card').nth(0)).toContainText('E2E 陪玩 3');
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    expect(state.orderParticipants).toHaveLength(2);expect(state.orderParticipants[0]).toMatchObject({id:'participant-e2e-1',playerId:'player-e2e-3',service:'ESCORT',linePriceMinor:1001,readiness:'NOT_READY',version:2});expect(state.orderParticipants[1]).toMatchObject({id:'participant-e2e-2',playerId:'player-e2e-2',service:'CHAT',linePriceMinor:1002,version:1});
+    expect(state.order).toMatchObject({amountMinor:2003,version:6});expect(state.reservationAmountMinor).toBe(2003);
+  });
 });

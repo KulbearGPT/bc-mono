@@ -764,7 +764,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/orders/:orderId/participant-candidates', permission: 'order.read', action: 'READ_E2E_ORDER_PARTICIPANT_CANDIDATES', targetType: 'order', acceptedSources: ['DASHBOARD'],
-  handler: () => ({ items: Array.from({ length: 9 }, (_, index) => ({ playerId: `player-e2e-${index + 1}`, discordUserId: `discord-player-${index + 1}`, displayName: `E2E 陪玩 ${index + 1}`, projects: [initialCatalog, alternateOrderCatalog] })), nextCursor: null })
+  handler: () => { const active=new Set(orderParticipants.filter((participant)=>participant.status==='ACTIVE').map((participant)=>String(participant.playerId)));return { items: Array.from({ length: 9 }, (_, index) => ({ playerId: `player-e2e-${index + 1}`, discordUserId: `discord-player-${index + 1}`, displayName: `E2E 陪玩 ${index + 1}`, projects: [initialCatalog, alternateOrderCatalog] })).filter((candidate)=>!active.has(candidate.playerId)), nextCursor: null }; }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/participants', permission: 'order.resolve', action: 'ADD_E2E_ORDER_PARTICIPANT', targetType: 'order_participant', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
@@ -785,12 +785,13 @@ registerSecureWriteRoute(server, server.securityOptions!, {
   mapError: (error) => error instanceof Error && error.message === 'ORDER_CAPTURED' ? { statusCode: 409, code: 'ORDER_IMMUTABLE', message: 'Captured orders cannot be changed.' } : error instanceof Error && error.message === 'STALE_PARTICIPANT_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order or participant version changed.' } : null,
   handler: (request) => {
     const participant = orderParticipants.find((item) => item.id === (request.params as { participantId: string }).participantId);
-    const body = request.body as { expectedOrderVersion?: unknown; expectedParticipantVersion?: unknown; action?: unknown; serviceCatalogVersionId?: unknown; unitCount?: unknown; linePriceMinor?: unknown };
+    const body = request.body as { expectedOrderVersion?: unknown; expectedParticipantVersion?: unknown; action?: unknown; playerId?: unknown; serviceCatalogVersionId?: unknown; unitCount?: unknown; linePriceMinor?: unknown };
     if (orderRecord.status === 'COMPLETED') throw new Error('ORDER_CAPTURED');
     if (!participant || body.expectedOrderVersion !== orderRecord.version || body.expectedParticipantVersion !== participant.version) throw new Error('STALE_PARTICIPANT_ORDER');
     if (body.action === 'REMOVE') participant.status = 'REMOVED';
     else if (body.action === 'CHANGE_PRICE' && Number.isSafeInteger(body.linePriceMinor) && Number(body.linePriceMinor) > 0) participant.linePriceMinor = Number(body.linePriceMinor);
     else if (body.action === 'CHANGE_PROJECT') { const catalog = [initialCatalog, alternateOrderCatalog].find((item) => item.id === body.serviceCatalogVersionId); if (!catalog) throw new Error('INVALID_PARTICIPANT'); Object.assign(participant, { serviceCatalogVersionId: catalog.id, service: catalog.service, serviceDisplayName: catalog.serviceDisplayName, unitCount: Number(body.unitCount), linePriceMinor: Number(body.linePriceMinor) }); }
+    else if (body.action === 'REASSIGN' && typeof body.playerId === 'string' && !orderParticipants.some((item)=>item!==participant&&item.status==='ACTIVE'&&item.playerId===body.playerId)) Object.assign(participant,{playerId:body.playerId,discordUserId:`discord-${body.playerId}`,discordTag:`${body.playerId}#0001`,displayName:`E2E 陪玩 ${body.playerId.split('-').at(-1)}`,readiness:'NOT_READY',compensationType:'PERCENT_BPS',compensationValue:6000,compensationSource:'CATALOG_DEFAULT',expectedEarningMinor:Math.floor(Number(participant.linePriceMinor)*0.6)});
     else throw new Error('INVALID_PARTICIPANT');
     participant.version = Number(participant.version) + 1; orderRecord.version += 1; orderRecord.amountMinor = orderParticipants.filter((item) => item.status === 'ACTIVE').reduce((sum, item) => sum + Number(item.linePriceMinor), 0); reservationAmountMinor = orderRecord.amountMinor; return { participant: { ...participant }, order: { ...orderRecord }, reservationAmountMinor };
   }

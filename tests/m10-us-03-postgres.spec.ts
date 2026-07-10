@@ -22,6 +22,8 @@ const guildId = '999999999999999999';
 const orderId = '00000000-0000-0000-0000-000000010001';
 const rollbackOrderId = '00000000-0000-0000-0000-000000010009';
 const fundedOrderId='00000000-0000-0000-0000-000000010011';
+const reassignOrderId='00000000-0000-0000-0000-000000010018';
+const reassignCustomerId='00000000-0000-0000-0000-000000010019';
 const fundedCustomerId='00000000-0000-0000-0000-000000010012';
 const playerId = '00000000-0000-0000-0000-000000010002';
 const catalogId = '00000000-0000-0000-0000-000000010003';
@@ -76,6 +78,24 @@ describe('M10-US-03 PostgreSQL participant transaction', () => {
     const insufficient=await server.inject({method:'PATCH',url:`/api/v1/admin/orders/${fundedOrderId}/participants/${participantId}`,headers:{authorization:'Bearer token','x-client-source':'DASHBOARD','x-actor-discord-user-id':discordId,'x-actor-guild-id':guildId,'idempotency-key':'m10:funded:insufficient:0003'},payload:{expectedOrderVersion:3,expectedParticipantVersion:2,action:'CHANGE_PRICE',serviceCatalogVersionId:null,unitCount:null,linePriceMinor:2000,reasonCode:'RAISE_PRICE'}});expect(insufficient.statusCode).toBe(422);const unchanged=await pool.query(`SELECT orders.amount_minor::text,orders.row_version,participant.line_price_minor::text,participant.row_version participant_version,reservation.amount_minor::text reservation_minor,reservation.row_version reservation_version FROM orders JOIN order_participants participant ON participant.order_id=orders.id JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`,[fundedOrderId]);expect(unchanged.rows[0]).toEqual({amount_minor:'200',row_version:3,line_price_minor:'200',participant_version:2,reservation_minor:'200',reservation_version:3});
   });
 
+  test('reassigns one persisted participant without changing the other line, total, or reservation facts',async()=>{
+    const directory:StaffDirectory={resolveByDiscord:()=>({staffId,userId:staffUserId,level:'L2_SUPERVISOR',permissionsVersion:1,status:'ACTIVE'})};
+    const server=buildApiServer({env,security:{staffDirectory:directory,auditSink:new PostgresAuditSink({client:pool})},orderParticipants:{store:new PostgresOrderParticipantStore(pool),now:()=>new Date('2026-08-04T12:02:30Z')}});
+    const common={authorization:'Bearer token','x-client-source':'DASHBOARD','x-actor-discord-user-id':discordId,'x-actor-guild-id':guildId};
+    const first=await server.inject({method:'POST',url:`/api/v1/admin/orders/${reassignOrderId}/participants`,headers:{...common,'idempotency-key':'m10:reassign:add:first'},payload:{playerId,serviceCatalogVersionId:catalogId,unitCount:3,linePriceMinor:360,expectedOrderVersion:1,reasonCode:'ADD_TECH_PLAYER'}});
+    expect(first.statusCode,first.body).toBe(201);const firstId=first.json().data.participant.id as string;
+    const second=await server.inject({method:'POST',url:`/api/v1/admin/orders/${reassignOrderId}/participants`,headers:{...common,'idempotency-key':'m10:reassign:add:second'},payload:{playerId:secondPlayerId,serviceCatalogVersionId:catalogId,unitCount:2,linePriceMinor:200,expectedOrderVersion:2,reasonCode:'ADD_SECOND_PLAYER'}});
+    expect(second.statusCode,second.body).toBe(201);const secondId=second.json().data.participant.id as string;
+    await pool.query('UPDATE order_participants SET ready_at=now() WHERE id=$1',[firstId]);
+    const reassigned=await server.inject({method:'PATCH',url:`/api/v1/admin/orders/${reassignOrderId}/participants/${firstId}`,headers:{...common,'idempotency-key':'m10:reassign:replace:first'},payload:{expectedOrderVersion:3,expectedParticipantVersion:1,action:'REASSIGN',playerId:thirdPlayerId,reasonCode:'PLAYER_UNAVAILABLE'}});
+    expect(reassigned.statusCode,reassigned.body).toBe(200);expect(reassigned.json().data).toMatchObject({orderVersion:4,derivedTotalMinor:560,participant:{id:firstId,playerId:thirdPlayerId,serviceCatalogVersionId:catalogId,unitCount:3,linePriceMinor:360,readiness:'NOT_READY',version:2}});
+    const facts=await pool.query(`SELECT orders.amount_minor::text,orders.row_version,first.id first_id,first.player_id first_player,first.ready_at,second.id second_id,second.player_id second_player,second.line_price_minor::text second_price,(SELECT count(*)::int FROM fund_reservations WHERE order_id=orders.id) reservation_count FROM orders JOIN order_participants first ON first.id=$2 JOIN order_participants second ON second.id=$3 WHERE orders.id=$1`,[reassignOrderId,firstId,secondId]);
+    expect(facts.rows[0]).toEqual({amount_minor:'560',row_version:4,first_id:firstId,first_player:thirdPlayerId,ready_at:null,second_id:secondId,second_player:secondPlayerId,second_price:'200',reservation_count:0});
+    const events=await pool.query('SELECT event_type::text FROM order_participant_events WHERE order_participant_id=$1 ORDER BY sequence',[firstId]);expect(events.rows).toEqual([{event_type:'ADDED'},{event_type:'REASSIGNED'}]);
+    const duplicate=await server.inject({method:'PATCH',url:`/api/v1/admin/orders/${reassignOrderId}/participants/${firstId}`,headers:{...common,'idempotency-key':'m10:reassign:duplicate'},payload:{expectedOrderVersion:4,expectedParticipantVersion:2,action:'REASSIGN',playerId:secondPlayerId,reasonCode:'DUPLICATE_PLAYER'}});expect(duplicate.statusCode).toBe(409);
+    await server.close();
+  });
+
   test('persists owner-authored requirements, derived estimate, events and audit atomically',async()=>{
     const store=new PostgresOrderRequirementStore(pool);const server=buildApiServer({env,security:{auditSink:new PostgresAuditSink({client:pool})},orderRequirements:{store,now:()=>new Date('2026-08-04T12:03:00Z')}});
     const headers={authorization:'Bearer token','x-client-source':'DISCORD_BOT','x-actor-discord-user-id':requirementDiscordId,'x-actor-guild-id':guildId,'x-discord-interaction-id':'444444444444444444','idempotency-key':'m10:requirement:add:0001'};
@@ -119,7 +139,7 @@ describe('M10-US-03 PostgreSQL participant transaction', () => {
 
 async function seed(){await pool.query(`
   INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES
-    ('${staffUserId}','主管','ACTIVE',1,now(),now()),('${playerId}','奶糖','ACTIVE',1,now(),now()),('${secondPlayerId}','团子','ACTIVE',1,now(),now()),('${thirdPlayerId}','芝麻','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010006','老板','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010010','另一位老板','ACTIVE',1,now(),now()),('${fundedCustomerId}','已充值老板','ACTIVE',1,now(),now()),('${requirementCustomerId}','多项目老板','ACTIVE',1,now(),now());
+    ('${staffUserId}','主管','ACTIVE',1,now(),now()),('${playerId}','奶糖','ACTIVE',1,now(),now()),('${secondPlayerId}','团子','ACTIVE',1,now(),now()),('${thirdPlayerId}','芝麻','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010006','老板','ACTIVE',1,now(),now()),('00000000-0000-0000-0000-000000010010','另一位老板','ACTIVE',1,now(),now()),('${reassignCustomerId}','改派订单老板','ACTIVE',1,now(),now()),('${fundedCustomerId}','已充值老板','ACTIVE',1,now(),now()),('${requirementCustomerId}','多项目老板','ACTIVE',1,now(),now());
   INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,username,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010023','${requirementCustomerId}','${guildId}','${requirementDiscordId}','老板猫#1024',now(),now());
   INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,username,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010024','${playerId}','${guildId}','444444444444444444','奶糖#2048',now(),now());
   INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010032','${secondPlayerId}','${guildId}','555555555555555555',now(),now()),('00000000-0000-0000-0000-000000010033','${thirdPlayerId}','${guildId}','666666666666666666',now(),now());
@@ -135,6 +155,7 @@ async function seed(){await pool.query(`
     ('${orderId}','P-M10-API','00000000-0000-0000-0000-000000010006','00000000-0000-0000-0000-000000010006','DRAFT',1,0,0,'CAT','${guildId}','111111111111111111','222222222222222223',now(),now()),
     ('${rollbackOrderId}','P-M10-ROLLBACK','00000000-0000-0000-0000-000000010010','00000000-0000-0000-0000-000000010010','DRAFT',1,0,0,'CAT','${guildId}','111111111111111112','222222222222222224',now(),now()),
     ('${fundedOrderId}','P-M10-FUNDED','${fundedCustomerId}','${fundedCustomerId}','PENDING_DISPATCH',1,100,60,'CAT','${guildId}','111111111111111113','222222222222222225',now(),now()),
+    ('${reassignOrderId}','P-M10-REASSIGN','${reassignCustomerId}','${reassignCustomerId}','DRAFT',1,0,0,'CAT','${guildId}','111111111111111115','222222222222222227',now(),now()),
     ('${requirementOrderId}','P-M10-REQ','${requirementCustomerId}','${requirementCustomerId}','DRAFT',1,0,0,'CAT','${guildId}','111111111111111114','222222222222222226',now(),now());
   INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010013','${fundedCustomerId}','CAT','ACTIVE',1,now(),now());
   INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000010027','${requirementCustomerId}','CAT','ACTIVE',1,now(),now());

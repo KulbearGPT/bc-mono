@@ -97,6 +97,7 @@ enum CompensationSource {
 
 enum OrderParticipantEventType {
   ADDED
+  REASSIGNED
   PROJECT_CHANGED
   PRICE_CHANGED
   READY_CONFIRMED
