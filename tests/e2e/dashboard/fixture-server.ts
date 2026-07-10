@@ -118,6 +118,7 @@ const riskEvents: Array<{ type: string; severity: string; source: string; notes:
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
 const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; occurredAt: string }> = [];
 const receiptAttachments: Array<{ id: string; evidenceId: string; mediaType: string; originalFileName: string; private: true }> = [];
+const profileNotes: Array<{ id: string; text: string; createdAt: string; authorStaffId: string }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
 const bulkPlayers: Array<Record<string, unknown>> = [];
 const compensationRules: Array<{ serviceOfferingId: string; type: 'PERCENT_BPS' | 'FIXED_MINOR'; value: number; currency: 'CAT' | null; version: number }> = [];
@@ -177,6 +178,7 @@ function resetState() {
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
   walletEntries.length = 0;
   receiptAttachments.length = 0;
+  profileNotes.length = 0;
   Object.assign(playerRecord, { reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [], serviceTags: [], languageTags: [], gameTagIds: [], serviceTagIds: [], languageTagIds: [] });
   bulkPlayers.length = 0;
   compensationRules.length = 0;
@@ -278,7 +280,12 @@ registerSecureReadRoute(server, server.securityOptions!, {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary', permission: 'customer_profile.read', action: 'GET_E2E_PROFILE_SUMMARY', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id, discordUserId: userRecord.discordUserId, status: userRecord.status }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: [], riskFlags: [] })
+  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id, discordUserId: userRecord.discordUserId, status: userRecord.status }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: profileNotes.map(({ authorStaffId: _authorStaffId, ...note }) => note), riskFlags: [] })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/users/:userId/profile-notes', permission: 'customer_profile.note.append', action: 'APPEND_E2E_PROFILE_NOTE', targetType: 'customer_profile_note', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+  handler: (request, actor) => { const body = String((request.body as { body?: unknown })?.body ?? '').trim(); if (!body || body.length > 2000) throw new Error('INVALID_PROFILE_NOTE');
+    const note = { id: `profile-note-${profileNotes.length + 1}`, text: body, createdAt: fixtureNow().toISOString(), authorStaffId: actor.actorStaffId! }; profileNotes.unshift(note); return { id: note.id, text: note.text, createdAt: note.createdAt }; }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/orders', permission: 'customer_profile.read', action: 'LIST_E2E_PROFILE_ORDERS', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
@@ -938,6 +945,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, profileNotes, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });

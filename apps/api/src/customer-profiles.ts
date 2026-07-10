@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { WalletFundingService } from './wallet.js';
-import { registerSecureReadRoute, type ActorContext, type StaffLevel } from './security.js';
+import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type StaffLevel } from './security.js';
 import { decodeKeysetCursor, encodeKeysetCursor } from './signed-cursor.js';
 
 export type CustomerProfileWindow = 'DAYS_30' | 'DAYS_90' | 'ALL';
@@ -35,10 +35,12 @@ export interface CustomerProfileSummaryData {
   internalNotes: Array<{ id: string; text: string; createdAt: string }>;
   riskFlags: string[];
 }
+export interface CustomerProfileNote { id: string; text: string; createdAt: string }
 export interface Page<T> { items: T[]; nextCursor: string | null }
 
 export interface CustomerProfileStore extends CustomerProfileScope {
   getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null>;
+  appendNote(input: CustomerProfileScopeInput & { body: string; now: Date }): Promise<CustomerProfileNote>;
   listOrders(input: CustomerProfileScopeInput & { cursor: string | null; limit: number }): Promise<Page<CustomerProfileOrder>>;
   sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number>;
   countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> | number;
@@ -93,6 +95,14 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
     if (!this.canReadCustomer(input)) throw new CustomerProfileError('NOT_FOUND', 'Customer was not found.');
     const items = this.orders.filter((item) => item.customerId === input.userId && item.guildId === input.guildId).sort(descCreated);
     return page(items, input.cursor, input.limit, 'customer_orders');
+  }
+
+  async appendNote(input: CustomerProfileScopeInput & { body: string; now: Date }): Promise<CustomerProfileNote> {
+    if (!this.canReadCustomer(input)) throw new CustomerProfileError('NOT_FOUND', 'Customer was not found.');
+    const note = { id: crypto.randomUUID(), userId: input.userId, guildId: input.guildId, text: input.body,
+      authorStaffId: input.actorStaffId, createdAt: input.now.toISOString() };
+    this.notes.push(note);
+    return { id: note.id, text: note.text, createdAt: note.createdAt };
   }
 
   async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
@@ -167,6 +177,28 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     return pageFromSorted(items, input.limit, 'customer_orders');
   }
 
+  async appendNote(input: CustomerProfileScopeInput & { body: string; now: Date }): Promise<CustomerProfileNote> {
+    const noteId = crypto.randomUUID();
+    const result = await this.pool.query(`WITH visible_customer AS (
+      SELECT u.id FROM users u
+      WHERE u.id=$2 AND EXISTS (SELECT 1 FROM discord_accounts da WHERE da.user_id=u.id AND da.guild_id=$5)
+      AND ($4::text<>'L1_SUPPORT' OR EXISTS (
+        SELECT 1 FROM orders o WHERE o.customer_id=u.id AND o.guild_id=$5 AND (
+          o.automation_paused_by_staff_id=$3 OR EXISTS (
+            SELECT 1 FROM staff_tasks task WHERE task.order_id=o.id AND task.claimed_by_staff_id=$3
+              AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')
+          )
+        )
+      )) LIMIT 1
+    )
+    INSERT INTO customer_profile_notes (id,user_id,guild_id,author_staff_id,body,created_at)
+    SELECT $1,visible_customer.id,$5,$3,$6,$7 FROM visible_customer
+    RETURNING id,body,created_at`, [noteId, input.userId, input.actorStaffId, input.actorLevel, input.guildId, input.body, input.now]);
+    const row = result.rows[0];
+    if (!row) throw new CustomerProfileError('NOT_FOUND', 'Customer was not found.');
+    return { id: row.id, text: row.body, createdAt: iso(row.created_at) };
+  }
+
   async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
     const result = await this.pool.query(`SELECT COALESCE(sum(GREATEST(fr.amount_minor-COALESCE(events.settled_minor,0),0)),0) total
       FROM fund_reservations fr LEFT JOIN LATERAL (
@@ -203,6 +235,11 @@ export async function getAdminCustomerProfileSummary(input: { store: CustomerPro
   };
 }
 
+export async function appendAdminCustomerProfileNote(input: { store: CustomerProfileStore; actor: ActorContext; userId: string; body: unknown; now: Date }) {
+  const body = normalizeNoteBody(input.body);
+  return input.store.appendNote({ ...actorScope(input.actor, input.userId), body, now: input.now });
+}
+
 export function registerCustomerProfileRoutes(server: FastifyInstance, options: { store: CustomerProfileStore;
   walletFunding: WalletFundingService; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Customer profile routes require security options.');
@@ -212,6 +249,12 @@ export function registerCustomerProfileRoutes(server: FastifyInstance, options: 
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
     handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, walletFunding: options.walletFunding,
       actor, userId: param(request, 'userId'), window: profileWindow(request), now: now() }) });
+  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/users/:userId/profile-notes',
+    permission: 'customer_profile.note.append', requiredFeature: 'M6', action: 'APPEND_ADMIN_CUSTOMER_PROFILE_NOTE', targetType: 'customer_profile_note',
+    targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], successStatusCode: 201,
+    fingerprintBody: (request) => ({ body: parseNoteRequest(request.body) }), mapError,
+    auditSnapshots: (_request, _actor, payload) => ({ afterSnapshot: { id: (payload as CustomerProfileNote).id, appendOnly: true } }),
+    handler: (request, actor) => appendAdminCustomerProfileNote({ store: options.store, actor, userId: param(request, 'userId'), body: parseNoteRequest(request.body), now: now() }) });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/users/:userId/orders',
     permission: 'customer_profile.read', requiredFeature: 'M6', action: 'LIST_ADMIN_CUSTOMER_ORDERS', targetType: 'order',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
@@ -228,6 +271,17 @@ function pageQuery(request: FastifyRequest) { const query = request.query as { c
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new CustomerProfileError('VALIDATION_ERROR', 'limit is invalid.');
   if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.');
   return { cursor: query.cursor as string | undefined ?? null, limit }; }
+function parseNoteRequest(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'body'))
+    throw new CustomerProfileError('VALIDATION_ERROR', 'body is invalid.');
+  return normalizeNoteBody((value as { body?: unknown }).body);
+}
+function normalizeNoteBody(body: unknown): string {
+  if (typeof body !== 'string') throw new CustomerProfileError('VALIDATION_ERROR', 'body is invalid.');
+  const normalized = body.trim();
+  if (!normalized || normalized.length > 2000) throw new CustomerProfileError('VALIDATION_ERROR', 'body must contain 1 to 2000 characters.');
+  return normalized;
+}
 function param(request: FastifyRequest, key: string) { return String((request.params as Record<string, unknown>)[key] ?? ''); }
 function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : 400, code: error.code, message: error.message }; }
 export function consumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (

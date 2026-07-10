@@ -92,6 +92,17 @@ describe('M6-US-04 customer profile persistence contract', () => {
     expect('getLatestBalanceSnapshot' in store).toBe(false);
     await expect(pool.query('DELETE FROM customer_profile_notes WHERE id=$1', ['00000000-0000-0000-0000-000000006651'])).rejects.toThrow(/append-only/u);
   });
+
+  test('atomically appends notes only inside the same customer scope', async () => {
+    const store = new PostgresCustomerProfileStore(pool);
+    const appended = await store.appendNote({userId: customerId, actorStaffId: staffId, actorLevel: 'L1_SUPPORT', guildId, body: '老板要求晚些回访', now});
+    expect(appended).toMatchObject({text: '老板要求晚些回访', createdAt: now.toISOString()});
+    await expect(store.appendNote({userId: customerId, actorStaffId: otherStaffId, actorLevel: 'L1_SUPPORT', guildId, body: '越权备注', now}))
+      .rejects.toMatchObject({code: 'NOT_FOUND'});
+    const rows = await pool.query('SELECT body,author_staff_id,guild_id FROM customer_profile_notes WHERE id=$1', [appended.id]);
+    expect(rows.rows).toEqual([{body: '老板要求晚些回访', author_staff_id: staffId, guild_id: guildId}]);
+    await expect(pool.query('UPDATE customer_profile_notes SET body=$2 WHERE id=$1', [appended.id, 'edited'])).rejects.toThrow(/append-only/u);
+  });
 });
 
 async function seed() {

@@ -178,11 +178,15 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     };
     const view = buildCustomerProfileView(modules);
     const html = renderToStaticMarkup(createElement(CustomerProfilePage, { model: view, window: 'DAYS_90', onWindowChange: () => undefined,
-      onRetryModule: () => undefined, onNextOrders: () => undefined, onNextConsumptions: () => undefined }));
+      onRetryModule: () => undefined, onNextOrders: () => undefined, onNextConsumptions: () => undefined,
+      canAppendInternalNote: true, internalNoteBusy: false, internalNoteError: null, onAppendInternalNote: async()=>true }));
     expect(html).toContain('req_provider_timeout');
     expect(html).toContain('3');
     expect(html).toContain('P-1');
     expect(html).toContain('-400.0 猫条');
+    expect(html).toContain('客服内部备注');
+    expect(html).toContain('追加备注');
+    expect(html).not.toMatch(/编辑备注|删除备注/u);
     expect(html.toLowerCase()).not.toMatch(/beneficiary|commission|profitminor|marginminor|referral/u);
   });
 

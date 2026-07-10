@@ -9,8 +9,10 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   const [modules, setModules] = useState<CustomerProfileModules>(loadingModules());
   const [wallet,setWallet]=useState<{balance:WalletBalance;entries:WalletEntry[];busy:boolean}|null>(null);
   const [walletError,setWalletError]=useState<string|null>(null);
+  const [internalNoteBusy,setInternalNoteBusy]=useState(false);const [internalNoteError,setInternalNoteError]=useState<string|null>(null);
   const fundingKeys=useRef<Partial<Record<'TOP_UP'|'CASH_REFUND_DEBIT',string>>>({});
   const mayRead = props.capabilities.permissions.includes('customer_profile.read');
+  const mayAppendInternalNote = props.capabilities.permissions.includes('customer_profile.note.append');
 
   async function loadSummary(window = windowValue) {
     setModules((current) => ({ ...current, identity: { kind: 'LOADING' }, balance: { kind: 'LOADING' }, statistics: { kind: 'LOADING' }, preferences: { kind: 'LOADING' }, internal: { kind: 'LOADING' } }));
@@ -42,11 +44,18 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
     setModules((current) => { const prior = current[kind]; if (!response.ok || !body?.data) return { ...current, [kind]: { ...prior, kind: response.status === 403 ? 'FORBIDDEN' : 'ERROR', requestId: body?.requestId ?? null } };
       const items = append ? [...prior.items, ...(body.data.items ?? [])] : body.data.items ?? []; return { ...current, [kind]: { kind: items.length ? 'READY' : 'EMPTY', items, nextCursor: body.data.nextCursor ?? null, requestId: null } }; });
   }
+  async function appendInternalNote(body:string){if(internalNoteBusy)return false;setInternalNoteBusy(true);setInternalNoteError(null);
+    try{const response=await client.post(`/api/v1/admin/users/${encodeURIComponent(props.userId)}/profile-notes`,{body},`dashboard:profile-note:${crypto.randomUUID()}`);
+      const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;
+      if(!response.ok){setInternalNoteError(`${payload?.error?.message??'内部备注未能追加。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}
+      await loadSummary();return true;
+    }catch{setInternalNoteError('内部备注未能追加，请稍后重试。');return false;}finally{setInternalNoteBusy(false);}}
   useEffect(() => { if (!mayRead) { setModules(forbiddenModules()); return; } void Promise.all([loadSummary(), loadPage('orders'), loadPage('consumptions'),loadWallet()]); }, [props.userId, mayRead]);
   function changeWindow(value: 'DAYS_30' | 'DAYS_90' | 'ALL') { setWindow(value); void loadSummary(value); }
   const retry = (module: string) => module === 'orders' || module === 'consumptions' ? void loadPage(module) : void loadSummary();
   return <CustomerProfilePage model={buildCustomerProfileView(modules)} window={windowValue} onWindowChange={changeWindow} onRetryModule={retry}
     onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet??undefined} walletError={walletError}
+    canAppendInternalNote={mayAppendInternalNote} internalNoteBusy={internalNoteBusy} internalNoteError={internalNoteError} onAppendInternalNote={appendInternalNote}
     onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} />;
 }
 

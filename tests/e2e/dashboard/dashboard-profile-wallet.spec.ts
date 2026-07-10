@@ -109,6 +109,20 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
     await expect(page.getByText('P-E2E-001')).toBeVisible();
   });
 
+  test('DE2E-PRF-004 staff appends an immutable internal note through visible browser controls', async ({ page, request }) => {
+    await openProfile(page);
+    await page.getByLabel('客服内部备注').fill('老板游戏中掉线，客服已联系陪玩并约定十分钟后回访');
+    const responsePromise=page.waitForResponse((response)=>response.url().includes('/profile-notes'));
+    await page.getByRole('button',{name:'追加备注'}).click();
+    expect((await responsePromise).status()).toBe(201);
+    await expect(page.getByText('老板游戏中掉线，客服已联系陪玩并约定十分钟后回访')).toBeVisible();
+    await expect(page.getByLabel('客服内部备注')).toHaveValue('');
+    await expect(page.getByRole('button',{name:/编辑备注|删除备注/u})).toHaveCount(0);
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    expect(state.profileNotes).toHaveLength(1);expect(state.profileNotes[0]).toMatchObject({text:'老板游戏中掉线，客服已联系陪玩并约定十分钟后回访',authorStaffId:'00000000-0000-0000-0000-000000000112'});
+    expect(state.audits.some((audit:{action:string;outcome:string})=>audit.action==='APPEND_E2E_PROFILE_NOTE'&&audit.outcome==='SUCCEEDED')).toBe(true);
+  });
+
   test('DE2E-WLT-005 top-up succeeds with or without a receipt and uploaded evidence remains private metadata', async ({ page, request }) => {
     await openProfile(page); await fillFunding(page, '5.00', 'receipt-none'); await page.getByRole('button', { name: '确认充值' }).click(); await expect(page.getByRole('cell', { name: 'MANUAL_TOP_UP' })).toBeVisible();
     await fillFunding(page, '6.00', 'receipt-file');

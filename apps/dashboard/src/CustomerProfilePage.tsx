@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AlertTriangle, ChevronRight, RefreshCw, UserRound } from 'lucide-react';
 import { formatProfileMoney, type CustomerProfileView } from './customer-profile.js';
 import { CustomerWalletPanel } from './CustomerWalletPanel.js';
@@ -6,8 +7,13 @@ import type { WalletBalance,WalletEntry,WalletFundingSubmission } from './custom
 export function CustomerProfilePage(props: { model: CustomerProfileView; window: 'DAYS_30' | 'DAYS_90' | 'ALL';
   onWindowChange: (value: 'DAYS_30' | 'DAYS_90' | 'ALL') => void; onRetryModule: (module: string) => void;
   onNextOrders: (cursor: string) => void; onNextConsumptions: (cursor: string) => void;
+  canAppendInternalNote?: boolean; internalNoteBusy?: boolean; internalNoteError?: string | null;
+  onAppendInternalNote?: (body: string) => Promise<boolean>;
   wallet?:{balance:WalletBalance;entries:WalletEntry[];busy:boolean};walletError?:string|null;onTopUp?:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund?:(value:WalletFundingSubmission)=>void|Promise<void> }) {
   const { modules } = props.model; const identity = modules.identity.kind === 'READY' ? modules.identity.data : null;
+  const [internalNoteBody,setInternalNoteBody]=useState('');
+  async function appendInternalNote(event:React.FormEvent){event.preventDefault();if(!props.onAppendInternalNote)return;
+    if(await props.onAppendInternalNote(internalNoteBody))setInternalNoteBody('');}
   return <section className="dashboard-page profile-page" aria-labelledby="profile-title">
     <header className="page-heading"><div><span className="page-eyebrow">CUSTOMER PROFILE</span><h1 id="profile-title">客户 Profile</h1><p>{String(identity?.displayName ?? '客户资料')} · {String(identity?.status ?? '—')}</p></div><div className="page-icon" aria-hidden="true"><UserRound size={24} /></div></header>
     <div className="module-grid profile-summary-grid">
@@ -22,7 +28,9 @@ export function CustomerProfilePage(props: { model: CustomerProfileView; window:
       <DataTable title="资金明细" module={modules.consumptions} columns={['类型','来源','金额','币种','时间']} row={(item) => [item.type,item.sourceId,formatProfileMoney(item.amountMinor,item.currency),item.currency,date(item.occurredAt)]} onNext={props.onNextConsumptions} />
       <div className="module-grid">
         <Module title="偏好摘要" state={modules.preferences} retry={() => props.onRetryModule('preferences')}><Preference data={'data' in modules.preferences ? modules.preferences.data : undefined} /></Module>
-        <Module title="内部信息" state={modules.internal} retry={() => props.onRetryModule('internal')}><div><p>{(modules.internal.riskFlags ?? []).join(' · ') || '无风险记录'}</p>{(modules.internal.notes ?? []).map((note) => <p className="internal-note" key={String(note.id)}>{String(note.text)}<br /><small>{date(note.createdAt)}</small></p>)}</div></Module>
+        <Module title="内部信息" state={modules.internal} retry={() => props.onRetryModule('internal')}><div><p>{(modules.internal.riskFlags ?? []).join(' · ') || '无风险记录'}</p>
+          {props.canAppendInternalNote&&props.onAppendInternalNote?<form className="internal-note-form" onSubmit={appendInternalNote}><label><span>客服内部备注</span><textarea required maxLength={2000} value={internalNoteBody} onChange={(event)=>setInternalNoteBody(event.currentTarget.value)} placeholder="记录跟进情况，仅客服可见" /></label><button type="submit" disabled={props.internalNoteBusy||!internalNoteBody.trim()}>{props.internalNoteBusy?'追加中…':'追加备注'}</button>{props.internalNoteError?<p className="module-error" role="alert">{props.internalNoteError}</p>:null}</form>:null}
+          {(modules.internal.notes ?? []).map((note) => <p className="internal-note" key={String(note.id)}>{String(note.text)}<br /><small>{date(note.createdAt)}</small></p>)}</div></Module>
       </div>
     </div>
   </section>;

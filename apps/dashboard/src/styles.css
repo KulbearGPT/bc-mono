@@ -1818,6 +1818,31 @@ textarea:focus-visible {
   border-top: 1px solid #e4eaeb;
 }
 
+.internal-note-form {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.internal-note-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.internal-note-form textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+}
+
+.internal-note-form button {
+  justify-self: start;
+}
+
 .module-error {
   display: flex;
   align-items: center;
