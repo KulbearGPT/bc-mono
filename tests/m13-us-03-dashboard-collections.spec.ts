@@ -67,5 +67,6 @@ describe('M13-US-03 reusable Dashboard collection browsing', () => {
     expect(route).toMatch(/onViewChange[\s\S]*setView/);
     expect(styles).toContain('.collection-row-list');
     expect(styles).toMatch(/@media \(max-width: 760px\)[\s\S]*\.collection-desktop-table/);
+    expect(styles).toMatch(/\.collection-toolbar\s*\+\s*:is\(\.order-discussion-grid,\s*\.business-discussion-grid\)\s*\{[^}]*margin-top:\s*12px/u);
   });
 });

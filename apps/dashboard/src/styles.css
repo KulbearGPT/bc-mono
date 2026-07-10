@@ -986,6 +986,10 @@ textarea:focus-visible {
   gap: 18px;
 }
 
+.collection-toolbar + :is(.order-discussion-grid, .business-discussion-grid) {
+  margin-top: 12px;
+}
+
 .dashboard-overlay {
   position: fixed;
   z-index: 1000;

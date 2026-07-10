@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import {
   collectionSortFields,
@@ -128,5 +129,16 @@ describe("M13-US-04 collection release regression", () => {
       expect(html).toContain('tabindex="0"');
       expect(html).toContain("查看详情");
     }
+  });
+
+  test("keeps real UAT in the current business Guild while retaining automated Guild isolation", async () => {
+    const [todo, acceptance] = await Promise.all([
+      readFile("outputs/Codex-P0开发TODO.md", "utf8"),
+      readFile("outputs/P0开发交付包/07-验收测试/acceptance-cases.csv", "utf8"),
+    ]);
+    const releaseCase = acceptance.split("\n").find((line) => line.startsWith('"AT-LST-008"')) ?? "";
+    expect(releaseCase).toContain("FX-TWO-GUILDS");
+    expect(todo).not.toContain("当前 fixture 缺少 ACTIVE L2、L3 与第二 Guild");
+    expect(todo).toContain("跨 Guild 隔离由 API/数据库自动化回归证明");
   });
 });
