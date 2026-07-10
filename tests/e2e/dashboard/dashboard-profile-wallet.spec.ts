@@ -14,7 +14,7 @@ async function fillFunding(page: Page, amount: string, transactionId: string) {
   await page.getByLabel(/实收金额|扣回金额/u).fill(amount);
   await page.getByLabel('收据号 / 渠道交易号').fill(transactionId);
   await page.getByLabel(/付款时间|退款时间/u).fill('2026-08-05T10:00');
-  await page.getByLabel('备注').fill('E2E 测试资金凭证已人工核对');
+  await page.getByLabel('备注', { exact: true }).fill('E2E 测试资金凭证已人工核对');
 }
 
 test.describe('Dashboard browser E2E: customer profile and wallet', () => {
