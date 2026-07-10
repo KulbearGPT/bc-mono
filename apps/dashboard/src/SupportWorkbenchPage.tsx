@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 import { buildSupportWorkbench, type SupportTaskCardInput } from './support-workbench.js';
 import { formatMinorCurrency } from './admin-business.js';
+import { buildAutomationControlView, type DashboardResumeAction, type DashboardStaffLevel } from './automation-control.js';
 
 interface StaffTaskPayload extends SupportTaskCardInput {
   version: number;
@@ -14,9 +15,9 @@ type GiftVerificationMethod = 'ORDER_CHANNEL' | 'DIRECT_MESSAGE' | 'VOICE';
 interface GiftVerificationDraft { method: GiftVerificationMethod; notes: string }
 
 interface OrderContext {
-  order: { publicId: string; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
+  order: { id: string; publicId: string; version: number; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
   readiness?: { customer: string; player: string; bothReady: boolean };
-  automation?: { state: string; reasonCode: string | null };
+  automation?: { state: 'RUNNING' | 'PAUSED'; version: number; reasonCode: string | null; expiresAt: string | null };
   matching?: { stage: string; nextStep: string } | null;
   timeline?: { items: unknown[]; nextCursor: string | null };
 }
@@ -54,6 +55,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [giftVerificationDrafts, setGiftVerificationDrafts] = useState<Record<string, GiftVerificationDraft>>({});
   const [giftDecisionDrafts, setGiftDecisionDrafts] = useState<Record<string, string>>({});
   const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
+  const [selectedTask, setSelectedTask] = useState<StaffTaskPayload | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
   const [shift, setShift] = useState<SupportShift | null>(null);
@@ -192,6 +194,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     }
     setError(null);
     setSelectedOrder(payload.data);
+    setSelectedTask(task);
   }
 
   async function toggleShift() {
@@ -241,7 +244,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
                 {task.links.orderChannel ? <a href={task.links.orderChannel} target="_blank" rel="noreferrer">进入订单频道</a> : <span className="action-unavailable">订单频道暂不可用</span>}
                 {task.links.voiceChannel && <a href={task.links.voiceChannel} target="_blank" rel="noreferrer">进入语音频道</a>}
                 {task.actions.find((action) => action.id === 'CLAIM')?.enabled && <button className="button-primary" type="button" onClick={() => void claim(task)}>认领任务</button>}
-                {task.claimedBy === capabilities.staffId && <button type="button" onClick={() => void openOrder(task)}>查看完整订单</button>}
+                {(task.claimedBy === capabilities.staffId || capabilities.permissions.includes('order.resume')) && <button type="button" onClick={() => void openOrder(task)}>查看完整订单</button>}
               </div>
               {expandedTaskId === task.id && <div className="task-card__context" role="region" aria-label={`${task.triage.orderPublicId ?? task.publicId} 任务上下文`}>
                 <dl className="definition-list"><div><dt>任务编号</dt><dd>{task.publicId}</dd></div><div><dt>等待开始</dt><dd>{new Date(task.triage.waitStartedAt).toLocaleString()}</dd></div>
@@ -304,9 +307,79 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         </tbody></table></div>
       </section>
       <DashboardMetricSummaryLoader/>
-      {selectedOrder && <SupportOrderContextPreview context={selectedOrder} />}
+      {selectedOrder && selectedTask && <>
+        <SupportOrderContextPreview context={selectedOrder} />
+        <SupportAutomationControl context={selectedOrder} task={selectedTask} capabilities={capabilities} onUpdated={() => openOrder(selectedTask)} />
+      </>}
     </section>
   );
+}
+
+function SupportAutomationControl({ context, task, capabilities, onUpdated }: {
+  context: OrderContext;
+  task: StaffTaskPayload;
+  capabilities: DashboardCapabilities;
+  onUpdated: () => Promise<void>;
+}) {
+  const client = useMemo(() => createDashboardApiClient(), []);
+  const [scope, setScope] = useState<'ALL' | 'DISPATCH' | 'LIFECYCLE' | 'CANCELLATION'>('ALL');
+  const [pauseNote, setPauseNote] = useState('');
+  const [resumeNote, setResumeNote] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const level = capabilities.level as DashboardStaffLevel;
+  const view = buildAutomationControlView({
+    orderId: context.order.id,
+    orderVersion: context.order.version,
+    orderStatus: context.order.status,
+    automationState: context.automation?.state ?? 'RUNNING',
+    automationExpiresAt: context.automation?.expiresAt ?? null,
+    staffLevel: level,
+    hasClaimedOrderTask: task.claimedBy === capabilities.staffId
+  });
+  const pause = view.actions.find((action) => action.id === 'PAUSE');
+  const resume = view.actions.find((action) => action.id === 'RESUME');
+
+  async function submit(action: 'pause' | 'resume') {
+    const note = action === 'pause' ? pauseNote.trim() : resumeNote.trim();
+    if (!note) return;
+    const response = await client.post(`/api/v1/admin/orders/${encodeURIComponent(context.order.id)}/automation/${action}`, {
+      expectedVersion: context.order.version,
+      reasonCode: action === 'pause' ? 'STAFF_TAKEOVER' : 'BLOCKER_RESOLVED',
+      note,
+      ...(action === 'pause' ? { scope } : { resumeAction: view.resumeAction })
+    });
+    if (!response.ok) {
+      setMessage(action === 'pause'
+        ? '订单事实已变化或当前任务不允许接管；自动流程未暂停。'
+        : '订单、余额或预留复核未通过；自动流程保持暂停。');
+      await onUpdated();
+      return;
+    }
+    setMessage(null);
+    if (action === 'pause') setPauseNote(''); else setResumeNote('');
+    await onUpdated();
+  }
+
+  return <aside className="action-panel order-automation-control" aria-label="订单自动流程控制">
+    <div className="panel-heading"><div><span className="page-eyebrow">STAFF TAKEOVER</span><h2>自动流程接管</h2><p>暂停或恢复只控制自动动作，不改变订单状态，也不会新建、捕获或释放资金预留。</p></div><strong>{view.statusLabel}</strong></div>
+    {message && <p className="form-message form-message--error" role="alert">{message}</p>}
+    {pause?.enabled && <div className="task-card__editor">
+      <label>暂停范围<select aria-label="暂停范围" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>
+        <option value="ALL">全部自动流程</option><option value="DISPATCH">仅派单</option><option value="LIFECYCLE">仅服务生命周期</option><option value="CANCELLATION">仅取消流程</option>
+      </select></label>
+      <textarea aria-label="接管原因" value={pauseNote} onChange={(event) => setPauseNote(event.target.value)} maxLength={1000} rows={2} placeholder="记录谁提出暂停、当前情况和下一步核对动作" />
+      <button className="button-primary" type="button" disabled={!pauseNote.trim()} onClick={() => void submit('pause')}>{pause.label}</button>
+    </div>}
+    {resume?.enabled && <div className="task-card__editor">
+      <p className="context-note">恢复后动作：{resumeActionLabel(view.resumeAction)}。服务端会重新校验最新订单、候选、就绪、余额和预留事实。</p>
+      <textarea aria-label="恢复说明" value={resumeNote} onChange={(event) => setResumeNote(event.target.value)} maxLength={1000} rows={2} placeholder="记录阻断已解除及订单、余额、预留复核结果" />
+      <button className="button-primary" type="button" disabled={!resumeNote.trim()} onClick={() => void submit('resume')}>{resume.label}</button>
+    </div>}
+  </aside>;
+}
+
+function resumeActionLabel(action: DashboardResumeAction): string {
+  return ({ REDISPATCH: '重新派单', RESTART_READINESS_TIMEOUT: '重新启动就绪超时', NONE: '不触发额外自动动作' } as const)[action];
 }
 
 export function SupportOrderContextPreview({ context }: { context: OrderContext }) {

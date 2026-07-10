@@ -106,7 +106,11 @@ const bulkOrders: BulkOrder[] = [];
 let orderResolutionCount = 0;
 const orderParticipants: Array<Record<string, unknown>> = [];
 let reservationAmountMinor = 4_000;
-const automationControl = { state: 'RUNNING', version: 1, pausedByStaffId: null as string | null, resumeValidatedOrderVersion: null as number | null };
+const automationControl = {
+  state: 'RUNNING' as 'RUNNING' | 'PAUSED', version: 1, pausedByStaffId: null as string | null,
+  reasonCode: null as string | null, scope: null as string | null, expiresAt: null as string | null,
+  resumeValidatedOrderVersion: null as number | null
+};
 let reservationCreateCount = 1;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const bulkUsers: Array<{ id: string; discordUserId: string; status: string; operationalStatus: string; version: number; createdAt: string }> = [];
@@ -165,7 +169,7 @@ function resetState() {
   orderResolutionCount = 0;
   orderParticipants.length = 0;
   reservationAmountMinor = 4_000;
-  Object.assign(automationControl, { state: 'RUNNING', version: 1, pausedByStaffId: null, resumeValidatedOrderVersion: null });
+  Object.assign(automationControl, { state: 'RUNNING', version: 1, pausedByStaffId: null, reasonCode: null, scope: null, expiresAt: null, resumeValidatedOrderVersion: null });
   reservationCreateCount = 1;
   Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
   bulkUsers.length = 0;
@@ -490,7 +494,10 @@ registerSecureReadRoute(server, server.securityOptions!, {
     const timeline = query.timelineCursor
       ? { items: [{ id: 'evt-2', type: 'FUND_RESERVED', status: 'COMPLETED', direction: 'DEBIT', amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:01:00.000Z' }], nextCursor: null }
       : { items: [{ id: 'evt-1', type: 'ORDER_ACCEPTED', status: 'COMPLETED', direction: 'INFO', amountMinor: null, currency: null, occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'timeline-2' };
-    return { order: { ...currentOrder, game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航' }, readiness: { customer: 'READY', player: currentOrder.status === 'IN_SERVICE' ? 'READY' : 'PENDING', bothReady: currentOrder.status === 'IN_SERVICE' }, automation: { state: bulkOrders.length ? 'PAUSED' : 'RUNNING', reasonCode: bulkOrders.length ? 'SUPPORT_REVIEW' : null }, matching: { stage: currentOrder.status, nextStep: currentOrder.status === 'IN_SERVICE' ? 'SUPPORT_RESOLUTION' : 'WAIT_FOR_READINESS' }, timeline };
+    const automation = bulkOrders.length
+      ? { state: 'PAUSED', version: 1, pausedByStaffId: null, reasonCode: 'SUPPORT_REVIEW', scope: 'ALL', expiresAt: null }
+      : { ...automationControl };
+    return { order: { ...currentOrder, game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航' }, readiness: { customer: 'READY', player: currentOrder.status === 'IN_SERVICE' ? 'READY' : 'PENDING', bothReady: currentOrder.status === 'IN_SERVICE' }, automation, matching: { stage: currentOrder.status, nextStep: currentOrder.status === 'IN_SERVICE' ? 'SUPPORT_RESOLUTION' : 'WAIT_FOR_READINESS' }, timeline };
   }
 });
 
@@ -513,13 +520,28 @@ registerSecureWriteRoute(server, server.securityOptions!, {
   }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
-  method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/pause', permission: 'order.reassign', action: 'PAUSE_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
-  handler: (request, actor) => { const body = request.body as { expectedOrderVersion?: unknown }; if (body.expectedOrderVersion !== orderRecord.version || automationControl.state !== 'RUNNING') throw new Error('STALE_AUTOMATION'); automationControl.state = 'PAUSED'; automationControl.version += 1; automationControl.pausedByStaffId = actor.actorStaffId!; return { orderId: orderRecord.id, orderVersion: orderRecord.version, automation: { ...automationControl }, reservationAmountMinor }; }
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/pause', permission: 'order.pause', action: 'PAUSE_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_AUTOMATION' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The current order facts changed.' } : null,
+  handler: (request, actor) => {
+    const body = request.body as { expectedVersion?: unknown; reasonCode?: unknown; note?: unknown; scope?: unknown };
+    const claimed = Array.from(tasks.values()).some((task) => task.orderId === orderRecord.id && task.status === 'CLAIMED' && task.claimedBy === actor.actorStaffId);
+    if (body.expectedVersion !== orderRecord.version || automationControl.state !== 'RUNNING' || body.reasonCode !== 'STAFF_TAKEOVER' || typeof body.note !== 'string' || !body.note.trim() || !['ALL', 'DISPATCH', 'LIFECYCLE', 'CANCELLATION'].includes(String(body.scope)) || (actor.actorLevel === 'L1_SUPPORT' && !claimed)) throw new Error('STALE_AUTOMATION');
+    orderRecord.version += 1;
+    Object.assign(automationControl, { state: 'PAUSED', version: automationControl.version + 1, pausedByStaffId: actor.actorStaffId!, reasonCode: body.reasonCode, scope: body.scope });
+    return { orderId: orderRecord.id, orderVersion: orderRecord.version, resumeAction: null, automation: { ...automationControl }, reservationAmountMinor };
+  }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/resume', permission: 'order.resume', action: 'RESUME_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
   mapError: (error) => error instanceof Error && error.message === 'STALE_AUTOMATION' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'Current order and reservation facts must be revalidated.' } : null,
-  handler: (request) => { const body = request.body as { expectedOrderVersion?: unknown; expectedAutomationVersion?: unknown }; if (body.expectedOrderVersion !== orderRecord.version || body.expectedAutomationVersion !== automationControl.version || automationControl.state !== 'PAUSED') throw new Error('STALE_AUTOMATION'); automationControl.state = 'RUNNING'; automationControl.version += 1; automationControl.resumeValidatedOrderVersion = orderRecord.version; return { orderId: orderRecord.id, orderVersion: orderRecord.version, automation: { ...automationControl }, reservationAmountMinor }; }
+  handler: (request) => {
+    const body = request.body as { expectedVersion?: unknown; reasonCode?: unknown; note?: unknown; resumeAction?: unknown };
+    if (body.expectedVersion !== orderRecord.version || automationControl.state !== 'PAUSED' || body.reasonCode !== 'BLOCKER_RESOLVED' || body.resumeAction !== 'RESTART_READINESS_TIMEOUT' || typeof body.note !== 'string' || !body.note.trim() || reservationAmountMinor <= 0) throw new Error('STALE_AUTOMATION');
+    automationControl.resumeValidatedOrderVersion = orderRecord.version;
+    orderRecord.version += 1;
+    Object.assign(automationControl, { state: 'RUNNING', version: automationControl.version + 1, pausedByStaffId: null, reasonCode: null, scope: null, expiresAt: null });
+    return { orderId: orderRecord.id, orderVersion: orderRecord.version, resumeAction: body.resumeAction, automation: { ...automationControl }, reservationAmountMinor };
+  }
 });
 
 const businessLists = [
