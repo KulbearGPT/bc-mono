@@ -96,6 +96,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     id: 'orders', label: '订单', href: '/admin/orders', endpoint: '/api/v1/admin/orders', readPermission: 'order.read',
     filters: [{ id: 'query', label: '订单号或用户标识' }, { id: 'status', label: '订单状态' }],
     actions: [
+      { id: 'REFUND_ORDER', label: '独立退款', permission: 'refund.execute', requiresReason: true, scope: 'ITEM' },
       { id: 'CANCEL_ORDER_RESOLUTION', label: '取消订单', permission: 'order.resolve', requiresReason: true, scope: 'ITEM' }
     ]
   },
@@ -303,6 +304,19 @@ export function buildAdminActionRequest(input: {
   item?: Record<string, unknown>;
   fields: Record<string, string | boolean>;
 }): AdminActionRequest {
+  if (input.actionId === 'REFUND_ORDER') {
+    const item = requireItem(input.item);
+    requireEnum(input.item?.status, ['COMPLETED', 'EXCEPTION'], 'status');
+    return {
+      method: 'POST', path: `/api/v1/admin/orders/${encodeURIComponent(item.id)}/refund`,
+      body: {
+        expectedVersion: item.version,
+        amount: { amountMinor: requirePositiveInteger(input.fields.amountMinor, 'amountMinor'), currency: requireCurrency(input.fields.currency) },
+        reasonCode: requireReasonCode(input.fields.reasonCode),
+        evidenceNote: requireText(input.fields.evidenceNote, 'evidenceNote', 2_000)
+      }
+    };
+  }
   if (input.actionId === 'CANCEL_ORDER_RESOLUTION') {
     const item = requireItem(input.item);
     requireEnum(input.item?.status, ['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'], 'status');

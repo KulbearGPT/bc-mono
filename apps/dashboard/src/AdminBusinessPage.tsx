@@ -285,7 +285,7 @@ function AdminBusinessTable(props: {
   );
 }
 
-function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='REFUND_ORDER')return ['COMPLETED','EXCEPTION'].includes(textValue(item.status));if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };
@@ -307,6 +307,7 @@ function AdminActionPanel(props: {
         <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions} />
         {action.requiresReason && (action.id === 'CANCEL_ORDER_RESOLUTION'
           ? <label className="field"><span>取消原因</span><select name="reasonCode" required defaultValue="USER_REQUEST"><option value="USER_REQUEST">客户请求</option><option value="DISPATCH_TIMEOUT">派单超时</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">客户未到场</option><option value="SERVICE_INTERRUPTED">服务中断</option><option value="COMPLETION_DISPUTE">完成争议</option><option value="PAYMENT_FAILURE">资金处理失败</option><option value="REFUND_FAILURE">退款处理失败</option><option value="ADMIN_CORRECTION">管理员纠正</option></select></label>
+          : action.id === 'REFUND_ORDER' ? null
           : <label className="field"><span>原因码</span><input name="reasonCode" required pattern="[A-Z0-9_]{3,100}" placeholder="OPERATIONS_DECISION" /></label>)}
         {props.error && <p className="form-message form-message--error" role="alert">{props.error}</p>}
         <div className="form-actions">
@@ -322,6 +323,7 @@ function AdminActionPanel(props: {
 function CompensationChangeConfirmation(props:{changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>;onCancel:()=>void;onConfirm:()=>void}){return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动（{props.changes.length} 项）</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后会一次性写入全部项目；任一项目版本冲突或校验失败时，所有改动都不会保存。</p><div className="compensation-confirmation__changes">{props.changes.map(({offering,draft})=>{const rule=offering.compensationRule as Record<string,unknown>|undefined;return <dl className="compensation-confirmation__facts" key={draft.serviceOfferingId}><div><dt>项目</dt><dd>{compensationProjectName(offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(draft,offering)}</dd></div><div><dt>修改方式</dt><dd>{draft.type==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl>;})}</div><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存全部</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
 
 function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
+  if(action.id==='REFUND_ORDER')return <StandaloneRefundFields item={item}/>;
   if(action.id==='CANCEL_ORDER_RESOLUTION')return <OrderCancellationResolutionFields item={item}/>;
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
   if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
@@ -346,6 +348,18 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
     <label className="field field--full"><span>说明</span><textarea name="notes" required rows={4} maxLength={2000} /></label>
   </>;
   return null;
+}
+
+function StandaloneRefundFields({item}:{item?:Record<string,unknown>}) {
+  const currency=textValue(item?.currency)||'USD';
+  const amountMinor=numberValue(item?.refundableAmountMinor)??numberValue(item?.amountMinor)??0;
+  return <>
+    <div className="field field--full context-note"><strong>订单保持原状态</strong><p>这是独立资金退款，只追加退款与关联冲正，不会取消订单或覆盖原账目。</p></div>
+    <input type="hidden" name="currency" value={currency}/>
+    <label className="field"><span>退款金额（minor units）</span><input name="amountMinor" type="number" required min={1} max={amountMinor} step={1}/><small>当前最多可提交 {amountMinor} {currency}，最终以服务端可退款事实为准。</small></label>
+    <label className="field"><span>退款原因</span><select name="reasonCode" required defaultValue="PARTIAL_SERVICE_REFUND"><option value="PARTIAL_SERVICE_REFUND">部分服务退款</option><option value="QUALITY_COMPLAINT">服务质量投诉</option><option value="SERVICE_INTERRUPTED">服务中断</option><option value="ADMIN_CORRECTION">管理员纠正</option></select></label>
+    <label className="field field--full"><span>核对证据与处理说明</span><textarea name="evidenceNote" required rows={4} maxLength={2000} placeholder="说明客户诉求、服务进度、双方沟通和退款依据。"/></label>
+  </>;
 }
 
 function OrderCancellationResolutionFields({item}:{item?:Record<string,unknown>}) {

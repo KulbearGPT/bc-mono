@@ -146,4 +146,28 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     expect(results.map((result) => result.status).sort(), JSON.stringify(results)).toEqual([409, 409, 422]);
     expect(await bulkState(request)).toEqual(before);
   });
+
+  test('DE2E-ORD-018 support grants a post-service partial refund while the completed order remains completed', async ({ page, request }) => {
+    const orders = await seedOrders(request);
+    const target = orders.find((order) => order.status === 'COMPLETED')!;
+    const untouched = structuredClone(orders.filter((order) => order.id !== target.id));
+    await login(page);
+    await page.getByRole('link', { name: '订单', exact: true }).click();
+    await page.getByLabel('订单号或用户标识').fill(target.publicId);
+    await page.getByRole('button', { name: '筛选' }).click();
+    const card = page.locator('article').filter({ hasText: target.publicId });
+    await card.getByRole('button', { name: '独立退款' }).click();
+    const dialog = page.getByRole('dialog', { name: '独立退款操作' });
+    await expect(dialog).toContainText('不会取消订单');
+    await dialog.getByLabel('退款金额（minor units）').fill('625');
+    await dialog.getByLabel('退款原因').selectOption('QUALITY_COMPLAINT');
+    await dialog.getByLabel('核对证据与处理说明').fill('老板完单后反馈最后半小时频繁掉线；客服核对频道记录并与双方确认，退回 6.25 USD。');
+    const response = page.waitForResponse((candidate) => candidate.url().includes(`/orders/${target.id}/refund`) && candidate.request().method() === 'POST');
+    await dialog.getByRole('button', { name: '提交', exact: true }).click();
+    expect((await response).status()).toBe(200);
+    await expect(dialog).toBeHidden();
+    const current = (await bulkState(request)).find((order) => order.id === target.id)!;
+    expect(current).toMatchObject({ status: 'COMPLETED', refundMinor: 625, resolutionCount: 0 });
+    expect((await bulkState(request)).filter((order) => order.id !== target.id)).toEqual(untouched);
+  });
 });

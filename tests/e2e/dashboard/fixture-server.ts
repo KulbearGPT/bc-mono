@@ -527,6 +527,20 @@ registerSecureWriteRoute(server, server.securityOptions!, {
   }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'POST', url: '/api/v1/admin/orders/:orderId/refund', permission: 'refund.execute', action: 'REFUND_E2E_ORDER', targetType: 'order', targetId: (request) => String((request.params as { orderId: string }).orderId), acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : error instanceof Error && error.message === 'INVALID_REFUND' ? { statusCode: 422, code: 'REFUND_REJECTED', message: 'The refund exceeds the remaining refundable order facts.' } : null,
+  handler: (request) => {
+    const orderId = String((request.params as { orderId: string }).orderId);
+    const order = bulkOrders.find((item) => item.id === orderId);
+    const body = request.body as { expectedVersion?: unknown; amount?: { amountMinor?: unknown; currency?: unknown }; reasonCode?: unknown; evidenceNote?: unknown };
+    if (!order || body.expectedVersion !== order.version) throw new Error('STALE_ORDER');
+    const amountMinor = Number(body.amount?.amountMinor);
+    if (!['COMPLETED', 'EXCEPTION'].includes(order.status) || body.amount?.currency !== 'USD' || !Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > order.amountMinor - order.refundMinor || typeof body.reasonCode !== 'string' || typeof body.evidenceNote !== 'string' || !body.evidenceNote.trim()) throw new Error('INVALID_REFUND');
+    order.refundMinor += amountMinor;
+    return { orderId: order.id, refundTransactionId: `refund-${order.id}-${order.refundMinor}`, amountMinor, currency: 'USD', status: 'SUCCEEDED', orderStatus: order.status };
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/automation/pause', permission: 'order.pause', action: 'PAUSE_E2E_ORDER_AUTOMATION', targetType: 'order', acceptedSources: ['DASHBOARD'],
   mapError: (error) => error instanceof Error && error.message === 'STALE_AUTOMATION' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The current order facts changed.' } : null,
   handler: (request, actor) => {
