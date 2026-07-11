@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
-import { insertPostgresAuditRecord, registerSecureWriteRoute, type AuditRecord } from './security.js';
+import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord } from './security.js';
 
 export type OrderChannelEventType = 'CREATED' | 'UPDATED' | 'DELETED';
 export interface OrderChannelEventInput {
@@ -22,7 +22,15 @@ export interface FirstResponseStaffProjection {
   level:'L1_SUPPORT'|'L2_SUPERVISOR'|'L3_OPERATIONS'|'L4_ADMIN_OWNER';
 }
 interface Staged { data: OrderChannelEventRecord; commit(audit: AuditRecord): Promise<void> | void }
-export interface OrderChannelEventStore { stageRecord(input: OrderChannelEventInput & { observedAt: Date }): Promise<Staged> | Staged }
+export interface OrderChannelTranscriptItem {
+  eventId:string;messageId:string;eventType:OrderChannelEventType;authorDisplayName:string|null;content:string|null;
+  replyToMessageId:string|null;attachmentMetadata:unknown[];occurredAt:string;deleted:boolean;
+}
+export interface OrderChannelTranscriptPage {items:OrderChannelTranscriptItem[];nextCursor:string|null}
+export interface OrderChannelEventStore {
+  stageRecord(input: OrderChannelEventInput & { observedAt: Date }): Promise<Staged> | Staged;
+  listTranscript(input:{orderId:string;actor:ActorContext;cursor:string|null;limit:number}):Promise<OrderChannelTranscriptPage>|OrderChannelTranscriptPage;
+}
 
 export class OrderChannelEventError extends Error {
   constructor(readonly code: 'VALIDATION_ERROR' | 'NOT_FOUND', message: string) { super(message); this.name = 'OrderChannelEventError'; }
@@ -31,11 +39,12 @@ export class OrderChannelEventError extends Error {
 export class InMemoryOrderChannelEventStore implements OrderChannelEventStore {
   readonly events: OrderChannelEventRecord[] = [];
   private readonly orders = new Map<string, { orderId: string; orderPublicId: string }>();
+  private readonly orderGuilds = new Map<string,string>();
   constructor(
     orders: Array<{ guildId: string; channelId: string; orderId: string; orderPublicId: string }> = [],
     private readonly support?: { tasks:FirstResponseTaskProjection[];staff:FirstResponseStaffProjection[] }
   ) {
-    for (const order of orders) this.orders.set(`${order.guildId}:${order.channelId}`, { orderId: order.orderId, orderPublicId: order.orderPublicId });
+    for (const order of orders) { this.orders.set(`${order.guildId}:${order.channelId}`, { orderId: order.orderId, orderPublicId: order.orderPublicId }); this.orderGuilds.set(order.orderId,order.guildId); }
   }
   stageRecord(input: OrderChannelEventInput & { observedAt: Date }): Staged {
     const order = this.orders.get(`${input.guildId}:${input.channelId}`);
@@ -45,6 +54,10 @@ export class InMemoryOrderChannelEventStore implements OrderChannelEventStore {
       ...input, ...order, id: randomUUID(), observedAt: input.observedAt.toISOString(), created: true
     };
     return { data, commit: () => { if (!existing) { this.events.push(structuredClone(data)); applyFirstResponseProjection(this.support,data); } } };
+  }
+  listTranscript(input:{orderId:string;actor:ActorContext;cursor:string|null;limit:number}):OrderChannelTranscriptPage {
+    requireTranscriptScope(input.actor,input.orderId,this.orderGuilds.get(input.orderId),this.support?.tasks);
+    return pageTranscript(this.events.filter((event)=>event.orderId===input.orderId),input.cursor,input.limit);
   }
 }
 
@@ -125,6 +138,19 @@ export class PostgresOrderChannelEventStore implements OrderChannelEventStore {
       await insertPostgresAuditRecord(client,audit); await client.query('COMMIT');
     } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error; } finally { client.release(); } } };
   }
+  async listTranscript(input:{orderId:string;actor:ActorContext;cursor:string|null;limit:number}):Promise<OrderChannelTranscriptPage> {
+    if(!input.actor.guildId||!input.actor.actorStaffId||!input.actor.actorLevel)throw new OrderChannelEventError('NOT_FOUND','Order transcript was not found.');
+    const offset=decodeCursor(input.cursor);
+    const l1=input.actor.actorLevel==='L1_SUPPORT';
+    const scope=`AND ($6::boolean = false OR EXISTS (SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$3 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')))`;
+    const result=await this.pool.query<TranscriptRow>(`SELECT event.event_id,event.discord_message_id,event.event_type::text,event.author_display_name,event.content_snapshot,event.reply_to_message_id,event.attachments_snapshot,event.discord_created_at,event.discord_edited_at,event.observed_at
+      FROM order_channel_message_events event JOIN orders ON orders.id=event.order_id
+      WHERE orders.id=$1 AND orders.guild_id=$2 ${scope}
+      ORDER BY event.observed_at ASC,event.id ASC OFFSET $4 LIMIT $5`,[input.orderId,input.actor.guildId,input.actor.actorStaffId,offset,input.limit+1,l1]);
+    if(!result.rows.length&&offset===0){const visible=await this.pool.query(`SELECT 1 FROM orders WHERE id=$1 AND guild_id=$2 AND ($4::boolean = false OR EXISTS (SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$3 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL')))`,[input.orderId,input.actor.guildId,input.actor.actorStaffId,l1]);if(!visible.rows[0])throw new OrderChannelEventError('NOT_FOUND','Order transcript was not found.');}
+    const more=result.rows.length>input.limit;const rows=result.rows.slice(0,input.limit);
+    return{items:rows.map(mapTranscriptRow),nextCursor:more?encodeCursor(offset+input.limit):null};
+  }
 }
 
 export async function recordOrderChannelEvent(input: { store: OrderChannelEventStore; event: OrderChannelEventInput; observedAt: Date }) {
@@ -142,6 +168,9 @@ export function registerOrderChannelEventRoutes(server: FastifyInstance, options
     action:'APPEND_ORDER_CHANNEL_EVENT',targetType:'order_channel_message_event',acceptedSources:['DISCORD_BOT'],allowServiceActor:true,successStatusCode:201,
     targetId:(request)=>String((request.body as Record<string,unknown>)?.eventId??'unknown'),mapError,
     handler:(request)=>{const event=parse(request);validate(event);return options.store.stageRecord({...event,observedAt:(options.now??(()=>new Date()))()});} });
+  registerSecureReadRoute(server,server.securityOptions,{method:'GET',url:'/api/v1/admin/orders/:orderId/transcript',permission:'order.read',
+    action:'LIST_ADMIN_ORDER_TRANSCRIPT',targetType:'order',targetId:request=>String((request.params as {orderId:string}).orderId),acceptedSources:['DASHBOARD'],
+    handler:(request,actor)=>{const query=request.query as Record<string,unknown>;const limit=query.limit===undefined?25:Number(query.limit);if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw new OrderChannelEventError('VALIDATION_ERROR','limit must be from 1 to 100.');return options.store.listTranscript({orderId:String((request.params as {orderId:string}).orderId),actor,cursor:typeof query.cursor==='string'?query.cursor:null,limit});},mapError});
 }
 
 function parse(request: FastifyRequest): OrderChannelEventInput { const body=request.body as Record<string,unknown>; return {
@@ -153,3 +182,10 @@ function parse(request: FastifyRequest): OrderChannelEventInput { const body=req
 function nullable(value:unknown){return typeof value==='string'?value:null;}
 function validate(value:OrderChannelEventInput){if(!/^\d{17,20}$/u.test(value.guildId)||!/^\d{17,20}$/u.test(value.channelId)||!/^\d{17,20}$/u.test(value.messageId))throw new OrderChannelEventError('VALIDATION_ERROR','Discord identifiers are invalid.');if(!['CREATED','UPDATED','DELETED'].includes(value.eventType)||!value.eventId||value.eventId.length>150)throw new OrderChannelEventError('VALIDATION_ERROR','Transcript event is invalid.');if(value.content&&value.content.length>4000)throw new OrderChannelEventError('VALIDATION_ERROR','Message content is too long.');}
 function mapError(error:unknown){return error instanceof OrderChannelEventError?{statusCode:error.code==='NOT_FOUND'?404:400,code:error.code,message:error.message}:null;}
+function requireTranscriptScope(actor:ActorContext,orderId:string,guildId:string|undefined,tasks:FirstResponseTaskProjection[]|undefined){if(!actor.guildId||!actor.actorStaffId||!actor.actorLevel||guildId!==actor.guildId)throw new OrderChannelEventError('NOT_FOUND','Order transcript was not found.');if(actor.actorLevel==='L1_SUPPORT'&&!tasks?.some(task=>task.orderId===orderId&&task.claimedBy===actor.actorStaffId&&['CLAIMED','PENDING_APPROVAL'].includes(task.status)))throw new OrderChannelEventError('NOT_FOUND','Order transcript was not found.');}
+function pageTranscript(events:OrderChannelEventRecord[],cursor:string|null,limit:number):OrderChannelTranscriptPage{const offset=decodeCursor(cursor);const sorted=[...events].sort((a,b)=>a.observedAt.localeCompare(b.observedAt)||a.id.localeCompare(b.id));const rows=sorted.slice(offset,offset+limit);return{items:rows.map(event=>({eventId:event.eventId,messageId:event.messageId,eventType:event.eventType,authorDisplayName:event.authorDisplayName,content:event.content,replyToMessageId:event.replyToMessageId,attachmentMetadata:structuredClone(event.attachments),occurredAt:event.discordEditedAt??event.discordCreatedAt??event.observedAt,deleted:event.eventType==='DELETED'})),nextCursor:offset+limit<sorted.length?encodeCursor(offset+limit):null};}
+function encodeCursor(offset:number){return Buffer.from(JSON.stringify({v:1,offset})).toString('base64url');}
+function decodeCursor(value:string|null){if(!value)return 0;try{const parsed=JSON.parse(Buffer.from(value,'base64url').toString()) as {v?:unknown;offset?:unknown};if(parsed.v!==1||!Number.isSafeInteger(parsed.offset)||Number(parsed.offset)<0)throw new Error();return Number(parsed.offset);}catch{throw new OrderChannelEventError('VALIDATION_ERROR','Cursor is invalid.');}}
+interface TranscriptRow{event_id:string;discord_message_id:string;event_type:OrderChannelEventType;author_display_name:string|null;content_snapshot:string|null;reply_to_message_id:string|null;attachments_snapshot:unknown;discord_created_at:Date|string|null;discord_edited_at:Date|string|null;observed_at:Date|string}
+function mapTranscriptRow(row:TranscriptRow):OrderChannelTranscriptItem{return{eventId:row.event_id,messageId:row.discord_message_id,eventType:row.event_type,authorDisplayName:row.author_display_name,content:row.content_snapshot,replyToMessageId:row.reply_to_message_id,attachmentMetadata:Array.isArray(row.attachments_snapshot)?row.attachments_snapshot:[],occurredAt:iso(row.discord_edited_at??row.discord_created_at??row.observed_at),deleted:row.event_type==='DELETED'};}
+function iso(value:Date|string){return value instanceof Date?value.toISOString():new Date(value).toISOString();}

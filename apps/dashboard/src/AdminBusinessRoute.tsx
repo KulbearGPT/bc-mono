@@ -150,8 +150,12 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
           const participantBody=await participantResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
           if(!participantResponse.ok||!participantBody?.data){setDetail({kind:participantResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:participantBody?.requestId??null,data:null});return;}
           const requirementResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/requirements?limit=100`);const requirementBody=await requirementResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;if(!requirementResponse.ok||!requirementBody?.data){setDetail({kind:requirementResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:requirementBody?.requestId??null,data:null});return;}
+          const transcriptResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/transcript?limit=25`);const transcriptBody=await transcriptResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
           const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(candidateResponse.ok){const candidates=candidateBody?.data?.items??[];setParticipantPlayerOptions(candidates);const projects=new Map<string,Record<string,unknown>>();for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}setServiceCatalogOptions(Array.from(projects.values()));}
-          data={...body.data,requirements:requirementBody.data,participants:participantBody.data};
+          data={...body.data,requirements:requirementBody.data,participants:participantBody.data,transcript:transcriptResponse.ok&&transcriptBody?.data?transcriptBody.data:{items:[],nextCursor:null}};
+          setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data,
+            timelinePage: { kind: 'READY', requestId: null },transcriptPage:{kind:transcriptResponse.ok?'READY':'ERROR',requestId:transcriptBody?.requestId??null} });
+          return;
         }
         setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data,
           timelinePage: page === 'orders' ? { kind: 'READY', requestId: null } : undefined });
@@ -223,6 +227,12 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     }
   }
 
+  async function loadMoreOrderTranscript(cursor:string){
+    if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string')return;
+    setDetail(current=>current?.kind==='READY'&&current.page==='orders'?{...current,transcriptPage:{kind:'LOADING',requestId:null}}:current);
+    try{const response=await client.get(`/api/v1/admin/orders/${encodeURIComponent(order.id)}/transcript?limit=25&cursor=${encodeURIComponent(cursor)}`);const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:unknown[];nextCursor?:unknown}}|null;setDetail(current=>{if(current?.kind!=='READY'||current.page!=='orders'||!current.data)return current;if(!response.ok||!body?.data)return{...current,transcriptPage:{kind:'ERROR',requestId:body?.requestId??null}};const prior=current.data.transcript as {items?:unknown[]}|undefined;return{...current,transcriptPage:{kind:'READY',requestId:null},data:{...current.data,transcript:{items:[...(prior?.items??[]),...(body.data.items??[])],nextCursor:typeof body.data.nextCursor==='string'?body.data.nextCursor:null}}};});}catch{setDetail(current=>current?.kind==='READY'&&current.page==='orders'?{...current,transcriptPage:{kind:'ERROR',requestId:null}}:current);}
+  }
+
   function loadMoreConsumptions(cursor: string) {
     if (detail?.kind !== 'READY' || detail.page !== 'users' || typeof detail.data?.id !== 'string') return;
     const userId = detail.data.id;
@@ -255,6 +265,6 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
     participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} />;
 }

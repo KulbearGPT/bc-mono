@@ -170,4 +170,9 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     expect(current).toMatchObject({ status: 'COMPLETED', refundMinor: 625, resolutionCount: 0 });
     expect((await bulkState(request)).filter((order) => order.id !== target.id)).toEqual(untouched);
   });
+
+  test('DE2E-ORD-019 support reads the mid-service Discord context without any Dashboard reply control',async({page,request})=>{
+    const target=(await seedOrders(request)).find((order)=>order.status==='IN_SERVICE')!;await login(page);await page.getByRole('link',{name:'订单',exact:true}).click();await page.getByLabel('订单号或用户标识').fill(target.publicId);await page.getByRole('button',{name:'筛选'}).click();await page.locator('article').filter({hasText:target.publicId}).getByRole('button',{name:'查看详情'}).click();
+    const transcript=page.getByRole('region',{name:'订单频道记录'});await expect(transcript).toContainText('玩到一半突然掉线');await expect(transcript).toContainText('附件 1 个');await expect(transcript).toContainText('回复消息 1533615770179866746');await expect(transcript.getByRole('button',{name:'发送消息'})).toHaveCount(0);await transcript.getByRole('button',{name:'加载更多频道记录'}).click();await expect(transcript).toContainText('[消息已删除]');
+  });
 });

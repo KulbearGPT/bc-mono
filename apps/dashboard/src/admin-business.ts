@@ -54,6 +54,10 @@ export interface AdminBusinessDetailState {
     kind: 'READY' | 'LOADING' | 'ERROR';
     requestId: string | null;
   };
+  transcriptPage?: {
+    kind: 'READY' | 'LOADING' | 'ERROR';
+    requestId: string | null;
+  };
 }
 
 export interface AdminTimelineRow { id: string; type: string; status: string; direction: string; amountMinor: number | null; currency: string | null; occurredAt: string }

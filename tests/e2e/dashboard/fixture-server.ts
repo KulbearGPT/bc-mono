@@ -507,6 +507,14 @@ registerSecureReadRoute(server, server.securityOptions!, {
     return { order: { ...currentOrder, game: 'valorant', gameDisplayName: '无畏契约', service: 'escort', serviceDisplayName: '护航' }, readiness: { customer: 'READY', player: currentOrder.status === 'IN_SERVICE' ? 'READY' : 'PENDING', bothReady: currentOrder.status === 'IN_SERVICE' }, automation, matching: { stage: currentOrder.status, nextStep: currentOrder.status === 'IN_SERVICE' ? 'SUPPORT_RESOLUTION' : 'WAIT_FOR_READINESS' }, timeline };
   }
 });
+registerSecureReadRoute(server,server.securityOptions!,{
+  method:'GET',url:'/api/v1/admin/orders/:orderId/transcript',permission:'order.read',action:'LIST_E2E_ORDER_TRANSCRIPT',targetType:'order',acceptedSources:['DASHBOARD'],
+  handler:(request)=>{const query=request.query as {cursor?:string};const rows=[
+    {eventId:'e2e-transcript-1',messageId:'1533615770179866746',eventType:'CREATED',authorDisplayName:'老板小陈',content:'玩到一半突然掉线，麻烦客服协助。',replyToMessageId:null,attachmentMetadata:[{name:'disconnect.png',contentType:'image/png'}],occurredAt:'2026-08-05T01:10:00.000Z',deleted:false},
+    {eventId:'e2e-transcript-2',messageId:'1533615770179866747',eventType:'CREATED',authorDisplayName:'陪玩阿青',content:'收到，我先暂停计时并等客服处理。',replyToMessageId:'1533615770179866746',attachmentMetadata:[],occurredAt:'2026-08-05T01:10:30.000Z',deleted:false},
+    {eventId:'e2e-transcript-3',messageId:'1533615770179866748',eventType:'DELETED',authorDisplayName:'老板小陈',content:'旧消息',replyToMessageId:null,attachmentMetadata:[],occurredAt:'2026-08-05T01:11:00.000Z',deleted:true}
+  ];const offset=query.cursor?2:0;return{items:rows.slice(offset,offset+2),nextCursor:offset===0?'transcript-page-2':null};}
+});
 
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/resolve', permission: 'order.resolve', action: 'RESOLVE_E2E_ORDER', targetType: 'order', targetId: (request) => String((request.params as { orderId: string }).orderId), acceptedSources: ['DASHBOARD'],
