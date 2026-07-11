@@ -89,4 +89,20 @@ describe('M14-US-05 support workbench release gate', () => {
     expect(realUatCase).toContain('Guild 隔离由 API/数据库自动化回归门禁证明');
     expect(todo).not.toContain('无 L3 且只有一个 Guild');
   });
+
+  test('records the completed task-conclusion automation without keeping it as an external blocker', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const [readme, browserUat, summary, todo] = await Promise.all([
+      readFile('evidence/P0/M14-US-05/README.md', 'utf8'),
+      readFile('evidence/P0/M14-US-05/browser-uat.md', 'utf8'),
+      readFile('evidence/P0/M14-US-05/summary.md', 'utf8'),
+      readFile('outputs/Codex-P0开发TODO.md', 'utf8')
+    ]);
+    for (const document of [readme, browserUat, summary, todo]) {
+      expect(document).not.toContain('任务结案和产品/客服/QA签署缺失');
+      expect(document).not.toContain('尚未执行结案');
+    }
+    expect(readme).toContain('DE2E-SUP-008');
+    expect(browserUat).toContain('DE2E-SUP-008');
+  });
 });
