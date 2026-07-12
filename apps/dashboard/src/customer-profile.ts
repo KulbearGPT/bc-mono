@@ -15,6 +15,7 @@ export interface CustomerProfileView { modules: CustomerProfileModules; hasVisib
 export function buildCustomerProfileRequests(userId: string, window: 'DAYS_30' | 'DAYS_90' | 'ALL') { const encoded = encodeURIComponent(userId); return {
   summary: `/api/v1/admin/users/${encoded}/profile-summary?window=${window}`,
   orders: `/api/v1/admin/users/${encoded}/orders?limit=25`, consumptions: `/api/v1/admin/users/${encoded}/consumptions?limit=25` }; }
+export function buildCustomerProfileUpdateRequest(userId:string,input:{displayName:string;expectedVersion:number;reasonCode:string;note:string}){return{method:'PATCH' as const,path:`/api/v1/admin/users/${encodeURIComponent(userId)}/profile-summary`,body:{displayName:input.displayName.trim(),expectedVersion:input.expectedVersion,reasonCode:input.reasonCode.trim(),note:input.note.trim()}};}
 export function buildCustomerProfileView(modules: CustomerProfileModules): CustomerProfileView { return { modules,
   hasVisibleContent: Object.values(modules).some((module) => module.kind === 'READY' || module.kind === 'EMPTY' || (module.kind === 'ERROR' && 'data' in module && module.data)) }; }
 export function appendCursor(path: string, cursor: string) { return `${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`; }

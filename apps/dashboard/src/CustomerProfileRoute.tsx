@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 import { CustomerProfilePage } from './CustomerProfilePage.js';
-import { appendCursor, buildCustomerProfileRequests, buildCustomerProfileView, type CustomerProfileModules, type PageModule } from './customer-profile.js';
+import { appendCursor, buildCustomerProfileRequests,buildCustomerProfileUpdateRequest, buildCustomerProfileView, type CustomerProfileModules, type PageModule } from './customer-profile.js';
 import { buildWalletAdjustmentRequest,buildWalletRequest,createWalletAdjustmentIdempotencyKey,createWalletIdempotencyKey,walletPaths,type WalletAdjustmentSubmission,type WalletBalance,type WalletEntry,type WalletFundingSubmission } from './customer-wallet.js';
 
 export function CustomerProfileRoute(props: { userId: string; capabilities: DashboardCapabilities }) {
@@ -10,10 +10,12 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   const [wallet,setWallet]=useState<{balance:WalletBalance;entries:WalletEntry[];busy:boolean}|null>(null);
   const [walletError,setWalletError]=useState<string|null>(null);
   const [internalNoteBusy,setInternalNoteBusy]=useState(false);const [internalNoteError,setInternalNoteError]=useState<string|null>(null);
+  const [profileEditBusy,setProfileEditBusy]=useState(false);const [profileEditError,setProfileEditError]=useState<string|null>(null);
   const fundingKeys=useRef<Partial<Record<'TOP_UP'|'CASH_REFUND_DEBIT',string>>>({});
   const mayRead = props.capabilities.permissions.includes('customer_profile.read');
   const mayAppendInternalNote = props.capabilities.permissions.includes('customer_profile.note.append');
   const mayAdjustWallet = props.capabilities.permissions.includes('wallet.adjust');
+  const mayEditProfile=props.capabilities.permissions.includes('customer_profile.manage');
 
   async function loadSummary(window = windowValue) {
     setModules((current) => ({ ...current, identity: { kind: 'LOADING' }, balance: { kind: 'LOADING' }, statistics: { kind: 'LOADING' }, preferences: { kind: 'LOADING' }, internal: { kind: 'LOADING' } }));
@@ -54,12 +56,14 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
       if(!response.ok){setInternalNoteError(`${payload?.error?.message??'内部备注未能追加。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}
       await loadSummary();return true;
     }catch{setInternalNoteError('内部备注未能追加，请稍后重试。');return false;}finally{setInternalNoteBusy(false);}}
+  async function updateProfile(value:{displayName:string;expectedVersion:number;reasonCode:string;note:string}){if(profileEditBusy)return false;setProfileEditBusy(true);setProfileEditError(null);try{const request=buildCustomerProfileUpdateRequest(props.userId,value);const response=await client.patch(request.path,request.body,`dashboard:profile-edit:${crypto.randomUUID()}`);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setProfileEditError(`${payload?.error?.message??'客户名称未能保存。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}await loadSummary();return true;}catch{setProfileEditError('客户名称未能保存，请稍后重试。');return false;}finally{setProfileEditBusy(false);}}
   useEffect(() => { if (!mayRead) { setModules(forbiddenModules()); return; } void Promise.all([loadSummary(), loadPage('orders'), loadPage('consumptions'),loadWallet()]); }, [props.userId, mayRead]);
   function changeWindow(value: 'DAYS_30' | 'DAYS_90' | 'ALL') { setWindow(value); void loadSummary(value); }
   const retry = (module: string) => module === 'orders' || module === 'consumptions' ? void loadPage(module) : void loadSummary();
   return <CustomerProfilePage model={buildCustomerProfileView(modules)} window={windowValue} onWindowChange={changeWindow} onRetryModule={retry}
     onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet??undefined} walletError={walletError}
     canAppendInternalNote={mayAppendInternalNote} internalNoteBusy={internalNoteBusy} internalNoteError={internalNoteError} onAppendInternalNote={appendInternalNote}
+    canEditProfile={mayEditProfile} profileEditBusy={profileEditBusy} profileEditError={profileEditError} onUpdateProfile={updateProfile}
     onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} canAdjustWallet={mayAdjustWallet} onWalletAdjustment={adjustWallet} />;
 }
 

@@ -8,7 +8,7 @@ export type CustomerProfileWindow = 'DAYS_30' | 'DAYS_90' | 'ALL';
 export type CustomerProfileConsumptionType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
 
 export interface CustomerProfileUser {
-  id: string; guildId: string; discordUserId: string; displayName: string; status: string;
+  id: string; guildId: string; discordUserId: string; displayName: string; status: string; version?:number;
 }
 export interface CustomerProfileOrder {
   id: string; publicId: string; customerId: string; guildId: string; status: string; gameKey: string | null; serviceKey: string | null;
@@ -41,13 +41,14 @@ export interface Page<T> { items: T[]; nextCursor: string | null }
 export interface CustomerProfileStore extends CustomerProfileScope {
   getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null>;
   appendNote(input: CustomerProfileScopeInput & { body: string; now: Date }): Promise<CustomerProfileNote>;
+  updateDisplayName(input:CustomerProfileScopeInput&{displayName:string;expectedVersion:number;reasonCode:string;note:string|null;now:Date}):Promise<CustomerProfileUser>;
   listOrders(input: CustomerProfileScopeInput & { cursor: string | null; limit: number }): Promise<Page<CustomerProfileOrder>>;
   sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number>;
   countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> | number;
 }
 
 export class CustomerProfileError extends Error {
-  constructor(readonly code: 'NOT_FOUND' | 'VALIDATION_ERROR', message: string) { super(message); this.name = 'CustomerProfileError'; }
+  constructor(readonly code: 'NOT_FOUND' | 'VALIDATION_ERROR'|'CONFLICT', message: string) { super(message); this.name = 'CustomerProfileError'; }
 }
 
 export class InMemoryCustomerProfileStore implements CustomerProfileStore {
@@ -105,6 +106,13 @@ export class InMemoryCustomerProfileStore implements CustomerProfileStore {
     return { id: note.id, text: note.text, createdAt: note.createdAt };
   }
 
+  async updateDisplayName(input:CustomerProfileScopeInput&{displayName:string;expectedVersion:number;reasonCode:string;note:string|null;now:Date}){
+    if(!this.canReadCustomer(input))throw new CustomerProfileError('NOT_FOUND','Customer was not found.');
+    const index=this.users.findIndex((item)=>item.id===input.userId&&item.guildId===input.guildId);const current=this.users[index]!;const version=current.version??1;
+    if(version!==input.expectedVersion)throw new CustomerProfileError('CONFLICT','Customer profile version is stale.');
+    const updated={...current,displayName:input.displayName,version:version+1};this.users[index]=updated;return clone(updated);
+  }
+
   async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
     return sum(this.reservations.filter((item) => item.userId === input.userId && item.currency === input.currency
       && (!input.guildId || !item.guildId || item.guildId === input.guildId)).map((item) => item.remainingMinor));
@@ -136,7 +144,7 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
   async getSummaryData(input: CustomerProfileScopeInput & { window: CustomerProfileWindow; now: Date }): Promise<CustomerProfileSummaryData | null> {
     if (!await this.canReadCustomer(input)) return null;
     const lowerBound = windowStart(input.window, input.now);
-    const identity = await this.pool.query(`SELECT u.id,u.display_name,u.status::text,da.discord_user_id
+    const identity = await this.pool.query(`SELECT u.id,u.display_name,u.status::text,u.row_version,da.discord_user_id
       FROM users u JOIN discord_accounts da ON da.user_id=u.id AND da.guild_id=$2
       WHERE u.id=$1 ORDER BY da.last_seen_at DESC NULLS LAST,da.id LIMIT 1`, [input.userId, input.guildId]);
     const row = identity.rows[0];
@@ -158,7 +166,7 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     const consumptions = entryRows.rows.map(mapConsumption);
     const preferenceOrders = preferenceRows.rows.map((item) => ({ ...mapOrder(item, input.userId, input.guildId), id: String(item.id ?? crypto.randomUUID()), publicId: String(item.public_id ?? '') }));
     return {
-      user: { id: row.id, guildId: input.guildId, discordUserId: row.discord_user_id, displayName: row.display_name, status: row.status },
+      user: { id: row.id, guildId: input.guildId, discordUserId: row.discord_user_id, displayName: row.display_name, status: row.status,version:Number(row.row_version) },
       statistics: buildStatistics(input.window, orders, consumptions), preferences: buildPreferences(preferenceOrders),
       internalNotes: noteRows.rows.map((item) => ({ id: item.id, text: item.body, createdAt: iso(item.created_at) })),
       riskFlags: riskRows.rows.map((item) => item.type)
@@ -199,6 +207,12 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
     return { id: row.id, text: row.body, createdAt: iso(row.created_at) };
   }
 
+  async updateDisplayName(input:CustomerProfileScopeInput&{displayName:string;expectedVersion:number;reasonCode:string;note:string|null;now:Date}){
+    if(!await this.canReadCustomer(input))throw new CustomerProfileError('NOT_FOUND','Customer was not found.');
+    const result=await this.pool.query(`UPDATE users SET display_name=$3,row_version=row_version+1,updated_at=$4 WHERE id=$1 AND row_version=$2 AND EXISTS (SELECT 1 FROM discord_accounts da WHERE da.user_id=users.id AND da.guild_id=$5) RETURNING id,display_name,status::text,row_version`,[input.userId,input.expectedVersion,input.displayName,input.now,input.guildId]);
+    if(!result.rows[0])throw new CustomerProfileError('CONFLICT','Customer profile version is stale.');const row=result.rows[0];return{id:row.id,guildId:input.guildId,discordUserId:'',displayName:row.display_name,status:row.status,version:Number(row.row_version)};
+  }
+
   async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
     const result = await this.pool.query(`SELECT COALESCE(sum(GREATEST(fr.amount_minor-COALESCE(events.settled_minor,0),0)),0) total
       FROM fund_reservations fr LEFT JOIN LATERAL (
@@ -229,7 +243,7 @@ export async function getAdminCustomerProfileSummary(input: { store: CustomerPro
   const { user } = summary;
   const walletBalance=await input.walletFunding.getBalance({userId:user.id,now:input.now});
   return {
-    user: { userId: user.id, discordUserId: user.discordUserId, displayName: user.displayName, status: user.status },
+    user: { userId: user.id, discordUserId: user.discordUserId, displayName: user.displayName, status: user.status,version:user.version??1 },
     balance: walletBalance,
     statistics: summary.statistics, preferences: summary.preferences, internalNotes: summary.internalNotes, riskFlags: summary.riskFlags
   };
@@ -239,6 +253,7 @@ export async function appendAdminCustomerProfileNote(input: { store: CustomerPro
   const body = normalizeNoteBody(input.body);
   return input.store.appendNote({ ...actorScope(input.actor, input.userId), body, now: input.now });
 }
+export async function updateAdminCustomerProfile(input:{store:CustomerProfileStore;actor:ActorContext;userId:string;body:unknown;now:Date}){const body=parseProfileUpdate(input.body);return input.store.updateDisplayName({...actorScope(input.actor,input.userId),...body,now:input.now});}
 
 export function registerCustomerProfileRoutes(server: FastifyInstance, options: { store: CustomerProfileStore;
   walletFunding: WalletFundingService; now?: () => Date }): void {
@@ -249,6 +264,10 @@ export function registerCustomerProfileRoutes(server: FastifyInstance, options: 
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], mapError,
     handler: (request, actor) => getAdminCustomerProfileSummary({ store: options.store, walletFunding: options.walletFunding,
       actor, userId: param(request, 'userId'), window: profileWindow(request), now: now() }) });
+  registerSecureWriteRoute(server,security,{method:'PATCH',url:'/api/v1/admin/users/:userId/profile-summary',permission:'customer_profile.manage',requiredFeature:'M6',action:'UPDATE_ADMIN_CUSTOMER_PROFILE',targetType:'user',targetId:(request)=>param(request,'userId'),acceptedSources:['DASHBOARD'],mapError,
+    fingerprintBody:(request)=>parseProfileUpdate(request.body),successReason:(request)=>parseProfileUpdate(request.body).reasonCode,
+    auditSnapshots:(_request,_actor,payload)=>({afterSnapshot:{displayName:(payload as CustomerProfileUser).displayName,version:(payload as CustomerProfileUser).version}}),
+    handler:(request,actor)=>updateAdminCustomerProfile({store:options.store,actor,userId:param(request,'userId'),body:request.body,now:now()})});
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/users/:userId/profile-notes',
     permission: 'customer_profile.note.append', requiredFeature: 'M6', action: 'APPEND_ADMIN_CUSTOMER_PROFILE_NOTE', targetType: 'customer_profile_note',
     targetId: (request) => param(request, 'userId'), acceptedSources: ['DASHBOARD'], successStatusCode: 201,
@@ -276,6 +295,7 @@ function parseNoteRequest(value: unknown): string {
     throw new CustomerProfileError('VALIDATION_ERROR', 'body is invalid.');
   return normalizeNoteBody((value as { body?: unknown }).body);
 }
+function parseProfileUpdate(value:unknown){if(!value||typeof value!=='object'||Array.isArray(value))throw new CustomerProfileError('VALIDATION_ERROR','profile update is invalid.');const body=value as Record<string,unknown>;if(Object.keys(body).some((key)=>!['displayName','expectedVersion','reasonCode','note'].includes(key)))throw new CustomerProfileError('VALIDATION_ERROR','Only displayName can be updated.');const displayName=typeof body.displayName==='string'?body.displayName.trim():'';const reasonCode=typeof body.reasonCode==='string'?body.reasonCode.trim():'';const expectedVersion=Number(body.expectedVersion);const note=typeof body.note==='string'?body.note.trim():null;if(!displayName||displayName.length>80||!Number.isSafeInteger(expectedVersion)||expectedVersion<1||!reasonCode||reasonCode.length>50||(note?.length??0)>500)throw new CustomerProfileError('VALIDATION_ERROR','profile update fields are invalid.');return{displayName,expectedVersion,reasonCode,note};}
 function normalizeNoteBody(body: unknown): string {
   if (typeof body !== 'string') throw new CustomerProfileError('VALIDATION_ERROR', 'body is invalid.');
   const normalized = body.trim();
@@ -283,7 +303,7 @@ function normalizeNoteBody(body: unknown): string {
   return normalized;
 }
 function param(request: FastifyRequest, key: string) { return String((request.params as Record<string, unknown>)[key] ?? ''); }
-function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : 400, code: error.code, message: error.message }; }
+function mapError(error: unknown) { if (!(error instanceof CustomerProfileError)) return null; return { statusCode: error.code === 'NOT_FOUND' ? 404 : error.code==='CONFLICT'?409:400, code: error.code, message: error.message }; }
 export function consumptionGuildPredicate(alias: string, guildParameter: string) { return `EXISTS (
   SELECT 1 FROM orders scoped_order WHERE scoped_order.guild_id=${guildParameter} AND (
     scoped_order.id=${alias}.order_id

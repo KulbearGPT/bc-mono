@@ -113,7 +113,7 @@ const automationControl = {
   resumeValidatedOrderVersion: null as number | null
 };
 let reservationCreateCount = 1;
-const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
+const userRecord = { id: '00000000-0000-0000-0000-000000000501',displayName:'E2E 老板', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const bulkUsers: Array<{ id: string; discordUserId: string; status: string; operationalStatus: string; version: number; createdAt: string }> = [];
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
@@ -173,7 +173,7 @@ function resetState() {
   reservationAmountMinor = 4_000;
   Object.assign(automationControl, { state: 'RUNNING', version: 1, pausedByStaffId: null, reasonCode: null, scope: null, expiresAt: null, resumeValidatedOrderVersion: null });
   reservationCreateCount = 1;
-  Object.assign(userRecord, { status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
+  Object.assign(userRecord, { displayName:'E2E 老板',status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2 });
   bulkUsers.length = 0;
   riskEvents.length = 0;
   Object.assign(walletBalance, { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, version: 1 });
@@ -284,7 +284,11 @@ registerSecureReadRoute(server, server.securityOptions!, {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary', permission: 'customer_profile.read', action: 'GET_E2E_PROFILE_SUMMARY', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id, discordUserId: userRecord.discordUserId, status: userRecord.status }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: profileNotes.map(({ authorStaffId: _authorStaffId, ...note }) => note), riskFlags: [] })
+  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id,displayName:userRecord.displayName, discordUserId: userRecord.discordUserId, status: userRecord.status,version:userRecord.version }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: profileNotes.map(({ authorStaffId: _authorStaffId, ...note }) => note), riskFlags: [] })
+});
+registerSecureWriteRoute(server,server.securityOptions!,{method:'PATCH',url:'/api/v1/admin/users/:userId/profile-summary',permission:'customer_profile.manage',action:'UPDATE_E2E_CUSTOMER_PROFILE',targetType:'user',acceptedSources:['DASHBOARD'],
+  mapError:(error)=>error instanceof Error&&error.message==='STALE_PROFILE'?{statusCode:409,code:'CONFLICT',message:'Customer profile version is stale.'}:null,
+  handler:(request)=>{const body=request.body as {displayName?:unknown;expectedVersion?:unknown;reasonCode?:unknown;note?:unknown};if(body.expectedVersion!==userRecord.version)throw new Error('STALE_PROFILE');const displayName=String(body.displayName??'').trim();if(!displayName||displayName.length>80||typeof body.reasonCode!=='string')throw new Error('INVALID_PROFILE');userRecord.displayName=displayName;userRecord.version+=1;return{user:{userId:userRecord.id,discordUserId:userRecord.discordUserId,displayName:userRecord.displayName,status:userRecord.status,version:userRecord.version}};}
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/users/:userId/profile-notes', permission: 'customer_profile.note.append', action: 'APPEND_E2E_PROFILE_NOTE', targetType: 'customer_profile_note', acceptedSources: ['DASHBOARD'], successStatusCode: 201,

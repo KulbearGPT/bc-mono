@@ -123,6 +123,13 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
     expect(state.audits.some((audit:{action:string;outcome:string})=>audit.action==='APPEND_E2E_PROFILE_NOTE'&&audit.outcome==='SUCCEEDED')).toBe(true);
   });
 
+  test('DE2E-PRF-005 supervisor corrects only the customer business display name', async ({ page, request }) => {
+    await openProfile(page);await page.getByLabel('客户展示名').fill('北美老板小林');await page.getByLabel('修改原因').selectOption('CUSTOMER_REQUEST');await page.getByLabel('修改说明').fill('老板联系客服纠正业务展示名。');
+    await page.getByRole('button',{name:'保存客户名称'}).click();await expect(page.getByText('北美老板小林 · ACTIVE')).toBeVisible();
+    await expect(page.getByText(userId)).toBeVisible();await expect(page.getByText('customer-e2e')).toBeVisible();await expect(page.getByRole('region',{name:'客户钱包'}).getByText('USD 100.00')).toBeVisible();
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.user).toMatchObject({id:userId,displayName:'北美老板小林',discordUserId:'customer-e2e',version:3});expect(state.walletBalance).toMatchObject({ledgerBalanceMinor:10000,reservedMinor:2500,version:1});
+  });
+
   test('DE2E-WLT-005 top-up succeeds with or without a receipt and uploaded evidence remains private metadata', async ({ page, request }) => {
     await openProfile(page); await fillFunding(page, '5.00', 'receipt-none'); await page.getByRole('button', { name: '确认充值' }).click(); await expect(page.getByRole('cell', { name: 'MANUAL_TOP_UP' })).toBeVisible();
     await fillFunding(page, '6.00', 'receipt-file');
