@@ -42,6 +42,7 @@ import { SettlementRoute } from './SettlementRoute.js';
 import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { AccessManagementRoute } from './AccessManagementRoute.js';
 import { BusinessTagsRoute } from './BusinessTagsRoute.js';
+import { BotConfigPage } from './BotConfigPage.js';
 import { buildSettlementNavigation } from './settlements.js';
 import {
   getSandboxBanner,
@@ -92,6 +93,7 @@ const navigationIcons: Array<[RegExp, LucideIcon]> = [
   [/security/u, ShieldCheck],
   [/operations/u, Activity],
   [/business-tags/u, Tags],
+  [/bot-config/u, Settings2],
   [/access/u, UserRoundCog]
 ];
 
@@ -174,6 +176,8 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     ? <AccessManagementRoute capabilities={result!.capabilities!} />
     : currentPath === '/business-tags'
     ? <BusinessTagsRoute />
+    : currentPath === '/bot-config'
+    ? <BotConfigPage capabilities={result!.capabilities!} />
     : <DashboardOverview navigation={navigation} />;
 
   return (

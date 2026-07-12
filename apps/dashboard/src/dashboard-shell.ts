@@ -2,6 +2,7 @@ import type { PilotFeature } from './pilot-features.js';
 
 export interface DashboardCapabilities {
   permissions: string[];
+  guildId?: string;
   staffId?: string;
   level?: string;
   thresholds?: { giftApprovalLimitMinor: number | null; refundLimitMinor: number | null; l4DirectExecutionFromMinor: number; currency: string };
@@ -13,7 +14,7 @@ export interface DashboardCapabilities {
 }
 
 export interface DashboardNavigationItem {
-  id: 'overview' | 'support' | 'security' | 'operations' | 'access' | 'businessTags';
+  id: 'overview' | 'support' | 'security' | 'operations' | 'access' | 'businessTags' | 'botConfig';
   label: string;
   href: string;
 }
@@ -26,6 +27,7 @@ const navigationRules: Array<DashboardNavigationItem & { permission: string }> =
   { id: 'security', label: '账户安全', href: '/security', permission: 'mfa.manage_self' },
   { id: 'operations', label: '系统运营', href: '/operations', permission: 'audit.read' },
   { id: 'businessTags', label: '业务标签库', href: '/business-tags', permission: 'catalog.manage' },
+  { id: 'botConfig', label: 'Bot 配置', href: '/bot-config', permission: 'bot_config.read' },
   { id: 'access', label: '权限管理', href: '/access', permission: 'access.manage' }
 ];
 

@@ -666,7 +666,7 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
     action: 'GET_CURRENT_STAFF_CAPABILITIES',
     targetType: 'staff_session',
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
-    handler: (request, actor) => buildCapabilities(
+    handler: async (request, actor) => ({...await buildCapabilities(
       actor.actorStaffId!,
       actor.actorLevel!,
       actor.permissionsVersion!,
@@ -678,7 +678,7 @@ export function registerDashboardAuthRoutes(server: FastifyInstance, options: Da
         pilotFeaturePolicy: server.securityOptions?.pilotFeaturePolicy,
         businessEnvironment: server.securityOptions?.businessEnvironment
       }
-    )
+    ),guildId:actor.guildId})
   });
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST',

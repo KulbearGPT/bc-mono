@@ -4,6 +4,7 @@ import { buildApiServer } from '../../../apps/api/src/server.ts';
 import { InMemoryDashboardAuthStore, type DiscordOAuthProvider } from '../../../apps/api/src/dashboard-auth.ts';
 import { InMemoryDashboardMetricsStore } from '../../../apps/api/src/dashboard-metrics.ts';
 import { InMemoryAuditSink, registerSecureReadRoute, registerSecureWriteRoute, type StaffDirectory } from '../../../apps/api/src/security.ts';
+import {InMemoryBotConfigStore} from '../../../apps/api/src/bot-config.ts';
 
 const host = '127.0.0.1';
 const port = 3000;
@@ -243,6 +244,8 @@ const oauth: DiscordOAuthProvider = {
   }
 };
 
+const botConfigStore=new InMemoryBotConfigStore({snapshots:[{guildId,version:1,values:{dispatch_channel_id:'1200000000000000041',dispatch_timeout_minutes:5,new_orders_enabled:true,gift_broadcast_template:'{sender} 送给 {receiver} {gift}',staff_l4_role_id:'1200000000000000099'},updatedByStaffId:null,updatedAt:'2026-08-05T00:00:00.000Z'}]});
+
 const server = buildApiServer({
   env: {
     NODE_ENV: 'test', DATABASE_URL: 'postgresql://unused', API_PORT: String(port), API_BASE_URL: `http://${host}:${port}`,
@@ -250,7 +253,8 @@ const server = buildApiServer({
   },
   security: { staffDirectory: directory, dashboardSessions: authStore, auditSink, businessEnvironment: 'SANDBOX', pilotFeaturePolicy: fixtureFeaturePolicy },
   dashboardAuth: { store: authStore, oauth, staffDirectory: directory, guildId, dashboardUrl, secureCookies: false, now: fixtureNow },
-  dashboardMetrics: { store: new InMemoryDashboardMetricsStore({ facts: { todayOrderCount: 1, inProgressOrderCount: 1, pendingStaffTaskCount: 1, completedOrderNetConsumptionMinor: 12_500, giftNetConsumptionMinor: 0, activeReservedMinor: 4_000, dispatchAcceptedCount: 19, dispatchStartedCount: 20, exceptionCount: 0 } }) }
+  dashboardMetrics: { store: new InMemoryDashboardMetricsStore({ facts: { todayOrderCount: 1, inProgressOrderCount: 1, pendingStaffTaskCount: 1, completedOrderNetConsumptionMinor: 12_500, giftNetConsumptionMinor: 0, activeReservedMinor: 4_000, dispatchAcceptedCount: 19, dispatchStartedCount: 20, exceptionCount: 0 } }) },
+  botConfig:{store:botConfigStore,validationSecret:'dashboard-e2e-bot-config-validation-secret-0001',discord:{async validateObject(){return{ok:true as const};},async sendTestMessage(){return{messageId:'bot-config-test-message-1'};}}}
 });
 server.register(multipart, { limits: { fileSize: 1_048_576, files: 1, fields: 2 } });
 

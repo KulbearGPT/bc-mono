@@ -606,6 +606,10 @@ export function registerBotConfigRoutes(
     action: "UPDATE_BOT_CONFIG",
     targetType: "guild_bot_config",
     acceptedSources: ["DASHBOARD", "DISCORD_BOT"],
+    requiresRecentStepUp: (request, actor) =>
+      actor.actorSource === "DASHBOARD" &&
+      actor.actorLevel === "L4_ADMIN_OWNER" &&
+      rawHasSecurityRoleChange(request.body),
     mapError,
     retryCommitFailures: true,
     targetId: (request) => rawBodyGuildId(request.body),
@@ -762,6 +766,18 @@ function requiredPermissionsFor(changes: BotConfigValues) {
   )
     ? ["bot_config.operational.manage", "bot_config.security.manage"]
     : ["bot_config.operational.manage"];
+}
+function hasSecurityRoleChange(changes: BotConfigValues) {
+  return Object.keys(changes).some((field) =>
+    (securityRoleFields as readonly string[]).includes(field),
+  );
+}
+function rawHasSecurityRoleChange(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const changes = (value as { changes?: unknown }).changes;
+  if (!changes || typeof changes !== "object" || Array.isArray(changes))
+    return false;
+  return hasSecurityRoleChange(changes as BotConfigValues);
 }
 function assertFieldPermission(level: StaffLevel, changes: BotConfigValues) {
   if (
