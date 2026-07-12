@@ -8,6 +8,7 @@ export interface RoleMappingRecord {
   version: number;
   reconciliationQueued: boolean;
 }
+export interface StaffAccountRecord{staffId:string;displayName:string;effectiveLevel:StaffLevel;pendingElevationLevel:StaffLevel|null;permissionsVersion:number;activeSessions:number;status:'ACTIVE'|'REVOKED'}
 
 export type AccessManagementModel =
   | { kind: 'LOADING'; mappings: RoleMappingRecord[]; requestId: null }
@@ -16,6 +17,7 @@ export type AccessManagementModel =
   | { kind: 'FORBIDDEN'; mappings: RoleMappingRecord[]; requestId: string | null }
   | { kind: 'STEP_UP_REQUIRED'; mappings: RoleMappingRecord[]; requestId: string | null }
   | { kind: 'ERROR'; mappings: RoleMappingRecord[]; requestId: string | null };
+export type StaffAccountPage={items:StaffAccountRecord[];nextCursor:string|null};
 
 export function buildRoleMappingUpdateRequest(input: {
   mapping: RoleMappingRecord;
@@ -44,6 +46,10 @@ export const staffLevelLabels: Record<StaffLevel, string> = {
   L3_OPERATIONS: 'L3 运营',
   L4_ADMIN_OWNER: 'L4 所有者'
 };
+export function buildStaffElevationApprovalRequest(staff:StaffAccountRecord,reasonCode:string){if(!staff.pendingElevationLevel)throw new Error('No role elevation is pending.');return{method:'POST' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/role-elevation/approve`,body:{expectedPermissionsVersion:staff.permissionsVersion,requestedLevel:staff.pendingElevationLevel,reasonCode:reason(reasonCode)}};}
+export function buildStaffRoleUpdateRequest(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reasonCode:string){return{method:'PATCH' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/role`,body:{expectedPermissionsVersion:staff.permissionsVersion,level,status,reasonCode:reason(reasonCode)}};}
+export function buildStaffSessionRevocationRequest(staff:StaffAccountRecord,reasonCode:string){return{method:'POST' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/revoke-sessions`,body:{reasonCode:reason(reasonCode)}};}
+function reason(value:string){const normalized=requireText(value,'reasonCode').toUpperCase();if(!/^[A-Z][A-Z0-9_]{2,99}$/u.test(normalized))throw new Error('reasonCode is invalid.');return normalized;}
 
 function requireText(value: string, field: string) {
   const normalized = value.trim();

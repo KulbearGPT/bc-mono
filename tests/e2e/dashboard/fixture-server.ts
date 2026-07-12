@@ -148,6 +148,8 @@ let earningPaymentWrites = 0;
 let giftReservationCaptureCount = 0;
 let giftReservationReleaseCount = 0;
 const roleMapping = { guildId, discordRoleId: 'role-e2e-l4', targetLevel: 'L4_ADMIN_OWNER', enabled: true, version: 1, reconciliationQueued: false };
+const initialStaffAccounts=[{staffId:owner.staffId,displayName:'店长 Alice',effectiveLevel:'L4_ADMIN_OWNER',pendingElevationLevel:null,permissionsVersion:owner.permissionsVersion,activeSessions:1,status:'ACTIVE'},{staffId:'00000000-0000-0000-0000-000000000117',displayName:'客服小白',effectiveLevel:'L2_SUPERVISOR',pendingElevationLevel:'L3_OPERATIONS',permissionsVersion:4,activeSessions:2,status:'ACTIVE'}] as Array<{staffId:string;displayName:string;effectiveLevel:'L1_SUPPORT'|'L2_SUPERVISOR'|'L3_OPERATIONS'|'L4_ADMIN_OWNER';pendingElevationLevel:'L1_SUPPORT'|'L2_SUPERVISOR'|'L3_OPERATIONS'|'L4_ADMIN_OWNER'|null;permissionsVersion:number;activeSessions:number;status:'ACTIVE'|'REVOKED'}>;
+const staffAccounts=initialStaffAccounts.map((item)=>({...item}));
 const settlementBatches: Array<Record<string, unknown>> = [];
 const weeklyReports: Array<Record<string, unknown>> = [];
 const outboxMessages: Array<{ id: string; status: 'PENDING' | 'COMPLETED'; attempts: number }> = [];
@@ -193,6 +195,7 @@ function resetState() {
   giftReservationCaptureCount = 0;
   giftReservationReleaseCount = 0;
   Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
+  staffAccounts.splice(0,staffAccounts.length,...initialStaffAccounts.map((item)=>({...item})));
   settlementBatches.length = 0;
   weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'USD', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
   outboxMessages.length = 0; workerRunning = true; workerSideEffectCount = 0; apiRuntimeEpoch = 1; workerRuntimeEpoch = 1;
@@ -447,6 +450,14 @@ registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/discord-role-mappings', permission: 'access.read', action: 'LIST_E2E_ROLE_MAPPINGS', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
   handler: () => ({ items: [{ ...roleMapping }] })
 });
+registerSecureReadRoute(server,server.securityOptions!,{method:'GET',url:'/api/v1/admin/staff',permission:'access.manage',action:'LIST_E2E_STAFF_ACCOUNTS',targetType:'staff_account',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,handler:()=>({items:staffAccounts.map((item)=>({...item})),nextCursor:null})});
+registerSecureWriteRoute(server,server.securityOptions!,{method:'POST',url:'/api/v1/admin/staff/:staffId/role-elevation/approve',permission:'access.manage',action:'APPROVE_E2E_STAFF_ELEVATION',targetType:'staff_account',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,
+  handler:(request,actor)=>{const target=staffAccounts.find((item)=>item.staffId===(request.params as {staffId:string}).staffId);const body=request.body as {expectedPermissionsVersion?:unknown;requestedLevel?:unknown;reasonCode?:unknown};if(!target||target.staffId===actor.actorStaffId||target.permissionsVersion!==body.expectedPermissionsVersion||target.pendingElevationLevel!==body.requestedLevel)throw new Error('INVALID_ELEVATION');target.effectiveLevel=target.pendingElevationLevel;target.pendingElevationLevel=null;target.permissionsVersion+=1;target.activeSessions=0;return{...target,sessionsRevoked:true};}});
+registerSecureWriteRoute(server,server.securityOptions!,{method:'PATCH',url:'/api/v1/admin/staff/:staffId/role',permission:'access.manage',action:'UPDATE_E2E_STAFF_ROLE',targetType:'staff_account',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,
+  mapError:(error)=>error instanceof Error&&error.message==='LAST_OWNER'?{statusCode:409,code:'CONFLICT',message:'The only active owner cannot be removed.'}:null,
+  handler:(request)=>{const target=staffAccounts.find((item)=>item.staffId===(request.params as {staffId:string}).staffId);const body=request.body as {expectedPermissionsVersion?:unknown;level?:unknown;status?:unknown};if(!target||target.permissionsVersion!==body.expectedPermissionsVersion)throw new Error('STALE_STAFF');if(target.effectiveLevel==='L4_ADMIN_OWNER'&&(body.status==='REVOKED'||body.level!=='L4_ADMIN_OWNER')&&staffAccounts.filter((item)=>item.status==='ACTIVE'&&item.effectiveLevel==='L4_ADMIN_OWNER').length<=1)throw new Error('LAST_OWNER');target.effectiveLevel=String(body.level) as typeof target.effectiveLevel;target.status=String(body.status) as typeof target.status;target.permissionsVersion+=1;target.activeSessions=0;return{...target,sessionsRevoked:true};}});
+registerSecureWriteRoute(server,server.securityOptions!,{method:'POST',url:'/api/v1/admin/staff/:staffId/revoke-sessions',permission:'access.manage',action:'REVOKE_E2E_STAFF_SESSIONS',targetType:'staff_session',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,
+  handler:(request)=>{const target=staffAccounts.find((item)=>item.staffId===(request.params as {staffId:string}).staffId);if(!target)throw new Error('MISSING_STAFF');const count=target.activeSessions;target.activeSessions=0;return{staffId:target.staffId,revokedSessionCount:count,revokedAt:fixtureNow().toISOString()};}});
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'PUT', url: '/api/v1/admin/discord-role-mappings/:level', permission: 'access.manage', action: 'UPDATE_E2E_ROLE_MAPPING', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD'], requiresRecentStepUp: true,
   handler: (request) => {
@@ -990,6 +1001,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, profileNotes, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, profileNotes, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping,staffAccounts, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });

@@ -17,7 +17,7 @@ const implemented = new Set(implementedOccurrences);
 const duplicates = [...new Set(implementedOccurrences.filter((id, index, all) => all.indexOf(id) !== index))].sort();
 const missing = difference(planned, implemented);
 const extra = difference(implemented, planned);
-const expectedCount = 127;
+const expectedCount = 129;
 const failures = [];
 
 if (planned.size !== expectedCount) failures.push(`plan has ${planned.size} unique IDs; expected ${expectedCount}`);

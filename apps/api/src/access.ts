@@ -7,11 +7,13 @@ import type { DashboardAuthStore } from './dashboard-auth.js';
 
 export interface RoleMappingRecord { guildId: string; discordRoleId: string; targetLevel: StaffLevel; enabled: boolean; version: number; reconciliationQueued: boolean }
 export interface StaffAccessRecord { staffId: string; discordUserId: string; guildId: string; level: StaffLevel; requestedLevel: StaffLevel | null; status: 'ACTIVE' | 'REVOKED'; permissionsVersion: number; observedRoleIds: string[] }
+export interface AdminStaffAccountRecord{staffId:string;displayName:string;effectiveLevel:StaffLevel;pendingElevationLevel:StaffLevel|null;permissionsVersion:number;activeSessions:number;status:'ACTIVE'|'REVOKED'}
 export interface RoleSyncResult { discordUserId: string; previousLevel: StaffLevel | null; requestedLevel: StaffLevel | null; effectiveLevel: StaffLevel | null; status: 'APPLIED' | 'NO_CHANGE' | 'ACCESS_REVOKED'; permissionsVersion: number; sessionsRevoked: boolean }
 export interface PendingRoleElevation { code: 'ROLE_ELEVATION_PENDING'; staffId: string; effectiveLevel: StaffLevel; requestedLevel: StaffLevel; approvalRequestId: string }
 interface StagedAccessWrite<T> { data: T; statusCode?: number; commit(audit: AuditRecord, auditSink: AuditSink): Promise<void> | void }
 
 export interface AccessStore {
+  listStaff(input:{guildId:string;cursor:string|null;limit:number}):Promise<{items:AdminStaffAccountRecord[];nextCursor:string|null}>|{items:AdminStaffAccountRecord[];nextCursor:string|null};
   listMappings(): RoleMappingRecord[] | Promise<RoleMappingRecord[]>;
   updateMapping(input: { guildId: string; discordRoleId: string; targetLevel: StaffLevel; expectedVersion: number; enabled: boolean; actorStaffId: string; now: Date }): StagedAccessWrite<RoleMappingRecord> | Promise<StagedAccessWrite<RoleMappingRecord>>;
   syncRoles(input: { guildId: string; discordUserId: string; observedRoleIds: string[]; mappingVersion: number; source: string; sourceEventId: string; observedAt: Date }): StagedAccessWrite<RoleSyncResult | PendingRoleElevation> | Promise<StagedAccessWrite<RoleSyncResult | PendingRoleElevation>>;
@@ -44,6 +46,7 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
     for (const item of this.mappings) generations.set(item.guildId, Math.max(generations.get(item.guildId) ?? 0, item.version));
     return this.mappings.filter((item) => item.enabled).map((item) => ({ ...item, version: generations.get(item.guildId) ?? item.version })).sort((a, b) => rank[a.targetLevel] - rank[b.targetLevel]);
   }
+  listStaff(input:{guildId:string;cursor:string|null;limit:number}){const sorted=[...this.staff.values()].filter((item)=>item.guildId===input.guildId).sort((a,b)=>a.staffId.localeCompare(b.staffId));const start=input.cursor?Math.max(0,sorted.findIndex((item)=>item.staffId===input.cursor)+1):0;const page=sorted.slice(start,start+input.limit);return{items:page.map((item)=>({staffId:item.staffId,displayName:`Discord ••••${item.discordUserId.slice(-4)}`,effectiveLevel:item.level,pendingElevationLevel:item.requestedLevel,permissionsVersion:item.permissionsVersion,activeSessions:0,status:item.status})),nextCursor:start+input.limit<sorted.length?page.at(-1)?.staffId??null:null};}
 
   resolveByDiscord(input: { discordUserId: string; guildId: string }): StaffAccount | null {
     const staffId = this.staffByDiscord.get(key(input.guildId, input.discordUserId));
@@ -140,6 +143,7 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
     const current = this.staff.get(input.targetStaffId); if (!current) throw new AccessError('NOT_FOUND', 'Staff account was not found.');
     if (current.permissionsVersion !== input.expectedPermissionsVersion) throw new AccessError('CONFLICT', 'Staff permissions version is stale.');
     if (input.status === 'ACTIVE' && rank[input.level] > rank[current.level]) throw new AccessError('VALIDATION_ERROR', 'Manual role updates cannot bypass advanced elevation approval.');
+    if(current.level==='L4_ADMIN_OWNER'&&current.status==='ACTIVE'&&(input.status==='REVOKED'||input.level!=='L4_ADMIN_OWNER')&&[...this.staff.values()].filter((item)=>item.guildId===current.guildId&&item.level==='L4_ADMIN_OWNER'&&item.status==='ACTIVE').length<=1)throw new AccessError('CONFLICT','The only active owner cannot be removed.');
     const next = { ...current, level: input.level, requestedLevel: null, status: input.status, permissionsVersion: current.permissionsVersion + 1 };
     return staged({ ...cloneStaff(next), sessionsRevoked: true }, async (audit, sink) => { await sink.append(audit); this.staff.set(next.staffId, next); if (input.status === 'REVOKED') this.manuallyRevoked.add(next.staffId); else this.manuallyRevoked.delete(next.staffId); await this.options.authStore.revokeStaffSessions(next.staffId, input.now); });
   }
@@ -189,6 +193,8 @@ type SyncOutcome = RoleSyncResult | PendingRoleElevation;
 /** PostgreSQL access persistence. Discord Roles remain observations; staff_accounts is authoritative. */
 export class PostgresAccessStore implements AccessStore {
   constructor(private readonly pool: Pool) {}
+
+  async listStaff(input:{guildId:string;cursor:string|null;limit:number}){const rows=await this.pool.query<{staff_id:string;display_name:string;level:StaffLevel;requested_level:StaffLevel|null;permissions_version:number;status:'ACTIVE'|'REVOKED';active_sessions:number}>(`SELECT staff.id staff_id,u.display_name,staff.level,staff.requested_level,staff.permissions_version,staff.status,COUNT(session.id) FILTER (WHERE session.revoked_at IS NULL AND session.expires_at>now())::int active_sessions FROM staff_accounts staff JOIN users u ON u.id=staff.user_id JOIN discord_accounts account ON account.user_id=u.id AND account.guild_id=$1 LEFT JOIN staff_sessions session ON session.staff_id=staff.id WHERE ($2::uuid IS NULL OR staff.id>$2::uuid) GROUP BY staff.id,u.display_name ORDER BY staff.id LIMIT $3`,[input.guildId,input.cursor,input.limit+1]);const page=rows.rows.slice(0,input.limit);return{items:page.map((row)=>({staffId:row.staff_id,displayName:row.display_name,effectiveLevel:row.level,pendingElevationLevel:row.requested_level,permissionsVersion:row.permissions_version,activeSessions:Number(row.active_sessions),status:row.status})),nextCursor:rows.rows.length>input.limit?page.at(-1)?.staff_id??null:null};}
 
   async bootstrapOwner(input: { guildId: string; discordUserId: string; now: Date }): Promise<StaffAccessRecord> {
     const client = await this.pool.connect();
@@ -830,6 +836,7 @@ function isUniqueSyncEventViolation(error: unknown): boolean {
 export function registerAccessRoutes(server: FastifyInstance, options: { store: AccessStore; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Access routes require security options.');
   const security = server.securityOptions; const auditSink = security.auditSink ?? new InMemoryAuditSink(); const now = options.now ?? (() => new Date());
+  registerSecureReadRoute(server,security,{method:'GET',url:'/api/v1/admin/staff',permission:'access.manage',action:'LIST_ADMIN_STAFF_ACCOUNTS',targetType:'staff_account',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,mapError,handler:(request,actor)=>{if(!actor.guildId)throw new AccessError('NOT_FOUND','Guild was not found.');const query=request.query as {cursor?:unknown;limit?:unknown};const cursor=query.cursor===undefined?null:String(query.cursor);const limit=Number(query.limit??25);if(!Number.isInteger(limit)||limit<1||limit>100)throw new AccessError('VALIDATION_ERROR','limit is invalid.');return options.store.listStaff({guildId:actor.guildId,cursor,limit});}});
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/discord-role-mappings', permission: 'access.read', action: 'LIST_DISCORD_ROLE_MAPPINGS', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, handler: async () => ({ items: await options.store.listMappings() }) });
   registerSecureWriteRoute(server, security, { method: 'PUT', url: '/api/v1/admin/discord-role-mappings/:level', permission: 'access.manage', action: 'UPDATE_DISCORD_ROLE_MAPPING', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request, actor) => { parseReason(request); return bind(await options.store.updateMapping({ ...parseMapping(request), targetLevel: levelParam(request), actorStaffId: actor.actorStaffId!, now: now() }), auditSink); } });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/internal/discord/role-sync', permission: 'access.role_sync', action: 'SYNC_DISCORD_ROLES', targetType: 'staff_account', acceptedSources: ['DISCORD_BOT'], allowServiceActor: true, mapError, handler: async (request) => bind(await options.store.syncRoles(parseSync(request)), auditSink) });
