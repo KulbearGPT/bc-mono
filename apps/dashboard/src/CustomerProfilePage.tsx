@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { AlertTriangle, ChevronRight, RefreshCw, UserRound } from 'lucide-react';
 import { formatProfileMoney, type CustomerProfileView } from './customer-profile.js';
 import { CustomerWalletPanel } from './CustomerWalletPanel.js';
-import type { WalletBalance,WalletEntry,WalletFundingSubmission } from './customer-wallet.js';
+import type { WalletAdjustmentSubmission,WalletBalance,WalletEntry,WalletFundingSubmission } from './customer-wallet.js';
 
 export function CustomerProfilePage(props: { model: CustomerProfileView; window: 'DAYS_30' | 'DAYS_90' | 'ALL';
   onWindowChange: (value: 'DAYS_30' | 'DAYS_90' | 'ALL') => void; onRetryModule: (module: string) => void;
   onNextOrders: (cursor: string) => void; onNextConsumptions: (cursor: string) => void;
   canAppendInternalNote?: boolean; internalNoteBusy?: boolean; internalNoteError?: string | null;
   onAppendInternalNote?: (body: string) => Promise<boolean>;
-  wallet?:{balance:WalletBalance;entries:WalletEntry[];busy:boolean};walletError?:string|null;onTopUp?:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund?:(value:WalletFundingSubmission)=>void|Promise<void> }) {
+  wallet?:{balance:WalletBalance;entries:WalletEntry[];busy:boolean};walletError?:string|null;onTopUp?:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund?:(value:WalletFundingSubmission)=>void|Promise<void>;canAdjustWallet?:boolean;onWalletAdjustment?:(value:WalletAdjustmentSubmission)=>void|Promise<void> }) {
   const { modules } = props.model; const identity = modules.identity.kind === 'READY' ? modules.identity.data : null;
   const [internalNoteBody,setInternalNoteBody]=useState('');
   async function appendInternalNote(event:React.FormEvent){event.preventDefault();if(!props.onAppendInternalNote)return;
@@ -20,7 +20,7 @@ export function CustomerProfilePage(props: { model: CustomerProfileView; window:
       <Module title="账户" state={modules.identity} retry={() => props.onRetryModule('identity')}><dl className="compact-definition"><dt>业务用户</dt><dd>{String(identity?.userId ?? '—')}</dd><dt>Discord</dt><dd>{String(identity?.discordUserId ?? '—')}</dd></dl></Module>
       <Module title="余额" state={modules.balance} retry={() => props.onRetryModule('balance')}><Balance data={'data' in modules.balance ? modules.balance.data : undefined} /></Module>
     </div>
-    {props.wallet&&props.onTopUp&&props.onExternalRefund?<CustomerWalletPanel userId={String(identity?.userId??'')} {...props.wallet} onTopUp={props.onTopUp} onExternalRefund={props.onExternalRefund}/>:null}
+    {props.wallet&&props.onTopUp&&props.onExternalRefund?<CustomerWalletPanel userId={String(identity?.userId??'')} {...props.wallet} onTopUp={props.onTopUp} onExternalRefund={props.onExternalRefund} canAdjust={props.canAdjustWallet} onAdjustment={props.onWalletAdjustment}/>:null}
     {props.walletError&&<section className="content-panel" aria-label="客户钱包"><h2>客户钱包</h2><p className="module-error"><AlertTriangle size={15}/> 钱包模块载入失败</p><small>request_id: {props.walletError}</small></section>}
     <div className="content-panel statistics-panel"><div className="section-title-row"><h2>消费统计</h2><div className="segmented-control" role="group" aria-label="统计窗口">{(['DAYS_30','DAYS_90','ALL'] as const).map((value) => <button key={value} aria-pressed={props.window === value} onClick={() => props.onWindowChange(value)}>{value === 'DAYS_30' ? '30 天' : value === 'DAYS_90' ? '90 天' : '全部'}</button>)}</div></div><Statistics state={modules.statistics} retry={() => props.onRetryModule('statistics')} /></div>
     <div className="profile-detail-stack">

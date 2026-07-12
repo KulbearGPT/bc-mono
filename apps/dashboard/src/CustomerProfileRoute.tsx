@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 import { CustomerProfilePage } from './CustomerProfilePage.js';
 import { appendCursor, buildCustomerProfileRequests, buildCustomerProfileView, type CustomerProfileModules, type PageModule } from './customer-profile.js';
-import { buildWalletRequest,createWalletIdempotencyKey,walletPaths,type WalletBalance,type WalletEntry,type WalletFundingSubmission } from './customer-wallet.js';
+import { buildWalletAdjustmentRequest,buildWalletRequest,createWalletAdjustmentIdempotencyKey,createWalletIdempotencyKey,walletPaths,type WalletAdjustmentSubmission,type WalletBalance,type WalletEntry,type WalletFundingSubmission } from './customer-wallet.js';
 
 export function CustomerProfileRoute(props: { userId: string; capabilities: DashboardCapabilities }) {
   const client = useMemo(() => createDashboardApiClient(), []); const [windowValue, setWindow] = useState<'DAYS_30' | 'DAYS_90' | 'ALL'>('DAYS_30');
@@ -13,6 +13,7 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   const fundingKeys=useRef<Partial<Record<'TOP_UP'|'CASH_REFUND_DEBIT',string>>>({});
   const mayRead = props.capabilities.permissions.includes('customer_profile.read');
   const mayAppendInternalNote = props.capabilities.permissions.includes('customer_profile.note.append');
+  const mayAdjustWallet = props.capabilities.permissions.includes('wallet.adjust');
 
   async function loadSummary(window = windowValue) {
     setModules((current) => ({ ...current, identity: { kind: 'LOADING' }, balance: { kind: 'LOADING' }, statistics: { kind: 'LOADING' }, preferences: { kind: 'LOADING' }, internal: { kind: 'LOADING' } }));
@@ -37,6 +38,9 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
     if(submission.receipt){const form=new FormData();form.append('evidenceType',kind);form.append('evidenceId',body.data.id);form.append('file',submission.receipt);
       const upload=await client.upload(walletPaths(props.userId).receipt,form,`${key}:receipt`);if(!upload.ok){setWallet(current=>current?{...current,busy:false}:current);return;}}
     delete fundingKeys.current[kind];await Promise.all([loadSummary(),loadWallet()]);}
+  async function adjustWallet(submission:WalletAdjustmentSubmission){if(!wallet||wallet.busy)return;setWallet({...wallet,busy:true});
+    const request=buildWalletAdjustmentRequest(props.userId,submission,wallet.balance.version);const response=await client.post(request.path,request.body,createWalletAdjustmentIdempotencyKey(props.userId));
+    if(!response.ok){setWallet(current=>current?{...current,busy:false}:current);return;}await Promise.all([loadSummary(),loadWallet()]);}
   async function loadPage(kind: 'orders' | 'consumptions', cursor: string | null = null, append = false) {
     setModules((current) => ({ ...current, [kind]: { ...current[kind], kind: 'LOADING' } }));
     const base = buildCustomerProfileRequests(props.userId, windowValue)[kind]; const response = await client.get(cursor ? appendCursor(base, cursor) : base);
@@ -56,7 +60,7 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   return <CustomerProfilePage model={buildCustomerProfileView(modules)} window={windowValue} onWindowChange={changeWindow} onRetryModule={retry}
     onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet??undefined} walletError={walletError}
     canAppendInternalNote={mayAppendInternalNote} internalNoteBusy={internalNoteBusy} internalNoteError={internalNoteError} onAppendInternalNote={appendInternalNote}
-    onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} />;
+    onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} canAdjustWallet={mayAdjustWallet} onWalletAdjustment={adjustWallet} />;
 }
 
 function loadingPage(): PageModule { return { kind: 'LOADING', items: [], nextCursor: null }; }

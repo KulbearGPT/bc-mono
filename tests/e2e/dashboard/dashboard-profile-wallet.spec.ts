@@ -141,4 +141,12 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
   test('DE2E-WLT-008 staff wallet amounts use canonical USD formatting and never customer-token formatting', async ({ page }) => {
     await openProfile(page); const wallet = page.getByRole('region', { name: '客户钱包' }); const text = await wallet.textContent(); expect(text).toContain('USD'); expect(text).not.toContain('猫条'); expect(text).not.toContain('CAT'); await expect(wallet.getByLabel('实收金额（USD）')).toBeVisible(); await page.getByRole('button', { name: '渠道退款扣款' }).click(); await expect(wallet.getByLabel('扣回金额（USD）')).toBeVisible();
   });
+
+  test('DE2E-WLT-011 operations reverses an over-recorded top-up without editing the original entry', async ({ page, request }) => {
+    await page.goto('/__e2e/login/l3');await page.waitForURL('**/');await page.goto(`/admin/users/${userId}/profile`);
+    await fillFunding(page,'50.00','receipt-over-recorded');await page.getByRole('button',{name:'确认充值'}).click();await expect(page.getByRole('cell',{name:'MANUAL_TOP_UP'})).toBeVisible();
+    await page.getByRole('button',{name:'账目冲正'}).click();await page.getByLabel('冲正金额（USD）').fill('12.50');await page.getByLabel('冲正原因').fill('复核老板付款截图后确认充值多记 USD 12.50');
+    await page.getByRole('button',{name:'追加冲正'}).click();await expect(page.getByRole('cell',{name:'ADJUSTMENT_DEBIT'})).toBeVisible();
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.walletEntries).toHaveLength(2);expect(state.walletEntries[0]).toMatchObject({entryType:'MANUAL_TOP_UP',amountMinor:5000});expect(state.walletEntries[1]).toMatchObject({entryType:'ADJUSTMENT_DEBIT',amountMinor:1250,reversalOfEntryId:state.walletEntries[0].id});expect(state.walletBalance).toMatchObject({ledgerBalanceMinor:13750,reservedMinor:2500,availableMinor:11250,version:3});
+  });
 });

@@ -117,7 +117,7 @@ const userRecord = { id: '00000000-0000-0000-0000-000000000501', discordUserId: 
 const bulkUsers: Array<{ id: string; discordUserId: string; status: string; operationalStatus: string; version: number; createdAt: string }> = [];
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
 const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
-const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; occurredAt: string }> = [];
+const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; reversalOfEntryId?:string|null; occurredAt: string }> = [];
 const receiptAttachments: Array<{ id: string; evidenceId: string; mediaType: string; originalFileName: string; private: true }> = [];
 const profileNotes: Array<{ id: string; text: string; createdAt: string; authorStaffId: string }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
@@ -360,6 +360,15 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     walletEntries.push(entry); walletBalance.ledgerBalanceMinor -= amountMinor; walletBalance.availableMinor -= amountMinor; walletBalance.version += 1;
     return entry;
   }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method:'POST',url:'/api/v1/admin/users/:userId/wallet-adjustments',permission:'wallet.adjust',action:'CREATE_E2E_WALLET_ADJUSTMENT',targetType:'wallet_entry',acceptedSources:['DASHBOARD'],successStatusCode:201,
+  mapError:(error)=>error instanceof Error&&error.message==='STALE_WALLET'?{statusCode:409,code:'VERSION_CONFLICT',message:'The wallet version changed.'}:null,
+  handler:(request)=>{const body=request.body as {entryType?:unknown;amountMinor?:unknown;reversalOfEntryId?:unknown;reason?:unknown;expectedWalletVersion?:unknown};
+    if(body.expectedWalletVersion!==walletBalance.version)throw new Error('STALE_WALLET');const original=walletEntries.find((entry)=>entry.id===body.reversalOfEntryId);if(!original)throw new Error('MISSING_ORIGINAL');
+    const amountMinor=Number(body.amountMinor);const direction=body.entryType==='ADJUSTMENT_CREDIT'?'CREDIT':'DEBIT';if(!Number.isSafeInteger(amountMinor)||amountMinor<=0||!String(body.reason??'').trim()||direction==='DEBIT'&&amountMinor>walletBalance.availableMinor)throw new Error('INVALID_ADJUSTMENT');
+    const entry={id:`wallet-${walletEntries.length+1}`,entryType:String(body.entryType),direction,amountMinor,currency:'USD' as const,sourceType:'WALLET_ADJUSTMENT',sourceId:`adjustment-${walletEntries.length+1}`,reversalOfEntryId:original.id,occurredAt:'2026-08-05T11:00:00.000Z'};walletEntries.push(entry);
+    const delta=direction==='CREDIT'?amountMinor:-amountMinor;walletBalance.ledgerBalanceMinor+=delta;walletBalance.availableMinor+=delta;walletBalance.version+=1;return entry;}
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
