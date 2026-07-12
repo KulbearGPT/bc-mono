@@ -757,6 +757,11 @@ for (const action of ['approve', 'reject'] as const) {
     }
   });
 }
+registerSecureWriteRoute(server,server.securityOptions!,{
+  method:'PUT',url:'/api/v1/admin/players/:playerId/operational-status',permission:'player.status.manage',action:'SET_E2E_PLAYER_OPERATIONAL_STATUS',targetType:'player',targetId:()=>playerRecord.playerId,acceptedSources:['DASHBOARD'],
+  mapError:(error)=>error instanceof Error&&error.message==='STALE_PLAYER'?{statusCode:409,code:'VERSION_CONFLICT',message:'The player version changed.'}:null,
+  handler:(request)=>{const body=request.body as {expectedVersion?:unknown;reviewStatus?:unknown;reasonCode?:unknown;note?:unknown};if(body.expectedVersion!==playerRecord.version||!['APPROVED','ACTIVE','PAUSED','SUSPENDED'].includes(playerRecord.reviewStatus))throw new Error('STALE_PLAYER');if(!['ACTIVE','PAUSED','SUSPENDED'].includes(String(body.reviewStatus))||typeof body.reasonCode!=='string')throw new Error('INVALID_PLAYER_STATUS');playerRecord.reviewStatus=String(body.reviewStatus);if(playerRecord.reviewStatus!=='ACTIVE')playerRecord.availability='OFFLINE';playerRecord.version+=1;return{...playerRecord};}
+});
 
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'PUT', url: '/api/v1/admin/players/:playerId/tags', permission: 'player.tags.manage', action: 'UPDATE_E2E_PLAYER_TAGS', targetType: 'player', targetId: () => playerRecord.playerId, acceptedSources: ['DASHBOARD'],
@@ -799,7 +804,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/orders/:orderId/participant-candidates', permission: 'order.read', action: 'READ_E2E_ORDER_PARTICIPANT_CANDIDATES', targetType: 'order', acceptedSources: ['DASHBOARD'],
-  handler: () => { const active=new Set(orderParticipants.filter((participant)=>participant.status==='ACTIVE').map((participant)=>String(participant.playerId)));return { items: Array.from({ length: 9 }, (_, index) => ({ playerId: `player-e2e-${index + 1}`, discordUserId: `discord-player-${index + 1}`, displayName: `E2E 陪玩 ${index + 1}`, projects: [initialCatalog, alternateOrderCatalog] })).filter((candidate)=>!active.has(candidate.playerId)), nextCursor: null }; }
+  handler: () => { const active=new Set(orderParticipants.filter((participant)=>participant.status==='ACTIVE').map((participant)=>String(participant.playerId)));const target=['APPROVED','ACTIVE'].includes(playerRecord.reviewStatus)?[{playerId:playerRecord.playerId,discordUserId:'discord-target-player',displayName:playerRecord.displayName,projects:[initialCatalog]}]:[];return { items: [...target,...Array.from({ length: 9 }, (_, index) => ({ playerId: `player-e2e-${index + 1}`, discordUserId: `discord-player-${index + 1}`, displayName: `E2E 陪玩 ${index + 1}`, projects: [initialCatalog, alternateOrderCatalog] }))].filter((candidate)=>!active.has(candidate.playerId)), nextCursor: null }; }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/orders/:orderId/participants', permission: 'order.resolve', action: 'ADD_E2E_ORDER_PARTICIPANT', targetType: 'order_participant', acceptedSources: ['DASHBOARD'], successStatusCode: 201,

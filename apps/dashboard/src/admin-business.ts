@@ -118,6 +118,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     actions: [
       { id: 'APPROVE_COMPANION', label: '批准陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
       { id: 'REJECT_COMPANION', label: '拒绝陪玩申请', permission: 'player.approve', requiresReason: true, scope: 'ITEM' },
+      { id: 'SET_PLAYER_OPERATIONAL_STATUS', label: '管理接单资格', permission: 'player.status.manage', requiresReason: true, scope: 'ITEM' },
       { id: 'EDIT_COMPANION_TAGS', label: '编辑支持范围', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' },
       { id: 'EDIT_PLAYER_COMPENSATION', label: '设置项目分成', permission: 'player.tags.manage', requiresReason: true, scope: 'ITEM' }
     ]
@@ -347,6 +348,7 @@ export function buildAdminActionRequest(input: {
     return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation/${encodeURIComponent(serviceOfferingId)}`,body:{expectedVersion:optionalPositiveInteger(input.fields.compensationVersion),type,value,currency:type==='FIXED_MINOR'?'CAT':null,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
     reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}
+  if(input.actionId==='SET_PLAYER_OPERATIONAL_STATUS'){const item=requirePlayerItem(input.item);const reviewStatus=requireEnum(input.fields.status,['ACTIVE','PAUSED','SUSPENDED'],'status');return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/operational-status`,body:{expectedVersion:item.version,reviewStatus,reasonCode:requireReasonCode(input.fields.reasonCode),note:optionalText(input.fields.note)}};}
   if (input.actionId === 'SET_OPERATIONAL_STATUS') {
     const item = requireItem(input.item);
     const status = requireEnum(input.fields.status, ['ACTIVE', 'PAUSED', 'SUSPENDED'], 'status');

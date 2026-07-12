@@ -184,7 +184,7 @@ function businessCardContent(page: AdminBusinessPageModel['page'], item: Record<
   if(page==='users'){const status=textValue(item.status)||'ACTIVE';return{eyebrow:`用户档案 · ${compactIdentifier(item.id)}`,title:textValue(item.displayName)||textValue(item.discordUsername)||`用户 ${index+1}`,summary:textValue(item.discordUsername)?`Discord · ${textValue(item.discordUsername)}`:'Discord 资料待补充',status,statusLabel:catalogStatusLabel(status),facts:[{label:'Discord 用户 ID',value:textValue(item.discordUserId)||'—'},{label:'当前订单',value:compactIdentifier(item.activeOrderId),muted:!item.activeOrderId},{label:'风险标记',value:Array.isArray(item.riskFlags)&&item.riskFlags.length?`${item.riskFlags.length} 项`:'无'},{label:'创建时间',value:formatOrderDate(item.createdAt)}]};}
   if (page === 'players') {
     const status = textValue(item.reviewStatus) || (item.active === false ? 'INACTIVE' : 'ACTIVE');
-    return { eyebrow: `陪玩档案 · ${compactIdentifier(item.playerId || item.id)}`, title: textValue(item.displayName) || textValue(item.discordTag) || `陪玩 ${index + 1}`, summary: [textValue(item.discordTag), textValue(item.gameTags), textValue(item.serviceTags)].filter(Boolean).join(' · ') || '支持范围待配置', status, statusLabel: playerStatusLabel(status), facts: [{ label: 'Discord Tag', value: textValue(item.discordTag) || '—' }, { label: '陪玩编号', value: compactIdentifier(item.playerId || item.id) }, { label: '运营状态', value: item.active === false ? '已停用' : '可参与派单' }, { label: '版本', value: scalarValue(item.version) }] };
+    return { eyebrow: `陪玩档案 · ${compactIdentifier(item.playerId || item.id)}`, title: textValue(item.displayName) || textValue(item.discordTag) || `陪玩 ${index + 1}`, summary: [textValue(item.discordTag), textValue(item.gameTags), textValue(item.serviceTags)].filter(Boolean).join(' · ') || '支持范围待配置', status, statusLabel: playerStatusLabel(status), facts: [{ label: 'Discord Tag', value: textValue(item.discordTag) || '—' }, { label: '陪玩编号', value: compactIdentifier(item.playerId || item.id) }, { label: '新接单资格', value: ['ACTIVE','APPROVED'].includes(status) ? '可进入候选池' : status==='PAUSED'?'已暂停':status==='SUSPENDED'?'已停用':'尚未准入' }, { label: '版本', value: scalarValue(item.version) }] };
   }
   if (page === 'serviceCatalog') {
     const game = textValue(item.gameDisplayName) || textValue(item.game) || '未指定游戏';
@@ -201,7 +201,7 @@ function businessCardContent(page: AdminBusinessPageModel['page'], item: Record<
 }
 
 function priceValue(amount: unknown, currency: unknown): string { return typeof amount === 'number' && typeof currency === 'string' ? formatMinorCurrency(amount, currency) : '由目录汇总'; }
-function playerStatusLabel(status: string): string { return ({ PENDING_REVIEW: '待审核', APPROVED: '已批准', REJECTED: '已拒绝', ACTIVE: '已启用', INACTIVE: '已停用' } as Record<string, string>)[status] ?? status; }
+function playerStatusLabel(status: string): string { return ({ PENDING_REVIEW: '待审核', APPROVED: '已批准', REJECTED: '已拒绝', ACTIVE: '可接新单', PAUSED: '已暂停', SUSPENDED: '已停用', INACTIVE: '已停用' } as Record<string, string>)[status] ?? status; }
 function catalogStatusLabel(status: string): string { return ({ DRAFT: '草稿', ACTIVE: '已启用', RETIRED: '已退役', INACTIVE: '已停用' } as Record<string, string>)[status] ?? status; }
 
 function orderBillingSummary(item: Record<string, unknown>): string {
@@ -286,7 +286,7 @@ function AdminBusinessTable(props: {
   );
 }
 
-function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='REFUND_ORDER')return ['COMPLETED','EXCEPTION'].includes(textValue(item.status));if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='REFUND_ORDER')return ['COMPLETED','EXCEPTION'].includes(textValue(item.status));if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='SET_PLAYER_OPERATIONAL_STATUS')return ['APPROVED','ACTIVE','PAUSED','SUSPENDED'].includes(textValue(item.reviewStatus));if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };
@@ -330,9 +330,9 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
   if(action.id==='EDIT_COMPANION_TAGS')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple selectedCodes={stringList(item?.gameTags)}/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple selectedCodes={stringList(item?.serviceTags)}/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false} selectedCodes={stringList(item?.languageTags)}/></>;
   if(action.id==='EDIT_PLAYER_COMPENSATION')return <PlayerCompensationFields offerings={serviceCatalogOptions??[]}/>;
   if(action.id==='REJECT_COMPANION')return <label className="field field--full"><span>拒绝说明</span><textarea name="note" required rows={4} maxLength={1000}/></label>;
-  if (action.id === 'SET_OPERATIONAL_STATUS') return <>
+  if (action.id === 'SET_OPERATIONAL_STATUS'||action.id==='SET_PLAYER_OPERATIONAL_STATUS') return <>
     <label className="field"><span>目标状态</span><select name="status" required defaultValue="PAUSED"><option value="ACTIVE">恢复</option><option value="PAUSED">暂停</option><option value="SUSPENDED">停用</option></select></label>
-    <label className="field field--full"><span>处理说明</span><textarea name="note" rows={3} maxLength={1000} /></label>
+    <label className="field field--full"><span>处理说明</span><textarea name="note" rows={3} maxLength={1000} /></label>{action.id==='SET_PLAYER_OPERATIONAL_STATUS'?<p className="field-help field--full">此状态由员工控制候选池与新订单申请资格；Discord 在线状态仅供诊断。</p>:null}
   </>;
   if (action.id === 'CREATE_GIFT') return <GiftCatalogFields options={businessTagOptions}/>;
   if (action.id === 'CREATE_SERVICE_VERSION') return <ServiceCatalogFields options={businessTagOptions}/>;

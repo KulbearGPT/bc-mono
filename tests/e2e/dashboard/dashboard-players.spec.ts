@@ -116,4 +116,14 @@ test.describe('Dashboard browser E2E: player onboarding and compensation', () =>
     expect(['APPROVED', 'REJECTED']).toContain(state.player.reviewStatus);
     await approving.context.close(); await rejecting.context.close();
   });
+
+  test('DE2E-PLY-010 operations pauses a player and removes them from new-order candidates', async ({ page, request }) => {
+    await openPlayers(page);await approve(page);
+    const candidatesBefore=await page.evaluate(async()=>fetch('/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/participant-candidates?limit=100',{credentials:'include',headers:{'x-client-source':'DASHBOARD'}}).then((response)=>response.json()));
+    expect(candidatesBefore.data.items.some((item:{playerId:string})=>item.playerId===playerId)).toBe(true);
+    await page.getByRole('button',{name:'管理接单资格'}).click();await page.getByLabel('目标状态').selectOption('PAUSED');await page.getByLabel('处理说明').fill('老板在服务中投诉，调查期间暂停该陪玩进入新订单候选池。');await page.getByLabel('原因码').fill('CUSTOMER_COMPLAINT_REVIEW');
+    const dialog=page.getByRole('dialog',{name:'管理接单资格操作'});await dialog.getByRole('button',{name:'提交',exact:true}).click();await expect(dialog).toBeHidden();await expect(page.locator('.business-discussion-card__status',{hasText:'已暂停'})).toBeVisible();
+    const candidatesAfter=await page.evaluate(async()=>fetch('/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/participant-candidates?limit=100',{credentials:'include',headers:{'x-client-source':'DASHBOARD'}}).then((response)=>response.json()));expect(candidatesAfter.data.items.some((item:{playerId:string})=>item.playerId===playerId)).toBe(false);
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.player).toMatchObject({reviewStatus:'PAUSED',availability:'OFFLINE',version:3});
+  });
 });
