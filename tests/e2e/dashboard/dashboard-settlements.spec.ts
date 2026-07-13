@@ -64,7 +64,7 @@ test.describe('Dashboard browser E2E: settlements and weekly reports', () => {
   });
 
   test('DE2E-RPT-001 weekly report page and CSV expose identical period and canonical amount facts', async ({ page }) => {
-    await login(page); await page.getByRole('link', { name: '周报', exact: true }).click(); await expect(page.getByText('R-E2E-001')).toBeVisible(); await expect(page.getByText('USD 115.00')).toBeVisible(); const response = await page.request.get('/api/v1/admin/weekly-reports/weekly-report-e2e-1/export', { headers: { 'x-client-source': 'DASHBOARD' } }); expect(response.status()).toBe(200); const csv = await response.text(); expect(csv).toContain('2026-07-27,2026-08-03,10000,2000,-500,11500,USD');
+    await login(page); await page.getByRole('link', { name: '周报', exact: true }).click(); await expect(page.getByText('R-E2E-001')).toBeVisible(); await expect(page.getByText('1,150.0 猫条 · USD 115.00')).toBeVisible(); const response = await page.request.get('/api/v1/admin/weekly-reports/weekly-report-e2e-1/export', { headers: { 'x-client-source': 'DASHBOARD' } }); expect(response.status()).toBe(200); const csv = await response.text(); expect(csv).toContain('2026-07-27,2026-08-03,10000,2000,-500,11500,CAT');
   });
 });
 

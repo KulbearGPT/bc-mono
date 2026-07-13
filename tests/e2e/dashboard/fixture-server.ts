@@ -97,9 +97,9 @@ function projectSupportTask(task: StaffTask) {
     firstRespondedAt: task.status === 'OPEN' ? null : '2026-08-05T00:01:00.000Z'
   };
 }
-const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'USD', createdAt: '2026-08-05T00:00:00.000Z' };
+const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'CAT', createdAt: '2026-08-05T00:00:00.000Z' };
 type BulkOrder = {
-  id: string; publicId: string; version: number; status: string; customerDiscordId: string; amountMinor: number; currency: 'USD'; createdAt: string;
+  id: string; publicId: string; version: number; status: string; customerDiscordId: string; amountMinor: number; currency: 'CAT'; createdAt: string;
   guildId: string; playerEarningMinor: number; reservationStatus: 'ACTIVE' | 'CAPTURED' | 'RELEASED' | 'DISPUTED'; resolutionCount: number;
   refundMinor: number; earningMinor: number; resolutionReason: string | null;
 };
@@ -116,8 +116,8 @@ let reservationCreateCount = 1;
 const userRecord = { id: '00000000-0000-0000-0000-000000000501',displayName:'E2E 老板', discordUserId: 'customer-e2e', status: 'ACTIVE', operationalStatus: 'ACTIVE', version: 2, createdAt: '2026-08-01T00:00:00.000Z' };
 const bulkUsers: Array<{ id: string; discordUserId: string; status: string; operationalStatus: string; version: number; createdAt: string }> = [];
 const riskEvents: Array<{ type: string; severity: string; source: string; notes: string }> = [];
-const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'USD' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
-const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'USD'; sourceType: string; sourceId: string; reversalOfEntryId?:string|null; occurredAt: string }> = [];
+const walletBalance = { ledgerBalanceMinor: 10_000, reservedMinor: 2_500, availableMinor: 7_500, currency: 'CAT' as const, calculatedAt: '2026-08-05T00:00:00.000Z', version: 1 };
+const walletEntries: Array<{ id: string; entryType: string; direction: 'CREDIT' | 'DEBIT'; amountMinor: number; currency: 'CAT'; sourceType: string; sourceId: string; reversalOfEntryId?:string|null; occurredAt: string }> = [];
 const receiptAttachments: Array<{ id: string; evidenceId: string; mediaType: string; originalFileName: string; private: true }> = [];
 const profileNotes: Array<{ id: string; text: string; createdAt: string; authorStaffId: string }> = [];
 const playerRecord = { id: 'profile-e2e', playerId: '00000000-0000-0000-0000-000000000601', displayName: 'E2E 陪玩', reviewStatus: 'PENDING_REVIEW', availability: 'OFFLINE', version: 1, gameTags: [] as string[], serviceTags: [] as string[], languageTags: [] as string[], gameTagIds: [] as string[], serviceTagIds: [] as string[], languageTagIds: [] as string[], createdAt: '2026-08-02T00:00:00.000Z' };
@@ -143,7 +143,7 @@ const packageRecords: Array<Record<string, unknown>> = [];
 const initialGift = { id: '00000000-0000-0000-0000-000000000703', name: 'E2E 星光礼物', giftCategoryTagId: 'tag-gift-celebration', category: 'CELEBRATION', priceMinor: 1000, currency: 'CAT', broadcastTemplate: '{sender} 送给 {receiver} 星光礼物', status: 'ACTIVE', enabled: true, version: 1, historicalRequestCount: 1 };
 const giftRecords: Array<Record<string, unknown>> = [];
 const giftRequestRecords: Array<Record<string, unknown>> = [];
-const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'USD', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
+const earningRecord = { id: '00000000-0000-0000-0000-000000000706', playerId: '00000000-0000-0000-0000-000000000601', status: 'PENDING', amountMinor: 2400, currency: 'CAT', version: 1, confirmedAt: null as string | null, paidAt: null as string | null };
 let earningPaymentWrites = 0;
 let giftReservationCaptureCount = 0;
 let giftReservationReleaseCount = 0;
@@ -197,7 +197,7 @@ function resetState() {
   Object.assign(roleMapping, { discordRoleId: 'role-e2e-l4', enabled: true, version: 1, reconciliationQueued: false });
   staffAccounts.splice(0,staffAccounts.length,...initialStaffAccounts.map((item)=>({...item})));
   settlementBatches.length = 0;
-  weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'USD', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
+  weeklyReports.splice(0, weeklyReports.length, { id: 'weekly-report-e2e-1', publicId: 'R-E2E-001', status: 'CURRENT', periodStart: '2026-07-27T00:00:00.000Z', periodEnd: '2026-08-03T00:00:00.000Z', currency: 'CAT', currentRevision: 1, metrics: { orderRevenueMinor: 10_000, giftRevenueMinor: 2_000, adjustmentsMinor: -500, netPayableMinor: 11_500 } });
   outboxMessages.length = 0; workerRunning = true; workerSideEffectCount = 0; apiRuntimeEpoch = 1; workerRuntimeEpoch = 1;
   auditSink.records.length = 0;
   faults.clear();
@@ -287,7 +287,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
 
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/profile-summary', permission: 'customer_profile.read', action: 'GET_E2E_PROFILE_SUMMARY', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id,displayName:userRecord.displayName, discordUserId: userRecord.discordUserId, status: userRecord.status,version:userRecord.version }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'USD' }, preferences: { language: 'zh-CN' }, internalNotes: profileNotes.map(({ authorStaffId: _authorStaffId, ...note }) => note), riskFlags: [] })
+  handler: (request) => ({ user: { id: userRecord.id, userId: userRecord.id,displayName:userRecord.displayName, discordUserId: userRecord.discordUserId, status: userRecord.status,version:userRecord.version }, balance: { ...walletBalance }, statistics: { window: (request.query as { window?: string }).window, completedOrderCount: 2, orderSpendMinor: 8_000, giftSpendMinor: 1_000, totalConsumptionMinor: 9_000, currency: 'CAT' }, preferences: { language: 'zh-CN' }, internalNotes: profileNotes.map(({ authorStaffId: _authorStaffId, ...note }) => note), riskFlags: [] })
 });
 registerSecureWriteRoute(server,server.securityOptions!,{method:'PATCH',url:'/api/v1/admin/users/:userId/profile-summary',permission:'customer_profile.manage',action:'UPDATE_E2E_CUSTOMER_PROFILE',targetType:'user',acceptedSources:['DASHBOARD'],
   mapError:(error)=>error instanceof Error&&error.message==='STALE_PROFILE'?{statusCode:409,code:'CONFLICT',message:'Customer profile version is stale.'}:null,
@@ -300,13 +300,13 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/orders', permission: 'customer_profile.read', action: 'LIST_E2E_PROFILE_ORDERS', targetType: 'customer_profile', acceptedSources: ['DASHBOARD'],
-  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'profile-order-2', publicId: 'P-PROFILE-002', status: 'COMPLETED', amountMinor: 2500, currency: 'USD', createdAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: orderRecord.id, publicId: orderRecord.publicId, status: orderRecord.status, amountMinor: orderRecord.amountMinor, currency: 'USD', createdAt: orderRecord.createdAt }], nextCursor: 'profile-orders-2' }
+  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'profile-order-2', publicId: 'P-PROFILE-002', status: 'COMPLETED', amountMinor: 2500, currency: 'CAT', createdAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: orderRecord.id, publicId: orderRecord.publicId, status: orderRecord.status, amountMinor: orderRecord.amountMinor, currency: 'CAT', createdAt: orderRecord.createdAt }], nextCursor: 'profile-orders-2' }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_E2E_WALLET', targetType: 'wallet', acceptedSources: ['DASHBOARD'], handler: () => { if (faults.has('wallet')) throw new Error('E2E_WALLET_FAILURE'); return { ...walletBalance }; }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
-  method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_E2E_WALLET_ENTRIES', targetType: 'wallet_entry', acceptedSources: ['DASHBOARD'], handler: () => { if (faults.has('wallet')) throw new Error('E2E_WALLET_FAILURE'); return [...walletEntries]; }
+  method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_E2E_WALLET_ENTRIES', targetType: 'wallet_entry', acceptedSources: ['DASHBOARD'], handler: () => { if (faults.has('wallet')) throw new Error('E2E_WALLET_FAILURE'); return {items:[...walletEntries],nextCursor:null}; }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -315,7 +315,7 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     const body = request.body as { paidAmountUsdCents?: unknown; paidCurrency?: unknown; paymentMethod?: unknown; receiptNumber?: unknown; paidAt?: unknown; note?: unknown; reasonCode?: unknown };
     if (!Number.isSafeInteger(body.paidAmountUsdCents) || Number(body.paidAmountUsdCents) <= 0 || body.paidCurrency !== 'USD' || !body.receiptNumber || !body.paidAt || !body.note || !body.reasonCode) throw new Error('INVALID_TOP_UP');
     const amountMinor = Number(body.paidAmountUsdCents);
-    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'MANUAL_TOP_UP', direction: 'CREDIT' as const, amountMinor, currency: 'USD' as const, sourceType: 'STAFF_TOP_UP', sourceId: String(body.receiptNumber), occurredAt: String(body.paidAt) };
+    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'MANUAL_TOP_UP', direction: 'CREDIT' as const, amountMinor, currency: 'CAT' as const, sourceType: 'STAFF_TOP_UP', sourceId: String(body.receiptNumber), occurredAt: String(body.paidAt) };
     walletEntries.push(entry); walletBalance.ledgerBalanceMinor += amountMinor; walletBalance.availableMinor += amountMinor; walletBalance.version += 1;
     return entry;
   }
@@ -363,7 +363,7 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     if (body.expectedWalletVersion !== walletBalance.version) throw new Error('STALE_WALLET');
     if (!Number.isSafeInteger(body.amountMinor) || Number(body.amountMinor) <= 0 || Number(body.amountMinor) > walletBalance.availableMinor) throw new Error('INVALID_REFUND');
     const amountMinor = Number(body.amountMinor);
-    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'EXTERNAL_REFUND_DEBIT', direction: 'DEBIT' as const, amountMinor, currency: 'USD' as const, sourceType: 'EXTERNAL_REFUND', sourceId: String(body.externalTransactionId), occurredAt: String(body.refundedAt) };
+    const entry = { id: `wallet-${walletEntries.length + 1}`, entryType: 'EXTERNAL_REFUND_DEBIT', direction: 'DEBIT' as const, amountMinor, currency: 'CAT' as const, sourceType: 'EXTERNAL_REFUND', sourceId: String(body.externalTransactionId), occurredAt: String(body.refundedAt) };
     walletEntries.push(entry); walletBalance.ledgerBalanceMinor -= amountMinor; walletBalance.availableMinor -= amountMinor; walletBalance.version += 1;
     return entry;
   }
@@ -374,7 +374,7 @@ registerSecureWriteRoute(server, server.securityOptions!, {
   handler:(request)=>{const body=request.body as {entryType?:unknown;amountMinor?:unknown;reversalOfEntryId?:unknown;reason?:unknown;expectedWalletVersion?:unknown};
     if(body.expectedWalletVersion!==walletBalance.version)throw new Error('STALE_WALLET');const original=walletEntries.find((entry)=>entry.id===body.reversalOfEntryId);if(!original)throw new Error('MISSING_ORIGINAL');
     const amountMinor=Number(body.amountMinor);const direction=body.entryType==='ADJUSTMENT_CREDIT'?'CREDIT':'DEBIT';if(!Number.isSafeInteger(amountMinor)||amountMinor<=0||!String(body.reason??'').trim()||direction==='DEBIT'&&amountMinor>walletBalance.availableMinor)throw new Error('INVALID_ADJUSTMENT');
-    const entry={id:`wallet-${walletEntries.length+1}`,entryType:String(body.entryType),direction,amountMinor,currency:'USD' as const,sourceType:'WALLET_ADJUSTMENT',sourceId:`adjustment-${walletEntries.length+1}`,reversalOfEntryId:original.id,occurredAt:'2026-08-05T11:00:00.000Z'};walletEntries.push(entry);
+    const entry={id:`wallet-${walletEntries.length+1}`,entryType:String(body.entryType),direction,amountMinor,currency:'CAT' as const,sourceType:'WALLET_ADJUSTMENT',sourceId:`adjustment-${walletEntries.length+1}`,reversalOfEntryId:original.id,occurredAt:'2026-08-05T11:00:00.000Z'};walletEntries.push(entry);
     const delta=direction==='CREDIT'?amountMinor:-amountMinor;walletBalance.ledgerBalanceMinor+=delta;walletBalance.availableMinor+=delta;walletBalance.version+=1;return entry;}
 });
 
@@ -472,11 +472,11 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/settlement-batches/preview', permission: 'settlement.manage', action: 'PREVIEW_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
-  handler: (request) => { const body = request.body as { periodStart?: unknown }; return String(body.periodStart).startsWith('2099') ? { items: [], metrics: { netPayableMinor: 0 } } : { id: 'settlement-preview', publicId: 'PREVIEW', status: 'PREVIEW', periodStart: body.periodStart, periodEnd: (request.body as Record<string, unknown>).periodEnd, currency: 'USD', netAmountMinor: 4000, items: [{ id: 'preview-item', netAmountMinor: 4000 }] }; }
+  handler: (request) => { const body = request.body as { periodStart?: unknown }; return String(body.periodStart).startsWith('2099') ? { items: [], metrics: { netPayableMinor: 0 } } : { id: 'settlement-preview', publicId: 'PREVIEW', status: 'PREVIEW', periodStart: body.periodStart, periodEnd: (request.body as Record<string, unknown>).periodEnd, currency: 'CAT', netAmountMinor: 4000, items: [{ id: 'preview-item', netAmountMinor: 4000 }] }; }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/settlement-batches', permission: 'settlement.manage', action: 'CREATE_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'], successStatusCode: 201,
-  handler: (request, actor) => { const body = request.body as { periodStart?: unknown; periodEnd?: unknown; cutoffAt?: unknown; currency?: unknown }; if (body.currency !== 'CAT' && body.currency !== 'USD') throw new Error('INVALID_SETTLEMENT'); const high = String(body.periodStart).includes('2026-09'); const index = settlementBatches.length + 1; const record = { id: `settlement-e2e-${index}`, publicId: `S-E2E-${String(index).padStart(3, '0')}`, status: 'DRAFT', periodStart: body.periodStart, periodEnd: body.periodEnd, cutoffAt: body.cutoffAt, currency: body.currency, netAmountMinor: high ? 600_000 : 4_000, version: 1, createdByStaffId: actor.actorStaffId, approvedByStaffId: null, sourceLocked: false, replacementBatchId: null, items: [{ id: `settlement-item-${index}-1`, playerDisplayName: 'E2E 陪玩 A', netAmountMinor: high ? 350_000 : 2500, paymentStatus: 'UNREGISTERED', version: 1 }, { id: `settlement-item-${index}-2`, playerDisplayName: 'E2E 陪玩 B', netAmountMinor: high ? 250_000 : 1500, paymentStatus: 'UNREGISTERED', version: 1 }] }; settlementBatches.push(record); return record; }
+  handler: (request, actor) => { const body = request.body as { periodStart?: unknown; periodEnd?: unknown; cutoffAt?: unknown; currency?: unknown }; if (body.currency !== 'CAT') throw new Error('INVALID_SETTLEMENT'); const high = String(body.periodStart).includes('2026-09'); const index = settlementBatches.length + 1; const record = { id: `settlement-e2e-${index}`, publicId: `S-E2E-${String(index).padStart(3, '0')}`, status: 'DRAFT', periodStart: body.periodStart, periodEnd: body.periodEnd, cutoffAt: body.cutoffAt, currency: body.currency, netAmountMinor: high ? 600_000 : 4_000, version: 1, createdByStaffId: actor.actorStaffId, approvedByStaffId: null, sourceLocked: false, replacementBatchId: null, items: [{ id: `settlement-item-${index}-1`, playerDisplayName: 'E2E 陪玩 A', netAmountMinor: high ? 350_000 : 2500, paymentStatus: 'UNREGISTERED', version: 1 }, { id: `settlement-item-${index}-2`, playerDisplayName: 'E2E 陪玩 B', netAmountMinor: high ? 250_000 : 1500, paymentStatus: 'UNREGISTERED', version: 1 }] }; settlementBatches.push(record); return record; }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
   method: 'POST', url: '/api/v1/admin/settlement-batches/:batchId/submit', permission: 'settlement.manage', action: 'SUBMIT_E2E_SETTLEMENT', targetType: 'settlement_batch', acceptedSources: ['DASHBOARD'],
@@ -505,7 +505,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/weekly-reports', permission: 'weekly_report.read', action: 'LIST_E2E_WEEKLY_REPORTS', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], handler: () => ({ items: weeklyReports })
 });
 registerSecureReadRoute(server, server.securityOptions!, {
-  method: 'GET', url: '/api/v1/admin/weekly-reports/:reportId/export', permission: 'weekly_report.read', action: 'EXPORT_E2E_WEEKLY_REPORT', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], handler: () => 'period_start,period_end,order_revenue_minor,gift_revenue_minor,adjustments_minor,net_payable_minor,currency\n2026-07-27,2026-08-03,10000,2000,-500,11500,USD\n', rawResponse: (payload, reply) => { reply.type('text/csv; charset=utf-8'); return reply.send(`\uFEFF${String(payload)}`); }
+  method: 'GET', url: '/api/v1/admin/weekly-reports/:reportId/export', permission: 'weekly_report.read', action: 'EXPORT_E2E_WEEKLY_REPORT', targetType: 'weekly_report', acceptedSources: ['DASHBOARD'], handler: () => 'period_start,period_end,order_revenue_minor,gift_revenue_minor,adjustments_minor,net_payable_minor,currency\n2026-07-27,2026-08-03,10000,2000,-500,11500,CAT\n', rawResponse: (payload, reply) => { reply.type('text/csv; charset=utf-8'); return reply.send(`\uFEFF${String(payload)}`); }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -527,7 +527,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
     const requestedId = String((request.params as { orderId: string }).orderId);
     const currentOrder = bulkOrders.find((item) => item.id === requestedId) ?? orderRecord;
     const timeline = query.timelineCursor
-      ? { items: [{ id: 'evt-2', type: 'FUND_RESERVED', status: 'COMPLETED', direction: 'DEBIT', amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:01:00.000Z' }], nextCursor: null }
+      ? { items: [{ id: 'evt-2', type: 'FUND_RESERVED', status: 'COMPLETED', direction: 'DEBIT', amountMinor: 4000, currency: 'CAT', occurredAt: '2026-08-05T00:01:00.000Z' }], nextCursor: null }
       : { items: [{ id: 'evt-1', type: 'ORDER_ACCEPTED', status: 'COMPLETED', direction: 'INFO', amountMinor: null, currency: null, occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'timeline-2' };
     const automation = bulkOrders.length
       ? { state: 'PAUSED', version: 1, pausedByStaffId: null, reasonCode: 'SUPPORT_REVIEW', scope: 'ALL', expiresAt: null }
@@ -554,7 +554,7 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     const body = request.body as { expectedVersion?: unknown; targetStatus?: unknown; refund?: { amountMinor?: unknown; currency?: unknown }; playerEarning?: { amountMinor?: unknown; currency?: unknown } };
     if (!currentOrder || body.expectedVersion !== currentOrder.version) throw new Error('STALE_ORDER');
     if (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'].includes(currentOrder.status)) throw new Error('TERMINAL_ORDER');
-    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'USD' || body.playerEarning?.currency !== 'USD' || !Number.isSafeInteger(body.refund.amountMinor) || Number(body.refund.amountMinor) > currentOrder.amountMinor) throw new Error('INVALID_RESOLUTION');
+    if (body.targetStatus !== 'CANCELLED' || body.refund?.currency !== 'CAT' || body.playerEarning?.currency !== 'CAT' || !Number.isSafeInteger(body.refund.amountMinor) || Number(body.refund.amountMinor) > currentOrder.amountMinor) throw new Error('INVALID_RESOLUTION');
     currentOrder.status = 'CANCELLED';
     currentOrder.version += 1;
     if (bulkOrder) { bulkOrder.reservationStatus = 'RELEASED'; bulkOrder.resolutionCount += 1; bulkOrder.refundMinor = Number(body.refund.amountMinor); bulkOrder.earningMinor = Number(body.playerEarning?.amountMinor ?? 0); bulkOrder.resolutionReason = String((request.body as { reasonCode?: unknown }).reasonCode ?? ''); }
@@ -571,9 +571,9 @@ registerSecureWriteRoute(server, server.securityOptions!, {
     const body = request.body as { expectedVersion?: unknown; amount?: { amountMinor?: unknown; currency?: unknown }; reasonCode?: unknown; evidenceNote?: unknown };
     if (!order || body.expectedVersion !== order.version) throw new Error('STALE_ORDER');
     const amountMinor = Number(body.amount?.amountMinor);
-    if (!['COMPLETED', 'EXCEPTION'].includes(order.status) || body.amount?.currency !== 'USD' || !Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > order.amountMinor - order.refundMinor || typeof body.reasonCode !== 'string' || typeof body.evidenceNote !== 'string' || !body.evidenceNote.trim()) throw new Error('INVALID_REFUND');
+    if (!['COMPLETED', 'EXCEPTION'].includes(order.status) || body.amount?.currency !== 'CAT' || !Number.isSafeInteger(amountMinor) || amountMinor < 1 || amountMinor > order.amountMinor - order.refundMinor || typeof body.reasonCode !== 'string' || typeof body.evidenceNote !== 'string' || !body.evidenceNote.trim()) throw new Error('INVALID_REFUND');
     order.refundMinor += amountMinor;
-    return { orderId: order.id, refundTransactionId: `refund-${order.id}-${order.refundMinor}`, amountMinor, currency: 'USD', status: 'SUCCEEDED', orderStatus: order.status };
+    return { orderId: order.id, refundTransactionId: `refund-${order.id}-${order.refundMinor}`, amountMinor, currency: 'CAT', status: 'SUCCEEDED', orderStatus: order.status };
   }
 });
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -602,14 +602,14 @@ registerSecureWriteRoute(server, server.securityOptions!, {
 });
 
 const businessLists = [
-  { url: '/api/v1/admin/orders', permission: 'order.read', target: 'order', items: [orderRecord, { id: '00000000-0000-0000-0000-000000000302', publicId: 'P-E2E-002', version: 1, status: 'COMPLETED', customerDiscordId: 'customer-second', amountMinor: 6_000, currency: 'USD', createdAt: '2026-08-04T00:00:00.000Z' }] },
+  { url: '/api/v1/admin/orders', permission: 'order.read', target: 'order', items: [orderRecord, { id: '00000000-0000-0000-0000-000000000302', publicId: 'P-E2E-002', version: 1, status: 'COMPLETED', customerDiscordId: 'customer-second', amountMinor: 6_000, currency: 'CAT', createdAt: '2026-08-04T00:00:00.000Z' }] },
   { url: '/api/v1/admin/users', permission: 'user.read', target: 'user', items: [userRecord] },
   { url: '/api/v1/admin/players', permission: 'player.read', target: 'player', items: [playerRecord] },
   { url: '/api/v1/admin/service-catalog', permission: 'catalog.read', target: 'service_catalog', items: catalogRecords },
   { url: '/api/v1/admin/service-packages', permission: 'catalog.read', target: 'service_package', items: packageRecords },
   { url: '/api/v1/admin/gift-catalog', permission: 'gift_catalog.read', target: 'gift_catalog', items: giftRecords },
   { url: '/api/v1/admin/gift-requests', permission: 'gift_request.read', target: 'gift_request', items: giftRequestRecords },
-  { url: '/api/v1/admin/commissions', permission: 'commission.read', target: 'commission', items: [{ id: '00000000-0000-0000-0000-000000000705', publicId: 'C-E2E-001', sourceUserDisplay: '用户 ••••0011', status: 'PENDING', amountMinor: 200, currency: 'USD' }] },
+  { url: '/api/v1/admin/commissions', permission: 'commission.read', target: 'commission', items: [{ id: '00000000-0000-0000-0000-000000000705', publicId: 'C-E2E-001', sourceUserDisplay: '用户 ••••0011', status: 'PENDING', amountMinor: 200, currency: 'CAT' }] },
   { url: '/api/v1/admin/player-earnings', permission: 'earnings.read', target: 'player_earning', items: [earningRecord] }
 ] as const;
 
@@ -858,7 +858,7 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/users/:userId/consumptions', permission: 'user.read', action: 'LIST_E2E_USER_CONSUMPTIONS', targetType: 'user', acceptedSources: ['DASHBOARD'],
-  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'consumption-e2e-2', type: 'GIFT', sourceId: 'gift-2', amountMinor: 1000, currency: 'USD', occurredAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: 'consumption-e2e', type: 'ORDER', sourceId: orderRecord.id, amountMinor: 4000, currency: 'USD', occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'profile-consumptions-2' }
+  handler: (request) => (request.query as { cursor?: string }).cursor ? { items: [{ id: 'consumption-e2e-2', type: 'GIFT', sourceId: 'gift-2', amountMinor: 1000, currency: 'CAT', occurredAt: '2026-08-04T00:00:00.000Z' }], nextCursor: null } : { items: [{ id: 'consumption-e2e', type: 'ORDER', sourceId: orderRecord.id, amountMinor: 4000, currency: 'CAT', occurredAt: '2026-08-05T00:00:00.000Z' }], nextCursor: 'profile-consumptions-2' }
 });
 
 registerSecureWriteRoute(server, server.securityOptions!, {
@@ -965,7 +965,7 @@ server.post('/__e2e/orders/bulk', async (request, reply) => {
     const status = index <= 12 ? 'ACCEPTED' : tailStatuses[Math.floor((index - 13) / 4) % tailStatuses.length]!;
     const reservationStatus: BulkOrder['reservationStatus'] = status === 'COMPLETED' ? 'CAPTURED' : status === 'CANCELLED' ? 'RELEASED' : status === 'EXCEPTION' || status === 'PENDING_CONFIRMATION' ? 'DISPUTED' : 'ACTIVE';
     const amountMinor = 1_000 + index * 125;
-    return { id: `10000000-0000-0000-0000-${String(index).padStart(12, '0')}`, publicId: `P-BULK-${String(index).padStart(3, '0')}`, version: 1 + (index % 3), status, customerDiscordId: `bulk-customer-${String(index).padStart(3, '0')}`, amountMinor, playerEarningMinor: Math.floor(amountMinor * 0.6), currency: 'USD', createdAt: new Date(Date.UTC(2026, 7, 5, 0, 0, 0) - offset * 60_000).toISOString(), guildId, reservationStatus, resolutionCount: 0, refundMinor: 0, earningMinor: 0, resolutionReason: null };
+    return { id: `10000000-0000-0000-0000-${String(index).padStart(12, '0')}`, publicId: `P-BULK-${String(index).padStart(3, '0')}`, version: 1 + (index % 3), status, customerDiscordId: `bulk-customer-${String(index).padStart(3, '0')}`, amountMinor, playerEarningMinor: Math.floor(amountMinor * 0.6), currency: 'CAT', createdAt: new Date(Date.UTC(2026, 7, 5, 0, 0, 0) - offset * 60_000).toISOString(), guildId, reservationStatus, resolutionCount: 0, refundMinor: 0, earningMinor: 0, resolutionReason: null };
   }));
   const cancellation = bulkOrders.find((order) => order.status === 'ACCEPTED')!;
   const interruption = bulkOrders.find((order) => order.status === 'IN_SERVICE')!;

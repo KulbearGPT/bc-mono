@@ -22,7 +22,7 @@ export function SettlementPage(props: { model: SettlementPageModel; onRetry: () 
     {props.model.kind === 'LOADING' && <div className="state-card">正在载入...</div>}
     {props.model.kind === 'ERROR' && <div className="state-card state-card--error"><strong>载入失败</strong><p>request_id: {props.model.requestId ?? '—'}</p></div>}
     {props.model.kind === 'EMPTY' && <div className="state-card">{props.model.emptyMessage ?? `暂无${props.model.section === 'settlements' ? '结算批次' : '周报'}。`}</div>}
-    {props.model.kind === 'READY' && <div className="table-scroll content-panel content-panel--flush"><table className="data-table settlement-table"><thead><tr>{['编号','状态','周期','金额','修订/版本','操作'].map((label) => <th className={label === '操作' ? 'data-column--actions' : undefined} key={label}>{label}</th>)}</tr></thead><tbody>{props.model.items.map((item) => <tr key={String(item.id)}><td>{String(item.publicId ?? item.id)}</td><td>{String(item.status ?? '—')}</td><td>{date(item.periodStart)}<br />{date(item.periodEnd)}</td><td>{formatMinorCurrency(settlementAmount(item), String(item.currency ?? 'CAT'))}</td><td>{String(item.version ?? item.currentRevision ?? '—')}</td><td className="table-actions"><div className="table-actions__group"><RowActions model={props.model} item={item} onAction={props.onAction} /></div></td></tr>)}</tbody></table></div>}
+    {props.model.kind === 'READY' && <div className="table-scroll content-panel content-panel--flush"><table className="data-table settlement-table"><thead><tr>{['编号','状态','周期','应付 CAT / 实付 USD','修订/版本','操作'].map((label) => <th className={label === '操作' ? 'data-column--actions' : undefined} key={label}>{label}</th>)}</tr></thead><tbody>{props.model.items.map((item) => <tr key={String(item.id)}><td>{String(item.publicId ?? item.id)}</td><td>{String(item.status ?? '—')}</td><td>{date(item.periodStart)}<br />{date(item.periodEnd)}</td><td>{formatSettlementPayout(settlementAmount(item))}</td><td>{String(item.version ?? item.currentRevision ?? '—')}</td><td className="table-actions"><div className="table-actions__group"><RowActions model={props.model} item={item} onAction={props.onAction} /></div></td></tr>)}</tbody></table></div>}
   </section>;
 }
 
@@ -56,7 +56,7 @@ function RowActions({ model, item, onAction }: { model: SettlementPageModel; ite
         const id = String(row.id); const draft = paymentDrafts[id] ?? emptyPaymentDraft;
         const update = (fields: Partial<PaymentDraft>) => setPaymentDrafts((current) => ({ ...current, [id]: { ...draft, ...fields } }));
         return <fieldset className="payment-editor__item" key={id}>
-          <legend>{String(row.playerDisplayName ?? row.externalAccountDisplay ?? row.id)}</legend>
+          <legend>{String(row.playerDisplayName ?? row.externalAccountDisplay ?? row.id)} · {formatSettlementPayout(Number(row.netAmountMinor ?? 0))}</legend>
           <label className="field"><span>付款结果</span><select value={draft.result} onChange={(event) => update({ result: event.target.value as PaymentDraft['result'] })}>
             <option value="">请选择结果</option><option value="SUCCEEDED">已支付</option><option value="FAILED">支付失败</option>
           </select></label>
@@ -72,6 +72,10 @@ function RowActions({ model, item, onAction }: { model: SettlementPageModel; ite
 function date(value: unknown) { return typeof value === 'string' ? new Date(value).toLocaleString('zh-CN') : '—'; }
 function settlementAmount(item: Record<string, unknown>) { const metrics = item.metrics && typeof item.metrics === 'object' ? item.metrics as Record<string, unknown> : null;
   return Number(item.netAmountMinor ?? metrics?.netPayableMinor ?? 0); }
+export function formatSettlementPayout(amountMinor: number): string {
+  const usd = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(amountMinor / 100);
+  return `${formatMinorCurrency(amountMinor, 'CAT')} · ${usd}`;
+}
 function isoPeriod(period: Record<string, string>) { const convert = (value: string) => value ? new Date(value).toISOString() : value; return { ...period,
   periodStart: convert(period.periodStart), periodEnd: convert(period.periodEnd), cutoffAt: convert(period.cutoffAt) }; }
 function defaultFields(action: SettlementAction) { if (action === 'EXPORT') return { exportType: 'TRANSFER_LIST' };

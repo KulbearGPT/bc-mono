@@ -352,7 +352,7 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
 }
 
 function StandaloneRefundFields({item}:{item?:Record<string,unknown>}) {
-  const currency=textValue(item?.currency)||'USD';
+  const currency=textValue(item?.currency)||'CAT';
   const amountMinor=numberValue(item?.refundableAmountMinor)??numberValue(item?.amountMinor)??0;
   return <>
     <div className="field field--full context-note"><strong>订单保持原状态</strong><p>这是独立资金退款，只追加退款与关联冲正，不会取消订单或覆盖原账目。</p></div>

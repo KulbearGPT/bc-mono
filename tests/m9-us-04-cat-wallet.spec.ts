@@ -9,7 +9,7 @@ describe('M9-US-04 fixed USD receipt to CAT wallet conversion',()=>{
       userId,amountMinor:2550,paymentChannel:'ZELLE',externalTransactionId:'receipt-2550',paidAt:now.toISOString(),note:'Zelle receipt checked',reasonCode:'MANUAL_TOP_UP',
       idempotencyKey:'m9:topup:receipt:2550',actorStaffId:staffId,actorLevel:'L2_SUPERVISOR',now});
     expect(result).toMatchObject({paidAmountUsdCents:2550,paidCurrency:'USD',rateCatPerUsd:10,creditedCatSubunits:2550,currency:'CAT',balance:{availableMinor:2550,currency:'CAT'}});
-    expect(formatCustomerWalletAmount(result.balance.availableMinor)).toBe('255.0 CAT');expect(formatWalletMoney(2550)).toBe('USD 25.50');});
+    expect(formatCustomerWalletAmount(result.balance.availableMinor)).toBe('255.0 CAT');expect(formatWalletMoney(2550)).toBe('255.0 猫条');});
 
   test('Dashboard sends fixed fields without a selectable currency or rate',()=>{const request=buildWalletRequest('TOP_UP',userId,{amountMinor:2550,paymentChannel:'PAYPAL',externalTransactionId:'paypal-1',
       occurredAt:now.toISOString(),note:'receipt',reasonCode:'MANUAL_TOP_UP'});expect(request.body).toEqual({paidAmountUsdCents:2550,paidCurrency:'USD',paymentMethod:'PAYPAL',receiptNumber:'paypal-1',paidAt:now.toISOString(),note:'receipt',reasonCode:'MANUAL_TOP_UP'});

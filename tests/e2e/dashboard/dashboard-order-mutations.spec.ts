@@ -58,7 +58,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
       const csrf = document.cookie.split('; ').find((entry) => entry.startsWith('p0_csrf='))?.split('=').slice(1).join('=') ?? '';
       const response = await fetch('/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/resolve', {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-source': 'DASHBOARD', 'x-csrf-token': decodeURIComponent(csrf), 'idempotency-key': 'stale-order-resolution' },
-        body: JSON.stringify({ expectedVersion: 2, targetStatus: 'CANCELLED', reasonCode: 'USER_REQUEST', refund: { amountMinor: 4000, currency: 'USD' }, playerEarning: { amountMinor: 0, currency: 'USD' }, evidenceNote: 'stale browser request', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL' })
+        body: JSON.stringify({ expectedVersion: 2, targetStatus: 'CANCELLED', reasonCode: 'USER_REQUEST', refund: { amountMinor: 4000, currency: 'CAT' }, playerEarning: { amountMinor: 0, currency: 'CAT' }, evidenceNote: 'stale browser request', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL' })
       });
       return { status: response.status, body: await response.json() };
     });
@@ -73,7 +73,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     await page.goto('/__e2e/login/l2'); await page.waitForURL('**/');
     const result = await page.evaluate(async () => {
       const csrf = decodeURIComponent(document.cookie.split('; ').find((entry) => entry.startsWith('p0_csrf='))?.split('=').slice(1).join('=') ?? '');
-      const response = await fetch('/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/resolve', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-source': 'DASHBOARD', 'x-csrf-token': csrf, 'idempotency-key': 'over-limit-resolution' }, body: JSON.stringify({ expectedVersion: 3, targetStatus: 'CANCELLED', reasonCode: 'OVER_LIMIT', refund: { amountMinor: 60_000, currency: 'USD' }, playerEarning: { amountMinor: 0, currency: 'USD' }, evidenceNote: '超出订单事实的处置', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL' }) });
+      const response = await fetch('/api/v1/admin/orders/00000000-0000-0000-0000-000000000301/resolve', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', 'x-client-source': 'DASHBOARD', 'x-csrf-token': csrf, 'idempotency-key': 'over-limit-resolution' }, body: JSON.stringify({ expectedVersion: 3, targetStatus: 'CANCELLED', reasonCode: 'OVER_LIMIT', refund: { amountMinor: 60_000, currency: 'CAT' }, playerEarning: { amountMinor: 0, currency: 'CAT' }, evidenceNote: '超出订单事实的处置', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL' }) });
       return { status: response.status, body: await response.json() };
     });
     expect(result.status).toBe(422);

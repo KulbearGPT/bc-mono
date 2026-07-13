@@ -33,7 +33,7 @@ async function cancelOrder(page: Page, order: BulkOrder, key: string, overrides:
     const response = await fetch(`/api/v1/admin/orders/${order.id}/resolve`, {
       method: 'POST', credentials: 'include',
       headers: { 'content-type': 'application/json', 'x-client-source': 'DASHBOARD', 'x-csrf-token': csrf, 'idempotency-key': key },
-      body: JSON.stringify({ expectedVersion: order.version, targetStatus: 'CANCELLED', reasonCode: 'BULK_EXCEPTION_TEST', refund: { amountMinor: order.amountMinor, currency: 'USD' }, playerEarning: { amountMinor: 0, currency: 'USD' }, evidenceNote: '批量订单异常场景自动化', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL', ...overrides })
+      body: JSON.stringify({ expectedVersion: order.version, targetStatus: 'CANCELLED', reasonCode: 'BULK_EXCEPTION_TEST', refund: { amountMinor: order.amountMinor, currency: 'CAT' }, playerEarning: { amountMinor: 0, currency: 'CAT' }, evidenceNote: '批量订单异常场景自动化', confirmation: 'EXECUTE_OR_REQUEST_APPROVAL', ...overrides })
     });
     return { status: response.status, body: await response.json() };
   }, { order, key, overrides });
@@ -141,7 +141,7 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     const results = await Promise.all([
       cancelOrder(page, completed, 'bulk-terminal-resolution'),
       cancelOrder(page, stale!, 'bulk-stale-resolution', { expectedVersion: stale!.version - 1 }),
-      cancelOrder(page, overFact!, 'bulk-over-fact-resolution', { refund: { amountMinor: overFact!.amountMinor + 1, currency: 'USD' } })
+      cancelOrder(page, overFact!, 'bulk-over-fact-resolution', { refund: { amountMinor: overFact!.amountMinor + 1, currency: 'CAT' } })
     ]);
     expect(results.map((result) => result.status).sort(), JSON.stringify(results)).toEqual([409, 409, 422]);
     expect(await bulkState(request)).toEqual(before);
@@ -161,7 +161,7 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     await expect(dialog).toContainText('不会取消订单');
     await dialog.getByLabel('退款金额（minor units）').fill('625');
     await dialog.getByLabel('退款原因').selectOption('QUALITY_COMPLAINT');
-    await dialog.getByLabel('核对证据与处理说明').fill('老板完单后反馈最后半小时频繁掉线；客服核对频道记录并与双方确认，退回 6.25 USD。');
+    await dialog.getByLabel('核对证据与处理说明').fill('老板完单后反馈最后半小时频繁掉线；客服核对频道记录并与双方确认，退回 6.25 CAT。');
     const response = page.waitForResponse((candidate) => candidate.url().includes(`/orders/${target.id}/refund`) && candidate.request().method() === 'POST');
     await dialog.getByRole('button', { name: '提交', exact: true }).click();
     expect((await response).status()).toBe(200);

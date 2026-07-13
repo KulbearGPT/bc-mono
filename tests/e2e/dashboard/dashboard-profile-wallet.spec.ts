@@ -35,9 +35,9 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
   test('DE2E-WLT-001 wallet summary keeps ledger, reserved, and available in one response boundary', async ({ page }) => {
     await openProfile(page);
     const wallet = page.getByRole('region', { name: '客户钱包' });
-    await expect(wallet.getByText('USD 100.00')).toBeVisible();
-    await expect(wallet.getByText('USD 25.00')).toBeVisible();
-    await expect(wallet.getByText('USD 75.00')).toBeVisible();
+    await expect(wallet.getByText('1,000.0 猫条')).toBeVisible();
+    await expect(wallet.getByText('250.0 猫条')).toBeVisible();
+    await expect(wallet.getByText('750.0 猫条')).toBeVisible();
   });
 
   test('DE2E-WLT-002 a legal USD top-up appends one entry and refreshes all balance facts', async ({ page, request }) => {
@@ -84,8 +84,8 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
     expect(response.status(), await response.text()).toBe(200);
     await expect(page.getByRole('cell', { name: 'EXTERNAL_REFUND_DEBIT' })).toBeVisible();
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
-    expect(state.walletBalance).toMatchObject({ ledgerBalanceMinor: 9000, reservedMinor: 2500, availableMinor: 6500, version: 2 });
-    expect(state.walletEntries[0]).toMatchObject({ direction: 'DEBIT', amountMinor: 1000 });
+    expect(state.walletBalance).toMatchObject({ ledgerBalanceMinor: 9900, reservedMinor: 2500, availableMinor: 7400, version: 2 });
+    expect(state.walletEntries[0]).toMatchObject({ direction: 'DEBIT', amountMinor: 100 });
   });
 
   test('DE2E-PRF-002 order and consumption cursors paginate independently without resetting the other module', async ({ page }) => {
@@ -126,7 +126,7 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
   test('DE2E-PRF-005 supervisor corrects only the customer business display name', async ({ page, request }) => {
     await openProfile(page);await page.getByLabel('客户展示名').fill('北美老板小林');await page.getByLabel('修改原因').selectOption('CUSTOMER_REQUEST');await page.getByLabel('修改说明').fill('老板联系客服纠正业务展示名。');
     await page.getByRole('button',{name:'保存客户名称'}).click();await expect(page.getByText('北美老板小林 · ACTIVE')).toBeVisible();
-    await expect(page.getByText(userId)).toBeVisible();await expect(page.getByText('customer-e2e')).toBeVisible();await expect(page.getByRole('region',{name:'客户钱包'}).getByText('USD 100.00')).toBeVisible();
+    await expect(page.getByText(userId)).toBeVisible();await expect(page.getByText('customer-e2e')).toBeVisible();await expect(page.getByRole('region',{name:'客户钱包'}).getByText('1,000.0 猫条')).toBeVisible();
     const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.user).toMatchObject({id:userId,displayName:'北美老板小林',discordUserId:'customer-e2e',version:3});expect(state.walletBalance).toMatchObject({ledgerBalanceMinor:10000,reservedMinor:2500,version:1});
   });
 
@@ -145,15 +145,15 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
     expect(statuses.sort()).toEqual([200, 409]); const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json(); expect(state.walletEntries).toHaveLength(1); expect(state.walletBalance).toMatchObject({ ledgerBalanceMinor: 3000, availableMinor: 500, version: 2 });
   });
 
-  test('DE2E-WLT-008 staff wallet amounts use canonical USD formatting and never customer-token formatting', async ({ page }) => {
-    await openProfile(page); const wallet = page.getByRole('region', { name: '客户钱包' }); const text = await wallet.textContent(); expect(text).toContain('USD'); expect(text).not.toContain('猫条'); expect(text).not.toContain('CAT'); await expect(wallet.getByLabel('实收金额（USD）')).toBeVisible(); await page.getByRole('button', { name: '渠道退款扣款' }).click(); await expect(wallet.getByLabel('扣回金额（USD）')).toBeVisible();
+  test('DE2E-WLT-008 staff wallet amounts use CAT while only top-up receipt input uses USD', async ({ page }) => {
+    await openProfile(page); const wallet = page.getByRole('region', { name: '客户钱包' }); const text = await wallet.textContent(); expect(text).toContain('猫条'); await expect(wallet.getByLabel('实收金额（USD）')).toBeVisible(); await page.getByRole('button', { name: '渠道退款扣款' }).click(); await expect(wallet.getByLabel('扣回金额（CAT）')).toBeVisible();
   });
 
   test('DE2E-WLT-011 operations reverses an over-recorded top-up without editing the original entry', async ({ page, request }) => {
     await page.goto('/__e2e/login/l3');await page.waitForURL('**/');await page.goto(`/admin/users/${userId}/profile`);
     await fillFunding(page,'50.00','receipt-over-recorded');await page.getByRole('button',{name:'确认充值'}).click();await expect(page.getByRole('cell',{name:'MANUAL_TOP_UP'})).toBeVisible();
-    await page.getByRole('button',{name:'账目冲正'}).click();await page.getByLabel('冲正金额（USD）').fill('12.50');await page.getByLabel('冲正原因').fill('复核老板付款截图后确认充值多记 USD 12.50');
+    await page.getByRole('button',{name:'账目冲正'}).click();await page.getByLabel('冲正金额（CAT）').fill('12.5');await page.getByLabel('冲正原因').fill('复核老板付款截图后确认充值多记 12.5 CAT');
     await page.getByRole('button',{name:'追加冲正'}).click();await expect(page.getByRole('cell',{name:'ADJUSTMENT_DEBIT'})).toBeVisible();
-    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.walletEntries).toHaveLength(2);expect(state.walletEntries[0]).toMatchObject({entryType:'MANUAL_TOP_UP',amountMinor:5000});expect(state.walletEntries[1]).toMatchObject({entryType:'ADJUSTMENT_DEBIT',amountMinor:1250,reversalOfEntryId:state.walletEntries[0].id});expect(state.walletBalance).toMatchObject({ledgerBalanceMinor:13750,reservedMinor:2500,availableMinor:11250,version:3});
+    const state=await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();expect(state.walletEntries).toHaveLength(2);expect(state.walletEntries[0]).toMatchObject({entryType:'MANUAL_TOP_UP',amountMinor:5000});expect(state.walletEntries[1]).toMatchObject({entryType:'ADJUSTMENT_DEBIT',amountMinor:125,reversalOfEntryId:state.walletEntries[0].id});expect(state.walletBalance).toMatchObject({ledgerBalanceMinor:14875,reservedMinor:2500,availableMinor:12375,version:3});
   });
 });
