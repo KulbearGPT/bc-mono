@@ -7,6 +7,7 @@ import type { StaffLevel } from './security.js';
 import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord } from './security.js';
 import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
+import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
 
 export type WalletEntryType = 'TOP_UP_CREDIT' | 'ORDER_CAPTURE_DEBIT' | 'GIFT_CAPTURE_DEBIT' |
   'ORDER_REFUND_CREDIT' | 'CASH_REFUND_DEBIT' | 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT';
@@ -31,6 +32,17 @@ export interface WalletEntry {
   sourceId: string;
   reversalOfEntryId: string | null;
   occurredAt: string;
+}
+
+export interface WalletEntryPage {
+  items: WalletEntry[];
+  nextCursor: string | null;
+}
+
+export interface WalletEntryPageInput {
+  userId: string;
+  cursor?: string | null;
+  limit?: number;
 }
 
 export interface CreateTopUpInput {
@@ -293,8 +305,20 @@ export class WalletService {
     return entry;
   }
 
-  async listEntries(input: { userId: string }): Promise<WalletEntry[]> {
-    return structuredClone(this.store.getOrCreate(input.userId).entries).reverse();
+  async listEntries(input: WalletEntryPageInput): Promise<WalletEntryPage> {
+    const limit = walletPageLimit(input.limit);
+    const cursor = decodeWalletEntryCursor(input.cursor, input.userId);
+    const entries = structuredClone(this.store.getOrCreate(input.userId).entries)
+      .sort(compareWalletEntries)
+      .filter((item) => !cursor || compareWalletEntryToCursor(item, cursor) > 0);
+    const items = entries.slice(0, limit);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: entries.length > limit && last
+        ? encodeWalletEntryCursor(last, input.userId)
+        : null
+    };
   }
 
   async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
@@ -587,10 +611,20 @@ export class PostgresWalletStore {
     })};
   }
 
-  async listEntries(input: { userId: string }): Promise<WalletEntry[]> {
+  async listEntries(input: WalletEntryPageInput): Promise<WalletEntryPage> {
+    const limit = walletPageLimit(input.limit);
+    const cursor = decodeWalletEntryCursor(input.cursor, input.userId);
     const result = await this.options.pool.query<PostgresEntryRow>(`SELECT e.* FROM wallet_entries e JOIN wallet_accounts w ON w.id=e.wallet_account_id
-      WHERE w.user_id=$1 ORDER BY e.occurred_at DESC,e.id DESC LIMIT 100`, [input.userId]);
-    return result.rows.map(mapPostgresEntry);
+      WHERE w.user_id=$1 AND ($2::timestamptz IS NULL OR e.occurred_at<$2::timestamptz OR (e.occurred_at=$2::timestamptz AND e.id<$3::uuid))
+      ORDER BY e.occurred_at DESC,e.id DESC LIMIT $4`, [input.userId, cursor?.occurredAt ?? null, cursor?.id ?? null, limit + 1]);
+    const items = result.rows.slice(0, limit).map(mapPostgresEntry);
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: result.rows.length > limit && last
+        ? encodeWalletEntryCursor(last, input.userId)
+        : null
+    };
   }
 
   async createReceiptAttachment(input: { userId: string; evidenceType: 'TOP_UP' | 'CASH_REFUND_DEBIT'; evidenceId: string;
@@ -648,7 +682,7 @@ export interface WalletApplicationService {
   createTopUp(input: CreateTopUpInput): Promise<TopUpResult>;
   createExternalRefundDebit(input: CreateExternalRefundDebitInput): Promise<ExternalRefundDebitResult>;
   createAdjustment(input: CreateWalletAdjustmentInput): Promise<WalletEntry>;
-  listEntries(input: { userId: string }): Promise<WalletEntry[]>;
+  listEntries(input: WalletEntryPageInput): Promise<WalletEntryPage>;
   reserve(input: ReserveInput): Promise<{ reservationId: string; balance: WalletBalance }>;
   capture(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ walletEntryId: string; balance: WalletBalance }>;
   release(input: { reservationId: string; expectedVersion: number; idempotencyKey: string; now: Date }): Promise<{ reservationId: string; balance: WalletBalance }>;
@@ -688,13 +722,13 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
   });
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_ADMIN_WALLET',
-    targetType: 'wallet_account', targetId: userTarget, acceptedSources: ['DASHBOARD'],
+    targetType: 'wallet_account', targetId: userTarget, acceptedSources: ['DASHBOARD'], mapError: mapWalletError,
     handler: (request) => options.service.getBalance({ userId: userTarget(request), now: now() })
   });
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_ADMIN_WALLET_ENTRIES',
-    targetType: 'wallet_entry', targetId: userTarget, acceptedSources: ['DASHBOARD'],
-    handler: (request) => options.service.listEntries({ userId: userTarget(request) })
+    targetType: 'wallet_entry', targetId: userTarget, acceptedSources: ['DASHBOARD'], mapError: mapWalletError,
+    handler: (request) => options.service.listEntries({ userId: userTarget(request), ...walletEntryPageQuery(request) })
   });
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST', url: '/api/v1/admin/users/:userId/top-ups', permission: 'wallet.top_up', action: 'CREATE_ADMIN_TOP_UP',
@@ -782,7 +816,47 @@ function fundingBody(request: FastifyRequest, timestamp: 'paidAt' | 'refundedAt'
     expectedWalletVersion: body.expectedWalletVersion } as { amountMinor: number; paymentChannel: string; externalTransactionId: string;
       paidAt: string; refundedAt: string; note: string; reasonCode?: string; expectedWalletVersion?: unknown };
 }
-function userTarget(request: FastifyRequest): string { return String((request.params as { userId?: string }).userId ?? ''); }
+function userTarget(request: FastifyRequest): string {
+  const value = String((request.params as { userId?: string }).userId ?? '');
+  assertUuid(value, 'userId');
+  return value;
+}
+function walletEntryPageQuery(request: FastifyRequest): { cursor: string | null; limit: number } {
+  const query = request.query as { cursor?: unknown; limit?: unknown };
+  if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 500)) {
+    throw new WalletError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+  const limit = query.limit === undefined ? 50 : Number(query.limit);
+  return { cursor: query.cursor as string | undefined ?? null, limit: walletPageLimit(limit) };
+}
+function walletPageLimit(value: number | undefined): number {
+  const limit = value ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new WalletError('VALIDATION_ERROR', 'limit must be between 1 and 100.');
+  }
+  return limit;
+}
+function encodeWalletEntryCursor(entry: Pick<WalletEntry, 'id' | 'occurredAt'>, userId: string): string {
+  return encodeBoundKeysetCursor('wallet-entries', { id: entry.id, at: entry.occurredAt }, userId);
+}
+function decodeWalletEntryCursor(value: string | null | undefined, userId: string): { id: string; occurredAt: string } | null {
+  if (!value) return null;
+  try {
+    const cursor = decodeBoundKeysetCursor(value, 'wallet-entries', userId);
+    return { id: cursor.id, occurredAt: cursor.at };
+  } catch {
+    throw new WalletError('VALIDATION_ERROR', 'cursor is invalid.');
+  }
+}
+function compareWalletEntries(
+  left: Pick<WalletEntry, 'id' | 'occurredAt'>,
+  right: Pick<WalletEntry, 'id' | 'occurredAt'>
+): number {
+  return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
+}
+function compareWalletEntryToCursor(item: WalletEntry, cursor: { id: string; occurredAt: string }): number {
+  return compareWalletEntries(item, cursor);
+}
 function requireIdempotencyKey(request: FastifyRequest): string { return String(request.headers['idempotency-key'] ?? ''); }
 function requireActorUser(actor: ActorContext): string { if (!actor.actorUserId) throw new WalletError('PERMISSION_DENIED', 'User actor is required.'); return actor.actorUserId; }
 function requireActorStaff(actor: ActorContext): string { if (!actor.actorStaffId) throw new WalletError('PERMISSION_DENIED', 'Staff actor is required.'); return actor.actorStaffId; }

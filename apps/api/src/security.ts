@@ -825,8 +825,7 @@ export function registerSecureReadRoute(
     url: route.url,
     handler: async (request, reply) => {
       const requestId = getRequestId(request);
-      const targetId =
-        route.targetId?.(request) ?? "00000000-0000-0000-0000-000000000000";
+      let targetId = "00000000-0000-0000-0000-000000000000";
       const baseAudit = {
         action: route.action,
         targetType: route.targetType,
@@ -852,6 +851,26 @@ export function registerSecureReadRoute(
       }
 
       const actor = authResult.actor;
+      try {
+        targetId = route.targetId?.(request) ?? targetId;
+        baseAudit.targetId = targetId;
+      } catch (error) {
+        const mapped = route.mapError?.(error);
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: "REJECTED",
+          reason: mapped?.code ?? "VALIDATION_ERROR",
+        });
+        return sendError(
+          reply,
+          requestId,
+          mapped?.statusCode ?? 400,
+          mapped?.code ?? "VALIDATION_ERROR",
+          mapped?.message ?? "The request target is invalid.",
+          mapped?.details ?? [],
+        );
+      }
       if (!isAcceptedSource(actor, route.acceptedSources)) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -983,8 +1002,7 @@ export function registerSecureWriteRoute(
     url: route.url,
     handler: async (request, reply) => {
       const requestId = getRequestId(request);
-      const targetId =
-        route.targetId?.(request) ?? "00000000-0000-0000-0000-000000000000";
+      let targetId = "00000000-0000-0000-0000-000000000000";
       const baseAudit = {
         action: route.action,
         targetType: route.targetType,
@@ -1010,6 +1028,26 @@ export function registerSecureWriteRoute(
       }
 
       const actor = authResult.actor;
+      try {
+        targetId = route.targetId?.(request) ?? targetId;
+        baseAudit.targetId = targetId;
+      } catch (error) {
+        const mapped = route.mapError?.(error);
+        await appendAudit(auditSink, {
+          ...baseAudit,
+          ...buildAuditContext(actor),
+          outcome: "REJECTED",
+          reason: mapped?.code ?? "VALIDATION_ERROR",
+        });
+        return sendError(
+          reply,
+          requestId,
+          mapped?.statusCode ?? 400,
+          mapped?.code ?? "VALIDATION_ERROR",
+          mapped?.message ?? "The request target is invalid.",
+          mapped?.details ?? [],
+        );
+      }
       if (!isAcceptedSource(actor, route.acceptedSources)) {
         await appendAudit(auditSink, {
           ...baseAudit,
@@ -1326,12 +1364,51 @@ export function registerSecureWriteRoute(
 
       const statusCode =
         stagedWrite.statusCode ?? route.successStatusCode ?? 200;
-      await idempotencyStore.complete(scopeKey, statusCode, responsePayload);
+      await finalizeCommittedResponse(
+        idempotencyStore,
+        scopeKey,
+        statusCode,
+        responsePayload,
+      );
       reply.code(statusCode);
       if (route.rawResponse) return route.rawResponse(payload, reply);
       return responsePayload;
     },
   });
+}
+
+async function finalizeCommittedResponse(
+  store: IdempotencyStore,
+  scopeKey: string,
+  statusCode: number,
+  responsePayload: unknown,
+): Promise<void> {
+  let completionError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await store.complete(scopeKey, statusCode, responsePayload);
+      return;
+    } catch (error) {
+      completionError = error;
+    }
+  }
+
+  try {
+    // FAILED is a terminal record in the existing schema. Keeping the successful
+    // status and payload makes retries replay the committed result without
+    // running the business handler again, while the error code exposes recovery.
+    await store.fail(
+      scopeKey,
+      statusCode,
+      responsePayload,
+      "COMMITTED_RESPONSE_RECOVERY",
+    );
+  } catch (recoveryError) {
+    throw new AggregateError(
+      [completionError, recoveryError],
+      "The committed idempotency response could not be terminalized.",
+    );
+  }
 }
 
 async function hasRecentStepUp(

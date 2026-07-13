@@ -75,4 +75,24 @@ describe('M7-US-04 PostgreSQL wallet transaction', () => {
     expect(await store.getBalance({userId,now})).toMatchObject({ledgerBalanceMinor:500_000,availableMinor:500_000,version:2});
     expect((await pool.query('SELECT count(*)::int count FROM external_refund_debits')).rows[0].count).toBe(0);
   });
+
+  test('paginates wallet entries with a stable bound cursor', async () => {
+    const store = new PostgresWalletStore({ pool });
+    for (const [index, key] of ['m16:db:page:0001', 'm16:db:page:0002', 'm16:db:page:0003'].entries()) {
+      const staged = await store.stageCreateTopUp({
+        ...topUpInput(key),
+        now: new Date(now.getTime() + index * 1_000),
+        paidAt: new Date(now.getTime() + index * 1_000).toISOString()
+      });
+      await staged.commit(audit(`00000000-0000-0000-0000-00000000743${index}`));
+    }
+
+    const first = await store.listEntries({ userId, cursor: null, limit: 2 });
+    const second = await store.listEntries({ userId, cursor: first.nextCursor, limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((entry) => entry.id)).size).toBe(3);
+  });
 });

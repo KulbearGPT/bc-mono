@@ -76,7 +76,8 @@ describe('M7-US-01 internal USD funding contracts', () => {
     const businessConfigExample = read('outputs/P0开发交付包/05-业务配置/business-config.example.yaml');
     const businessConfigSchema = read('outputs/P0开发交付包/05-业务配置/business-config.schema.json');
 
-    expect(agents).toContain('内部 USD 钱包负责客户账户事实、真实余额、充值、消费和退款');
+    expect(agents).toContain('内部 CAT 钱包负责客户账户事实、真实余额、充值、消费和退款');
+    expect(agents).toContain('充值表单录入 USD cents');
     expect(agents).toContain('ledgerBalanceMinor');
     expect(agents).not.toContain('Provider 负责用户账户事实、真实余额、充值、支付和退款');
     expect(agents).not.toContain('providerBalanceMinor');

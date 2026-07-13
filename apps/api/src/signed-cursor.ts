@@ -1,12 +1,13 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export type CursorScope = 'customer-orders' | 'account-consumptions' | 'account-commissions' | 'weekly-reports';
+export type CursorScope = 'customer-orders' | 'account-consumptions' | 'account-commissions' | 'weekly-reports' | 'wallet-entries';
 
 const scopeCodes: Record<CursorScope, number> = {
   'customer-orders': 1,
   'account-consumptions': 2,
   'account-commissions': 3,
-  'weekly-reports': 4
+  'weekly-reports': 4,
+  'wallet-entries': 5
 };
 const version = 1;
 const keysetKind = 1;
@@ -34,6 +35,38 @@ export function encodeKeysetCursor(scope: CursorScope, value: { id: string; at: 
 
 export function decodeKeysetCursor(token: string, scope: CursorScope): { id: string; at: string } {
   const payload = decode(token, scope, keysetKind, 27);
+  const milliseconds = Number(payload.readBigUInt64BE(3));
+  if (!Number.isSafeInteger(milliseconds)) throw new Error('Cursor timestamp is invalid.');
+  return { id: uuidString(payload.subarray(11, 27)), at: new Date(milliseconds).toISOString() };
+}
+
+export function encodeBoundKeysetCursor(
+  scope: CursorScope,
+  value: { id: string; at: string },
+  binding: string
+): string {
+  const id = uuidBytes(value.id);
+  const milliseconds = Date.parse(value.at);
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) throw new Error('Cursor timestamp is invalid.');
+  const payload = Buffer.alloc(43);
+  payload[0] = version;
+  payload[1] = scopeCodes[scope];
+  payload[2] = keysetKind;
+  payload.writeBigUInt64BE(BigInt(milliseconds), 3);
+  id.copy(payload, 11);
+  bindingSignature(binding).copy(payload, 27);
+  return encode(payload);
+}
+
+export function decodeBoundKeysetCursor(
+  token: string,
+  scope: CursorScope,
+  binding: string
+): { id: string; at: string } {
+  const payload = decode(token, scope, keysetKind, 43);
+  if (!timingSafeEqual(payload.subarray(27, 43), bindingSignature(binding))) {
+    throw new Error('Cursor binding is invalid.');
+  }
   const milliseconds = Number(payload.readBigUInt64BE(3));
   if (!Number.isSafeInteger(milliseconds)) throw new Error('Cursor timestamp is invalid.');
   return { id: uuidString(payload.subarray(11, 27)), at: new Date(milliseconds).toISOString() };
@@ -74,6 +107,11 @@ function decode(token: string, scope: CursorScope, kind: number, payloadLength: 
 
 function signature(payload: Buffer): Buffer {
   return createHmac('sha256', signingKey).update(payload).digest().subarray(0, signatureLength);
+}
+
+function bindingSignature(binding: string): Buffer {
+  if (!binding) throw new Error('Cursor binding is required.');
+  return createHmac('sha256', signingKey).update('binding\0').update(binding).digest().subarray(0, 16);
 }
 
 function uuidBytes(value: string): Buffer {

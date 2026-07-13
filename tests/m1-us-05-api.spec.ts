@@ -10,7 +10,7 @@ describe('M1-US-05 internal wallet reservation contract',()=>{
     const reserved=await wallet.reserve({userId,sourceType:'ORDER',sourceId:'00000000-0000-0000-0000-000000001507',amountMinor:120_000,
       idempotencyKey:'m1:05:reserve',expiresAt:new Date(now.getTime()+1_800_000),now});
     expect(reserved.balance).toMatchObject({ledgerBalanceMinor:200_000,reservedMinor:120_000,availableMinor:80_000,currency:'CAT'});
-    expect((await wallet.listEntries({userId})).map(item=>item.entryType)).toEqual(['TOP_UP_CREDIT']);
+    expect((await wallet.listEntries({userId})).items.map(item=>item.entryType)).toEqual(['TOP_UP_CREDIT']);
   });
 
   test('rejects a competing reservation that exceeds available balance',async()=>{
