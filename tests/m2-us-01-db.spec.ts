@@ -79,17 +79,9 @@ describe('M2-US-01 Postgres player profile integration', () => {
     });
   });
 
-  test('updates availability and presence while keeping the two state dimensions independent', async () => {
+  test('updates diagnostic presence without changing the retired availability field', async () => {
     const store = new PostgresPlayerStore({ pool });
 
-    await expect(
-      store.updateAvailability({
-        playerId: '00000000-0000-0000-0000-00000000a001',
-        expectedVersion: 5,
-        availability: 'BUSY',
-        now
-      })
-    ).resolves.toMatchObject({ availability: 'BUSY', discordPresence: 'ONLINE', version: 6 });
     await expect(
       store.updatePresence({
         guildId: '999999999999999999',
@@ -98,7 +90,7 @@ describe('M2-US-01 Postgres player profile integration', () => {
         observedAt: now.toISOString(),
         now
       })
-    ).resolves.toMatchObject({ availability: 'BUSY', discordPresence: 'OFFLINE', version: 7 });
+    ).resolves.toMatchObject({ availability: 'AVAILABLE', discordPresence: 'OFFLINE', version: 6 });
   });
 
   test('atomically approves a pending companion while creating previously unseen skill tags', async () => {

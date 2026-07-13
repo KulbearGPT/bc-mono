@@ -91,12 +91,6 @@ export interface PlayerStore {
   findById(
     playerId: string,
   ): Promise<PlayerProfileRecord | null> | PlayerProfileRecord | null;
-  updateAvailability(input: {
-    playerId: string;
-    expectedVersion: number;
-    availability: PlayerAvailability;
-    now: Date;
-  }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
   updatePresence(input: {
     guildId: string;
     discordUserId: string;
@@ -189,28 +183,6 @@ export class InMemoryPlayerStore implements PlayerStore {
     return (
       this.profiles.find((profile) => profile.playerId === playerId) ?? null
     );
-  }
-
-  updateAvailability(input: {
-    playerId: string;
-    expectedVersion: number;
-    availability: PlayerAvailability;
-    now: Date;
-  }): PlayerProfileRecord {
-    const profile = this.requireProfile(input.playerId);
-    this.assertVersion(profile, input.expectedVersion);
-    if (profile.reviewStatus !== "ACTIVE") {
-      throw new PlayerError(
-        "PLAYER_NOT_ELIGIBLE",
-        "Only ACTIVE players can change availability.",
-      );
-    }
-    return this.replace(profile.playerId, {
-      ...profile,
-      availability: input.availability,
-      version: profile.version + 1,
-      updatedAt: input.now.toISOString(),
-    });
   }
 
   updatePresence(input: {
@@ -409,33 +381,6 @@ WHERE profile.id = $1
       [playerId, activePlayerOrderStatuses],
     );
     return result.rows[0] ? mapPlayerProfileRow(result.rows[0]) : null;
-  }
-
-  async updateAvailability(input: {
-    playerId: string;
-    expectedVersion: number;
-    availability: PlayerAvailability;
-    now: Date;
-  }): Promise<PlayerProfileRecord> {
-    const current = await this.requireProfile(input.playerId);
-    this.assertVersion(current, input.expectedVersion);
-    if (current.reviewStatus !== "ACTIVE") {
-      throw new PlayerError(
-        "PLAYER_NOT_ELIGIBLE",
-        "Only ACTIVE players can change availability.",
-      );
-    }
-    await this.client.query(
-      `
-UPDATE player_profiles
-SET availability = $2::"PlayerAvailability",
-    row_version = row_version + 1,
-    updated_at = $3
-WHERE id = $1
-      `,
-      [input.playerId, input.availability, input.now.toISOString()],
-    );
-    return this.requireProfile(input.playerId);
   }
 
   async updatePresence(input: {
@@ -1141,23 +1086,6 @@ function emptyWorkbenchData(now: Date): PlayerWorkbenchData {
       calculatedAt: now.toISOString(),
     },
   };
-}
-
-function parseAvailabilityBody(body: unknown): {
-  expectedVersion: number;
-  availability: PlayerAvailability;
-} {
-  const input = objectBody(body);
-  const expectedVersion = positiveInteger(
-    input.expectedVersion,
-    "expectedVersion",
-  );
-  const availability = enumValue(
-    input.availability,
-    ["AVAILABLE", "BUSY", "OFFLINE"],
-    "availability",
-  );
-  return { expectedVersion, availability };
 }
 
 function parsePresenceBody(body: unknown): {

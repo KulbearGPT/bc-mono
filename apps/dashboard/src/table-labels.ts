@@ -60,7 +60,7 @@ const fieldLabels: Readonly<Record<string, string>> = {
   type: '类型',
   status: '状态',
   reviewStatus: '审核状态',
-  availability: '可接单状态',
+  availability: '旧状态（仅诊断）',
   discordPresence: 'Discord 在线状态',
   announcementStatus: '播报状态',
   discordRoleSyncStatus: 'Discord 身份同步状态',

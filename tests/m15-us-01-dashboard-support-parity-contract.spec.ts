@@ -19,9 +19,22 @@ describe('M15-US-01 Dashboard support operations parity contract', () => {
 
   test('keeps candidate-pool eligibility under staff approval rather than player self availability', () => {
     const interaction = read('outputs/P0开发交付包/01-UIUX/交互映射.csv');
+    const copy = read('outputs/P0开发交付包/01-UIUX/界面文案清单.csv');
+    const prototype = read('outputs/P0开发交付包/01-UIUX/Discord与Dashboard交互原型.html');
+    const apiGuide = read('outputs/P0开发交付包/02-API/API使用说明.md');
+    const dashboardLabels = read('apps/dashboard/src/table-labels.ts');
+    const botCenter = read('apps/bot/src/service-center.ts');
     expect(interaction).toContain('Dashboard","陪玩详情/员工控制接单资格');
     expect(interaction).toContain('陪玩端仍不提供在线或接单开关');
     expect(interaction).toContain('setPlayerOperationalStatus');
+    for (const artifact of [copy, prototype, apiGuide]) {
+      expect(artifact).not.toContain('setMyPlayerAvailability');
+      expect(artifact).not.toContain('setPlayerAvailability');
+      expect(artifact).not.toContain('保存可接单状态');
+      expect(artifact).not.toContain('接受新匹配');
+    }
+    expect(dashboardLabels).toContain("旧状态（仅诊断）");
+    expect(botCenter).not.toContain('接单开关尚未开启');
   });
 
   test('adds traceable stories and acceptance cases for every requested operation group', () => {
