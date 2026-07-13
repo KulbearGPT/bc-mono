@@ -1,6 +1,8 @@
 import { useState,type FormEvent } from 'react';
 import { formatWalletMoney,walletAdjustmentCandidates,type WalletAdjustmentSubmission,type WalletBalance,type WalletEntry,type WalletFundingSubmission } from './customer-wallet.js';
 
+// 客户侧固定按 1 USD = 10 猫条发放；员工钱包界面只显示 canonical USD 事实。
+
 export function CustomerWalletPanel(props:{userId:string;balance:WalletBalance;entries:WalletEntry[];busy:boolean;
   onTopUp:(value:WalletFundingSubmission)=>void|Promise<void>;onExternalRefund:(value:WalletFundingSubmission)=>void|Promise<void>;canAdjust?:boolean;onAdjustment?:(value:WalletAdjustmentSubmission)=>void|Promise<void>}){
   const [kind,setKind]=useState<'TOP_UP'|'CASH_REFUND_DEBIT'|'ADJUSTMENT'>('TOP_UP');

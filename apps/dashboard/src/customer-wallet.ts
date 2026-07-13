@@ -4,6 +4,10 @@ export interface WalletEvidenceFields { amountMinor:number;paymentChannel:string
 export interface WalletFundingSubmission extends WalletEvidenceFields { receipt:File|null }
 export interface WalletAdjustmentSubmission { direction:'CREDIT'|'DEBIT';amountMinor:number;reversalOfEntryId:string;reason:string }
 
+// Customer-facing surfaces may display the fixed CAT issuance rate, while the
+// staff Dashboard continues to read and write only the canonical USD ledger.
+export const customerTokenDisplay={code:'CAT',catPerUsd:10} as const;
+
 export function buildWalletRequest(kind:'TOP_UP'|'CASH_REFUND_DEBIT',userId:string,fields:WalletEvidenceFields,expectedWalletVersion?:number){
   const path=`/api/v1/admin/users/${encodeURIComponent(userId)}/${kind==='TOP_UP'?'top-ups':'external-refund-debits'}`;
   const body=kind==='TOP_UP'
