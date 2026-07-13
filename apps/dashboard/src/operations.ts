@@ -1,15 +1,7 @@
 export type OperationsLoadStatus = 'LOADING' | 'READY' | 'ERROR';
 export type OperationsViewKind = 'LOADING' | 'EMPTY' | 'ERROR' | 'FORBIDDEN' | 'READY';
 
-export interface OperationsErrorEnvelope {
-  requestId: string;
-  error: {
-    code: string;
-    message: string;
-    retryable: boolean;
-    details?: ReadonlyArray<unknown>;
-  };
-}
+export type OperationsErrorEnvelope = ErrorEnvelopeDto;
 
 export interface OperationsErrorView {
   code: string;
@@ -243,3 +235,4 @@ function requireVersion(value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) throw new TypeError('version must be a positive safe integer.');
   return value;
 }
+import type { ErrorEnvelopeDto } from '@blackcat/platform/api-contracts';

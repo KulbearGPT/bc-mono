@@ -8,36 +8,12 @@ import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWrite
 import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
+import type { WalletBalanceDto, WalletEntryDto, WalletEntryPageDto, WalletEntryTypeDto } from '@blackcat/platform/api-contracts';
 
-export type WalletEntryType = 'TOP_UP_CREDIT' | 'ORDER_CAPTURE_DEBIT' | 'GIFT_CAPTURE_DEBIT' |
-  'ORDER_REFUND_CREDIT' | 'CASH_REFUND_DEBIT' | 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT';
-
-export interface WalletBalance {
-  ledgerBalanceMinor: number;
-  reservedMinor: number;
-  availableMinor: number;
-  currency: 'CAT';
-  calculatedAt: string;
-  version: number;
-}
-
-export interface WalletEntry {
-  id: string;
-  walletAccountId: string;
-  entryType: WalletEntryType;
-  direction: 'CREDIT' | 'DEBIT';
-  amountMinor: number;
-  currency: 'CAT';
-  sourceType: string;
-  sourceId: string;
-  reversalOfEntryId: string | null;
-  occurredAt: string;
-}
-
-export interface WalletEntryPage {
-  items: WalletEntry[];
-  nextCursor: string | null;
-}
+export type WalletEntryType = WalletEntryTypeDto;
+export type WalletBalance = WalletBalanceDto;
+export type WalletEntry = WalletEntryDto & { walletAccountId: string; entryType: WalletEntryType; reversalOfEntryId: string | null };
+export type WalletEntryPage = WalletEntryPageDto & { items: WalletEntry[] };
 
 export interface WalletEntryPageInput {
   userId: string;

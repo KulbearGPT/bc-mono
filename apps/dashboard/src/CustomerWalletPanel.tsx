@@ -25,7 +25,7 @@ export function CustomerWalletPanel(props:{userId:string;balance:WalletBalance;e
         <label>冲正原因<textarea name="reason" required minLength={3} maxLength={1000} disabled={props.busy}/></label>
       </>:<>
       <label>{walletInputLabel(kind)}<input name="amount" type="number" min={kind==='TOP_UP'?'0.01':'0.1'} step={kind==='TOP_UP'?'0.01':'0.1'} required disabled={props.busy}/></label>
-      {kind==='TOP_UP'&&<p>充值金额按 USD 收据录入，确认后以固定关系记入 CAT 账本。</p>}
+      {kind==='TOP_UP'&&<p>充值金额按 USD 收据录入，固定按 1 USD = 10 猫条发放并记入 CAT 账本。</p>}
       <label>支付方式<select name="paymentChannel" required disabled={props.busy}><option value="ZELLE">Zelle</option><option value="PAYPAL">PayPal</option><option value="BANK_TRANSFER">银行转账</option><option value="CASH">现金</option><option value="OTHER">其他</option></select></label>
       <label>收据号 / 渠道交易号<input name="externalTransactionId" required maxLength={200} disabled={props.busy}/></label>
       <label>{kind==='TOP_UP'?'付款时间':'退款时间'}<input name="occurredAt" type="datetime-local" required disabled={props.busy}/></label>

@@ -12,6 +12,10 @@
       "types": "./src/process-health.ts",
       "import": "./dist/process-health.js"
     },
+    "./api-contracts": {
+      "types": "./src/api-contracts.ts",
+      "import": "./dist/api-contracts.js"
+    },
     "./production-env": {
       "types": "./dist/production-env.d.ts",
       "import": "./src/production-env.js"

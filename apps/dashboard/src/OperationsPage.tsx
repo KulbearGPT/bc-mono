@@ -27,15 +27,13 @@ export function OperationsPage(props: {
     </OperationsSection>
     <OperationsSection title="失败任务" kind={props.jobs.kind} error={props.jobs.error} onReload={() => props.onReload('jobs')}>
       {props.jobs.kind === 'READY' && <DataTable rows={props.jobs.rows} actions={(row) => {
-        const job = row as unknown as FailedJobRow & { retry: { visible: boolean; enabled: boolean } };
-        return job.retry.visible ? <button type="button" disabled={!job.retry.enabled} onClick={() => props.onRetryJob(job)}>重试</button> : null;
+        return row.retry.visible ? <button type="button" disabled={!row.retry.enabled} onClick={() => props.onRetryJob(row)}>重试</button> : null;
       }} />}
       {props.jobs.pagination.hasNext && props.jobs.pagination.nextCursor && <button type="button" onClick={() => props.onNextJobs(props.jobs.pagination.nextCursor!)}>下一页</button>}
     </OperationsSection>
     <OperationsSection title="系统设置" kind={props.policies.kind} error={props.policies.error} onReload={() => props.onReload('policies')}>
       {props.policies.kind === 'READY' && <DataTable rows={props.policies.rows} actions={(row) => {
-        const setting = row as unknown as PolicySettingRow & { edit: { visible: boolean; enabled: boolean } };
-        return setting.edit.visible ? <button type="button" disabled={!setting.edit.enabled} onClick={() => props.onUpdatePolicy(setting)}>修改</button> : null;
+        return row.edit.visible ? <button type="button" disabled={!row.edit.enabled} onClick={() => props.onUpdatePolicy(row)}>修改</button> : null;
       }} />}
     </OperationsSection>
   </section>;

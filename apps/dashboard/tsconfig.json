@@ -7,5 +7,6 @@
     "outDir": "dist",
     "types": ["node", "react", "react-dom"]
   },
+  "references": [{"path": "../../modules/platform"}],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
