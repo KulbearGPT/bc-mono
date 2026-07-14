@@ -7,20 +7,22 @@ import { discoverSapphirePieces } from './piece-manifest.js';
 import { parseWalletDisplayConfig } from './wallet-display.js';
 import { configureDiscordRendererEnvironment } from './discord-renderer.js';
 import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
+import { BotReadinessState } from './runtime.js';
+import { initializeLiveBotRuntime } from './runtime-startup.js';
 
 const isProductionRuntime = process.env.NODE_ENV === 'production';
 if (isProductionRuntime) requireProductionServiceEnv('bot', process.env);
 
 const validation = validateRuntimeEnv(process.env, { allowMissingDiscordToken: true });
 configureDiscordRendererEnvironment(process.env.BUSINESS_ENV);
-let ready = false;
+const readiness = new BotReadinessState();
 
 if (!validation.ok) {
   console.error(JSON.stringify({ level: 'error', event: 'bot.config.invalid', errors: validation.errors }));
   process.exit(1);
 }
 const health = isProductionRuntime
-  ? await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => ready })
+  ? await startProcessHealthServer({ port: processHealthPort(process.env.PORT), isReady: () => readiness.isReady() })
   : undefined;
 
 try {
@@ -54,12 +56,20 @@ if (!validation.values.discordBotToken) {
       GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
   });
   await client.login(validation.values.discordBotToken);
-  const apiHealth = await fetch(new URL('/health', validation.values.apiBaseUrl));
-  if (!apiHealth.ok) throw new Error('Unified API health check failed during Bot startup.');
-  ready = true;
+  const runtime = await initializeLiveBotRuntime({
+    client,
+    readiness,
+    apiBaseUrl: validation.values.apiBaseUrl,
+    botServiceToken: validation.values.botServiceToken,
+    roleMappingVersion: process.env.DISCORD_ROLE_MAPPING_VERSION,
+    logger: console
+  });
+  void runtime.backgroundDone.then((result) => {
+    console.log(JSON.stringify({ level: 'info', event: 'bot.background_reconciliation.complete', ...result }));
+  });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      ready = false;
+      readiness.markStopping();
       client.destroy();
       void health?.close().finally(() => process.exit(0));
     });

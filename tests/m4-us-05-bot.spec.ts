@@ -201,6 +201,7 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
     const manifest = await discoverSapphirePieces();
     const updateSource = await readFile('apps/bot/src/pieces/listeners/guild-member-update.ts', 'utf8');
     const readySource = await readFile('apps/bot/src/pieces/listeners/ready.ts', 'utf8');
+    const startupSource = await readFile('apps/bot/src/runtime-startup.ts', 'utf8');
 
     expect(manifest.pieces).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'listeners', name: 'guild-member-update' }),
@@ -208,8 +209,8 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
     ]));
     expect(updateSource).toContain('Events.GuildMemberUpdate');
     expect(updateSource).toContain('syncGuildMemberUpdate');
-    expect(readySource).toContain("this.container.logger.info('Sapphire bot ready.')");
-    expect(readySource).toContain('reconcileDiscordGuilds');
-    expect(`${updateSource}\n${readySource}`).not.toMatch(/effectiveLevel|minimumLevel|approvedLevel|L1_SUPPORT|L2_SUPERVISOR|L3_MANAGER|L4_OWNER/);
+    expect(readySource).toContain("event: 'bot.discord_gateway.ready'");
+    expect(startupSource).toContain('reconcileDiscordGuilds');
+    expect(`${updateSource}\n${readySource}\n${startupSource}`).not.toMatch(/effectiveLevel|minimumLevel|approvedLevel|L1_SUPPORT|L2_SUPERVISOR|L3_MANAGER|L4_OWNER/);
   });
 });

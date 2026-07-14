@@ -12,7 +12,8 @@
     "./selection-discord": "./src/selection-discord.ts",
     "./wallet-display": "./src/wallet-display.ts",
     "./onboarding": "./src/onboarding.ts",
-    "./private-order-channel": "./src/private-order-channel.ts"
+    "./private-order-channel": "./src/private-order-channel.ts",
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
