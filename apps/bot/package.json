@@ -10,8 +10,9 @@
     "./role-sync": "./src/role-sync.ts",
     "./service-center": "./src/service-center.ts",
     "./selection-discord": "./src/selection-discord.ts",
-    "./wallet-display": "./src/wallet-display.ts"
-    ,"./onboarding": "./src/onboarding.ts"
+    "./wallet-display": "./src/wallet-display.ts",
+    "./onboarding": "./src/onboarding.ts",
+    "./private-order-channel": "./src/private-order-channel.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

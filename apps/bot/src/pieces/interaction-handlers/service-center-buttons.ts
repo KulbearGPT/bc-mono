@@ -3,8 +3,6 @@ import {
   InteractionHandlerTypes,
 } from "@sapphire/framework";
 import {
-  ChannelType,
-  PermissionFlagsBits,
   type ButtonInteraction,
   type Interaction,
 } from "discord.js";
@@ -23,6 +21,10 @@ import {
   decodeGiftRecipientSelection,
   readGiftContinuationToken,
 } from "../../gifts.js";
+import {
+  createProvisionalPrivateOrderChannel,
+  finalizePrivateOrderChannel,
+} from "../../private-order-channel.js";
 import {
   HttpBotApiClient,
   BotApiError,
@@ -384,7 +386,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       );
       return;
     }
-    let channel = null;
+    let provisional = null;
     try {
       const staffRoleIds = [
         "staff_l1_role_id",
@@ -394,50 +396,31 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       ]
         .map((key) => values?.[key])
         .filter((id): id is string => typeof id === "string");
-      channel = await interaction.guild.channels.create({
-        name: `order-${interaction.user.username}`
+      provisional = await createProvisionalPrivateOrderChannel({
+        guild: interaction.guild,
+        guildId: interaction.guildId,
+        categoryId,
+        customerDiscordUserId: interaction.user.id,
+        botUserId: interaction.client.user.id,
+        staffRoleIds,
+        playerRoleId:
+          typeof values?.player_role_id === "string"
+            ? values.player_role_id
+            : null,
+        provisionalName: interaction.user.username
           .toLowerCase()
           .replace(/[^a-z0-9-]/gu, "-")
           .slice(0, 80),
-        type: ChannelType.GuildText,
-        parent: categoryId,
-        permissionOverwrites: [
-          { id: interaction.guildId, deny: [PermissionFlagsBits.ViewChannel] },
-          {
-            id: interaction.user.id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-            ],
-            deny: [PermissionFlagsBits.ManageChannels],
-          },
-          {
-            id: interaction.client.user.id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ManageChannels,
-            ],
-          },
-          ...staffRoleIds.map((id) => ({
-            id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ManageChannels,
-            ],
-          })),
-        ],
       });
-      const placeholder = await channel.send("正在创建订单面板…");
+      const { channel, panel: placeholder } = provisional;
       const actor = actorFromInteraction(interaction)!;
       const api = createBotApiClient();
       const result = await handleCreateOrderFromPublicEntry({
         api,
         actor,
         provisionalChannel: {
-          channelId: channel.id,
-          panelMessageId: placeholder.id,
+          channelId: provisional.channelId,
+          panelMessageId: provisional.panelMessageId,
           voiceChannelId: null,
         },
         idempotencyKey: buildDiscordIdempotencyKey(
@@ -460,10 +443,12 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
               catalog.items,
             )
           : buildGamePickerMessage(result.order, catalog.items, packages.items);
-        await placeholder.edit(toDiscordUpdate(message));
-        await channel
-          .setName(`order-${result.order.publicId}`.toLowerCase().slice(0, 90))
-          .catch(() => undefined);
+        await finalizePrivateOrderChannel({
+          channel,
+          panel: placeholder,
+          orderPublicId: result.order.publicId,
+          message: toDiscordUpdate(message),
+        });
         await interaction.editReply(
           botCopy.entry.channelCreated(String(channel)),
         );
@@ -489,8 +474,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
             expectedVersion: order.version,
             previousChannelId: result.channelId,
             channelSpec: {
-              channelId: channel.id,
-              panelMessageId: placeholder.id,
+              channelId: provisional.channelId,
+              panelMessageId: provisional.panelMessageId,
               voiceChannelId: order.channelSpec.voiceChannelId,
             },
           },
@@ -514,10 +499,12 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
               catalog.items,
             )
           : buildGamePickerMessage(recovered, catalog.items, packages.items);
-        await placeholder.edit(toDiscordUpdate(message));
-        await channel
-          .setName(`order-${recovered.publicId}`.toLowerCase().slice(0, 90))
-          .catch(() => undefined);
+        await finalizePrivateOrderChannel({
+          channel,
+          panel: placeholder,
+          orderPublicId: recovered.publicId,
+          message: toDiscordUpdate(message),
+        });
         await interaction.editReply(
           botCopy.entry.channelCreated(String(channel)),
         );
@@ -531,8 +518,10 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           : "暂时无法创建订单。",
       );
     } catch (error) {
-      if (channel)
-        await channel.delete("Order creation failed").catch(() => undefined);
+      if (provisional)
+        await provisional.channel
+          .delete("Order creation failed")
+          .catch(() => undefined);
       if (error instanceof BotApiError) {
         await interaction.editReply(
           `订单处理失败，请稍后重试或联系猫舍前台。request_id: ${error.requestId}`,
