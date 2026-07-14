@@ -35,8 +35,8 @@ export async function initializeBotRuntime(input: {
     backgroundDone: runBoundedTasks({
       tasks: input.backgroundTasks,
       concurrency: input.backgroundConcurrency ?? 2,
-      onError: input.onBackgroundError,
-    }),
+      onError: input.onBackgroundError
+    })
   };
 }
 
@@ -46,7 +46,7 @@ export async function runBoundedTasks(input: {
   onError?: (error: unknown, taskIndex: number) => void;
 }): Promise<{ completed: number; failed: number }> {
   if (!Number.isSafeInteger(input.concurrency) || input.concurrency < 1) {
-    throw new Error("Background task concurrency must be a positive integer.");
+    throw new Error('Background task concurrency must be a positive integer.');
   }
   let nextTaskIndex = 0;
   let completed = 0;

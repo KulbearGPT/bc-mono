@@ -31,7 +31,12 @@
     "typecheck": "tsc -b tsconfig.build.json",
     "quality:routes": "node scripts/check-api-route-contracts.mjs",
     "lint:api-dashboard": "eslint apps/api/src apps/dashboard/src --max-warnings 39",
-    "format:check": "prettier --check modules/platform/src/api-contracts.ts scripts/check-api-route-contracts.mjs eslint.config.js tests/m16-us-04-quality-gates.spec.ts"
+    "format:check": "prettier --check modules/platform/src/api-contracts.ts scripts/check-api-route-contracts.mjs eslint.config.js tests/m16-us-04-quality-gates.spec.ts",
+    "lint:bot": "eslint apps/bot/src --max-warnings 0",
+    "format:bot": "prettier --write apps/bot/src",
+    "format:bot:check": "prettier --check apps/bot/src",
+    "test:bot": "node scripts/run-bot-tests.mjs",
+    "quality:bot": "npm run lint:bot && npm run format:bot:check && npm run typecheck -w @blackcat/bot && npm run build && npm run pieces -w @blackcat/bot && npm run test:bot"
   },
   "engines": {
     "node": ">=22.0.0"

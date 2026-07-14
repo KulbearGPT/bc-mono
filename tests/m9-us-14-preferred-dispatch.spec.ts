@@ -40,7 +40,7 @@ describe('M9-US-14 customer preferred dispatch list', () => {
       serviceCenter.indexOf('export function buildGamePickerMessage')
     );
     expect(currentWizard).not.toContain('preferred-players');
-    expect(serviceCenter).toContain("field==='preferred-players'");
+    expect(serviceCenter).toMatch(/field\s*===\s*'preferred-players'/u);
     expect(renderer).toContain('UserSelectMenuBuilder');
     expect(orders).toContain('preferredPlayerDiscordUserIds');
     expect(orders).toMatch(/requirement_snapshot = \$[1-9][0-9]*::jsonb/u);

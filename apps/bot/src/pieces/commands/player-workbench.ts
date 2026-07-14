@@ -5,9 +5,7 @@ import { HttpBotApiClient, handleOpenPlayerWorkbench } from '../../service-cente
 export default class PlayerWorkbenchCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry): void {
     registry.registerChatInputCommand((builder) => {
-      return builder
-        .setName('player-workbench')
-        .setDescription('Open your private player workbench.');
+      return builder.setName('player-workbench').setDescription('Open your private player workbench.');
     });
   }
 

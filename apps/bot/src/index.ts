@@ -6,7 +6,11 @@ import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { discoverSapphirePieces } from './piece-manifest.js';
 import { parseWalletDisplayConfig } from './wallet-display.js';
 import { configureDiscordRendererEnvironment } from './discord-renderer.js';
-import { processHealthPort, requireProductionServiceEnv, startProcessHealthServer } from '@blackcat/platform/process-health';
+import {
+  processHealthPort,
+  requireProductionServiceEnv,
+  startProcessHealthServer
+} from '@blackcat/platform/process-health';
 import { BotReadinessState } from './runtime.js';
 import { initializeLiveBotRuntime } from './runtime-startup.js';
 
@@ -28,11 +32,13 @@ const health = isProductionRuntime
 try {
   parseWalletDisplayConfig(process.env);
 } catch (error) {
-  console.error(JSON.stringify({
-    level: 'error',
-    event: 'bot.wallet_display.invalid',
-    error: error instanceof Error ? error.message : 'Invalid wallet display configuration.'
-  }));
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      event: 'bot.wallet_display.invalid',
+      error: error instanceof Error ? error.message : 'Invalid wallet display configuration.'
+    })
+  );
   process.exit(1);
 }
 
@@ -52,8 +58,13 @@ if (!validation.values.discordBotToken) {
   if (configuredGuildId) ApplicationCommandRegistries.setDefaultGuildIds([configuredGuildId]);
   const client = new SapphireClient({
     baseUserDirectory: join(dirname(fileURLToPath(import.meta.url)), 'pieces'),
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences,
-      GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildPresences,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent
+    ]
   });
   await client.login(validation.values.discordBotToken);
   const runtime = await initializeLiveBotRuntime({

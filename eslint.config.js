@@ -7,7 +7,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['apps/api/src/**/*.ts', 'apps/dashboard/src/**/*.{ts,tsx}'],
+    files: ['apps/api/src/**/*.ts', 'apps/bot/src/**/*.ts', 'apps/dashboard/src/**/*.{ts,tsx}'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
       parserOptions: { ecmaVersion: 'latest', sourceType: 'module' }

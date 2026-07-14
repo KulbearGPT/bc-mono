@@ -14,9 +14,7 @@ export interface SapphirePieceManifest {
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
-export async function discoverSapphirePieces(
-  rootDir = join(currentDir, 'pieces')
-): Promise<SapphirePieceManifest> {
+export async function discoverSapphirePieces(rootDir = join(currentDir, 'pieces')): Promise<SapphirePieceManifest> {
   const files = await listTypeScriptFiles(rootDir);
   return {
     framework: '@sapphire/framework',
@@ -41,7 +39,10 @@ async function listTypeScriptFiles(rootDir: string): Promise<string[]> {
       if (entry.isDirectory()) {
         return listTypeScriptFiles(absolutePath);
       }
-      if (entry.isFile() && (entry.name.endsWith('.js') || (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')))) {
+      if (
+        entry.isFile() &&
+        (entry.name.endsWith('.js') || (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')))
+      ) {
         return [absolutePath];
       }
       return [];

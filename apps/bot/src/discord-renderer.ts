@@ -15,19 +15,27 @@ import {
   type InteractionEditReplyOptions,
   type InteractionReplyOptions
 } from 'discord.js';
-import type { ActionRowSpec, ComponentSpec, MessageComponentSpec, MessageSpec, ModalSpec, TextInputSpec } from './service-center.js';
+import type {
+  ActionRowSpec,
+  ComponentSpec,
+  MessageComponentSpec,
+  MessageSpec,
+  ModalSpec,
+  TextInputSpec
+} from './service-center.js';
 
 export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
 
-export function decorateSandboxPrivateMessage<T extends { visibility: 'EPHEMERAL' | 'PUBLIC' | 'PRIVATE_CHANNEL'; body: string }>(
-  message: T,
-  environment: 'SANDBOX' | 'PRODUCTION'
-): T {
+export function decorateSandboxPrivateMessage<
+  T extends { visibility: 'EPHEMERAL' | 'PUBLIC' | 'PRIVATE_CHANNEL'; body: string }
+>(message: T, environment: 'SANDBOX' | 'PRODUCTION'): T {
   if (environment !== 'SANDBOX') return message;
   return { ...message, body: `${BOT_SANDBOX_WARNING}\n\n${message.body}` };
 }
 
-export function sandboxDisplayRole(level: 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' | null): 'STAFF' | 'OWNER' | null {
+export function sandboxDisplayRole(
+  level: 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' | null
+): 'STAFF' | 'OWNER' | null {
   if (level === 'L2_SUPERVISOR') return 'STAFF';
   if (level === 'L4_ADMIN_OWNER') return 'OWNER';
   return null;
@@ -47,22 +55,27 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   if (rendered.layout === 'COMPONENTS_V2' || rendered.visibility === 'PRIVATE_CHANNEL') {
     const container = new ContainerBuilder()
       .setAccentColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000)));
+      .addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000))
+      );
     for (const component of rendered.components) addV2Component(container, component);
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Blackcat Companion'));
     return {
       components: [container],
-      flags: rendered.visibility === 'EPHEMERAL'
-        ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
-        : MessageFlags.IsComponentsV2
+      flags:
+        rendered.visibility === 'EPHEMERAL'
+          ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
+          : MessageFlags.IsComponentsV2
     };
   }
   return {
-    embeds: [new EmbedBuilder()
-      .setColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
-      .setTitle(rendered.title.slice(0, 256))
-      .setDescription(rendered.body.slice(0, 4096))
-      .setFooter({ text: 'Blackcat Companion' })],
+    embeds: [
+      new EmbedBuilder()
+        .setColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
+        .setTitle(rendered.title.slice(0, 256))
+        .setDescription(rendered.body.slice(0, 4096))
+        .setFooter({ text: 'Blackcat Companion' })
+    ],
     components: rendered.components
       .filter((component): component is ActionRowSpec => component.type === 'ACTION_ROW')
       .map(toDiscordActionRow),
@@ -76,7 +89,10 @@ export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptio
     content: null,
     embeds: reply.embeds,
     components: reply.components,
-    flags: message.layout === 'COMPONENTS_V2' || message.visibility === 'PRIVATE_CHANNEL' ? MessageFlags.IsComponentsV2 : undefined
+    flags:
+      message.layout === 'COMPONENTS_V2' || message.visibility === 'PRIVATE_CHANNEL'
+        ? MessageFlags.IsComponentsV2
+        : undefined
   };
 }
 
@@ -86,9 +102,11 @@ function addV2Component(container: ContainerBuilder, component: MessageComponent
     return;
   }
   if (component.type === 'V2_SECTION') {
-    container.addSectionComponents(new SectionBuilder()
-      .addTextDisplayComponents(new TextDisplayBuilder().setContent(component.content.slice(0, 4000)))
-      .setButtonAccessory(toDiscordComponent(component.accessory) as ButtonBuilder));
+    container.addSectionComponents(
+      new SectionBuilder()
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(component.content.slice(0, 4000)))
+        .setButtonAccessory(toDiscordComponent(component.accessory) as ButtonBuilder)
+    );
     return;
   }
   if (component.type === 'V2_TEXT') {
@@ -105,7 +123,9 @@ export function toDiscordModal(modal: ModalSpec): ModalBuilder {
     .addComponents(modal.components.map(toDiscordTextInputRow));
 }
 
-function toDiscordActionRow(row: ActionRowSpec): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder> {
+function toDiscordActionRow(
+  row: ActionRowSpec
+): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder> {
   return new ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder>().addComponents(
     row.components.map(toDiscordComponent)
   );
@@ -113,7 +133,11 @@ function toDiscordActionRow(row: ActionRowSpec): ActionRowBuilder<ButtonBuilder 
 
 function toDiscordComponent(component: ComponentSpec): ButtonBuilder | StringSelectMenuBuilder | UserSelectMenuBuilder {
   if (component.type === 'LINK_BUTTON') {
-    return new ButtonBuilder().setLabel(component.label).setURL(component.url).setStyle(ButtonStyle.Link).setDisabled(component.disabled ?? false);
+    return new ButtonBuilder()
+      .setLabel(component.label)
+      .setURL(component.url)
+      .setStyle(ButtonStyle.Link)
+      .setDisabled(component.disabled ?? false);
   }
   if (component.type === 'BUTTON') {
     return new ButtonBuilder()

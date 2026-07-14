@@ -450,8 +450,8 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
       "apps/bot/src/pieces/interaction-handlers/bot-config-modals.ts",
       "utf8",
     );
-    const readySource = await readFile(
-      "apps/bot/src/pieces/listeners/ready.ts",
+    const startupSource = await readFile(
+      "apps/bot/src/runtime-startup.ts",
       "utf8",
     );
 
@@ -494,6 +494,6 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
     expect(modalSource.indexOf("deferReply")).toBeLessThan(
       modalSource.indexOf("previewTextInput"),
     );
-    expect(readySource).toContain("reloadBotConfigCache");
+    expect(startupSource).toContain("reloadBotConfigCache");
   });
 });

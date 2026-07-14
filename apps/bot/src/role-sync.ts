@@ -40,7 +40,12 @@ export class RoleSyncApiError extends Error {
   public readonly code: string | null;
   public readonly expectedMappingVersion: number | null;
 
-  public constructor(message: string, statusCode: number | null = null, code: string | null = null, expectedMappingVersion: number | null = null) {
+  public constructor(
+    message: string,
+    statusCode: number | null = null,
+    code: string | null = null,
+    expectedMappingVersion: number | null = null
+  ) {
     super(message);
     this.name = 'RoleSyncApiError';
     this.statusCode = statusCode;
@@ -54,11 +59,7 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
   private readonly botServiceToken: string;
   private readonly retryDelaysMs: readonly number[];
 
-  public constructor(input: {
-    apiBaseUrl: string;
-    botServiceToken: string;
-    retryDelaysMs?: readonly number[];
-  }) {
+  public constructor(input: { apiBaseUrl: string; botServiceToken: string; retryDelaysMs?: readonly number[] }) {
     this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
     this.botServiceToken = input.botServiceToken;
     this.retryDelaysMs = input.retryDelaysMs ?? [250, 1_000];
@@ -88,8 +89,17 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
         }
 
         const expectedMappingVersion = getExpectedMappingVersion(envelope.error?.details);
-        const error = new RoleSyncApiError(envelope.error?.message ?? `Role sync failed with HTTP ${response.status}.`, response.status, envelope.error?.code ?? null, expectedMappingVersion);
-        if (error.code === 'MAPPING_VERSION_STALE' && error.expectedMappingVersion !== null && !refreshedMappingVersion) {
+        const error = new RoleSyncApiError(
+          envelope.error?.message ?? `Role sync failed with HTTP ${response.status}.`,
+          response.status,
+          envelope.error?.code ?? null,
+          expectedMappingVersion
+        );
+        if (
+          error.code === 'MAPPING_VERSION_STALE' &&
+          error.expectedMappingVersion !== null &&
+          !refreshedMappingVersion
+        ) {
           currentObservation = { ...currentObservation, mappingVersion: error.expectedMappingVersion };
           refreshedMappingVersion = true;
           attempt -= 1;
@@ -112,7 +122,9 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
   }
 }
 
-function buildRoleSyncIdempotencyKey(observation: Pick<RoleSyncObservation, 'sourceEventId' | 'mappingVersion'>): string {
+function buildRoleSyncIdempotencyKey(
+  observation: Pick<RoleSyncObservation, 'sourceEventId' | 'mappingVersion'>
+): string {
   const identity = createHash('sha256')
     .update(`${observation.sourceEventId}:v${observation.mappingVersion}`)
     .digest('hex');
@@ -160,14 +172,16 @@ export async function syncGuildMemberUpdate(
     return false;
   }
 
-  await dependencies.api.syncDiscordRoles(buildRoleSyncObservation({
-    guildId: newMember.guild.id,
-    discordUserId: newMember.id,
-    observedRoleIds,
-    mappingVersion: dependencies.mappingVersion,
-    source: 'GUILD_MEMBER_UPDATE',
-    observedAt: (dependencies.now ?? (() => new Date()))().toISOString()
-  }));
+  await dependencies.api.syncDiscordRoles(
+    buildRoleSyncObservation({
+      guildId: newMember.guild.id,
+      discordUserId: newMember.id,
+      observedRoleIds,
+      mappingVersion: dependencies.mappingVersion,
+      source: 'GUILD_MEMBER_UPDATE',
+      observedAt: (dependencies.now ?? (() => new Date()))().toISOString()
+    })
+  );
   return true;
 }
 
@@ -203,14 +217,16 @@ export async function reconcileDiscordGuilds(input: {
       result.observedMembers += 1;
       const observedAt = (input.now ?? (() => new Date()))().toISOString();
       try {
-        await input.api.syncDiscordRoles(buildRoleSyncObservation({
-          guildId: guild.id,
-          discordUserId: member.id,
-          observedRoleIds: roleIds(member),
-          mappingVersion: input.mappingVersion,
-          source: 'STARTUP_RECONCILIATION',
-          observedAt
-        }));
+        await input.api.syncDiscordRoles(
+          buildRoleSyncObservation({
+            guildId: guild.id,
+            discordUserId: member.id,
+            observedRoleIds: roleIds(member),
+            mappingVersion: input.mappingVersion,
+            source: 'STARTUP_RECONCILIATION',
+            observedAt
+          })
+        );
         result.syncedMembers += 1;
       } catch (error) {
         if (input.isIgnorableError?.(error)) continue;
@@ -252,7 +268,10 @@ async function readEnvelope(response: Response): Promise<{
   error?: { code?: string; message?: string; details?: Array<{ field?: string; reason?: string }> };
 }> {
   try {
-    return await response.json() as { data?: unknown; error?: { code?: string; message?: string; details?: Array<{ field?: string; reason?: string }> } };
+    return (await response.json()) as {
+      data?: unknown;
+      error?: { code?: string; message?: string; details?: Array<{ field?: string; reason?: string }> };
+    };
   } catch {
     return {};
   }

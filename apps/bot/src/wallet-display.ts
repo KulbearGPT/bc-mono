@@ -12,9 +12,7 @@ export const DEFAULT_WALLET_DISPLAY_CONFIG: Readonly<WalletDisplayConfig> = Obje
 
 const SYMBOL_PATTERN = /^[\p{L}0-9_·-]+$/u;
 
-export function parseWalletDisplayConfig(
-  env: Record<string, string | undefined> = process.env
-): WalletDisplayConfig {
+export function parseWalletDisplayConfig(env: Record<string, string | undefined> = process.env): WalletDisplayConfig {
   if (env.WALLET_DISPLAY_NAME !== undefined || env.WALLET_DISPLAY_SYMBOL !== undefined) {
     throw new Error('CAT wallet display is fixed; remove WALLET_DISPLAY_NAME and WALLET_DISPLAY_SYMBOL.');
   }
@@ -38,9 +36,7 @@ export function formatCustomerWalletAmount(
   return `${sign}${whole}.${fraction} ${config.symbol}`;
 }
 
-export function customerWalletLabel(
-  config: WalletDisplayConfig = DEFAULT_WALLET_DISPLAY_CONFIG
-): string {
+export function customerWalletLabel(config: WalletDisplayConfig = DEFAULT_WALLET_DISPLAY_CONFIG): string {
   assertWalletDisplayConfig(config);
   return `${config.displayName}钱包`;
 }

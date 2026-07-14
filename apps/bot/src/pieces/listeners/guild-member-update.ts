@@ -1,10 +1,6 @@
 import { Listener } from '@sapphire/framework';
 import { Events, type GuildMember } from 'discord.js';
-import {
-  HttpRoleSyncApiClient,
-  readRoleMappingVersion,
-  syncGuildMemberUpdate
-} from '../../role-sync.js';
+import { HttpRoleSyncApiClient, readRoleMappingVersion, syncGuildMemberUpdate } from '../../role-sync.js';
 
 export default class GuildMemberUpdateListener extends Listener<typeof Events.GuildMemberUpdate> {
   public constructor(context: Listener.LoaderContext) {
