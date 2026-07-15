@@ -1,5 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { Interaction, ModalSubmitInteraction } from 'discord.js';
+import { buildBotActorContext } from '../../actor-context.js';
 import {
   botConfigFlow,
   parseBotConfigCustomId,
@@ -51,12 +52,5 @@ export default class BotConfigModalHandler extends InteractionHandler {
   }
 }
 function actorFrom(interaction: ModalSubmitInteraction): BotConfigActorContext | null {
-  return interaction.guildId
-    ? {
-        guildId: interaction.guildId,
-        discordUserId: interaction.user.id,
-        interactionId: interaction.id,
-        clientSource: 'DISCORD_BOT'
-      }
-    : null;
+  return buildBotActorContext(interaction);
 }

@@ -1,16 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { DiscordBotActorContext } from './actor-context.js';
+import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { BOT_COPY, botCopy } from './bot-copy.js';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 import { customerWalletLabel, formatCustomerWalletAmount, parseWalletDisplayConfig } from './wallet-display.js';
 
 export type ClientSource = 'DISCORD_BOT';
-
-export interface BotActorContext {
-  guildId: string;
-  discordUserId: string;
-  interactionId: string;
-  clientSource: ClientSource;
-}
+export type BotActorContext = DiscordBotActorContext;
 
 export function buildDiscordSourceEventId(kind: 'presence'): string {
   const compactId = randomUUID().replaceAll('-', '');
@@ -717,23 +713,35 @@ export class BotApiError extends Error {
   public readonly code: string;
   public readonly requestId: string;
   public readonly statusCode: number;
+  public readonly details: unknown;
 
-  public constructor(input: { code: string; message: string; requestId: string; statusCode: number }) {
+  public constructor(input: {
+    code: string;
+    message: string;
+    requestId: string;
+    statusCode: number;
+    details?: unknown;
+  }) {
     super(input.message);
     this.name = 'BotApiError';
     this.code = input.code;
     this.requestId = input.requestId;
     this.statusCode = input.statusCode;
+    this.details = input.details;
   }
 }
 
 export class HttpBotApiClient implements BotApiClient {
-  private readonly apiBaseUrl: string;
-  private readonly botServiceToken: string;
+  private readonly transport: BotApiTransport;
 
-  public constructor(input: { apiBaseUrl: string; botServiceToken: string }) {
-    this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
-    this.botServiceToken = input.botServiceToken;
+  public constructor(input: {
+    apiBaseUrl: string;
+    botServiceToken: string;
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    transport?: BotApiTransport;
+  }) {
+    this.transport = input.transport ?? new BotApiTransport(input);
   }
 
   public async createOrder(
@@ -1297,50 +1305,23 @@ export class HttpBotApiClient implements BotApiClient {
       includeStatus?: boolean;
     }
   ): Promise<T | { statusCode: number; data: T }> {
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.botServiceToken}`,
-      'x-client-source': input.actor.clientSource,
-      'x-actor-discord-user-id': input.actor.discordUserId,
-      'x-actor-guild-id': input.actor.guildId,
-      'x-discord-interaction-id': input.actor.interactionId
-    };
-    if (input.body !== undefined) {
-      headers['content-type'] = 'application/json';
-    }
-    if (input.idempotencyKey) {
-      headers['idempotency-key'] = input.idempotencyKey;
-    }
-
-    const response = await fetch(`${this.apiBaseUrl}${path}`, {
-      method: input.method,
-      headers,
-      body: input.body === undefined ? undefined : JSON.stringify(input.body)
-    });
-    const envelope = (await response.json()) as ApiEnvelope<T>;
-
-    if (!response.ok) {
+    try {
+      if (input.includeStatus) {
+        const response = await this.transport.request<T>(path, { ...input, includeStatus: true });
+        return { statusCode: response.statusCode, data: response.data };
+      }
+      return await this.transport.request<T>(path, input);
+    } catch (error) {
+      if (!(error instanceof BotApiTransportError)) throw error;
       throw new BotApiError({
-        code: envelope.error?.code ?? 'SERVICE_UNAVAILABLE',
-        message: envelope.error?.message ?? 'Unified API request failed.',
-        requestId: envelope.requestId ?? 'unknown',
-        statusCode: response.status
+        code: error.code,
+        message: error.message,
+        requestId: error.requestId,
+        statusCode: error.statusCode,
+        details: error.details
       });
     }
-
-    if (input.includeStatus) {
-      return { statusCode: response.status, data: envelope.data as T };
-    }
-    return envelope.data as T;
   }
-}
-
-interface ApiEnvelope<T> {
-  requestId?: string;
-  data?: T;
-  error?: {
-    code?: string;
-    message?: string;
-  };
 }
 
 function pagePath(path: string, cursor: string | undefined, limit: number): string {

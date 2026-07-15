@@ -1,4 +1,5 @@
 import { Command } from '@sapphire/framework';
+import { buildBotActorContext } from '../../actor-context.js';
 import { botConfigFlow, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
 
 export default class BotConfigCommand extends Command {
@@ -33,12 +34,9 @@ export default class BotConfigCommand extends Command {
 }
 
 function actorFromInteraction(interaction: Command.ChatInputCommandInteraction): BotConfigActorContext {
-  return {
-    guildId: interaction.guildId as string,
-    discordUserId: interaction.user.id,
-    interactionId: interaction.id,
-    clientSource: 'DISCORD_BOT'
-  };
+  const actor = buildBotActorContext(interaction);
+  if (!actor) throw new Error('Guild Actor Context is required.');
+  return actor;
 }
 
 function errorMessage(error: unknown): string {

@@ -1,5 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { Interaction } from 'discord.js';
+import { buildBotActorContext } from '../../actor-context.js';
 import { botCopy } from '../../bot-copy.js';
 import {
   APPLY_COMPANION_CUSTOM_ID,
@@ -23,10 +24,10 @@ export default class OnboardingButtonHandler extends InteractionHandler {
   public override async run(interaction: Interaction, customId?: string): Promise<void> {
     if (!interaction.isButton() || !interaction.inGuild() || !interaction.guild || !customId) return;
     await interaction.deferReply({ ephemeral: true });
+    const baseActor = buildBotActorContext(interaction);
+    if (!baseActor) return;
     const actor = {
-      guildId: interaction.guildId,
-      discordUserId: interaction.user.id,
-      interactionId: interaction.id,
+      ...baseActor,
       displayName:
         interaction.member && 'displayName' in interaction.member
           ? String(interaction.member.displayName)

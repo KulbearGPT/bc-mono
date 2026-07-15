@@ -1,14 +1,13 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Guild, type MessageEditOptions } from 'discord.js';
+import type { DiscordBotActorContext } from './actor-context.js';
+import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { BOT_COPY } from './bot-copy.js';
 
 export const REGISTER_PLAYER_CUSTOM_ID = 'onboarding:register-player:v1';
 export const APPLY_COMPANION_CUSTOM_ID = 'onboarding:apply-companion:v1';
 export const ONBOARDING_RENDERED_VERSION = 2;
 
-export interface OnboardingActor {
-  guildId: string;
-  discordUserId: string;
-  interactionId: string;
+export interface OnboardingActor extends DiscordBotActorContext {
   displayName: string;
 }
 export interface PlayerRegistrationResult {
@@ -54,9 +53,15 @@ export class OnboardingApiError extends Error {
 }
 
 export class HttpOnboardingApiClient {
-  private readonly baseUrl: string;
-  constructor(private readonly input: { apiBaseUrl: string; botServiceToken: string; fetch?: typeof fetch }) {
-    this.baseUrl = input.apiBaseUrl.replace(/\/$/u, '');
+  private readonly transport: BotApiTransport;
+  constructor(input: {
+    apiBaseUrl: string;
+    botServiceToken: string;
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    transport?: BotApiTransport;
+  }) {
+    this.transport = input.transport ?? new BotApiTransport(input);
   }
   registerPlayer(actor: OnboardingActor) {
     return this.actorRequest<PlayerRegistrationResult>('/api/v1/me/player-registration', actor);
@@ -105,39 +110,18 @@ export class HttpOnboardingApiClient {
     path: string,
     input: { method: 'GET' | 'POST' | 'PUT'; body?: unknown; idempotencyKey?: string; actor?: OnboardingActor }
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.input.botServiceToken}`,
-      'x-client-source': 'DISCORD_BOT'
-    };
-    if (input.body !== undefined) headers['content-type'] = 'application/json';
-    if (input.idempotencyKey) headers['idempotency-key'] = input.idempotencyKey;
-    if (input.actor) {
-      headers['x-actor-guild-id'] = input.actor.guildId;
-      headers['x-actor-discord-user-id'] = input.actor.discordUserId;
-      headers['x-discord-interaction-id'] = input.actor.interactionId;
-    }
-    let response: Response;
     try {
-      response = await (this.input.fetch ?? fetch)(`${this.baseUrl}${path}`, {
-        method: input.method,
-        headers,
-        body: input.body === undefined ? undefined : JSON.stringify(input.body)
-      });
-    } catch {
-      throw new OnboardingApiError('SERVICE_UNAVAILABLE', 'bot-api-unreachable', BOT_COPY.onboarding.apiUnavailable);
-    }
-    const envelope = (await response.json().catch(() => null)) as {
-      requestId?: string;
-      data?: T;
-      error?: { code?: string; message?: string };
-    } | null;
-    if (!response.ok || !envelope || !('data' in envelope))
+      return await this.transport.request<T>(path, input);
+    } catch (error) {
+      if (!(error instanceof BotApiTransportError)) throw error;
       throw new OnboardingApiError(
-        envelope?.error?.code ?? 'SERVICE_UNAVAILABLE',
-        envelope?.requestId ?? 'unknown',
-        envelope?.error?.message ?? BOT_COPY.onboarding.apiFailed
+        error.code,
+        error.requestId,
+        error.code === 'SERVICE_UNAVAILABLE' || error.code === 'GATEWAY_TIMEOUT'
+          ? BOT_COPY.onboarding.apiUnavailable
+          : error.message || BOT_COPY.onboarding.apiFailed
       );
-    return envelope.data as T;
+    }
   }
 }
 

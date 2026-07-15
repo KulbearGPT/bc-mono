@@ -2,6 +2,7 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { type ButtonInteraction, type Interaction } from 'discord.js';
 import { botConfigCache } from '../../bot-config.js';
 import { botCopy } from '../../bot-copy.js';
+import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordModal, toDiscordReply, toDiscordUpdate } from '../../discord-renderer.js';
 import {
   buildGiftAffordabilityMessage,
@@ -868,13 +869,5 @@ function selectedGiftParticipantIds(interaction: ButtonInteraction): string[] {
 }
 
 function actorFromInteraction(interaction: ButtonInteraction): BotActorContext | null {
-  if (!interaction.guildId) {
-    return null;
-  }
-  return {
-    guildId: interaction.guildId,
-    discordUserId: interaction.user.id,
-    interactionId: interaction.id,
-    clientSource: 'DISCORD_BOT'
-  };
+  return buildBotActorContext(interaction);
 }

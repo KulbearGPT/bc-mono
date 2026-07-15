@@ -1,5 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { Interaction } from 'discord.js';
+import { buildBotActorContext } from '../../actor-context.js';
 import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
@@ -35,12 +36,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
 
     if (!parsedData || !interaction.guildId) return;
     if (parsedData.area === 'support-rating-comment') {
-      const actor: BotActorContext = {
-        guildId: interaction.guildId,
-        discordUserId: interaction.user.id,
-        interactionId: interaction.id,
-        clientSource: 'DISCORD_BOT'
-      };
+      const actor: BotActorContext = buildBotActorContext(interaction)!;
       const api = new HttpBotApiClient({
         apiBaseUrl: process.env.API_BASE_URL ?? '',
         botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
@@ -60,12 +56,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
     }
     if (parsedData.area !== 'order-notes-modal' && parsedData.area !== 'requirement-note-modal') return;
     await interaction.deferUpdate();
-    const actor: BotActorContext = {
-      guildId: interaction.guildId,
-      discordUserId: interaction.user.id,
-      interactionId: interaction.id,
-      clientSource: 'DISCORD_BOT'
-    };
+    const actor: BotActorContext = buildBotActorContext(interaction)!;
     const api = new HttpBotApiClient({
       apiBaseUrl: process.env.API_BASE_URL ?? '',
       botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''

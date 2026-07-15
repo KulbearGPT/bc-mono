@@ -260,13 +260,13 @@ export function decodeGiftRecipientSelection(
     .map((recipient) => recipient.participantId);
 }
 
-export function buildGiftRecipientPickerMessage(data: GiftPanelData, orderVersion: number): MessageSpec {
-  return buildGiftCatalogMessage(
-    data,
-    orderVersion,
-    { guildId: '', discordUserId: '', interactionId: '', clientSource: 'DISCORD_BOT' },
-    'x'.repeat(32)
-  );
+export function buildGiftRecipientPickerMessage(
+  data: GiftPanelData,
+  orderVersion: number,
+  actor: BotActorContext,
+  continuationSecret: string
+): MessageSpec {
+  return buildGiftCatalogMessage(data, orderVersion, actor, continuationSecret);
 }
 
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {

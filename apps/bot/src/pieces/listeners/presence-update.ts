@@ -1,5 +1,6 @@
 import { Events, type Presence } from 'discord.js';
 import { Listener } from '@sapphire/framework';
+import { buildBotEventActorContext } from '../../actor-context.js';
 import {
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
@@ -22,12 +23,12 @@ export default class PresenceUpdateListener extends Listener<typeof Events.Prese
 
     const observedAt = new Date().toISOString();
     const sourceEventId = buildDiscordSourceEventId('presence');
-    const actor: BotActorContext = {
+    const actor: BotActorContext | null = buildBotEventActorContext({
       guildId,
       discordUserId,
-      interactionId: sourceEventId,
-      clientSource: 'DISCORD_BOT'
-    };
+      sourceEventId
+    });
+    if (!actor) return;
 
     const api = new HttpBotApiClient({
       apiBaseUrl: process.env.API_BASE_URL ?? '',

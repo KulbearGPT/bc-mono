@@ -13,7 +13,9 @@
     "./wallet-display": "./src/wallet-display.ts",
     "./onboarding": "./src/onboarding.ts",
     "./private-order-channel": "./src/private-order-channel.ts",
-    "./runtime": "./src/runtime.ts"
+    "./runtime": "./src/runtime.ts",
+    "./actor-context": "./src/actor-context.ts",
+    "./api-transport": "./src/api-transport.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

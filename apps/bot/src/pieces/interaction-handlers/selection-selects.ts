@@ -1,6 +1,7 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { StringSelectMenuInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
+import { buildBotActorContext } from '../../actor-context.js';
 import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
 import { closeCustomId, decodeSelectionId, parseSelectionCustomId, withdrawCustomId } from '../../selection-discord.js';
 
@@ -54,12 +55,11 @@ export default class SelectionSelectsHandler extends InteractionHandler {
       apiBaseUrl: env.values.apiBaseUrl,
       botServiceToken: env.values.botServiceToken
     });
-    const actor = {
-      guildId: interaction.guildId ?? '',
-      discordUserId: interaction.user.id,
-      interactionId: interaction.id,
-      clientSource: 'DISCORD_BOT' as const
-    };
+    const actor = buildBotActorContext(interaction);
+    if (!actor) {
+      await interaction.editReply({ content: '请在服务器内进行候选池操作。request_id: local-guild-required' });
+      return;
+    }
     try {
       if (route.action === 'repeat') {
         const waitMinutes = Number(interaction.values[0]);

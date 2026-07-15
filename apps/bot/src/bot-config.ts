@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { GuildBotActorContext } from './actor-context.js';
+import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -57,11 +59,9 @@ export type BotConfigManageableField = BotConfigSelectableField | BotConfigScala
 export type BotConfigValue = string | number | boolean | null;
 export type BotConfigValues = Partial<Record<string, BotConfigValue>>;
 
-export interface BotConfigActorContext {
-  guildId: string;
+export interface BotConfigActorContext extends GuildBotActorContext {
   discordUserId?: string;
   interactionId?: string;
-  clientSource: 'DISCORD_BOT';
 }
 
 export interface BotConfigSnapshot {
@@ -159,16 +159,23 @@ export class BotConfigApiError extends Error {
 }
 
 export class HttpBotConfigApiClient implements BotConfigApiClient {
-  private readonly apiBaseUrl: string;
-  private readonly botServiceToken: string;
+  private readonly transport: BotApiTransport;
 
-  public constructor(input: { apiBaseUrl: string; botServiceToken: string }) {
-    this.apiBaseUrl = input.apiBaseUrl.replace(/\/$/u, '');
-    this.botServiceToken = input.botServiceToken;
+  public constructor(input: {
+    apiBaseUrl: string;
+    botServiceToken: string;
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    transport?: BotApiTransport;
+  }) {
+    this.transport = input.transport ?? new BotApiTransport(input);
   }
 
   public getBotConfig(guildId: string, actor: BotConfigActorContext): Promise<BotConfigSnapshot> {
-    return this.request(`/api/v1/admin/bot-config?guildId=${encodeURIComponent(guildId)}`, { method: 'GET', actor });
+    return this.request(`/api/v1/admin/bot-config?guildId=${encodeURIComponent(guildId)}`, {
+      method: 'GET',
+      actor: actor.discordUserId ? actor : undefined
+    });
   }
 
   public validateBotConfigChange(
@@ -220,66 +227,22 @@ export class HttpBotConfigApiClient implements BotConfigApiClient {
     path: string,
     input: {
       method: 'GET' | 'POST' | 'PATCH';
-      actor: BotConfigActorContext;
+      actor?: BotConfigActorContext;
       idempotencyKey?: string;
       body?: unknown;
     }
   ): Promise<T> {
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.botServiceToken}`,
-      'x-client-source': input.actor.clientSource
-    };
-    if (input.actor.discordUserId) {
-      headers['x-actor-discord-user-id'] = input.actor.discordUserId;
-      headers['x-actor-guild-id'] = input.actor.guildId;
-    }
-    if (input.actor.interactionId) headers['x-discord-interaction-id'] = input.actor.interactionId;
-    if (input.idempotencyKey) headers['idempotency-key'] = input.idempotencyKey;
-    if (input.body !== undefined) headers['content-type'] = 'application/json';
-
-    let response: Response;
     try {
-      response = await fetch(`${this.apiBaseUrl}${path}`, {
-        method: input.method,
-        headers,
-        body: input.body === undefined ? undefined : JSON.stringify(input.body)
-      });
-    } catch {
+      return await this.transport.request<T>(path, input);
+    } catch (error) {
+      if (!(error instanceof BotApiTransportError)) throw error;
       throw new BotConfigApiError({
-        code: 'SERVICE_UNAVAILABLE',
-        message: 'Unified API is unavailable.',
-        requestId: 'bot-api-unreachable',
-        statusCode: 503
+        code: error.code,
+        message: error.message,
+        requestId: error.requestId,
+        statusCode: error.statusCode
       });
     }
-    let envelope: {
-      requestId?: string;
-      data?: T;
-      error?: { code?: string; message?: string };
-    };
-    try {
-      envelope = (await response.json()) as {
-        requestId?: string;
-        data?: T;
-        error?: { code?: string; message?: string };
-      };
-    } catch {
-      throw new BotConfigApiError({
-        code: 'SERVICE_UNAVAILABLE',
-        message: 'Unified API returned an invalid response.',
-        requestId: 'bot-api-invalid-response',
-        statusCode: 502
-      });
-    }
-    if (!response.ok) {
-      throw new BotConfigApiError({
-        code: envelope.error?.code ?? 'SERVICE_UNAVAILABLE',
-        message: envelope.error?.message ?? 'Unified API request failed.',
-        requestId: envelope.requestId ?? 'unknown',
-        statusCode: response.status
-      });
-    }
-    return envelope.data as T;
   }
 }
 

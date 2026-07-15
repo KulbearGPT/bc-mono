@@ -1,4 +1,5 @@
 import { Command } from '@sapphire/framework';
+import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordReply } from '../../discord-renderer.js';
 import { HttpBotApiClient, handleOpenPlayerWorkbench } from '../../service-center.js';
 
@@ -14,18 +15,18 @@ export default class PlayerWorkbenchCommand extends Command {
       await interaction.reply({ content: '请在服务器内打开陪玩工作台。', ephemeral: true });
       return;
     }
+    const actor = buildBotActorContext(interaction);
+    if (!actor) {
+      await interaction.reply({ content: '请在服务器内打开陪玩工作台。', ephemeral: true });
+      return;
+    }
     const api = new HttpBotApiClient({
       apiBaseUrl: process.env.API_BASE_URL ?? '',
       botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
     });
     const result = await handleOpenPlayerWorkbench({
       api,
-      actor: {
-        guildId: interaction.guildId,
-        discordUserId: interaction.user.id,
-        interactionId: interaction.id,
-        clientSource: 'DISCORD_BOT'
-      }
+      actor
     });
     if (result.kind === 'SHOW_PLAYER_WORKBENCH') {
       await interaction.reply(toDiscordReply(result.message));

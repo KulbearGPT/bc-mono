@@ -1,4 +1,5 @@
 import type { SapphireClient } from '@sapphire/framework';
+import { buildGuildActorContext } from './actor-context.js';
 import { BotConfigApiError, botConfigApi, botConfigCache, reloadBotConfigCache } from './bot-config.js';
 import { ensureOnboardingMessage, onboardingApi, reconcileProductRoleTasks } from './onboarding.js';
 import {
@@ -42,10 +43,11 @@ export async function initializeLiveBotRuntime(input: {
         api: botConfigApi,
         cache: botConfigCache,
         guildIds: guilds.map((guild) => guild.id),
-        actorForGuild: (guildId) => ({
-          guildId,
-          clientSource: 'DISCORD_BOT'
-        }),
+        actorForGuild: (guildId) => {
+          const actor = buildGuildActorContext(guildId);
+          if (!actor) throw new Error('Guild Actor Context is required.');
+          return actor;
+        },
         onError: (error, guildId) => {
           if (error instanceof BotConfigApiError && error.code === 'NOT_FOUND') {
             input.logger.info({ event: 'bot.config.not_initialized', guildId });

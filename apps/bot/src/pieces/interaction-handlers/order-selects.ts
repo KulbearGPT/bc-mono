@@ -1,5 +1,6 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { BOT_COPY, botCopy } from '../../bot-copy.js';
+import { buildBotActorContext } from '../../actor-context.js';
 import type { Interaction } from 'discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import {
@@ -59,12 +60,11 @@ export default class OrderSelectHandler extends InteractionHandler {
     }
 
     await interaction.deferUpdate();
-    const actor: BotActorContext = {
-      guildId: interaction.guildId as string,
-      discordUserId: interaction.user.id,
-      interactionId: interaction.id,
-      clientSource: 'DISCORD_BOT'
-    };
+    const actor: BotActorContext | null = buildBotActorContext(interaction);
+    if (!actor) {
+      await interaction.editReply({ content: '请在服务器内使用此菜单。request_id: local-guild-required' });
+      return;
+    }
     try {
       const api = new HttpBotApiClient({
         apiBaseUrl: process.env.API_BASE_URL ?? '',

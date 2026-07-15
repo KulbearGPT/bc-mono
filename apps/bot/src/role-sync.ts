@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 
 export type RoleSyncSource = 'GUILD_MEMBER_UPDATE' | 'STARTUP_RECONCILIATION' | 'MANUAL_RETRY';
 
@@ -55,13 +56,18 @@ export class RoleSyncApiError extends Error {
 }
 
 export class HttpRoleSyncApiClient implements RoleSyncApi {
-  private readonly apiBaseUrl: string;
-  private readonly botServiceToken: string;
+  private readonly transport: BotApiTransport;
   private readonly retryDelaysMs: readonly number[];
 
-  public constructor(input: { apiBaseUrl: string; botServiceToken: string; retryDelaysMs?: readonly number[] }) {
-    this.apiBaseUrl = input.apiBaseUrl.replace(/\/+$/u, '');
-    this.botServiceToken = input.botServiceToken;
+  public constructor(input: {
+    apiBaseUrl: string;
+    botServiceToken: string;
+    retryDelaysMs?: readonly number[];
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    transport?: BotApiTransport;
+  }) {
+    this.transport = input.transport ?? new BotApiTransport(input);
     this.retryDelaysMs = input.retryDelaysMs ?? [250, 1_000];
   }
 
@@ -70,50 +76,37 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
     let refreshedMappingVersion = false;
 
     for (let attempt = 0; ; attempt += 1) {
-      const body = JSON.stringify(currentObservation);
-      const headers: Record<string, string> = {
-        authorization: `Bearer ${this.botServiceToken}`,
-        'content-type': 'application/json',
-        'x-client-source': 'DISCORD_BOT',
-        'idempotency-key': buildRoleSyncIdempotencyKey(currentObservation)
-      };
       try {
-        const response = await fetch(`${this.apiBaseUrl}/api/v1/internal/discord/role-sync`, {
+        return await this.transport.request('/api/v1/internal/discord/role-sync', {
           method: 'POST',
-          headers,
-          body
+          idempotencyKey: buildRoleSyncIdempotencyKey(currentObservation),
+          body: currentObservation
         });
-        const envelope = await readEnvelope(response);
-        if (response.ok) {
-          return envelope.data;
-        }
-
-        const expectedMappingVersion = getExpectedMappingVersion(envelope.error?.details);
-        const error = new RoleSyncApiError(
-          envelope.error?.message ?? `Role sync failed with HTTP ${response.status}.`,
-          response.status,
-          envelope.error?.code ?? null,
-          expectedMappingVersion
-        );
+      } catch (error) {
+        const roleError =
+          error instanceof BotApiTransportError
+            ? new RoleSyncApiError(
+                error.message,
+                error.statusCode,
+                error.code,
+                getExpectedMappingVersion(error.details as Array<{ field?: string; reason?: string }> | undefined)
+              )
+            : new RoleSyncApiError('Role sync request failed.');
         if (
-          error.code === 'MAPPING_VERSION_STALE' &&
-          error.expectedMappingVersion !== null &&
+          roleError.code === 'MAPPING_VERSION_STALE' &&
+          roleError.expectedMappingVersion !== null &&
           !refreshedMappingVersion
         ) {
-          currentObservation = { ...currentObservation, mappingVersion: error.expectedMappingVersion };
+          currentObservation = { ...currentObservation, mappingVersion: roleError.expectedMappingVersion };
           refreshedMappingVersion = true;
           attempt -= 1;
           continue;
         }
-        if (!isTransientStatus(response.status) || attempt >= this.retryDelaysMs.length) {
-          throw error;
-        }
-      } catch (error) {
-        if (error instanceof RoleSyncApiError && error.statusCode !== null && !isTransientStatus(error.statusCode)) {
-          throw error;
-        }
-        if (attempt >= this.retryDelaysMs.length) {
-          throw error;
+        if (
+          (roleError.statusCode !== null && !isTransientStatus(roleError.statusCode)) ||
+          attempt >= this.retryDelaysMs.length
+        ) {
+          throw roleError;
         }
       }
 
@@ -261,20 +254,6 @@ function sameValues(left: readonly string[], right: readonly string[]): boolean 
 
 function isTransientStatus(statusCode: number): boolean {
   return statusCode === 429 || statusCode >= 500;
-}
-
-async function readEnvelope(response: Response): Promise<{
-  data?: unknown;
-  error?: { code?: string; message?: string; details?: Array<{ field?: string; reason?: string }> };
-}> {
-  try {
-    return (await response.json()) as {
-      data?: unknown;
-      error?: { code?: string; message?: string; details?: Array<{ field?: string; reason?: string }> };
-    };
-  } catch {
-    return {};
-  }
 }
 
 function getExpectedMappingVersion(details: Array<{ field?: string; reason?: string }> | undefined): number | null {

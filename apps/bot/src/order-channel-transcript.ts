@@ -1,9 +1,19 @@
 import type { Message, PartialMessage } from 'discord.js';
+import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { botConfigCache } from './bot-config.js';
 
 export type TranscriptEventType = 'CREATED' | 'UPDATED' | 'DELETED';
 export class OrderChannelTranscriptApi {
-  constructor(private readonly input: { apiBaseUrl: string; botServiceToken: string; fetch?: typeof fetch }) {}
+  private readonly transport: BotApiTransport;
+  constructor(input: {
+    apiBaseUrl: string;
+    botServiceToken: string;
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    transport?: BotApiTransport;
+  }) {
+    this.transport = input.transport ?? new BotApiTransport(input);
+  }
   async record(message: Message | PartialMessage, eventType: TranscriptEventType): Promise<void> {
     if (!message.guildId) return;
     const categoryId = botConfigCache.get(message.guildId)?.values.private_order_category_id;
@@ -37,23 +47,15 @@ export class OrderChannelTranscriptApi {
       discordCreatedAt: message.createdTimestamp ? new Date(message.createdTimestamp).toISOString() : null,
       discordEditedAt: edited
     };
-    const response = await (this.input.fetch ?? fetch)(
-      `${this.input.apiBaseUrl.replace(/\/$/u, '')}/api/v1/internal/order-channel-events`,
-      {
+    try {
+      await this.transport.request('/api/v1/internal/order-channel-events', {
         method: 'POST',
-        headers: {
-          authorization: `Bearer ${this.input.botServiceToken}`,
-          'content-type': 'application/json',
-          'x-client-source': 'DISCORD_BOT',
-          'idempotency-key': `transcript:${eventId}`.replaceAll(/[^A-Za-z0-9:_-]/gu, '_').slice(0, 200)
-        },
-        body: JSON.stringify(body)
-      }
-    );
-    if (!response.ok) {
-      const envelope = (await response.json().catch(() => null)) as { error?: { code?: string } } | null;
-      if (response.status === 404 && envelope?.error?.code === 'NOT_FOUND') return;
-      throw new Error(`Transcript API failed with HTTP ${response.status}.`);
+        idempotencyKey: `transcript:${eventId}`.replaceAll(/[^A-Za-z0-9:_-]/gu, '_').slice(0, 200),
+        body
+      });
+    } catch (error) {
+      if (error instanceof BotApiTransportError && error.statusCode === 404 && error.code === 'NOT_FOUND') return;
+      throw error;
     }
   }
 }
