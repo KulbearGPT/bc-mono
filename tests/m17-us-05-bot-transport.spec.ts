@@ -164,7 +164,7 @@ describe('M17-US-05 trusted Bot Actor and API transport', () => {
   test('all five HTTP clients delegate to the transport and interaction handlers do not fabricate Guild actors', async () => {
     const clientSources = await Promise.all(
       [
-        'apps/bot/src/service-center.ts',
+        'apps/bot/src/service-center-api.ts',
         'apps/bot/src/bot-config.ts',
         'apps/bot/src/role-sync.ts',
         'apps/bot/src/onboarding.ts',

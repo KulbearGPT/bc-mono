@@ -7,7 +7,7 @@ import {
   buildDiscordSourceEventId,
   type BotActorContext,
   type DiscordPresenceSummary
-} from '../../service-center.js';
+} from '../../service-center-api.js';
 
 export default class PresenceUpdateListener extends Listener<typeof Events.PresenceUpdate> {
   public constructor(context: Listener.LoaderContext) {
