@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BOT_COPY, botCopy } from './bot-copy.js';
 import type { BotActorContext, MessageSpec } from './service-center.js';
-import { customerWalletLabel, formatCustomerWalletAmount, parseWalletDisplayConfig } from './wallet-display.js';
+import { DEFAULT_WALLET_DISPLAY_CONFIG, customerWalletLabel, formatCustomerWalletAmount } from './wallet-display.js';
 
 export interface GiftPanelData {
   orderId: string;
@@ -101,7 +101,7 @@ export function buildGiftAffordabilityMessage(
   token: string,
   recipients: Array<{ participantId: string; displayName: string }> = []
 ): MessageSpec {
-  const displayConfig = parseWalletDisplayConfig(process.env);
+  const displayConfig = DEFAULT_WALLET_DISPLAY_CONFIG;
   const walletLabel = customerWalletLabel(displayConfig);
   const confirmationRow =
     data.canAfford && !data.stale
@@ -405,5 +405,5 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
 
 function formatGiftAmount(amountMinor: number, currency: string): string {
   if (currency !== 'CAT') throw new Error('Customer gift display requires canonical USD minor units.');
-  return formatCustomerWalletAmount(amountMinor, parseWalletDisplayConfig(process.env));
+  return formatCustomerWalletAmount(amountMinor, DEFAULT_WALLET_DISPLAY_CONFIG);
 }

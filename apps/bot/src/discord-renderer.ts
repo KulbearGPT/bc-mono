@@ -15,15 +15,15 @@ import {
   type InteractionEditReplyOptions,
   type InteractionReplyOptions
 } from 'discord.js';
-import type {
-  ActionRowSpec,
-  ComponentSpec,
-  MessageComponentSpec,
-  MessageSpec,
-  ModalSpec,
-  TextInputSpec
-} from './service-center.js';
-
+import {
+  assertDiscordMessageSpec,
+  type ActionRowSpec,
+  type ComponentSpec,
+  type MessageComponentSpec,
+  type MessageSpec,
+  type ModalSpec,
+  type TextInputSpec
+} from './service-center-components.js';
 export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
 
 export function decorateSandboxPrivateMessage<
@@ -51,6 +51,7 @@ export function configureDiscordRendererEnvironment(value: string | undefined): 
 }
 
 export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
+  assertDiscordMessageSpec(message);
   const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
   if (rendered.layout === 'COMPONENTS_V2' || rendered.visibility === 'PRIVATE_CHANNEL') {
     const container = new ContainerBuilder()
