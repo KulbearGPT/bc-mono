@@ -111,6 +111,25 @@ export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec 
   };
 }
 
+export function buildCurrentUserCommissionsMessage(page: CurrentCommissionPage): MessageSpec {
+  return {
+    title: '我的收益',
+    body: [
+      `待确认：${formatCustomerMoney(page.summary.pendingMinor, page.summary.currency)}`,
+      `已确认：${formatCustomerMoney(page.summary.confirmedMinor, page.summary.currency)}`,
+      `已结算：${formatCustomerMoney(page.summary.paidMinor, page.summary.currency)}`,
+      '返佣来源与被推荐用户信息不会在此展示。'
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [{ type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '返回服务中心' }]
+      }
+    ]
+  };
+}
+
 export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary): MessageSpec {
   const balance = input.balance;
   return {

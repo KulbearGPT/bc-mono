@@ -85,7 +85,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     if (giftSelect.type !== 'STRING_SELECT') throw new Error('Expected gift select.');
     expect(parseServiceCenterCustomId(giftSelect.customId)).toEqual({ area: 'gift-catalog-select', selection: 'AQ' });
     expect(giftSelect.options[0]!.value.length).toBeLessThanOrEqual(84);
-    const source = await readFile('apps/bot/src/pieces/interaction-handlers/service-center-buttons.ts', 'utf8');
+    const source = await readFile('apps/bot/src/service-center-gift-interactions.ts', 'utf8');
     expect(source).toContain('checkGiftAffordability');
     expect(source).toContain('createOrderGiftRequest');
     expect(source).toContain('readGiftContinuationToken');

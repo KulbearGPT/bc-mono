@@ -85,12 +85,12 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
   test('parses stable routes and keeps every button-handler response ephemeral with request-id fallback', async () => {
     expect(parseServiceCenterCustomId('bc:profile:refresh')).toEqual({ area: 'profile', action: 'refresh' });
     expect(parseServiceCenterCustomId('bc:reports:list:first')).toEqual({ area: 'reports', action: 'list', cursor: undefined });
-    const source = await readFile('apps/bot/src/pieces/interaction-handlers/service-center-buttons.ts', 'utf8');
+    const source = await readFile('apps/bot/src/service-center-profile-interactions.ts', 'utf8');
     const serviceCenter = await readFile('apps/bot/src/service-center.ts', 'utf8');
     expect(source).toContain('getCurrentUserProfileSummary');
     expect(source).toContain('listCurrentPlayerWeeklyReports');
     expect(source).toContain('getCurrentPlayerWeeklyReport');
-    expect(source).toMatch(/request_id/u);
+    expect(source).toContain('featureUnavailable');
     expect(source).not.toMatch(/ephemeral:\s*false/u);
     expect(serviceCenter).not.toMatch(/componentCursorRegistry|new Map<string, string>|createHash\('sha256'\)\.update\(cursor\)/u);
   });

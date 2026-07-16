@@ -275,8 +275,9 @@ describe('M1-US-07 Sapphire order confirmation wiring', () => {
     const source = await readFile('apps/bot/src/pieces/interaction-handlers/service-center-buttons.ts', 'utf8');
 
     expect(source).toContain('handleOpenOrderConfirmation');
-    expect(source).toMatch(/route\.area === 'entry'\s*\|\|\s*route\.area === 'order-action'/u);
+    expect(source).toContain("serviceCenterInteractionKind(route) === 'button'");
     expect(source).toContain('buildDiscordIdempotencyKey');
-    expect(source).toContain('await interaction.update(toDiscordUpdate(result.message))');
+    expect(source).toContain('await interaction.deferUpdate()');
+    expect(source).toContain('await interaction.editReply(toDiscordUpdate(result.message))');
   });
 });

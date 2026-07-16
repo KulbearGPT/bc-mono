@@ -3,6 +3,8 @@ export type ServiceCenterRoute =
       area: 'entry';
       action: 'create-order' | 'service-center' | 'player-workbench';
     }
+  | { area: 'service-center-action'; action: 'commissions' | 'recharge' }
+  | { area: 'order-open'; orderId: string }
   | {
       area: 'support-rating';
       orderId: string;
@@ -106,7 +108,7 @@ export type ServiceCenterRoute =
   | {
       area: 'order-action';
       orderId: string;
-      action: 'submit' | 'submit-final' | 'cancel';
+      action: 'submit' | 'submit-final' | 'cancel' | 'refresh';
       expectedVersion: number;
     }
   | {
@@ -253,6 +255,14 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
   if (customId === 'bc:entry:player-workbench') {
     return { area: 'entry', action: 'player-workbench' };
   }
+  if (customId === 'bc:service-center:commissions' || customId === 'bc:service-center:recharge') {
+    return {
+      area: 'service-center-action',
+      action: customId.endsWith('commissions') ? 'commissions' : 'recharge'
+    };
+  }
+  const orderOpen = /^bc:order:([0-9a-f-]{36}):open$/u.exec(customId);
+  if (orderOpen) return { area: 'order-open', orderId: orderOpen[1]! };
 
   const cancellationAction = /^bc:cancel:([0-9a-f-]{36}):([0-9a-f-]{36}):confirm:v([1-9][0-9]*)$/u.exec(customId);
   if (cancellationAction) {
@@ -429,12 +439,12 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       expectedRequirementVersion: Number(requirementNoteOpen[4])
     };
 
-  const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
+  const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel|refresh):v([1-9][0-9]*)$/u.exec(customId);
   if (orderAction) {
     return {
       area: 'order-action',
       orderId: orderAction[1],
-      action: orderAction[2] as 'submit' | 'submit-final' | 'cancel',
+      action: orderAction[2] as 'submit' | 'submit-final' | 'cancel' | 'refresh',
       expectedVersion: Number.parseInt(orderAction[3], 10)
     };
   }

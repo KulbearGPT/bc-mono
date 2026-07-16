@@ -222,7 +222,8 @@ describe('M1-US-06 Sapphire button handler wiring', () => {
 
     expect(source).toContain('handleOpenServiceCenterFromPublicEntry');
     expect(source).toContain('HttpBotApiClient');
-    expect(source).toContain('toDiscordReply(result.message)');
+    expect(source).toContain('await interaction.deferReply({ ephemeral: true })');
+    expect(source).toContain('interaction.editReply(toDiscordUpdate(result.message))');
     expect(source).not.toContain('正在打开你的服务中心。');
   });
 });

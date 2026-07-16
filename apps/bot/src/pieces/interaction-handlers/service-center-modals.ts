@@ -2,6 +2,7 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { Interaction } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import {
+  BotApiError,
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   handleOrderNotesSubmit,
@@ -11,6 +12,7 @@ import {
   type ServiceCenterRoute
 } from '../../service-center.js';
 import { toDiscordReply } from '../../discord-renderer.js';
+import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 
 export default class ServiceCenterModalHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -22,11 +24,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-notes-modal' ||
-      route.area === 'requirement-note-modal' ||
-      route.area === 'support-rating-comment'
-      ? this.some(route)
-      : this.none();
+    return serviceCenterInteractionKind(route) === 'modal' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
@@ -36,6 +34,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
 
     if (!parsedData || !interaction.guildId) return;
     if (parsedData.area === 'support-rating-comment') {
+      await interaction.deferReply({ ephemeral: true });
       const actor: BotActorContext = buildBotActorContext(interaction)!;
       const api = new HttpBotApiClient({
         apiBaseUrl: process.env.API_BASE_URL ?? '',
@@ -48,9 +47,10 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
           actor,
           buildDiscordIdempotencyKey('support:rating:other', interaction.id)
         );
-        await interaction.reply({ content: '感谢评价，已记录。', ephemeral: true });
-      } catch {
-        await interaction.reply({ content: '客服评价提交失败，请稍后重试。', ephemeral: true });
+        await interaction.editReply('感谢评价，已记录。');
+      } catch (error) {
+        const requestId = error instanceof BotApiError ? error.requestId : 'local-support-rating';
+        await interaction.editReply(`客服评价提交失败，请稍后重试。request_id: ${requestId}`);
       }
       return;
     }

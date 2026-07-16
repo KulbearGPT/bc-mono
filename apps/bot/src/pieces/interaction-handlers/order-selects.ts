@@ -3,6 +3,7 @@ import { BOT_COPY, botCopy } from '../../bot-copy.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import type { Interaction } from 'discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
+import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import {
   BotApiError,
   HttpBotApiClient,
@@ -35,14 +36,7 @@ export default class OrderSelectHandler extends InteractionHandler {
       return this.none();
     }
     const route = parseServiceCenterCustomId(interaction.customId);
-    return route.area === 'order-select' ||
-      route.area === 'order-requirement-select' ||
-      route.area === 'service-package-select' ||
-      route.area === 'order-game-select' ||
-      route.area === 'gift-recipient-select' ||
-      route.area === 'gift-catalog-select'
-      ? this.some(route)
-      : this.none();
+    return serviceCenterInteractionKind(route) === 'select' ? this.some(route) : this.none();
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
