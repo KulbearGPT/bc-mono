@@ -37,6 +37,25 @@ describe('M11-US-02 selection pool API', () => {
     expect(runtime).toContain('selectionPools: { store: selectionPoolStore }');
   });
 
+  test('keeps the current-pool recovery read synchronized across API and interaction contracts', async () => {
+    const [outputApi, docsApi, outputMap, docsMap, outputBacklog, docsBacklog] = await Promise.all([
+      readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('outputs/P0开发交付包/01-UIUX/交互映射.csv', 'utf8'),
+      readFile('docs/P0开发交付包/01-UIUX/交互映射.csv', 'utf8'),
+      readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
+      readFile('docs/P0开发交付包/06-开发计划/backlog.csv', 'utf8')
+    ]);
+
+    expect(outputApi).toBe(docsApi);
+    expect(outputMap).toBe(docsMap);
+    expect(outputBacklog).toBe(docsBacklog);
+    expect(outputApi).toContain('/api/v1/orders/{orderId}/selection-pools/current:');
+    expect(outputApi).toContain('operationId: getCurrentOrderSelectionPool');
+    expect(outputMap).toMatch(/INT-D-067[^\n]*getCurrentOrderSelectionPool;createOrderSelectionPool/u);
+    expect(outputBacklog).toMatch(/M9-US-13[^\n]*submitOrder;getCurrentOrderSelectionPool;createOrderSelectionPool/u);
+  });
+
   test('lets an offline or busy player apply to multiple orders without creating participants or taking an active slot', async () => {
     const store = fixtureStore();
     const firstPool = await commit(store.createPool(customerScope(orderId, 1, 3, 'pool:create:1')));
@@ -97,9 +116,28 @@ describe('M11-US-02 selection pool API', () => {
       security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
       selectionPools: { store, now: () => instant(0) }
     });
+    const empty = await server.inject({
+      method: 'GET',
+      url: `/api/v1/orders/${orderId}/selection-pools/current`,
+      headers: headers(customerDiscordId, 'current-empty')
+    });
+    expect(empty.statusCode).toBe(404);
     const create = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'create'), payload: { expectedOrderVersion: 1, waitMinutes: 3 } });
     expect(create.statusCode, create.body).toBe(201);
     const pool = create.json().data.pool;
+    const current = await server.inject({
+      method: 'GET',
+      url: `/api/v1/orders/${orderId}/selection-pools/current`,
+      headers: headers(customerDiscordId, 'current-owner')
+    });
+    expect(current.statusCode, current.body).toBe(200);
+    expect(current.json().data.pool).toMatchObject({ id: pool.id, status: 'COLLECTING' });
+    const forbidden = await server.inject({
+      method: 'GET',
+      url: `/api/v1/orders/${orderId}/selection-pools/current`,
+      headers: headers(playerDiscordId, 'current-player')
+    });
+    expect(forbidden.statusCode).toBe(403);
     const invalid = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/applications`, headers: headers(playerDiscordId, 'invalid'), payload: { expectedPoolVersion: pool.version, orderRequirementId: requirementId, availability: 'AVAILABLE', amountMinor: 1 } });
     expect(invalid.statusCode).toBe(400);
     const applied = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/applications`, headers: headers(playerDiscordId, 'apply'), payload: { expectedPoolVersion: pool.version, orderRequirementId: requirementId } });

@@ -661,6 +661,7 @@ export interface BotApiClient {
     idempotencyKey: string
   ): Promise<PresenceSyncResult>;
   getPlayerWorkbench(actor: BotActorContext): Promise<PlayerWorkbenchSummary>;
+  getCurrentSelectionPool?(orderId: string, actor: BotActorContext): Promise<SelectionPoolResult>;
   createSelectionPool(
     orderId: string,
     input: { expectedOrderVersion: number; waitMinutes: number },
@@ -1225,6 +1226,13 @@ export class HttpBotApiClient implements BotApiClient {
 
   public async getPlayerWorkbench(actor: BotActorContext): Promise<PlayerWorkbenchSummary> {
     return this.request<PlayerWorkbenchSummary>('/api/v1/players/me/workbench', { method: 'GET', actor });
+  }
+
+  public getCurrentSelectionPool(orderId: string, actor: BotActorContext) {
+    return this.request<SelectionPoolResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/selection-pools/current`, {
+      method: 'GET',
+      actor
+    });
   }
 
   public createSelectionPool(

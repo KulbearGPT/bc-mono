@@ -21,7 +21,8 @@ import {
   type PublicServiceSummary,
   type ServicePackagePageSummary,
   type ServicePackagePreviewSummary,
-  type ServicePackageSummary
+  type ServicePackageSummary,
+  type SelectionPoolSummary
 } from './service-center-api.js';
 import type {
   AcceptedPlayerChannelPermissionPlan,
@@ -37,6 +38,7 @@ import type {
 } from './service-center-components.js';
 import { buildServiceCenterMessage } from './service-center-profile.js';
 import { DEFAULT_WALLET_DISPLAY_CONFIG, formatCustomerWalletAmount } from './wallet-display.js';
+import { buildSelectionPoolRefreshMessage } from './selection-discord.js';
 
 export * from './service-center-api.js';
 export * from './service-center-components.js';
@@ -1463,13 +1465,23 @@ export async function handleOrderRefresh(input: {
         message: buildGamePickerMessage(order, services.items, packages.items)
       };
     }
+    if (order.status === 'PENDING_DISPATCH') {
+      let currentPool: SelectionPoolSummary | null = null;
+      if (input.api.getCurrentSelectionPool) {
+        try {
+          currentPool = (await input.api.getCurrentSelectionPool(input.orderId, input.actor)).pool;
+        } catch (error) {
+          if (!isApiError(error, 'NOT_FOUND')) throw error;
+        }
+      }
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildSelectionPoolRefreshMessage(order, currentPool)
+      };
+    }
     let requirements: OrderRequirementPageSummary | undefined;
     const needsRequirementDetails =
-      Boolean(order.compositionMode) ||
-      !order.game ||
-      !order.service ||
-      !order.billingUnitMinutes ||
-      !order.unitCount;
+      Boolean(order.compositionMode) || !order.game || !order.service || !order.billingUnitMinutes || !order.unitCount;
     if (needsRequirementDetails && input.api.listOrderRequirements) {
       try {
         requirements = await input.api.listOrderRequirements(input.orderId, input.actor, undefined, 25);

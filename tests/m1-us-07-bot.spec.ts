@@ -248,6 +248,63 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(JSON.stringify(result)).not.toContain(`bc:order:${orderId}:refresh:v`);
   });
 
+  test('restores the customer wait-time selector before a pending order has opened its selection pool', async () => {
+    const latest = draftOrder({
+      status: 'PENDING_DISPATCH',
+      version: 9,
+      matching: {
+        stage: 'SEARCHING',
+        notifiedCandidateCount: 0,
+        requestedPlayerCount: 1,
+        filledPlayerCount: 0,
+        timeoutAt: null,
+        nextStep: 'WAIT_FOR_PLAYER',
+        playerSummary: null
+      }
+    });
+    const result = await handleOrderRefresh({
+      api: api({ getOrder: vi.fn().mockResolvedValue(latest) }),
+      actor: actor(),
+      orderId
+    });
+    const rendered = JSON.stringify(result);
+
+    expect(rendered).toContain(`bc:sp:new:${orderId}:o9`);
+    expect(rendered).toContain('选择等待时间');
+    for (const minutes of [3, 5, 10, 15, 30]) expect(rendered).toContain(`等待 ${minutes} 分钟`);
+    expect(rendered).not.toContain('已通知符合条件的陪玩：0 人');
+  });
+
+  test('does not offer a duplicate selection pool while the current round is collecting applications', async () => {
+    const latest = draftOrder({ status: 'PENDING_DISPATCH', version: 9 });
+    const result = await handleOrderRefresh({
+      api: api({
+        getOrder: vi.fn().mockResolvedValue(latest),
+        getCurrentSelectionPool: vi.fn().mockResolvedValue({
+          pool: {
+            id: '00000000-0000-0000-0000-000000110001',
+            orderId,
+            round: 2,
+            status: 'COLLECTING',
+            version: 4,
+            waitMinutes: 10,
+            openedAt: '2026-08-07T19:30:00.000Z',
+            closesAt: '2026-08-07T19:40:00.000Z',
+            applicationCount: 3
+          }
+        })
+      }),
+      actor: actor(),
+      orderId
+    });
+    const rendered = JSON.stringify(result);
+
+    expect(rendered).toContain('报名进行中');
+    expect(rendered).toContain('当前报名：3 人');
+    expect(rendered).toContain('提前结束报名');
+    expect(rendered).not.toContain(`bc:sp:new:${orderId}`);
+  });
+
   test.each([
     ['ACCEPTED', 'bc:service:ready:'],
     ['IN_SERVICE', 'bc:service:request-completion:'],

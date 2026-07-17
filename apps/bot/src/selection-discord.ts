@@ -1,4 +1,5 @@
 import type { MessageSpec } from './service-center.js';
+import type { OrderSummary, SelectionPoolSummary } from './service-center-api.js';
 
 export interface SelectionRequirementOffer {
   id: string;
@@ -163,6 +164,92 @@ export function buildSelectionCandidatePanel(input: {
       : '本轮暂无报名。请选择继续等待或取消订单。',
     visibility: 'PRIVATE_CHANNEL',
     components
+  };
+}
+
+export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: SelectionPoolSummary | null): MessageSpec {
+  if (!pool)
+    return {
+      title: `🐾 订单 #${order.publicId} · 选择报名时间`,
+      body: [
+        '订单已提交，资金预留保持有效。',
+        '目前还没有开始报名。请选择等待时间；选择后系统才会在派单频道发布报名卡。'
+      ].join('\n'),
+      visibility: 'PRIVATE_CHANNEL',
+      components: [
+        {
+          type: 'ACTION_ROW',
+          components: [
+            {
+              type: 'STRING_SELECT',
+              customId: `bc:sp:new:${order.id}:o${order.version}`,
+              placeholder: '选择等待时间',
+              minValues: 1,
+              maxValues: 1,
+              options: [3, 5, 10, 15, 30].map((minutes) => ({
+                label: `等待 ${minutes} 分钟`,
+                value: String(minutes)
+              }))
+            }
+          ]
+        },
+        selectionOrderControls(order)
+      ]
+    };
+  const collecting = pool.status === 'COLLECTING';
+  const components: MessageSpec['components'] = [];
+  if (collecting)
+    components.push({
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'PRIMARY',
+          customId: closeCustomId({ orderId: order.id, poolId: pool.id, poolVersion: pool.version }),
+          label: '提前结束报名'
+        }
+      ]
+    });
+  components.push(selectionOrderControls(order));
+  return {
+    title: collecting ? `🐾 订单 #${order.publicId} · 报名进行中` : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
+    body: collecting
+      ? [
+          `第 ${pool.round} 轮`,
+          `当前报名：${pool.applicationCount} 人`,
+          `报名截止：<t:${Math.floor(Date.parse(pool.closesAt) / 1000)}:R>`
+        ].join('\n')
+      : [`第 ${pool.round} 轮报名已结束。`, `当前候选：${pool.applicationCount} 人`, '请刷新候选名单或联系客服。'].join(
+          '\n'
+        ),
+    visibility: 'PRIVATE_CHANNEL',
+    components
+  };
+}
+
+function selectionOrderControls(order: OrderSummary): NonNullable<MessageSpec['components']>[number] {
+  return {
+    type: 'ACTION_ROW',
+    components: [
+      {
+        type: 'BUTTON',
+        style: 'SECONDARY',
+        customId: `bc:order:${order.id}:refresh`,
+        label: '刷新订单'
+      },
+      {
+        type: 'BUTTON',
+        style: 'DANGER',
+        customId: `bc:order:${order.id}:cancel:v${order.version}`,
+        label: '取消订单'
+      },
+      {
+        type: 'BUTTON',
+        style: 'SECONDARY',
+        customId: `bc:service:support:${order.id}:v${order.version}`,
+        label: '我要申诉'
+      }
+    ]
   };
 }
 

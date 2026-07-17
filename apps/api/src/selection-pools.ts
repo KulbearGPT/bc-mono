@@ -183,6 +183,9 @@ interface StagedWrite<T> {
 }
 
 export interface SelectionPoolStore {
+  getCurrentPool(
+    input: CustomerScope,
+  ): Promise<SelectionPoolResult> | SelectionPoolResult;
   createPool(
     input: CreateSelectionPoolInput,
   ):
@@ -254,6 +257,23 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
     this.applications = clone(input.applications ?? []);
     this.participants = clone(input.participants ?? []);
     this.auditSink = input.auditSink ?? new InMemoryAuditSink();
+  }
+
+  getCurrentPool(input: CustomerScope): SelectionPoolResult {
+    const order = this.requireCustomerOrder(input);
+    const pool = this.pools
+      .filter(
+        (item) =>
+          item.orderId === order.id &&
+          (item.status === "COLLECTING" || item.status === "SELECTION"),
+      )
+      .sort((left, right) => right.round - left.round)[0];
+    if (!pool)
+      throw new SelectionPoolError(
+        "NOT_FOUND",
+        "Active selection pool was not found.",
+      );
+    return { pool: clone(pool) };
   }
 
   createPool(
@@ -814,6 +834,22 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
 
 export class PostgresSelectionPoolStore implements SelectionPoolStore {
   constructor(private readonly pool: Pool) {}
+  async getCurrentPool(input: CustomerScope): Promise<SelectionPoolResult> {
+    const order = await this.order(this.pool, input, false);
+    this.owner(order, input.actorDiscordUserId);
+    const row = (
+      await this.pool.query<SelectionPoolRow>(
+        `${selectionPoolSelect} WHERE pool.order_id=$1 AND pool.status IN ('COLLECTING','SELECTION') ORDER BY pool.round DESC LIMIT 1`,
+        [input.orderId],
+      )
+    ).rows[0];
+    if (!row)
+      throw new SelectionPoolError(
+        "NOT_FOUND",
+        "Active selection pool was not found.",
+      );
+    return { pool: mapSelectionPool(row) };
+  }
   createPool(input: CreateSelectionPoolInput) {
     return this.prepare((client) => this.mutateCreate(client, input));
   }
@@ -1868,6 +1904,17 @@ export function registerSelectionPoolRoutes(
   const poolScope = (request: FastifyRequest, actor: ActorContext) => ({
     ...actorScope(request, actor),
     selectionPoolId: parameter(request, "selectionPoolId"),
+  });
+  registerSecureReadRoute(server, security, {
+    method: "GET",
+    url: "/api/v1/orders/:orderId/selection-pools/current",
+    permission: "order.selection_pool.read",
+    action: "GET_CURRENT_ORDER_SELECTION_POOL",
+    targetType: "selection_pool",
+    acceptedSources: ["DISCORD_BOT"],
+    handler: (request, actor) =>
+      options.store.getCurrentPool(actorScope(request, actor)),
+    mapError,
   });
   registerSecureWriteRoute(server, security, {
     method: "POST",
