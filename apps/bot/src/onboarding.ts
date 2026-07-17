@@ -45,7 +45,8 @@ export class OnboardingApiError extends Error {
   constructor(
     readonly code: string,
     readonly requestId: string,
-    message: string
+    message: string,
+    readonly statusCode = 500
   ) {
     super(message);
     this.name = 'OnboardingApiError';
@@ -114,13 +115,7 @@ export class HttpOnboardingApiClient {
       return await this.transport.request<T>(path, input);
     } catch (error) {
       if (!(error instanceof BotApiTransportError)) throw error;
-      throw new OnboardingApiError(
-        error.code,
-        error.requestId,
-        error.code === 'SERVICE_UNAVAILABLE' || error.code === 'GATEWAY_TIMEOUT'
-          ? BOT_COPY.onboarding.apiUnavailable
-          : error.message || BOT_COPY.onboarding.apiFailed
-      );
+      throw new OnboardingApiError(error.code, error.requestId, error.message, error.statusCode);
     }
   }
 }

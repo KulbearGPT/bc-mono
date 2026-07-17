@@ -50,7 +50,7 @@ describe("M9-US-13 candidate-pool dispatch replacement", () => {
     expect(handler.indexOf("await interaction.deferReply(")).toBeLessThan(
       handler.indexOf("await api.applyToSelectionPool("),
     );
-    expect(handler).toContain("error instanceof BotApiError");
+    expect(handler).toContain("formatUserFacingError(error");
     expect(handler).not.toContain("acceptOrder(");
     expect(handler).not.toContain("declineOrderOffer(");
   });

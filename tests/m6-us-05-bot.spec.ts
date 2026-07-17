@@ -90,7 +90,7 @@ describe('M6-US-05 Sapphire private profiles and reports', () => {
     expect(source).toContain('getCurrentUserProfileSummary');
     expect(source).toContain('listCurrentPlayerWeeklyReports');
     expect(source).toContain('getCurrentPlayerWeeklyReport');
-    expect(source).toContain('featureUnavailable');
+    expect(source).toContain('formatUserFacingError');
     expect(source).not.toMatch(/ephemeral:\s*false/u);
     expect(serviceCenter).not.toMatch(/componentCursorRegistry|new Map<string, string>|createHash\('sha256'\)\.update\(cursor\)/u);
   });

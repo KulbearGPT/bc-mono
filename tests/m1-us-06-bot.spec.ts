@@ -162,10 +162,11 @@ describe('M1-US-06 private service center Discord flow', () => {
       actor: actor()
     });
 
-    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户还没有准备好，请联系猫舍前台协助开通。' });
+    expect(result).toMatchObject({ kind: 'EPHEMERAL_MESSAGE' });
+    expect(result.message).toContain('当前 Discord 账号尚未绑定客户账户');
+    expect(result.message).toContain('request_id: req-bind');
   });
 });
-
 describe('M1-US-06 Bot HTTP client current-user API reuse', () => {
   test('calls /me, /me/balance, /me/consumptions and /me/commissions with trusted Discord actor headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue({

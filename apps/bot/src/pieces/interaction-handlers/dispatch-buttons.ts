@@ -2,9 +2,10 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { ButtonInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
-import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
+import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
 import { buildSelectionCandidatePanel, parseSelectionCustomId, withdrawCustomId } from '../../selection-discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export class DispatchButtonsHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
@@ -130,10 +131,21 @@ export class DispatchButtonsHandler extends InteractionHandler {
         route,
         error
       });
-      const requestId = error instanceof BotApiError ? error.requestId : 'local-selection-button-failed';
       await interaction.editReply({
-        content: `操作失败，请刷新后重试。request_id: ${requestId}`
+        content: formatUserFacingError(error, {
+          operation: dispatchOperation(route.action),
+          localRequestId: `discord-interaction-${interaction.id}`
+        })
       });
     }
   }
+}
+
+function dispatchOperation(action: 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'page'): string {
+  if (action === 'apply') return '报名候选池';
+  if (action === 'withdraw') return '撤回候选池报名';
+  if (action === 'close') return '提前结束候选池报名';
+  if (action === 'finalize') return '确认候选名单';
+  if (action === 'apply-menu') return '打开报名项目菜单';
+  return '查看候选名单下一页';
 }

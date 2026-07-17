@@ -7,6 +7,7 @@ import {
   toDiscordBotConfigReply,
   type BotConfigActorContext
 } from '../../bot-config.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigModalHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -42,10 +43,11 @@ export default class BotConfigModalHandler extends InteractionHandler {
         customId: interaction.customId,
         error
       });
-      const requestId =
-        typeof error === 'object' && error && 'requestId' in error ? String(error.requestId) : 'local-bot-config';
       await interaction.editReply({
-        content: `Bot 配置校验失败，请重新打开命令。request_id: ${requestId}`,
+        content: formatUserFacingError(error, {
+          operation: '校验 Bot 配置输入',
+          localRequestId: `discord-interaction-${interaction.id}`
+        }),
         components: []
       });
     }

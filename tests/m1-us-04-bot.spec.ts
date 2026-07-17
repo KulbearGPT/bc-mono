@@ -166,7 +166,6 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
     );
   });
 });
-
 describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning business logic', () => {
   test('create order directs an unavailable account to support', async () => {
     const client = api({
@@ -200,7 +199,9 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
       actor(),
       'discord:create-order:777777777777777777'
     );
-    expect(result).toEqual({ kind: 'EPHEMERAL_MESSAGE', message: '账户还没有准备好，请联系猫舍前台协助开通。' });
+    expect(result).toMatchObject({ kind: 'EPHEMERAL_MESSAGE' });
+    expect(result.message).toContain('当前 Discord 账号尚未绑定客户账户');
+    expect(result.message).toContain('request_id: req-bind');
   });
 
   test('create order returns existing active channel without planning a second submittable order', async () => {
@@ -237,7 +238,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
 
     expect(result).toEqual({
       kind: 'CHANNEL_CREATION_FAILED',
-      message: expect.stringMatching(/^暂时没有成功创建订单频道，请稍后再试或联系猫舍前台。request_id: req_/)
+      message: expect.stringMatching(/^无法创建订单频道：Discord 没有返回可用的私密频道/u)
     });
   });
 

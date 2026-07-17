@@ -12,7 +12,6 @@ import { serviceCenterInteractionKind } from '../../service-center-route-registr
 import { executeSupportRatingButton } from '../../service-center-support-interactions.js';
 import {
   HttpBotApiClient,
-  BotApiError,
   buildGamePickerMessage,
   buildMultiProjectOrderPanelMessage,
   buildOrderNotesModal,
@@ -34,6 +33,7 @@ import {
   type BotActorContext,
   type ServiceCenterRoute
 } from '../../service-center.js';
+import { formatDiscordError, formatUnexpectedBotResult } from '../../user-facing-error.js';
 
 export default class ServiceCenterButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -112,8 +112,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         const commissions = await createBotApiClient().listCurrentUserCommissions(actor);
         await interaction.editReply(toDiscordUpdate(buildCurrentUserCommissionsMessage(commissions)));
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-commissions';
-        await interaction.editReply(`我的收益暂时不可用。request_id: ${requestId}`);
+        await interaction.editReply(formatDiscordError(error, '查看我的收益', interaction.id));
       }
       return;
     }
@@ -126,8 +125,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         const order = await createBotApiClient().getOrder(parsedData.orderId, actor);
         await interaction.editReply(`订单 #${order.publicId}：<#${order.channelSpec.channelId}>`);
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-order-open';
-        await interaction.editReply(`暂时无法打开订单。request_id: ${requestId}`);
+        await interaction.editReply(formatDiscordError(error, '打开订单频道', interaction.id));
       }
       return;
     }
@@ -189,9 +187,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           return;
         }
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-game-action';
         await interaction.followUp({
-          content: `游戏菜单刚刚发生变化，请重试。request_id: ${requestId}`,
+          content: formatDiscordError(error, '选择订单游戏', interaction.id),
           ephemeral: true
         });
         return;
@@ -223,9 +220,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           return;
         }
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-requirement-add';
         await interaction.followUp({
-          content: `单点项目刚刚发生变化，请重试。request_id: ${requestId}`,
+          content: formatDiscordError(error, '添加订单服务项目', interaction.id),
           ephemeral: true
         });
         return;
@@ -260,9 +256,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           return;
         }
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-requirement-action';
         await interaction.followUp({
-          content: `订单项目刚刚发生变化，请刷新后重试。request_id: ${requestId}`,
+          content: formatDiscordError(error, '修改订单服务项目', interaction.id),
           ephemeral: true
         });
         return;
@@ -297,9 +292,8 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           return;
         }
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-package-action';
         await interaction.followUp({
-          content: `套餐清单刚刚发生变化，请重试。request_id: ${requestId}`,
+          content: formatDiscordError(error, '处理订单套餐', interaction.id),
           ephemeral: true
         });
         return;
@@ -441,15 +435,11 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await interaction.editReply(
         result.kind === 'EPHEMERAL_MESSAGE' || result.kind === 'CHANNEL_CREATION_FAILED'
           ? result.message
-          : '暂时无法创建订单。'
+          : formatUnexpectedBotResult('创建订单', `discord-interaction-${interaction.id}`)
       );
     } catch (error) {
       if (provisional) await provisional.channel.delete('Order creation failed').catch(() => undefined);
-      if (error instanceof BotApiError) {
-        await interaction.editReply(`订单处理失败，请稍后重试或联系猫舍前台。request_id: ${error.requestId}`);
-        return;
-      }
-      await interaction.editReply(botCopy.orders.channelCreationFailed('local-order-channel-failed'));
+      await interaction.editReply(formatDiscordError(error, '创建或恢复订单频道', interaction.id));
     }
   }
 
@@ -485,7 +475,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.followUp({
-      content: '暂时无法处理订单状态。request_id: local-unhandled-result',
+      content: formatUnexpectedBotResult('处理订单状态', `discord-interaction-${interaction.id}`),
       ephemeral: true
     });
   }
@@ -511,7 +501,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await interaction.editReply(result.message);
       return;
     }
-    await interaction.editReply('暂时无法打开服务中心。request_id: local-unhandled-result');
+    await interaction.editReply(formatUnexpectedBotResult('打开服务中心', `discord-interaction-${interaction.id}`));
   }
 
   private async openPlayerWorkbench(interaction: ButtonInteraction): Promise<void> {
@@ -535,7 +525,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     await interaction.editReply(
       result.kind === 'EPHEMERAL_MESSAGE'
         ? result.message
-        : '暂时无法打开陪玩工作台。request_id: local-unhandled-result'
+        : formatUnexpectedBotResult('打开陪玩工作台', `discord-interaction-${interaction.id}`)
     );
   }
 
@@ -570,7 +560,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.followUp({
-      content: '暂时无法打开确认面板。request_id: local-unhandled-result',
+      content: formatUnexpectedBotResult('打开订单确认面板', `discord-interaction-${interaction.id}`),
       ephemeral: true
     });
   }
@@ -603,7 +593,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       content:
         result.kind === 'EPHEMERAL_MESSAGE'
           ? result.message
-          : '暂时无法打开取消预览。request_id: local-unhandled-result',
+          : formatUnexpectedBotResult('打开订单取消说明', `discord-interaction-${interaction.id}`),
       ephemeral: true
     });
   }
@@ -666,7 +656,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     await interaction.followUp({
-      content: '暂时无法提交订单。request_id: local-unhandled-result',
+      content: formatUnexpectedBotResult('提交订单', `discord-interaction-${interaction.id}`),
       ephemeral: true
     });
   }
@@ -687,7 +677,7 @@ function giftContinuationSecret(): string {
 
 async function guildRequired(interaction: ButtonInteraction, action: string): Promise<void> {
   await interaction.reply({
-    content: `请在服务器内${action}。request_id: local-guild-required`,
+    content: `无法${action}：该功能需要可信的服务器身份，私信中没有 Guild 上下文。\n请返回目标 Discord 服务器后重新操作。\nrequest_id: discord-interaction-${interaction.id}`,
     ephemeral: true
   });
 }

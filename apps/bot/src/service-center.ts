@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { BOT_COPY, botCopy } from './bot-copy.js';
+import { formatUserFacingError } from './user-facing-error.js';
 import {
   BotApiError,
   type BalanceSummary,
@@ -1391,7 +1392,7 @@ export async function handleOpenOrderConfirmation(input: {
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '打开确认面板失败')
+      message: formatApiError(error, '打开订单确认面板')
     };
   }
 }
@@ -1425,7 +1426,7 @@ export async function handleSubmitFinalOrder(input: {
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '提交订单失败')
+      message: formatApiError(error, '提交订单')
     };
   }
 }
@@ -1521,7 +1522,7 @@ export async function handleServiceLifecycleAction(input: {
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '订单状态操作失败')
+      message: formatApiError(error, '更新订单状态')
     };
   }
 }
@@ -1550,15 +1551,9 @@ export async function handleOpenServiceCenterFromPublicEntry(input: {
       })
     };
   } catch (error) {
-    if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return {
-        kind: 'EPHEMERAL_MESSAGE',
-        message: BOT_COPY.orders.accountUnavailable
-      };
-    }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '打开服务中心失败')
+      message: formatApiError(error, '打开服务中心')
     };
   }
 }
@@ -1576,7 +1571,7 @@ export async function handleOpenPlayerWorkbench(input: {
   } catch (error) {
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '打开陪玩工作台失败')
+      message: formatApiError(error, '打开陪玩工作台')
     };
   }
 }
@@ -1605,7 +1600,7 @@ export async function handleOpenCancellationPreview(input: {
   } catch (error) {
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '打开取消预览失败')
+      message: formatApiError(error, '打开订单取消说明')
     };
   }
 }
@@ -1642,7 +1637,7 @@ export async function handleConfirmCancellation(input: {
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '取消订单失败')
+      message: formatApiError(error, '取消订单')
     };
   }
 }
@@ -1695,15 +1690,9 @@ export async function handleCreateOrderFromPublicEntry(input: {
       message: buildOrderPanelMessage(response.order)
     };
   } catch (error) {
-    if (isApiError(error, 'ACCOUNT_NOT_BOUND') || isApiError(error, 'AUTH_REQUIRED')) {
-      return {
-        kind: 'EPHEMERAL_MESSAGE',
-        message: BOT_COPY.orders.accountUnavailable
-      };
-    }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '创建订单失败')
+      message: formatApiError(error, '创建订单')
     };
   }
 }
@@ -1944,7 +1933,7 @@ export async function handleOrderNotesSubmit(input: {
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '保存备注失败')
+      message: formatApiError(error, '保存订单备注')
     };
   }
 }
@@ -2078,7 +2067,7 @@ export async function handleSupportRatingAction(input: {
   } catch (error) {
     return {
       kind: 'EPHEMERAL_MESSAGE',
-      message: formatApiError(error, '客服评价提交失败')
+      message: formatApiError(error, '提交客服评价')
     };
   }
 }
@@ -2202,9 +2191,8 @@ function requestId(error: unknown): string {
   return 'unknown';
 }
 
-function formatApiError(error: unknown, fallback: string): string {
-  const id = requestId(error);
-  return `${fallback}。request_id: ${id}`;
+function formatApiError(error: unknown, operation: string): string {
+  return formatUserFacingError(error, { operation });
 }
 
 function lifecyclePermissionDeniedMessage(

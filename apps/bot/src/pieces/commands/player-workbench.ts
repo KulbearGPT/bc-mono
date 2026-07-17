@@ -1,6 +1,7 @@
 import { Command } from '@sapphire/framework';
 import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordReply } from '../../discord-renderer.js';
+import { formatUnexpectedBotResult } from '../../user-facing-error.js';
 import { HttpBotApiClient, handleOpenPlayerWorkbench } from '../../service-center.js';
 
 export default class PlayerWorkbenchCommand extends Command {
@@ -33,7 +34,10 @@ export default class PlayerWorkbenchCommand extends Command {
       return;
     }
     await interaction.reply({
-      content: result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '暂时无法打开陪玩工作台。',
+      content:
+        result.kind === 'EPHEMERAL_MESSAGE'
+          ? result.message
+          : formatUnexpectedBotResult('打开陪玩工作台', `discord-interaction-${interaction.id}`),
       ephemeral: true
     });
   }

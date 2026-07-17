@@ -9,8 +9,6 @@ export const BOT_COPY = {
   onboarding: {
     welcome:
       '**🐈 欢迎来到黑猫电竞**\n\n今晚想找一位合拍的游戏搭子，还是申请加入我们的陪玩猫舍？\n第一次来的客人可以先完成登记，我们会为你准备账户和猫条钱包。注册后即可开始找陪玩；提交陪玩申请后，猫舍前台会为你完成认证。',
-    apiUnavailable: '猫舍前台暂时没有接通，请稍后再试。',
-    apiFailed: '这次请求没有完成，请稍后再试。',
     invalidEntryChannel: '新人入口目前不可用，请联系管理员检查 Bot 的频道读写权限。'
   },
   gifts: {
@@ -30,19 +28,12 @@ export const BOT_COPY = {
     accountUnavailable: '账户还没有准备好，请联系猫舍前台协助开通。',
     cancellationEscalated: '🐾 猫舍前台已经接手处理\n请留意订单频道的后续更新；核对完成前不会擅自变更资金状态。',
     cancellationCompleted: '订单已经取消，相关预留猫条也已释放。',
-    optionUpdateFailed: '这次没有保存成功，请刷新订单面板后再试；已有订单内容不会丢失。',
     stateRefreshed: '订单刚刚有了新变化，面板已经为你刷新。',
     completionRequested: '✨ 完成申请已经送达\n现在等待客人确认；确认完成前，系统不会提前结算本单。'
   }
 } as const;
 
 export const botCopy = {
-  common: {
-    retryWithRequestId: (requestId: string) =>
-      `这次操作没有完成，请稍后再试。\n如果问题持续出现，请将编号 ${requestId} 提供给猫舍前台。request_id: ${requestId}`,
-    featureUnavailable: (feature: string, requestId: string) =>
-      `${feature}暂时没有打开，请稍后再试。\n如果问题持续出现，请将编号 ${requestId} 提供给猫舍前台。request_id: ${requestId}`
-  },
   onboarding: {
     registrationResult: (input: { applicant: boolean; created: boolean; rolePending: boolean }) =>
       input.applicant
@@ -65,11 +56,7 @@ export const botCopy = {
       `订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: ${requestId}`,
     incomplete: (requestId: string) => `委托信息还差一点，请补齐标出的内容后再确认。request_id: ${requestId}`,
     channelCreationFailed: (requestId: string, reportFailed = false) =>
-      `暂时没有成功创建订单频道，请稍后再试或联系猫舍前台。request_id: ${requestId}${reportFailed ? '\n故障记录也没有成功送达，请把这个编号提供给客服。' : ''}`,
-    optionSaveFailed: (requestId: string) =>
-      `这个选项暂时没有保存成功，订单菜单已经恢复。请确认后再试。request_id: ${requestId}`,
-    menuRecoveryFailed: (requestId: string) =>
-      `订单菜单暂时无法恢复，请联系猫舍前台并提供编号 ${requestId}。request_id: ${requestId}`,
+      `无法创建订单频道：Discord 没有返回可用的私密频道，因此订单创建未继续。\n请联系猫舍前台检查 Bot 的频道创建与权限覆盖权限。request_id: ${requestId}${reportFailed ? '\n业务 API 也未能记录频道故障；请务必把这个编号提供给客服。' : ''}`,
     cancellationChanged: (requestId: string) =>
       `订单状态刚刚发生变化，请刷新取消说明，确认最新影响后再试。request_id: ${requestId}`
   },
@@ -81,8 +68,7 @@ export const botCopy = {
     alreadyTaken: '这张委托已经被处理过了，当前席位可能已由其他陪玩接取。可以继续等待下一轮通知。',
     declined: '已记录本轮暂不接单，我们不会再用这轮委托打扰你。',
     ineligible: (reasons: string[], requestId: string) =>
-      `🐾 这张委托暂时接不了\n${reasons.length > 0 ? `当前未满足：${reasons.join('；')}。` : '你当前不在本轮可接单名单中，资格或订单状态可能刚刚发生了变化。'}\n请打开陪玩工作台检查状态，调整后等待下一轮通知。request_id: ${requestId}`,
-    failed: '这次接单没有成功，请刷新后再试；订单不会因为这次失败自动分配给你。'
+      `🐾 这张委托暂时接不了\n${reasons.length > 0 ? `当前未满足：${reasons.join('；')}。` : '你当前不在本轮可接单名单中，资格或订单状态可能刚刚发生了变化。'}\n请打开陪玩工作台检查状态，调整后等待下一轮通知。request_id: ${requestId}`
   },
   lifecycle: {
     completionConfirmed: (amount: string) =>

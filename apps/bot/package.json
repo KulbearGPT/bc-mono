@@ -23,7 +23,8 @@
     "./private-order-channel": "./src/private-order-channel.ts",
     "./runtime": "./src/runtime.ts",
     "./actor-context": "./src/actor-context.ts",
-    "./api-transport": "./src/api-transport.ts"
+    "./api-transport": "./src/api-transport.ts",
+    "./user-facing-error": "./src/user-facing-error.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

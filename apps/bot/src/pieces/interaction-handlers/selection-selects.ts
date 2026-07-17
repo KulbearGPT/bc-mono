@@ -2,8 +2,9 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { StringSelectMenuInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
-import { BotApiError, HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
+import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
 import { closeCustomId, decodeSelectionId, parseSelectionCustomId, withdrawCustomId } from '../../selection-discord.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class SelectionSelectsHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
@@ -146,10 +147,18 @@ export default class SelectionSelectsHandler extends InteractionHandler {
         route,
         error
       });
-      const requestId = error instanceof BotApiError ? error.requestId : 'local-selection-finalize-failed';
       await interaction.editReply({
-        content: `操作失败，本次未写入任何部分结果，请刷新后重试。request_id: ${requestId}`
+        content: formatUserFacingError(error, {
+          operation: selectionOperation(route.action),
+          localRequestId: `discord-interaction-${interaction.id}`
+        })
       });
     }
   }
+}
+
+function selectionOperation(action: 'repeat' | 'finalize' | 'apply-menu'): string {
+  if (action === 'repeat') return '继续等待并开启新一轮报名';
+  if (action === 'finalize') return '确认候选名单';
+  return '打开报名项目菜单';
 }

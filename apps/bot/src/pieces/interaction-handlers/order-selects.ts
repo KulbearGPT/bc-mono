@@ -1,11 +1,9 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import { BOT_COPY, botCopy } from '../../bot-copy.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import type { Interaction } from 'discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import {
-  BotApiError,
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   buildGamePickerMessage,
@@ -25,6 +23,7 @@ import {
   decodeGiftRecipientSelection,
   readGiftContinuationToken
 } from '../../gifts.js';
+import { formatUnexpectedBotResult, formatUserFacingError } from '../../user-facing-error.js';
 
 export default class OrderSelectHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -162,12 +161,18 @@ export default class OrderSelectHandler extends InteractionHandler {
         await interaction.editReply(toDiscordUpdate(result.message));
         return;
       }
-      await interaction.editReply({ content: BOT_COPY.orders.optionUpdateFailed, components: [] });
+      await interaction.editReply({
+        content: formatUnexpectedBotResult(orderSelectOperation(parsedData), `discord-interaction-${interaction.id}`),
+        components: []
+      });
     } catch (error) {
-      const requestId = error instanceof BotApiError ? error.requestId : 'local-order-select-failed';
+      const preciseError = formatUserFacingError(error, {
+        operation: orderSelectOperation(parsedData),
+        localRequestId: `discord-interaction-${interaction.id}`
+      });
       if (!('orderId' in parsedData)) {
         await interaction.followUp({
-          content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`,
+          content: preciseError,
           ephemeral: true
         });
         return;
@@ -187,10 +192,24 @@ export default class OrderSelectHandler extends InteractionHandler {
           ? buildMultiProjectOrderPanelMessage(order, requirements, services.items)
           : buildGamePickerMessage(order, services.items, packages.items);
         await interaction.editReply(toDiscordUpdate(message));
-        await interaction.followUp({ content: botCopy.orders.optionSaveFailed(requestId), ephemeral: true });
-      } catch {
-        await interaction.followUp({ content: botCopy.orders.menuRecoveryFailed(requestId), ephemeral: true });
+        await interaction.followUp({ content: preciseError, ephemeral: true });
+      } catch (recoveryError) {
+        await interaction.followUp({
+          content: `${preciseError}\n\n${formatUserFacingError(recoveryError, {
+            operation: '恢复最新订单面板',
+            localRequestId: `discord-interaction-${interaction.id}`
+          })}`,
+          ephemeral: true
+        });
       }
     }
   }
+}
+
+function orderSelectOperation(route: ServiceCenterRoute): string {
+  if (route.area === 'gift-catalog-select' || route.area === 'gift-recipient-select') return '更新礼物选择';
+  if (route.area === 'order-game-select') return '选择订单游戏';
+  if (route.area === 'service-package-select') return '选择订单套餐';
+  if (route.area === 'order-requirement-select') return '修改订单服务项目';
+  return '更新订单选项';
 }

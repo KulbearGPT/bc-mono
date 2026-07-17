@@ -1,6 +1,5 @@
-import { botCopy } from './bot-copy.js';
 import { toDiscordUpdate } from './discord-renderer.js';
-import { BotApiError, type BotActorContext, type BotApiClient } from './service-center-api.js';
+import type { BotActorContext, BotApiClient } from './service-center-api.js';
 import {
   buildCurrentPlayerWeeklyReportDetailMessage,
   buildCurrentPlayerWeeklyReportListMessage,
@@ -9,6 +8,7 @@ import {
   buildCurrentUserProfileMessage
 } from './service-center-profile.js';
 import type { ServiceCenterRoute } from './service-center-routes.js';
+import { formatUserFacingError } from './user-facing-error.js';
 
 export interface DeferredButtonInteraction {
   deferUpdate(): Promise<unknown>;
@@ -34,9 +34,11 @@ export async function executeProfileButton(input: {
           : buildCurrentUserProfileMessage(await input.api.getCurrentUserProfileSummary(input.actor));
     await input.interaction.editReply(toDiscordUpdate(message));
   } catch (error) {
-    const requestId = error instanceof BotApiError ? error.requestId : 'local-profile-fallback';
     await input.interaction.followUp({
-      content: botCopy.common.featureUnavailable('个人中心', requestId),
+      content: formatUserFacingError(error, {
+        operation: '打开个人中心',
+        localRequestId: 'local-profile-fallback'
+      }),
       ephemeral: true
     });
   }
@@ -60,9 +62,11 @@ export async function executeReportsButton(input: {
           );
     await input.interaction.editReply(toDiscordUpdate(message));
   } catch (error) {
-    const requestId = error instanceof BotApiError ? error.requestId : 'local-report-fallback';
     await input.interaction.followUp({
-      content: botCopy.common.featureUnavailable('我的周报', requestId),
+      content: formatUserFacingError(error, {
+        operation: '打开我的周报',
+        localRequestId: 'local-report-fallback'
+      }),
       ephemeral: true
     });
   }

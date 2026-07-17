@@ -8,13 +8,9 @@ import {
   decodeGiftRecipientSelection,
   readGiftContinuationToken
 } from './gifts.js';
-import {
-  BotApiError,
-  buildDiscordIdempotencyKey,
-  type BotActorContext,
-  type BotApiClient
-} from './service-center-api.js';
+import { buildDiscordIdempotencyKey, type BotActorContext, type BotApiClient } from './service-center-api.js';
 import type { ServiceCenterRoute } from './service-center-routes.js';
+import { formatUserFacingError } from './user-facing-error.js';
 
 export async function executeGiftRecipientPage(input: {
   interaction: ButtonInteraction;
@@ -131,9 +127,11 @@ export async function executeGiftButton(input: {
 }
 
 async function giftFailure(interaction: ButtonInteraction, error: unknown): Promise<void> {
-  const requestId = error instanceof BotApiError ? error.requestId : 'local-gift-context';
   await interaction.followUp({
-    content: `礼物状态已变化，请返回礼物列表后重试。request_id: ${requestId}`,
+    content: formatUserFacingError(error, {
+      operation: '处理礼物请求',
+      localRequestId: `discord-interaction-${interaction.id}`
+    }),
     ephemeral: true
   });
 }

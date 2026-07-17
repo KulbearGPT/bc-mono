@@ -4,12 +4,12 @@ import { buildBotActorContext } from '../../actor-context.js';
 import { botCopy } from '../../bot-copy.js';
 import {
   APPLY_COMPANION_CUSTOM_ID,
-  OnboardingApiError,
   REGISTER_PLAYER_CUSTOM_ID,
   onboardingApi,
   reconcileProductRoleTasks,
   type CompanionApplicationResult
 } from '../../onboarding.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class OnboardingButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -57,8 +57,12 @@ export default class OnboardingButtonHandler extends InteractionHandler {
       });
       await interaction.editReply({ content });
     } catch (error) {
-      const requestId = error instanceof OnboardingApiError ? error.requestId : 'local-onboarding-failed';
-      await interaction.editReply({ content: botCopy.common.retryWithRequestId(requestId) });
+      await interaction.editReply({
+        content: formatUserFacingError(error, {
+          operation: customId === APPLY_COMPANION_CUSTOM_ID ? '提交陪玩申请' : '注册客户账号',
+          localRequestId: `discord-interaction-${interaction.id}`
+        })
+      });
     }
   }
 }

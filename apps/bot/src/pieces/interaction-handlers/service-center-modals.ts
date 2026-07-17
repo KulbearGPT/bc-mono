@@ -2,7 +2,6 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { Interaction } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import {
-  BotApiError,
   HttpBotApiClient,
   buildDiscordIdempotencyKey,
   handleOrderNotesSubmit,
@@ -13,6 +12,7 @@ import {
 } from '../../service-center.js';
 import { toDiscordReply } from '../../discord-renderer.js';
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class ServiceCenterModalHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -49,8 +49,12 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
         );
         await interaction.editReply('感谢评价，已记录。');
       } catch (error) {
-        const requestId = error instanceof BotApiError ? error.requestId : 'local-support-rating';
-        await interaction.editReply(`客服评价提交失败，请稍后重试。request_id: ${requestId}`);
+        await interaction.editReply(
+          formatUserFacingError(error, {
+            operation: '提交客服评价',
+            localRequestId: `discord-interaction-${interaction.id}`
+          })
+        );
       }
       return;
     }

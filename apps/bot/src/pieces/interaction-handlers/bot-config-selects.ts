@@ -7,6 +7,7 @@ import {
   toDiscordBotConfigReply,
   type BotConfigActorContext
 } from '../../bot-config.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigSelectHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -52,7 +53,13 @@ export default class BotConfigSelectHandler extends InteractionHandler {
         customId: interaction.customId,
         error
       });
-      await interaction.editReply({ content: errorMessage(error), components: [] });
+      await interaction.editReply({
+        content: formatUserFacingError(error, {
+          operation: route.operation === 'value' ? '校验 Bot 配置值' : '选择 Bot 配置字段',
+          localRequestId: `discord-interaction-${interaction.id}`
+        }),
+        components: []
+      });
     }
   }
 }
@@ -63,10 +70,4 @@ function parseValue(value: string) {
 
 function actorFromInteraction(interaction: AnySelectMenuInteraction): BotConfigActorContext | null {
   return buildBotActorContext(interaction);
-}
-
-function errorMessage(error: unknown): string {
-  const requestId =
-    typeof error === 'object' && error && 'requestId' in error ? String(error.requestId) : 'local-bot-config';
-  return `Bot 配置校验失败，请重新打开命令。request_id: ${requestId}`;
 }

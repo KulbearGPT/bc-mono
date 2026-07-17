@@ -2,6 +2,7 @@ import type { ButtonInteraction } from 'discord.js';
 import { toDiscordModal, toDiscordReply } from './discord-renderer.js';
 import { buildDiscordIdempotencyKey, type BotActorContext, type BotApiClient } from './service-center-api.js';
 import type { ServiceCenterRoute } from './service-center-routes.js';
+import { formatUnexpectedBotResult } from './user-facing-error.js';
 import { handleSupportRatingAction } from './service-center.js';
 
 export async function executeSupportRatingButton(input: {
@@ -32,7 +33,9 @@ export async function executeSupportRatingButton(input: {
     return;
   }
   const message =
-    result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '评价暂时无法提交。request_id: local-unhandled-result';
+    result.kind === 'EPHEMERAL_MESSAGE'
+      ? result.message
+      : formatUnexpectedBotResult('提交客服评价', `discord-interaction-${input.interaction.id}`);
   if (requiresApi) await input.interaction.followUp({ content: message, ephemeral: true });
   else await input.interaction.reply({ content: message, ephemeral: true });
 }

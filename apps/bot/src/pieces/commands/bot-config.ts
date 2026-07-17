@@ -1,6 +1,7 @@
 import { Command } from '@sapphire/framework';
 import { buildBotActorContext } from '../../actor-context.js';
 import { botConfigFlow, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry): void {
@@ -28,7 +29,13 @@ export default class BotConfigCommand extends Command {
         discordUserId: interaction.user.id,
         error
       });
-      await interaction.editReply({ content: errorMessage(error), components: [] });
+      await interaction.editReply({
+        content: formatUserFacingError(error, {
+          operation: '打开 Bot 配置',
+          localRequestId: `discord-interaction-${interaction.id}`
+        }),
+        components: []
+      });
     }
   }
 }
@@ -37,10 +44,4 @@ function actorFromInteraction(interaction: Command.ChatInputCommandInteraction):
   const actor = buildBotActorContext(interaction);
   if (!actor) throw new Error('Guild Actor Context is required.');
   return actor;
-}
-
-function errorMessage(error: unknown): string {
-  const requestId =
-    typeof error === 'object' && error && 'requestId' in error ? String(error.requestId) : 'local-bot-config';
-  return `暂时无法打开 Bot 配置。request_id: ${requestId}`;
 }
