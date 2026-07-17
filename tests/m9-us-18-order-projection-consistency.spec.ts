@@ -42,4 +42,13 @@ describe('M9-US-18 durable order projection consistency', () => {
     expect(method(source, 'commitResolution(input:', 'commitReassignment(input:')).toContain('ORDER_RESOLVED_CHANNEL_SYNC');
     expect(method(source, 'commitReassignment(input:', 'private async withTransaction')).toContain('ORDER_REASSIGNED_CHANNEL_SYNC');
   });
+
+  test('customer final selection persists the accepted order panel sync before commit', async () => {
+    const source = await readFile('apps/api/src/selection-pools.ts', 'utf8');
+    const finalize = method(source, 'private async mutateFinalize(', 'private async order(');
+
+    expect(finalize).toContain("'PANEL_SYNC'");
+    expect(finalize).toContain('ORDER_SELECTION_FINALIZED_CHANNEL_SYNC');
+    expect(finalize.indexOf("'PANEL_SYNC'")).toBeLessThan(finalize.indexOf('return {'));
+  });
 });

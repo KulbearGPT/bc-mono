@@ -204,16 +204,19 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       1,
     );
     const facts = await pool.query(
-      `SELECT (SELECT count(*)::int FROM order_participants WHERE player_id=$1 AND status='ACTIVE') participant_count,(SELECT count(*)::int FROM orders WHERE id=ANY($2::uuid[]) AND status='ACCEPTED') accepted_count,(SELECT count(*)::int FROM selection_applications WHERE player_user_id=$1 AND status='SELECTED') selected_count,(SELECT count(*)::int FROM selection_applications WHERE player_user_id=$1 AND status='INVALIDATED') invalidated_count,(SELECT count(*)::int FROM fund_reservations WHERE order_id=ANY($2::uuid[])) reservation_count,(SELECT count(*)::int FROM order_participant_events event JOIN order_participants participant ON participant.id=event.order_participant_id WHERE participant.player_id=$1) participant_event_count`,
+      `SELECT (SELECT count(*)::int FROM order_participants WHERE player_id=$1 AND status='ACTIVE') participant_count,(SELECT count(*)::int FROM orders WHERE id=ANY($2::uuid[]) AND status='ACCEPTED') accepted_count,(SELECT count(*)::int FROM orders WHERE id=ANY($2::uuid[]) AND status='ACCEPTED' AND readiness_due_at IS NOT NULL) accepted_with_deadline_count,(SELECT count(*)::int FROM selection_applications WHERE player_user_id=$1 AND status='SELECTED') selected_count,(SELECT count(*)::int FROM selection_applications WHERE player_user_id=$1 AND status='INVALIDATED') invalidated_count,(SELECT count(*)::int FROM fund_reservations WHERE order_id=ANY($2::uuid[])) reservation_count,(SELECT count(*)::int FROM order_participant_events event JOIN order_participants participant ON participant.id=event.order_participant_id WHERE participant.player_id=$1) participant_event_count,(SELECT count(*)::int FROM outbox_events WHERE order_id=ANY($2::uuid[]) AND event_type='PANEL_SYNC') panel_sync_count,(SELECT count(*)::int FROM outbox_events WHERE order_id=ANY($2::uuid[]) AND event_type='READINESS_TIMEOUT') readiness_timeout_count`,
       [playerId, [orderId, secondOrderId]],
     );
     expect(facts.rows[0]).toEqual({
       participant_count: 1,
       accepted_count: 1,
+      accepted_with_deadline_count: 1,
       selected_count: 1,
       invalidated_count: 1,
       reservation_count: 0,
       participant_event_count: 1,
+      panel_sync_count: 1,
+      readiness_timeout_count: 1,
     });
     const jobs = await pool.query(
       `SELECT event_type,count(*)::int count FROM outbox_events WHERE selection_pool_id=ANY($1::uuid[]) GROUP BY event_type ORDER BY event_type`,

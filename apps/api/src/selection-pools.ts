@@ -1383,9 +1383,13 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     }
     const remaining = await this.remaining(client, input.orderId);
     const status = remaining === 0 ? "ACCEPTED" : "PENDING_DISPATCH";
+    const readinessDueAt =
+      status === "ACCEPTED"
+        ? new Date(input.now.getTime() + 10 * 60_000)
+        : null;
     const orderUpdate = await client.query<{ row_version: number }>(
-      `UPDATE orders SET status=$3::"OrderStatus",row_version=row_version+1,accepted_at=CASE WHEN $3='ACCEPTED' THEN $4 ELSE accepted_at END,updated_at=$4 WHERE id=$1 AND row_version=$2 RETURNING row_version`,
-      [input.orderId, order.row_version, status, input.now],
+      `UPDATE orders SET status=$3::"OrderStatus",row_version=row_version+1,accepted_at=CASE WHEN $3='ACCEPTED' THEN $4 ELSE accepted_at END,readiness_due_at=CASE WHEN $3='ACCEPTED' THEN $5 ELSE readiness_due_at END,updated_at=$4 WHERE id=$1 AND row_version=$2 RETURNING row_version`,
+      [input.orderId, order.row_version, status, input.now, readinessDueAt],
     );
     if (!orderUpdate.rows[0])
       throw new SelectionPoolError("CONFLICT", "Order version is stale.");
@@ -1429,6 +1433,32 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       input.now,
       input.now,
     );
+    await client.query(
+      `INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at) VALUES($1,'PANEL_SYNC','order',$2,$2,$3,$4,'PENDING',1,0,8,$5,$5,$5)`,
+      [
+        crypto.randomUUID(),
+        input.orderId,
+        `${input.idempotencyKey}:panel-sync`,
+        {
+          kind: "ORDER_SELECTION_FINALIZED_CHANNEL_SYNC",
+          orderId: input.orderId,
+        },
+        input.now,
+      ],
+    );
+    if (readinessDueAt) {
+      await client.query(
+        `INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at) VALUES($1,'READINESS_TIMEOUT','order',$2,$2,$3,$4,'PENDING',1,0,3,$5,$6,$6)`,
+        [
+          crypto.randomUUID(),
+          input.orderId,
+          `${input.idempotencyKey}:readiness-timeout`,
+          { orderId: input.orderId, readinessDueAt: readinessDueAt.toISOString() },
+          readinessDueAt,
+          input.now,
+        ],
+      );
+    }
     return {
       orderId: input.orderId,
       orderStatus: status,
