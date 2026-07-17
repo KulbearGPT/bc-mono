@@ -68,10 +68,12 @@ export function buildSelectionPoolOfferMessage(input: {
 }): MessageSpec {
   const requirements = input.requirements.filter((item) => item.remainingSlots > 0).slice(0, 25);
   return {
-    title: `候选池 #${input.orderPublicId}`,
+    title: `🐾 候选池 #${input.orderPublicId}`,
     body: [
-      `报名截止：<t:${Math.floor(Date.parse(input.closesAt) / 1000)}:R>`,
+      `**报名截止**：<t:${Math.floor(Date.parse(input.closesAt) / 1000)}:R>`,
       '可同时报名多个订单；报名不会占用正式订单名额。',
+      '',
+      '**可报名项目**',
       ...requirements.map(
         (item) =>
           `${item.label} · 缺 ${item.remainingSlots} 位 · 默认预计收益 ${item.expectedEarningMinor} ${item.currency}`
@@ -145,17 +147,17 @@ export function buildSelectionCandidatePanel(input: {
           type: 'BUTTON',
           style: 'SECONDARY',
           customId: `bc:sp:n:${short(input.orderId)}:${short(input.poolId)}:o${input.orderVersion}:${input.nextCursor}`,
-          label: '下一页'
+          label: '下一页 →'
         }
       ]
     });
   return {
-    title: '选择陪玩',
+    title: '🐈‍⬛ 选择陪玩',
     body: input.items.length
       ? input.items
           .map(
             (item) =>
-              `${item.playerDisplayName} · ${[...item.publicGameTags, ...item.publicServiceTags].join(' / ') || '暂无公开标签'}`
+              `**${item.playerDisplayName}**\n${[...item.publicGameTags, ...item.publicServiceTags].join(' / ') || '暂无公开标签'}`
           )
           .join('\n')
       : '本轮暂无报名。请选择继续等待或取消订单。',

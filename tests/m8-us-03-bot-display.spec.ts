@@ -39,7 +39,7 @@ describe('M8-US-03 selective customer token rendering', () => {
       nextCursor: null
     });
 
-    expect(wallet.title).toBe('我的猫条钱包');
+    expect(wallet.title).toBe('🐟 我的猫条钱包');
     expect(wallet.body).toContain('2,000.0 CAT');
     expect(confirmation.body).toContain('1,200.0 CAT');
     expect(gift.body).toContain('500.0 CAT');

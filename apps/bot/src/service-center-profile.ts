@@ -32,16 +32,21 @@ export function buildServiceCenterMessage(input: {
     : '我的收益：暂无可领取记录';
 
   return {
-    title: '我的服务中心',
+    title: '🐈‍⬛ 我的服务中心',
     body: [
-      `账户：${input.currentUser.user.displayName}`,
+      `**👤 玩家账户**\n${input.currentUser.user.displayName}`,
+      '',
+      '**🐟 猫条钱包**',
       `账本余额：${formatCustomerMoney(input.balance.ledgerBalanceMinor, input.balance.currency)}`,
       `预留中：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
       `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
+      '',
+      '**📋 当前进度**',
       activeOrderLine,
       consumptionLine,
       commissionLine,
-      `计算时间：${input.balance.calculatedAt}`
+      '',
+      `-# 余额计算时间：${input.balance.calculatedAt}`
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
@@ -52,32 +57,32 @@ export function buildServiceCenterMessage(input: {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:entry:service-center',
-            label: '刷新'
+            label: '🔄 刷新'
           },
           {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: input.activeOrder ? `bc:order:${input.activeOrder.id}:open` : 'bc:service-center:no-active-order',
-            label: '当前订单',
+            label: '📋 当前订单',
             disabled: !input.activeOrder
           },
           {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: 'bc:profile:open',
-            label: '个人中心'
+            label: '👤 个人中心'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:consumptions:first',
-            label: '消费记录'
+            label: '🧾 消费记录'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:service-center:commissions',
-            label: '我的收益'
+            label: '✨ 我的收益'
           }
         ]
       }
@@ -87,12 +92,14 @@ export function buildServiceCenterMessage(input: {
 
 export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec {
   return {
-    title: `我的${customerWalletLabel(DEFAULT_WALLET_DISPLAY_CONFIG)}`,
+    title: `🐟 我的${customerWalletLabel(DEFAULT_WALLET_DISPLAY_CONFIG)}`,
     body: [
+      '**余额概览**',
       `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
       `已预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
       `可用余额：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
-      `计算时间：${balance.calculatedAt}`
+      '',
+      `-# 计算时间：${balance.calculatedAt}`
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
@@ -103,7 +110,7 @@ export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec 
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:entry:service-center',
-            label: '刷新'
+            label: '🔄 刷新'
           }
         ]
       }
@@ -113,18 +120,22 @@ export function buildCurrentWalletMessage(balance: BalanceSummary): MessageSpec 
 
 export function buildCurrentUserCommissionsMessage(page: CurrentCommissionPage): MessageSpec {
   return {
-    title: '我的收益',
+    title: '✨ 我的收益',
     body: [
+      '**收益概览**',
       `待确认：${formatCustomerMoney(page.summary.pendingMinor, page.summary.currency)}`,
       `已确认：${formatCustomerMoney(page.summary.confirmedMinor, page.summary.currency)}`,
       `已结算：${formatCustomerMoney(page.summary.paidMinor, page.summary.currency)}`,
+      '',
       '返佣来源与被推荐用户信息不会在此展示。'
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       {
         type: 'ACTION_ROW',
-        components: [{ type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '返回服务中心' }]
+        components: [
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '🐈‍⬛ 返回服务中心' }
+        ]
       }
     ]
   };
@@ -133,19 +144,22 @@ export function buildCurrentUserCommissionsMessage(page: CurrentCommissionPage):
 export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary): MessageSpec {
   const balance = input.balance;
   return {
-    title: '个人中心',
+    title: '👤 个人中心',
     body: [
-      `账户：${input.user.displayName}`,
+      `**玩家账户**\n${input.user.displayName}`,
+      '',
+      '**🐟 猫条钱包**',
       `账本余额：${formatCustomerMoney(balance.ledgerBalanceMinor, balance.currency)}`,
       `预留：${formatCustomerMoney(balance.reservedMinor, balance.currency)}`,
       `可用：${formatCustomerMoney(balance.availableMinor, balance.currency)}`,
+      '',
+      '**📊 账户统计**',
       `进行中订单：${input.statistics.activeOrderCount}`,
       `累计订单消费：${formatCustomerMoney(input.statistics.orderSpendMinor, input.statistics.currency)}`,
       `累计礼物消费：${formatCustomerMoney(input.statistics.giftSpendMinor, input.statistics.currency)}`,
-      `余额计算时间：${balance.calculatedAt}`
-    ]
-      .filter(Boolean)
-      .join('\n'),
+      '',
+      `-# 余额计算时间：${balance.calculatedAt}`
+    ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
       {
@@ -155,7 +169,7 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:refresh',
-            label: '刷新余额'
+            label: '🔄 刷新余额'
           }
         ]
       },
@@ -166,13 +180,13 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:orders:first',
-            label: '我的订单'
+            label: '📋 我的订单'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:consumptions:first',
-            label: '消费记录'
+            label: '🧾 消费记录'
           }
         ]
       }
@@ -182,12 +196,12 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
 
 export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): MessageSpec {
   return {
-    title: '我的订单',
+    title: '📋 我的订单',
     body: page.items.length
       ? page.items
           .map(
             (item) =>
-              `#${item.publicId} · ${item.status} · ${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.createdAt}`
+              `**#${item.publicId} · ${item.status}**\n${item.gameKey ?? '-'} / ${item.serviceKey ?? '-'} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n-# ${item.createdAt}`
           )
           .join('\n\n')
       : '暂无订单。',
@@ -200,7 +214,7 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:open',
-            label: '返回个人中心'
+            label: '👤 返回个人中心'
           },
           {
             type: 'BUTTON',
@@ -208,7 +222,7 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
             customId: page.nextCursor
               ? paginationCustomId('bc:profile:orders', page.nextCursor)
               : 'bc:profile:orders:end',
-            label: '下一页',
+            label: '下一页 →',
             disabled: !page.nextCursor
           }
         ]
@@ -219,12 +233,12 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
 
 export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): MessageSpec {
   return {
-    title: '消费记录',
+    title: '🧾 消费记录',
     body: page.items.length
       ? page.items
           .map(
             (item) =>
-              `${item.type} · ${item.targetDisplay} · ${formatCustomerMoney(item.amountMinor, item.currency)}\n${item.occurredAt}`
+              `**${item.type} · ${item.targetDisplay}**\n${formatCustomerMoney(item.amountMinor, item.currency)}\n-# ${item.occurredAt}`
           )
           .join('\n\n')
       : '暂无消费记录。',
@@ -237,7 +251,7 @@ export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): Mess
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:open',
-            label: '返回个人中心'
+            label: '👤 返回个人中心'
           },
           {
             type: 'BUTTON',
@@ -245,7 +259,7 @@ export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): Mess
             customId: page.nextCursor
               ? paginationCustomId('bc:profile:consumptions', page.nextCursor)
               : 'bc:profile:consumptions:end',
-            label: '下一页',
+            label: '下一页 →',
             disabled: !page.nextCursor
           }
         ]
@@ -256,7 +270,7 @@ export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): Mess
 
 export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWeeklyReportPage): MessageSpec {
   return {
-    title: '我的周报',
+    title: '📊 我的周报',
     body: page.items.length
       ? page.items.map((item) => `${item.periodStart} 至 ${item.periodEnd} · ${item.status}`).join('\n')
       : '暂无周报。',
@@ -280,13 +294,13 @@ export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWee
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:entry:player-workbench',
-            label: '返回工作台'
+            label: '🎧 返回工作台'
           },
           {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: page.nextCursor ? paginationCustomId('bc:reports:list', page.nextCursor) : 'bc:reports:list:end',
-            label: '下一页',
+            label: '下一页 →',
             disabled: !page.nextCursor
           }
         ]
@@ -298,14 +312,20 @@ export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWee
 export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlayerWeeklyReport): MessageSpec {
   const metrics = report.metrics;
   return {
-    title: '我的周报详情',
+    title: '📊 我的周报详情',
     body: [
-      `${report.periodStart} 至 ${report.periodEnd} · ${report.status}`,
+      `**${report.periodStart} 至 ${report.periodEnd}**\n状态：${report.status}`,
+      '',
+      '**服务数据**',
       `完成订单：${metrics.completedOrderCount} · 取消：${metrics.cancelledOrderCount} · 服务：${metrics.serviceMinutes} 分钟`,
+      '',
+      '**收益明细**',
       `订单收益：${formatPlatformMoney(metrics.orderEarningMinor, report.currency)} · 礼物收益：${formatPlatformMoney(metrics.giftEarningMinor, report.currency)}`,
       `调整：${formatPlatformMoney(metrics.adjustmentMinor, report.currency)}`,
       `待确认：${formatPlatformMoney(metrics.pendingMinor, report.currency)} · 可结算：${formatPlatformMoney(metrics.settlementReadyMinor, report.currency)}`,
-      `已入批次：${formatPlatformMoney(metrics.batchedMinor, report.currency)} · 修订 ${report.currentRevision}`
+      `已入批次：${formatPlatformMoney(metrics.batchedMinor, report.currency)}`,
+      '',
+      `-# 修订版本：${report.currentRevision}`
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
@@ -316,7 +336,7 @@ export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlaye
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:reports:list:first',
-            label: '返回周报'
+            label: '📊 返回周报'
           }
         ]
       }

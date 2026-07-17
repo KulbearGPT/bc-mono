@@ -98,7 +98,7 @@ describe('M1-US-07 order confirmation panel', () => {
     });
 
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
-    expect(message.title).toBe('订单 #P-1042 · 最后确认');
+    expect(message.title).toBe('📋 订单 #P-1042 · 最后确认');
     expect(message.body).toContain('游戏：无畏契约');
     expect(message.body).toContain('服务：娱乐陪玩');
     expect(message.body).toContain('区服：北美');
@@ -218,7 +218,7 @@ describe('M1-US-07 order confirmation panel', () => {
     });
 
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.title).toContain('STEP 1/4');
+    expect(result.message.title).toContain('第 1/4 步');
     expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-stale');
   });
 
@@ -261,6 +261,100 @@ describe('M1-US-07 order confirmation panel', () => {
     });
 
     expect(JSON.stringify(result)).toContain(`${expectedAction}${orderId}:v11`);
+  });
+
+  test('preserves participant status actions when owner-only requirement details are not visible', async () => {
+    const latest = draftOrder({
+      status: 'ACCEPTED',
+      version: 11,
+      game: null,
+      service: null,
+      billingUnitMinutes: null,
+      unitCount: null,
+      matching: null
+    });
+    const client = api({
+      getOrder: vi.fn().mockResolvedValue(latest),
+      listOrderRequirements: vi.fn().mockRejectedValue(
+        new BotApiError({
+          code: 'PERMISSION_DENIED',
+          message: 'Only the order owner can list requirements.',
+          requestId: 'req-player-refresh',
+          statusCode: 403
+        })
+      )
+    });
+
+    const result = await handleOrderRefresh({ api: client, actor: actor(), orderId });
+
+    expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
+    expect(JSON.stringify(result)).toContain(`bc:service:ready:${orderId}:v11`);
+  });
+
+  test('keeps authoritative requirement details when a cancelled multi-project order is refreshed repeatedly', async () => {
+    const latest = draftOrder({
+      status: 'CANCELLED',
+      version: 12,
+      game: null,
+      service: null,
+      region: null,
+      billingUnitMinutes: null,
+      unitCount: null,
+      compositionMode: 'CUSTOMIZED'
+    });
+    const requirements = {
+      orderId,
+      orderVersion: 12,
+      catalogSubtotalMinor: 2_000,
+      packageAdjustmentMinor: 0,
+      derivedTotalMinor: 2_000,
+      currency: 'CAT' as const,
+      items: [
+        {
+          id: '00000000-0000-0000-0000-00000000d001',
+          orderId,
+          sourcePackageSlotId: null,
+          serviceCatalogVersionId: '00000000-0000-0000-0000-00000000c001',
+          game: 'VALORANT',
+          gameDisplayName: '瓦洛兰特',
+          service: 'ENTERTAINMENT',
+          serviceDisplayName: '娱乐陪玩',
+          region: 'NA',
+          regionDisplayName: '北美',
+          billingUnitMinutes: 60,
+          unitCount: 2,
+          requestedPlayerCount: 1,
+          customerUnitPriceMinor: 1_000,
+          estimatedLinePriceMinor: 2_000,
+          filledPlayerCount: 0,
+          customerNote: null,
+          status: 'ACTIVE' as const,
+          version: 1,
+          createdAt: '2026-08-05T03:00:00.000Z',
+          updatedAt: '2026-08-05T03:00:00.000Z'
+        }
+      ],
+      nextCursor: null
+    };
+    const client = api({
+      getOrder: vi.fn().mockResolvedValue(latest),
+      listOrderRequirements: vi.fn().mockResolvedValue(requirements)
+    });
+
+    const first = await handleOrderRefresh({ api: client, actor: actor(), orderId });
+    const second = await handleOrderRefresh({ api: client, actor: actor(), orderId });
+
+    for (const result of [first, second]) {
+      const rendered = JSON.stringify(result);
+      expect(rendered).toContain('瓦洛兰特');
+      expect(rendered).toContain('娱乐陪玩');
+      expect(rendered).toContain('北美');
+      expect(rendered).toContain('2 小时');
+      expect(rendered).not.toContain('未选择游戏');
+      expect(rendered).not.toContain('未选择服务');
+      expect(rendered).not.toContain('未选择时长');
+    }
+    expect(client.listOrderRequirements).toHaveBeenCalledTimes(2);
   });
 });
 

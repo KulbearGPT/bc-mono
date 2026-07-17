@@ -60,7 +60,7 @@ export function buildDispatchIneligibleReply(workbench: PlayerWorkbenchSummary, 
 
 export function buildPublicServiceEntryMessage(): MessageSpec {
   return {
-    title: '陪玩服务中心',
+    title: '🐈‍⬛ 陪玩服务中心',
     body: BOT_COPY.orders.publicEntryIntroduction,
     visibility: 'PUBLIC',
     components: [
@@ -71,13 +71,13 @@ export function buildPublicServiceEntryMessage(): MessageSpec {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: 'bc:entry:create-order',
-            label: '创建订单'
+            label: '🐾 创建订单'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:entry:service-center',
-            label: '我的服务中心'
+            label: '🐈‍⬛ 我的服务中心'
           }
         ]
       }
@@ -87,7 +87,7 @@ export function buildPublicServiceEntryMessage(): MessageSpec {
 
 export function buildOrderNotesModal(input: { orderId: string; expectedVersion: number }): ModalSpec {
   return {
-    title: '补充订单备注',
+    title: '📝 补充订单备注',
     customId: `bc:modal:order-notes:${input.orderId}:v${input.expectedVersion}`,
     components: [
       {
@@ -109,7 +109,7 @@ export function buildRequirementNoteModal(input: {
   expectedRequirementVersion: number;
 }): ModalSpec {
   return {
-    title: '这个席位希望怎样陪你',
+    title: '🐾 这个席位希望怎样陪你',
     customId: `bc:rnm:${input.orderId}:${input.requirementId}:v${input.expectedVersion}:r${input.expectedRequirementVersion}`,
     components: [
       {
@@ -188,7 +188,11 @@ export function buildAcceptedPlayerChannelPermissionPlan(input: {
   };
 }
 
-export function buildOrderPanelMessage(order: OrderSummary, services: PublicServiceSummary[] = []): MessageSpec {
+export function buildOrderPanelMessage(
+  order: OrderSummary,
+  services: PublicServiceSummary[] = [],
+  requirements?: OrderRequirementPageSummary
+): MessageSpec {
   if (order.automation?.state === 'PAUSED') {
     return buildPausedAutomationMessage(order);
   }
@@ -200,9 +204,18 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
   }
   const title = `订单 #${order.publicId}`;
   const selectedService = services.find((service) => service.id === order.serviceCatalogId);
+  const activeRequirements = requirements?.items.filter((item) => item.status === 'ACTIVE') ?? [];
+  const selectionLines = activeRequirements.length
+    ? activeRequirements.flatMap((requirement, index) => [
+        `${activeRequirements.length > 1 ? `${index + 1}. ` : ''}${requirement.gameDisplayName} · ${requirement.serviceDisplayName}`,
+        `${requirement.regionDisplayName ?? '无指定区服'} · ${formatRequirementDuration(requirement)} × ${requirement.requestedPlayerCount} 位`
+      ])
+    : [
+        `${selectedService?.gameDisplayName ?? order.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? order.serviceDisplayName ?? formatService(order.service)}`,
+        `${selectedService?.regionDisplayName ?? order.regionDisplayName ?? formatRegion(order.region)} · ${formatDuration(order)}`
+      ];
   const body = [
-    `${selectedService?.gameDisplayName ?? order.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? order.serviceDisplayName ?? formatService(order.service)}`,
-    `${selectedService?.regionDisplayName ?? order.regionDisplayName ?? formatRegion(order.region)} · ${formatDuration(order)}`,
+    ...selectionLines,
     `订单金额：${formatCustomerMoney(order.amountMinor, order.currency)}`,
     `当前状态：${order.status}`
   ].join('\n');
@@ -389,7 +402,7 @@ export function buildMultiProjectOrderPanelMessage(
   });
 
   return {
-    title: `ORDER ${order.publicId} · STEP 3/4 · 检查并调整陪玩清单`,
+    title: `📋 订单 ${order.publicId} · 第 3/4 步 · 检查陪玩清单`,
     body: [
       '▓▓▓░',
       '套餐只是快捷配菜：每个席位仍是独立项目，可以替换同游戏服务、修改时长或偏好。',
@@ -415,7 +428,7 @@ export function buildMultiProjectOrderPanelMessage(
 
 export function buildServicePackagePickerMessage(order: OrderSummary, page: ServicePackagePageSummary): MessageSpec {
   return {
-    title: `订单 #${order.publicId} · 选择套餐`,
+    title: `🎮 订单 #${order.publicId} · 选择套餐`,
     body: [
       '套餐会先展开成独立陪玩席位，应用后每个席位都能单独修改。',
       page.items.length ? '请选择一个套餐查看默认阵容和服务端报价。' : '目前没有可用套餐，你仍可返回自由搭配。'
@@ -492,7 +505,7 @@ export function buildGamePickerMessage(
     components: [refreshOrderControl(order.id)]
   });
   return {
-    title: `ORDER ${order.publicId} · STEP 1/4 · 先选今天想玩的游戏`,
+    title: `🎮 订单 ${order.publicId} · 第 1/4 步 · 选择游戏`,
     body: games.length
       ? '▓░░░\n像翻开一张菜单：请选择右侧“进入”，下一页只会显示这个游戏的套餐和单点。'
       : '今天暂时没有可下单的游戏项目。',
@@ -567,7 +580,7 @@ export function buildGameOrderingMenuMessage(
     ]
   });
   return {
-    title: `ORDER ${order.publicId} · STEP 2/4 · ${gameName} · 今日菜单`,
+    title: `🐾 订单 ${order.publicId} · 第 2/4 步 · ${gameName} 菜单`,
     body: [
       `▓▓░░\n当前游戏 · ${gameName}\u3000套餐 ${packages.items.length}\u3000单点 ${services.length}`,
       '套餐使用右侧按钮预览；单点项目先选择预览，再按“单点加入”。所有选项都只来自当前游戏。'
@@ -586,7 +599,7 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
     )
     .join('\n\n');
   return {
-    title: `ORDER ${order.publicId} · STEP 2/4 · ${pkg.displayName} · 套餐预览`,
+    title: `🐾 订单 ${order.publicId} · 第 2/4 步 · ${pkg.displayName} 套餐预览`,
     body: [
       '▓▓░░',
       pkg.description,
@@ -730,7 +743,7 @@ export async function handleServicePackageAction(input: {
 
 function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
   return {
-    title: `订单 #${order.publicId} · 客服处理中`,
+    title: `🛎️ 订单 #${order.publicId} · 客服处理中`,
     body: [
       BOT_COPY.orders.reviewPaused,
       BOT_COPY.orders.reviewInProgress,
@@ -766,7 +779,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
   const matching = order.matching;
   if (!matching) {
     return {
-      title: `订单 #${order.publicId}`,
+      title: `📋 订单 #${order.publicId}`,
       body: BOT_COPY.orders.matchingUnavailable,
       visibility: 'PRIVATE_CHANNEL',
       components: [{ type: 'ACTION_ROW', components: orderStatusControls(order.id, order.version, order.status) }]
@@ -774,7 +787,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
   }
   if (matching.stage === 'ACCEPTED') {
     return {
-      title: `订单 #${order.publicId} · 已匹配`,
+      title: `✅ 订单 #${order.publicId} · 已匹配`,
       body: [`接单陪玩：${matching.playerSummary?.displayName ?? '已接单陪玩'}`, '下一步：请确认已准备好开始服务'].join(
         '\n'
       ),
@@ -794,7 +807,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
     ? Math.max(0, Number(matching.requestedPlayerCount) - Number(matching.filledPlayerCount))
     : null;
   return {
-    title: `订单 #${order.publicId} · ${matching.stage === 'TIMED_OUT' ? '本轮匹配结束' : '正在匹配陪玩'}`,
+    title: `🔎 订单 #${order.publicId} · ${matching.stage === 'TIMED_OUT' ? '本轮匹配结束' : '正在匹配陪玩'}`,
     body: [
       `已通知符合条件的陪玩：${matching.notifiedCandidateCount} 人`,
       hasAssemblyProgress ? `陪玩到位：${matching.filledPlayerCount}/${matching.requestedPlayerCount}` : null,
@@ -821,7 +834,7 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
     ? '处理方式：提交客服核对，不会自动退款或扣款'
     : '处理方式：确认后立即处理';
   return {
-    title: '取消影响确认',
+    title: '⚠️ 取消影响确认',
     body: [
       `释放预留：${formatCustomerMoney(preview.releaseAmountMinor, preview.currency)}`,
       `退款：${formatCustomerMoney(preview.refundAmountMinor, preview.currency)}`,
@@ -842,8 +855,8 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
           {
             type: 'BUTTON',
             style: 'SECONDARY',
-            customId: 'bc:entry:service-center',
-            label: '返回服务中心'
+            customId: `bc:order:${preview.orderId}:refresh`,
+            label: '暂不取消，返回订单'
           }
         ]
       }
@@ -877,18 +890,20 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     }
   ];
   return {
-    title: '陪玩工作台',
+    title: '🎧 陪玩工作台',
     body: [
+      '**接单状态**',
       `准入状态：${workbench.eligibility.eligible ? '可报名' : '暂不可报名'}`,
       failedChecks.length > 0
         ? `未满足条件：${failedChecks.map((check) => check.reason ?? check.code).join('；')}`
         : null,
       currentOrder,
       matchingLines,
+      '\n**收益概览**',
       `待确认收益：${formatPlatformMoney(workbench.earningsSummary.pendingMinor, workbench.earningsSummary.currency)}`,
       `已确认收益：${formatPlatformMoney(workbench.earningsSummary.confirmedMinor, workbench.earningsSummary.currency)}`,
       `已支付收益：${formatPlatformMoney(workbench.earningsSummary.paidMinor, workbench.earningsSummary.currency)}`,
-      `更新时间：${workbench.earningsSummary.calculatedAt}`
+      `\n-# 更新时间：${workbench.earningsSummary.calculatedAt}`
     ]
       .filter(Boolean)
       .join('\n'),
@@ -899,9 +914,9 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
 
 export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageSpec {
   return {
-    title: `新订单 #${input.orderPublicId}`,
+    title: `🔔 新订单 #${input.orderPublicId}`,
     body: [
-      `${input.game} · ${input.service}`,
+      `**${input.game} · ${input.service}**`,
       `区服：${input.region}`,
       `时长：${input.durationLabel}`,
       `预计收益：${formatPlatformMoney(input.playerEarningMinor, input.currency)}`,
@@ -937,7 +952,7 @@ export function buildAcceptedDispatchMessage(input: {
   acceptedPlayerDisplayName: string;
 }): MessageSpec {
   return {
-    title: `订单 #${input.offer.orderPublicId} 已被接取`,
+    title: `✅ 订单 #${input.offer.orderPublicId} 已被接取`,
     body: [
       `接单陪玩：${input.acceptedPlayerDisplayName}`,
       `${input.offer.game} · ${input.offer.service}`,
@@ -974,8 +989,9 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
   const giftsEnabled = Array.isArray(order.enabledFeatures) && order.enabledFeatures.includes('GIFTS');
   if (order.status === 'ACCEPTED') {
     return {
-      title: `订单 #${order.publicId} · 等待双方就绪`,
+      title: `⏳ 订单 #${order.publicId} · 等待双方就绪`,
       body: [
+        '**准备状态**',
         `用户：${readinessLabel(order.readiness.customer)}`,
         `陪玩：${readinessLabel(order.readiness.player)}`,
         order.readiness.readyDeadlineAt ? `就绪截止：${order.readiness.readyDeadlineAt}` : null
@@ -1039,8 +1055,10 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         label: '赠送礼物'
       });
     return {
-      title: `订单 #${order.publicId} · 服务中`,
-      body: order.readiness.startedAt ? `开始时间：${order.readiness.startedAt}` : '服务已开始。',
+      title: `🎮 订单 #${order.publicId} · 服务中`,
+      body: order.readiness.startedAt
+        ? `**服务已经开始**\n\n开始时间：${order.readiness.startedAt}`
+        : '**服务已经开始**',
       visibility: 'PRIVATE_CHANNEL',
       components: [{ type: 'ACTION_ROW', components }]
     };
@@ -1063,7 +1081,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         });
     }
     return {
-      title: `订单 #${order.publicId} · 等待用户确认`,
+      title: `✨ 订单 #${order.publicId} · 等待用户确认`,
       body: BOT_COPY.orders.completionPending,
       visibility: 'PRIVATE_CHANNEL',
       components: [{ type: 'ACTION_ROW', components }]
@@ -1071,7 +1089,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
   }
   if (order.status === 'EXCEPTION' || order.readiness.staffTaskId) {
     return {
-      title: `订单 #${order.publicId} · 客服处理中`,
+      title: `🛎️ 订单 #${order.publicId} · 客服处理中`,
       body: [
         order.readiness.staffTaskId
           ? `客服任务已创建：${order.readiness.staffTaskId}`
@@ -1096,7 +1114,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     };
   }
   return {
-    title: `订单 #${order.publicId}`,
+    title: `📋 订单 #${order.publicId}`,
     body: `当前状态：${order.status}`,
     visibility: 'PRIVATE_CHANNEL',
     components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(order.orderId)] }]
@@ -1122,16 +1140,21 @@ export function buildOrderConfirmationMessage(input: {
       });
 
   return {
-    title: `订单 #${input.order.publicId} · 最后确认`,
+    title: `📋 订单 #${input.order.publicId} · 最后确认`,
     body: [
+      '**委托内容**',
       `游戏：${formatGame(input.order.game)}`,
       `服务：${formatService(input.order.service)}`,
       `区服：${formatRegion(input.order.region)}`,
       `时长：${formatEstimateDuration(input.estimate)}`,
       '标签：P0 默认匹配',
       input.order.notes ? `备注：${input.order.notes}` : '备注：未填写',
+      '',
+      '**价格与余额**',
       `预计价格：${formatCustomerMoney(input.estimate.amountMinor, input.estimate.currency)}`,
       `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
+      '',
+      '**提交须知**',
       '取消规则：提交前取消不预留；提交后、服务开始前取消将释放预留，异常由客服处理。',
       statusLine,
       `价格有效期：${input.estimate.validUntil}`
@@ -1195,7 +1218,7 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
     )
     .join('\n');
   return {
-    title: `ORDER ${input.order.publicId} · STEP 4/4 · 订单清单已就绪`,
+    title: `📋 订单 ${input.order.publicId} · 第 4/4 步 · 最后确认`,
     body: [
       '▓▓▓▓',
       '这是提交前的最终确认。价格、余额、目录有效性与套餐调整仍由业务 API 重新校验。',
@@ -1243,14 +1266,18 @@ function readinessLabel(value: 'READY' | 'NOT_READY'): string {
 
 export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult): MessageSpec {
   return {
-    title: '订单已提交 · 正在匹配陪玩',
+    title: '🔎 订单已提交 · 正在匹配陪玩',
     body: [
+      '**订单状态**',
       `订单状态：${input.status}`,
+      '',
+      '**资金状态**',
       `本单预留：${formatCustomerMoney(input.reservation.amountMinor, input.reservation.currency)}`,
       `预留状态：${input.reservation.status}`,
       `提交后可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
       BOT_COPY.orders.reservationOnly,
+      '',
       BOT_COPY.orders.dispatchStarted
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
@@ -1308,7 +1335,7 @@ function selectionWaitRows(customId: string): MessageComponentSpec[] {
 export function buildCancellationResultMessage(input: CancellationResultSummary): MessageSpec {
   if (input.staffTaskId && input.status !== 'CANCELLED') {
     return {
-      title: '取消申请已转客服',
+      title: '🛎️ 取消申请已转客服',
       body: [
         `客服任务已创建：${input.staffTaskId}`,
         `订单仍保持：${input.status}`,
@@ -1332,7 +1359,7 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
     };
   }
   return {
-    title: '订单已取消',
+    title: '✅ 订单已取消',
     body: [
       `订单状态：${input.status}`,
       `资金处理：${input.fundAction}`,
@@ -1415,9 +1442,7 @@ export async function handleOrderRefresh(input: {
   api: BotApiClient;
   actor: BotActorContext;
   orderId: string;
-}): Promise<
-  Extract<BotFlowResult, { kind: 'EDIT_ORIGINAL_MESSAGE' } | { kind: 'EPHEMERAL_MESSAGE' }>
-> {
+}): Promise<Extract<BotFlowResult, { kind: 'EDIT_ORIGINAL_MESSAGE' } | { kind: 'EPHEMERAL_MESSAGE' }>> {
   try {
     const order = await input.api.getOrder(input.orderId, input.actor);
     if (order.status === 'DRAFT') {
@@ -1438,7 +1463,21 @@ export async function handleOrderRefresh(input: {
         message: buildGamePickerMessage(order, services.items, packages.items)
       };
     }
-    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(order) };
+    let requirements: OrderRequirementPageSummary | undefined;
+    const needsRequirementDetails =
+      Boolean(order.compositionMode) ||
+      !order.game ||
+      !order.service ||
+      !order.billingUnitMinutes ||
+      !order.unitCount;
+    if (needsRequirementDetails && input.api.listOrderRequirements) {
+      try {
+        requirements = await input.api.listOrderRequirements(input.orderId, input.actor, undefined, 25);
+      } catch (error) {
+        if (!isApiError(error, 'PERMISSION_DENIED')) throw error;
+      }
+    }
+    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(order, [], requirements) };
   } catch (error) {
     return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '刷新订单') };
   }
@@ -1677,10 +1716,25 @@ export async function handleConfirmCancellation(input: {
     };
   } catch (error) {
     if (error instanceof BotApiError && error.code === 'CANCELLATION_PREVIEW_STALE') {
-      return {
-        kind: 'EPHEMERAL_MESSAGE',
-        message: botCopy.orders.cancellationChanged(error.requestId)
-      };
+      try {
+        const order = await input.api.getOrder(input.orderId, input.actor);
+        const refreshedPreview = await input.api.previewOrderCancellation(
+          input.orderId,
+          { expectedVersion: order.version, reasonCode: 'CUSTOMER_REQUEST' },
+          input.actor,
+          `${input.idempotencyKey}:refresh-preview`
+        );
+        return {
+          kind: 'EDIT_ORIGINAL_MESSAGE',
+          message: buildCancellationPreviewMessage(refreshedPreview),
+          notice: botCopy.orders.cancellationRefreshed(error.requestId)
+        };
+      } catch (refreshError) {
+        return {
+          kind: 'EPHEMERAL_MESSAGE',
+          message: formatApiError(refreshError, '刷新取消说明')
+        };
+      }
     }
     return {
       kind: 'EPHEMERAL_MESSAGE',
@@ -2021,7 +2075,7 @@ export async function handleRequirementNoteSubmit(input: {
 
 export function buildSupportRatingMessage(orderId: string): MessageSpec {
   return {
-    title: '评价客服体验',
+    title: '⭐ 评价客服体验',
     body: '请评价本次订单中实际为你回复的客服。评价不会影响订单扣款或陪玩收益。',
     visibility: 'EPHEMERAL',
     components: [
@@ -2047,7 +2101,7 @@ export function buildLowRatingReasonMessage(orderId: string, score: number): Mes
     ['OTHER', '其他']
   ] as const;
   return {
-    title: '请选择主要原因',
+    title: '⭐ 请选择主要原因',
     body: '低分需要选择一个固定原因，仅用于事实记录。',
     visibility: 'EPHEMERAL',
     components: [
@@ -2088,7 +2142,7 @@ export async function handleSupportRatingAction(input: {
     return {
       kind: 'SHOW_MODAL',
       modal: {
-        title: '补充客服评价',
+        title: '📝 补充客服评价',
         customId: `bc:support-rating-comment:${input.orderId}:s${input.score}`,
         components: [
           {
@@ -2376,7 +2430,7 @@ function confirmationBlockedReason(input: {
 function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {
   const missing = missingConfirmationFields(order);
   return {
-    title: `订单 #${order.publicId} · 最后确认`,
+    title: `📋 订单 #${order.publicId} · 最后确认`,
     body: [
       `游戏：${formatGame(order.game)}`,
       `服务：${formatService(order.service)}`,

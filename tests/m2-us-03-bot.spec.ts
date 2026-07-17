@@ -49,7 +49,7 @@ describe('M2-US-03 Bot accepted dispatch channel sync', () => {
       acceptedPlayerDisplayName: '陪玩阿岚'
     });
 
-    expect(message.title).toBe('订单 #P-3001 已被接取');
+    expect(message.title).toBe('✅ 订单 #P-3001 已被接取');
     expect(message.body).toContain('陪玩阿岚');
     expect(message.components[0]?.components).toEqual(
       expect.arrayContaining([

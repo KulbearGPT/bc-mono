@@ -69,7 +69,7 @@ describe('M1-US-08 final submit Bot flow', () => {
     const message = buildSubmittedOrderMessage(reservationResult());
 
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
-    expect(message.title).toBe('订单已提交 · 正在匹配陪玩');
+    expect(message.title).toBe('🔎 订单已提交 · 正在匹配陪玩');
     expect(message.body).toContain('订单状态：PENDING_DISPATCH');
     expect(message.body).toContain('本单预留：1,200.0 CAT');
     expect(message.body).toContain('提交后可用余额：98,800.0 CAT');

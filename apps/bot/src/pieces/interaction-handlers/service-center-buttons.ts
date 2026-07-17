@@ -633,6 +633,11 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       expectedVersion: route.expectedVersion,
       idempotencyKey: buildDiscordIdempotencyKey('order:cancel-confirm', interaction.id)
     });
+    if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
+      await interaction.editReply(toDiscordUpdate(result.message));
+      if (result.notice) await interaction.followUp({ content: result.notice, ephemeral: true });
+      return;
+    }
     await interaction.followUp({
       content: result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '取消请求已处理。',
       ephemeral: true

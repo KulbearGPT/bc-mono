@@ -45,7 +45,7 @@ describe('M6-US-06 Sapphire recharge continuation', () => {
     const affordable = buildGiftAffordabilityMessage({ ...result, ledgerBalanceMinor: 10_000, availableMinor: 8_800,
       shortfallMinor: 0, canAfford: true }, 'ctx_ready');
     expect(JSON.stringify(affordable)).toContain('bc:gift:confirm:ctx_ready');
-    expect(affordable.body).toMatch(/880\.0 CAT.*确认/u);
+    expect(affordable.body).toMatch(/880\.0 CAT[\s\S]*确认/u);
   });
 
   test('uses an expiring HMAC short token with no receiver input or server-side registry', () => {

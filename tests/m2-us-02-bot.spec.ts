@@ -48,7 +48,7 @@ describe("M2-US-02 Bot dispatch card", () => {
     const message = buildDispatchOfferMessage(offer());
 
     expect(message.visibility).toBe("PRIVATE_CHANNEL");
-    expect(message.title).toBe("新订单 #P-2001");
+    expect(message.title).toBe("🔔 新订单 #P-2001");
     expect(message.body).toContain("瓦洛兰特 · 娱乐陪玩");
     expect(message.body).not.toContain("VALORANT · ENTERTAINMENT");
     expect(message.body).toContain("预计收益：840.0 CAT");

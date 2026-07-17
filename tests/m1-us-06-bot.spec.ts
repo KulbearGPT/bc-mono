@@ -108,7 +108,7 @@ describe('M1-US-06 private service center Discord flow', () => {
     });
 
     expect(message.visibility).toBe('EPHEMERAL');
-    expect(message.title).toBe('我的服务中心');
+    expect(message.title).toBe('🐈‍⬛ 我的服务中心');
     expect(message.body).toContain('账本余额：2,000.0 CAT');
     expect(message.body).toContain('预留中：1,200.0 CAT');
     expect(message.body).toContain('可用余额：800.0 CAT');

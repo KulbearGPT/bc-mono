@@ -83,7 +83,7 @@ interface BalanceData {
 
 export function buildGiftPanel(data: GiftPanelData) {
   return {
-    title: `订单 ${data.orderPublicId} · 赠送礼物`,
+    title: `🎁 订单 ${data.orderPublicId} · 赠送礼物`,
     targetLabel: data.receiver.displayName,
     availableMinor: data.balance.availableMinor,
     currency: data.balance.currency,
@@ -113,7 +113,7 @@ export function buildGiftAffordabilityMessage(
                 type: 'BUTTON' as const,
                 style: 'PRIMARY' as const,
                 customId: customId('confirm', token),
-                label: '确认赠送'
+                label: '🎁 确认赠送'
               }
             ]
           }
@@ -121,7 +121,11 @@ export function buildGiftAffordabilityMessage(
       : [];
   return {
     title:
-      data.canAfford && !data.stale ? '确认礼物' : data.stale ? `${walletLabel}需要刷新` : `${walletLabel}余额不足`,
+      data.canAfford && !data.stale
+        ? '🎁 确认礼物'
+        : data.stale
+          ? `🐟 ${walletLabel}需要刷新`
+          : `🐟 ${walletLabel}余额不足`,
     body:
       data.canAfford && !data.stale
         ? botCopy.gifts.affordable(
@@ -139,8 +143,8 @@ export function buildGiftAffordabilityMessage(
       {
         type: 'ACTION_ROW',
         components: [
-          { type: 'BUTTON', style: 'SECONDARY', customId: customId('refresh', token), label: '刷新余额' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: customId('back', token), label: '返回礼物' }
+          { type: 'BUTTON', style: 'SECONDARY', customId: customId('refresh', token), label: '🔄 刷新余额' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: customId('back', token), label: '← 返回礼物' }
         ]
       }
     ]
@@ -178,10 +182,10 @@ export function buildGiftCatalogMessage(
   const pageRecipients = data.recipients.slice(safePage * 25, safePage * 25 + 25);
   const selection = encodeGiftRecipientSelection(data.recipients, selectedParticipantIds);
   return {
-    title: `订单 ${data.orderPublicId} · 赠送礼物`,
+    title: `🎁 订单 ${data.orderPublicId} · 赠送礼物`,
     body: selected.length
-      ? `已选 ${selected.length} 位猫猫。可以继续翻页挑选，或直接选择礼物。`
-      : '先选择这次要收到礼物的陪玩猫猫。',
+      ? `**已选 ${selected.length} 位陪玩**\n\n可以继续翻页挑选，或直接选择礼物。`
+      : '**先选择这次要收到礼物的陪玩。**',
     visibility: 'EPHEMERAL',
     components: [
       recipientSelectionRow(
@@ -216,14 +220,14 @@ export function buildGiftCatalogMessage(
                   type: 'BUTTON' as const,
                   style: 'SECONDARY' as const,
                   customId: `bc:grp:${data.orderId}:${Math.max(0, safePage - 1)}:v${orderVersion}:${selection}`,
-                  label: '上一页',
+                  label: '← 上一页',
                   disabled: safePage === 0
                 },
                 {
                   type: 'BUTTON' as const,
                   style: 'SECONDARY' as const,
                   customId: `bc:grp:${data.orderId}:${Math.min(pageCount - 1, safePage + 1)}:v${orderVersion}:${selection}`,
-                  label: '下一页',
+                  label: '下一页 →',
                   disabled: safePage === pageCount - 1
                 }
               ]
@@ -272,7 +276,7 @@ export function buildGiftRecipientPickerMessage(
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {
   const first = data.items[0];
   return {
-    title: '送礼请求已提交',
+    title: '✅ 送礼请求已提交',
     body: first
       ? botCopy.gifts.requestSubmitted(
           `${first.gift.name} × ${data.recipientCount}`,
@@ -392,7 +396,7 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
   const first = data.items[0];
   if (!first) throw new Error('Gift request batch is empty.');
   return {
-    title: '送礼请求已提交',
+    title: '✅ 送礼请求已提交',
     requestPublicId: first.publicId,
     statusLabel: '等待客服核对',
     giftName: `${first.gift.name} × ${data.recipientCount}`,

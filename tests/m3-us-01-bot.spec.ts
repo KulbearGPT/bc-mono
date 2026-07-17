@@ -31,6 +31,6 @@ describe('M3-US-01 Discord gift panel', () => {
       staffTask: { id: 'task-1', publicId: 'T-1', type: 'GIFT_REVIEW', status: 'OPEN' },
       balance: { ledgerBalanceMinor: 5000, reservedMinor: 4800, availableMinor: 200, currency: 'CAT', calculatedAt: '2026-07-18T12:00:00.000Z' }
       }]
-    })).toMatchObject({ title: '送礼请求已提交', statusLabel: '等待客服核对', reservedMinor: 1800, capturedMinor: 0 });
+    })).toMatchObject({ title: '✅ 送礼请求已提交', statusLabel: '等待客服核对', reservedMinor: 1800, capturedMinor: 0 });
   });
 });

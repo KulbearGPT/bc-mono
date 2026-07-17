@@ -27,10 +27,16 @@ describe('M2-US-10 Bot cancellation preview flow', () => {
     expect(message.title).toContain('取消影响确认');
     expect(message.body).toContain('释放预留：1,200.0 CAT');
     expect(message.body).toContain('退款：0.0 CAT');
-    expect(message.components.flatMap((row) => row.components).map((component) => component.customId)).toEqual([
+    const controls = message.components.flatMap((row) => row.components);
+    expect(controls.map((component) => component.customId)).toEqual([
       `bc:cancel:${orderId}:${previewId}:confirm:v3`,
-      'bc:entry:service-center'
+      `bc:order:${orderId}:refresh`
     ]);
+    expect(controls).toContainEqual(expect.objectContaining({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      label: '暂不取消，返回订单'
+    }));
   });
 
   test('opens preview through API and does not calculate money in the Bot', async () => {
@@ -44,7 +50,7 @@ describe('M2-US-10 Bot cancellation preview flow', () => {
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
   });
 
-  test('confirms with the preview id and reports stale previews without retrying locally', async () => {
+  test('confirms with the preview id and replaces a stale preview without executing a second cancellation', async () => {
     const successApi = { cancelOrder: vi.fn().mockResolvedValue({ orderId, status: 'CANCELLED', fundAction: 'RELEASE_RESERVATION' }) } as unknown as BotApiClient;
     const success = await handleConfirmCancellation({
       api: successApi, actor, orderId, previewId, expectedVersion: 3, idempotencyKey: 'discord:cancel-confirm:one'
@@ -57,14 +63,35 @@ describe('M2-US-10 Bot cancellation preview flow', () => {
     );
     expect(success.kind).toBe('EPHEMERAL_MESSAGE');
 
-    const staleApi = { cancelOrder: vi.fn().mockRejectedValue(new BotApiError({
-      code: 'CANCELLATION_PREVIEW_STALE', message: 'stale', requestId: 'req-stale', statusCode: 409
-    })) } as unknown as BotApiClient;
+    const refreshedPreview = {
+      ...preview,
+      previewId: '00000000-0000-0000-0000-00000000ca11',
+      orderVersion: 4,
+      validUntil: '2026-07-18T08:02:00.000Z'
+    };
+    const staleApi = {
+      cancelOrder: vi.fn().mockRejectedValue(new BotApiError({
+        code: 'CANCELLATION_PREVIEW_STALE', message: 'stale', requestId: 'req-stale', statusCode: 409
+      })),
+      getOrder: vi.fn().mockResolvedValue({ version: 4 }),
+      previewOrderCancellation: vi.fn().mockResolvedValue(refreshedPreview)
+    } as unknown as BotApiClient;
     const stale = await handleConfirmCancellation({
       api: staleApi, actor, orderId, previewId, expectedVersion: 3, idempotencyKey: 'discord:cancel-confirm:stale'
     });
-    expect(stale).toMatchObject({ kind: 'EPHEMERAL_MESSAGE' });
-    expect(stale.kind === 'EPHEMERAL_MESSAGE' ? stale.message : '').toContain('请刷新取消说明');
+    expect(stale).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE' });
+    expect(stale.kind === 'EDIT_ORIGINAL_MESSAGE' ? JSON.stringify(stale.message) : '').toContain(
+      `bc:cancel:${orderId}:${refreshedPreview.previewId}:confirm:v4`
+    );
+    expect(stale.kind === 'EDIT_ORIGINAL_MESSAGE' ? stale.notice : '').toContain('已经刷新');
+    expect(staleApi.getOrder).toHaveBeenCalledWith(orderId, actor);
+    expect(staleApi.previewOrderCancellation).toHaveBeenCalledWith(
+      orderId,
+      { expectedVersion: 4, reasonCode: 'CUSTOMER_REQUEST' },
+      actor,
+      'discord:cancel-confirm:stale:refresh-preview'
+    );
+    expect(staleApi.cancelOrder).toHaveBeenCalledTimes(1);
   });
 
   test('parses a confirmation id containing both order and preview versions', () => {

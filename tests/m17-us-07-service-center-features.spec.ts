@@ -22,7 +22,7 @@ describe('M17-US-07 service-center feature boundaries', () => {
       currency: 'CAT',
       calculatedAt: '2026-08-06T00:00:00.000Z'
     });
-    expect(wallet.title).toBe('我的猫条钱包');
+    expect(wallet.title).toBe('🐟 我的猫条钱包');
     expect(buildServiceCenterMessage).toBeTypeOf('function');
     expect(parseServiceCenterCustomId('bc:profile:orders:first')).toEqual({
       area: 'profile',

@@ -18,7 +18,7 @@ describe('M2-US-05 Bot cancellation support states', () => {
 
     const message = buildCancellationResultMessage(result);
 
-    expect(message.title).toBe('取消申请已转客服');
+    expect(message.title).toBe('🛎️ 取消申请已转客服');
     expect(message.body).toContain('客服任务已创建');
     expect(message.body).toContain('订单仍保持：ACCEPTED');
     expect(message.body).toContain('不会自动退款或释放预留');

@@ -41,7 +41,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
   test('renders readiness panel without a unilateral start-service action', () => {
     const message = buildServiceLifecyclePanelMessage(acceptedOrder);
 
-    expect(message.title).toBe('订单 #P-4401 · 等待双方就绪');
+    expect(message.title).toBe('⏳ 订单 #P-4401 · 等待双方就绪');
     expect(message.body).toContain('用户：未就绪');
     expect(message.body).toContain('陪玩：未就绪');
     expect(JSON.stringify(message)).not.toContain('开始服务');
@@ -96,7 +96,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       }
     });
 
-    expect(message.title).toBe('订单 #P-4401 · 服务中');
+    expect(message.title).toBe('🎮 订单 #P-4401 · 服务中');
     expect(message.components[0]?.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -122,7 +122,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       }
     });
 
-    expect(message.title).toBe('订单 #P-4401 · 等待用户确认');
+    expect(message.title).toBe('✨ 订单 #P-4401 · 等待用户确认');
     expect(message.components[0]?.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -160,7 +160,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       }
     });
 
-    expect(message.title).toBe('订单 #P-4401 · 客服处理中');
+    expect(message.title).toBe('🛎️ 订单 #P-4401 · 客服处理中');
     expect(message.body).toContain('客服任务已创建');
     expect(message.body).toContain('不会自动取消、退款或扣罚任何一方');
     expect(JSON.stringify(message)).not.toContain('已取消');
@@ -357,9 +357,9 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       actor,
       'discord:service:confirm:888'
     );
-    expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
-    expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('现在等待客人确认') });
-    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('已扣除 1,200.0 CAT，陪玩收益也已记录') });
+    expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '⏳ 订单 #P-4401 · 等待双方就绪' } });
+    expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('**下一步**：等待客人确认') });
+    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('**实际扣除**：1,200.0 CAT') });
   });
 
   test.each([
@@ -418,6 +418,6 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
 
     expect(setOrderReadiness).toHaveBeenNthCalledWith(2, acceptedOrder.orderId, { expectedVersion: 7, readiness: 'READY' }, actor,
       'discord:service:ready:stale:retry-v7');
-    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-4401 · 等待双方就绪' } });
+    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '⏳ 订单 #P-4401 · 等待双方就绪' } });
   });
 });

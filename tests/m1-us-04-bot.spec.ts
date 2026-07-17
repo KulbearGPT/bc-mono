@@ -70,14 +70,14 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
   test('renders a fixed public service entry with only two simple actions and no balance data', () => {
     const message = buildPublicServiceEntryMessage();
 
-    expect(message.title).toBe('陪玩服务中心');
+    expect(message.title).toBe('🐈‍⬛ 陪玩服务中心');
     expect(message.visibility).toBe('PUBLIC');
     expect(message.components).toEqual([
       {
         type: 'ACTION_ROW',
         components: [
-          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '创建订单' },
-          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '我的服务中心' }
+          { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '🐾 创建订单' },
+          { type: 'BUTTON', style: 'SECONDARY', customId: 'bc:entry:service-center', label: '🐈‍⬛ 我的服务中心' }
         ]
       }
     ]);
@@ -87,7 +87,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
   test('notes modal is a single optional text field bound to expected order version', () => {
     const modal = buildOrderNotesModal({ orderId, expectedVersion: 3 });
 
-    expect(modal.title).toBe('补充订单备注');
+    expect(modal.title).toBe('📝 补充订单备注');
     expect(modal.customId).toBe(`bc:modal:order-notes:${orderId}:v3`);
     expect(modal.components).toEqual([
       {
@@ -127,7 +127,7 @@ describe('M1-US-04 Sapphire public entry and Discord component contract', () => 
   test('draft order panel enters the game-first wizard without legacy controls or payout leakage', () => {
     const message = buildOrderPanelMessage(draftOrder(), [{ id: '00000000-0000-0000-0000-00000000c104', game: 'VALORANT', gameDisplayName: '瓦洛兰特', service: 'FUN', serviceDisplayName: '娱乐陪玩', region: 'NA', billingUnitMinutes: 60, minimumUnits: 1, customerUnitPriceMinor: 6000, currency: 'CAT', version: 1 }]);
 
-    expect(message.title).toContain('STEP 1/4');
+    expect(message.title).toContain('第 1/4 步');
     expect(JSON.stringify(message)).toContain('瓦洛兰特');
     expect(JSON.stringify(message.components)).toContain('V2_SECTION');
     expect(JSON.stringify(message.components)).toContain('进入');
@@ -275,7 +275,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
       'discord:order:update:duration'
     );
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.title).toContain('STEP 1/4');
+    expect(result.message.title).toContain('第 1/4 步');
   });
 
   test('select handler updates the original panel without posting an ephemeral acknowledgement', async () => {
@@ -311,7 +311,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
     );
     expect(client.getOrder).toHaveBeenCalledWith(orderId, actor());
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.title).toContain('STEP 1/4');
+    expect(result.message.title).toContain('第 1/4 步');
     expect(result.notice).toBe('订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: req-conflict');
   });
 });
