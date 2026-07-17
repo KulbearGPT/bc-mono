@@ -75,6 +75,8 @@ describe('M1-US-08 final submit Bot flow', () => {
     expect(message.body).toContain('提交后可用余额：98,800.0 CAT');
     expect(message.body).toContain('目前只是预留本单所需猫条，还没有产生正式消费。');
     expect(message.body).toContain('猫舍正在为你寻找合适的陪玩');
+    expect(JSON.stringify(message.components)).toContain(`bc:order:${orderId}:refresh`);
+    expect(JSON.stringify(message.components)).not.toContain(`bc:order:${orderId}:submit:v`);
     expect(JSON.stringify(message)).not.toMatch(/playerEarning|playerPayout|陪玩结算/i);
   });
 

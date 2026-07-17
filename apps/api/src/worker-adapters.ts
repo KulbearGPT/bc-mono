@@ -513,29 +513,31 @@ function orderStatusLabel(status: string): string {
 function panelActions(projection: OrderPanelProjection): Array<{ type: 2; style: number; label: string; custom_id: string }> {
   const route = (action: string) => `bc:service:${action}:${projection.orderId}:v${projection.version}`;
   const support = { type: 2 as const, style: 2, label: '联系客服', custom_id: route('support') };
+  const refresh = { type: 2 as const, style: 2, label: '刷新订单', custom_id: `bc:order:${projection.orderId}:refresh` };
   if (projection.status === 'PENDING_DISPATCH') {
     return [
-      { type: 2, style: 2, label: '刷新订单', custom_id: `bc:order:${projection.orderId}:submit:v${projection.version}` },
       { type: 2, style: 4, label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` },
-      support
+      support,
+      refresh
     ];
   }
   if (projection.status === 'ACCEPTED') {
-    return [{ type: 2, style: 1, label: '我已就绪', custom_id: route('ready') }, support];
+    return [{ type: 2, style: 1, label: '我已就绪', custom_id: route('ready') }, support, refresh];
   }
   if (projection.status === 'IN_SERVICE') {
-    return [{ type: 2, style: 1, label: '申请完成', custom_id: route('request-completion') }, support];
+    return [{ type: 2, style: 1, label: '申请完成', custom_id: route('request-completion') }, support, refresh];
   }
   if (projection.status === 'PENDING_CONFIRMATION') {
-    return [{ type: 2, style: 1, label: '确认完成', custom_id: route('confirm') }, support];
+    return [{ type: 2, style: 1, label: '确认完成', custom_id: route('confirm') }, support, refresh];
   }
   if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
     return [
       { type: 2, style: 1, label: '评价客服', custom_id: `bc:support-rating:${projection.orderId}:start` },
-      support
+      support,
+      refresh
     ];
   }
-  return [support];
+  return [support, refresh];
 }
 
 async function readMessage(response: Response, fallbackId: string): Promise<{ id: string }> {

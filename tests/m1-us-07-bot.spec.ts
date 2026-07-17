@@ -4,6 +4,7 @@ import {
   BotApiError,
   HttpBotApiClient,
   buildOrderConfirmationMessage,
+  handleOrderRefresh,
   handleOpenOrderConfirmation,
   parseServiceCenterCustomId,
   type BalanceSummary,
@@ -228,6 +229,38 @@ describe('M1-US-07 order confirmation panel', () => {
       action: 'submit',
       expectedVersion: 5
     });
+  });
+
+  test('refreshes from latest API facts through a version-independent read-only route', async () => {
+    const latest = draftOrder({ status: 'PENDING_DISPATCH', version: 9 });
+    const client = api({ getOrder: vi.fn().mockResolvedValue(latest) });
+
+    expect(parseServiceCenterCustomId(`bc:order:${orderId}:refresh`)).toEqual({
+      area: 'order-refresh',
+      orderId
+    });
+    const result = await handleOrderRefresh({ api: client, actor: actor(), orderId });
+
+    expect(client.getOrder).toHaveBeenCalledWith(orderId, actor());
+    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE' });
+    expect(JSON.stringify(result.kind === 'EDIT_ORIGINAL_MESSAGE' ? result.message : null))
+      .toContain(`bc:order:${orderId}:refresh`);
+    expect(JSON.stringify(result)).not.toContain(`bc:order:${orderId}:refresh:v`);
+  });
+
+  test.each([
+    ['ACCEPTED', 'bc:service:ready:'],
+    ['IN_SERVICE', 'bc:service:request-completion:'],
+    ['PENDING_CONFIRMATION', 'bc:service:confirm:']
+  ])('rebuilds the latest %s status with its valid primary action', async (status, expectedAction) => {
+    const latest = draftOrder({ status, version: 11, matching: null });
+    const result = await handleOrderRefresh({
+      api: api({ getOrder: vi.fn().mockResolvedValue(latest) }),
+      actor: actor(),
+      orderId
+    });
+
+    expect(JSON.stringify(result)).toContain(`${expectedAction}${orderId}:v11`);
   });
 });
 

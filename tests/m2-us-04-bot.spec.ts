@@ -166,6 +166,30 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(JSON.stringify(message)).not.toContain('已取消');
   });
 
+  test.each(['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION'] as const)(
+    'keeps a version-independent refresh action on the %s lifecycle panel',
+    (status) => {
+      const message = buildServiceLifecyclePanelMessage({
+        ...acceptedOrder,
+        status,
+        version: 12,
+        readiness: {
+          ...acceptedOrder.readiness,
+          staffTaskId: status === 'EXCEPTION' ? '00000000-0000-0000-0000-00000000f901' : null
+        }
+      });
+      const controls = message.components.flatMap((row) => row.components);
+
+      expect(controls).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          label: '刷新订单',
+          customId: `bc:order:${acceptedOrder.orderId}:refresh`
+        })
+      ]));
+      expect(JSON.stringify(controls)).not.toContain(`bc:order:${acceptedOrder.orderId}:refresh:v`);
+    }
+  );
+
   test('HttpBotApiClient calls lifecycle endpoints through the unified API', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

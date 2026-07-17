@@ -108,9 +108,10 @@ export type ServiceCenterRoute =
   | {
       area: 'order-action';
       orderId: string;
-      action: 'submit' | 'submit-final' | 'cancel' | 'refresh';
+      action: 'submit' | 'submit-final' | 'cancel';
       expectedVersion: number;
     }
+  | { area: 'order-refresh'; orderId: string }
   | {
       area: 'service-action';
       orderId: string;
@@ -439,15 +440,18 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       expectedRequirementVersion: Number(requirementNoteOpen[4])
     };
 
-  const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel|refresh):v([1-9][0-9]*)$/u.exec(customId);
+  const orderAction = /^bc:order:([0-9a-f-]{36}):(submit|submit-final|cancel):v([1-9][0-9]*)$/u.exec(customId);
   if (orderAction) {
     return {
       area: 'order-action',
       orderId: orderAction[1],
-      action: orderAction[2] as 'submit' | 'submit-final' | 'cancel' | 'refresh',
+      action: orderAction[2] as 'submit' | 'submit-final' | 'cancel',
       expectedVersion: Number.parseInt(orderAction[3], 10)
     };
   }
+
+  const orderRefresh = /^bc:order:([0-9a-f-]{36}):refresh$/u.exec(customId);
+  if (orderRefresh) return { area: 'order-refresh', orderId: orderRefresh[1]! };
 
   const serviceAction = /^bc:service:(ready|request-completion|confirm|support):([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(
     customId

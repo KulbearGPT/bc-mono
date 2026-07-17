@@ -214,7 +214,7 @@ export function buildOrderPanelMessage(order: OrderSummary, services: PublicServ
     components: [
       {
         type: 'ACTION_ROW',
-        components: orderMenuControls(order.id, order.version)
+        components: orderStatusControls(order.id, order.version, order.status)
       }
     ]
   };
@@ -367,7 +367,8 @@ export function buildMultiProjectOrderPanelMessage(
             style: 'PRIMARY',
             customId: `bc:order:${order.id}:submit:v${page.orderVersion}`,
             label: '下一步 · 确认订单'
-          }
+          },
+          refreshOrderControl(order.id)
         ]
       : [
           {
@@ -382,7 +383,8 @@ export function buildMultiProjectOrderPanelMessage(
             customId: `bc:order:${order.id}:submit:v${page.orderVersion}`,
             label: '下一步 · 确认订单',
             disabled: requirements.length === 0
-          }
+          },
+          refreshOrderControl(order.id)
         ]
   });
 
@@ -446,7 +448,8 @@ export function buildServicePackagePickerMessage(order: OrderSummary, page: Serv
             style: 'SECONDARY',
             customId: `bc:package:${order.id}:back:v${order.version}`,
             label: '返回自由搭配'
-          }
+          },
+          refreshOrderControl(order.id)
         ]
       }
     ]
@@ -484,6 +487,10 @@ export function buildGamePickerMessage(
         }
       ]
     });
+  components.push({
+    type: 'ACTION_ROW',
+    components: [refreshOrderControl(order.id)]
+  });
   return {
     title: `ORDER ${order.publicId} · STEP 1/4 · 先选今天想玩的游戏`,
     body: games.length
@@ -555,7 +562,8 @@ export function buildGameOrderingMenuMessage(
               label: '查看清单'
             }
           ]
-        : [])
+        : []),
+      refreshOrderControl(order.id)
     ]
   });
   return {
@@ -612,7 +620,8 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
                   label: '查看清单'
                 }
               ]
-            : [])
+            : []),
+          refreshOrderControl(order.id)
         ]
       }
     ],
@@ -745,7 +754,8 @@ function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
             style: 'SECONDARY',
             customId: `bc:order:${order.id}:cancel:v${order.version}`,
             label: '查看取消影响'
-          }
+          },
+          refreshOrderControl(order.id)
         ]
       }
     ]
@@ -759,7 +769,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
       title: `订单 #${order.publicId}`,
       body: BOT_COPY.orders.matchingUnavailable,
       visibility: 'PRIVATE_CHANNEL',
-      components: []
+      components: [{ type: 'ACTION_ROW', components: orderStatusControls(order.id, order.version, order.status) }]
     };
   }
   if (matching.stage === 'ACCEPTED') {
@@ -769,7 +779,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
         '\n'
       ),
       visibility: 'PRIVATE_CHANNEL',
-      components: []
+      components: [{ type: 'ACTION_ROW', components: orderStatusControls(order.id, order.version, order.status) }]
     };
   }
   const nextStep =
@@ -1004,7 +1014,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
                     label: '赠送礼物'
                   }
                 ]
-              : [])
+              : []),
+            refreshOrderControl(order.orderId)
           ]
         }
       ]
@@ -1077,7 +1088,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
               style: 'SECONDARY',
               customId: `bc:service:support:${order.orderId}:v${order.version}`,
               label: '联系客服'
-            }
+            },
+            refreshOrderControl(order.orderId)
           ]
         }
       ]
@@ -1087,7 +1099,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     title: `订单 #${order.publicId}`,
     body: `当前状态：${order.status}`,
     visibility: 'PRIVATE_CHANNEL',
-    components: []
+    components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(order.orderId)] }]
   };
 }
 
@@ -1139,7 +1151,7 @@ export function buildOrderConfirmationMessage(input: {
           {
             type: 'BUTTON',
             style: 'SECONDARY',
-            customId: `bc:order:${input.order.id}:refresh:v${input.order.version}`,
+            customId: `bc:order:${input.order.id}:refresh`,
             label: '刷新确认'
           },
           {
@@ -1216,7 +1228,8 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
             customId: `bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,
             label: '确认提交订单',
             disabled: !canSubmit
-          }
+          },
+          refreshOrderControl(input.order.id)
         ]
       }
     ],
@@ -1249,7 +1262,7 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
           {
             type: 'BUTTON',
             style: 'SECONDARY',
-            customId: `bc:order:${input.orderId}:submit:v${input.version}`,
+            customId: `bc:order:${input.orderId}:refresh`,
             label: '刷新订单'
           },
           {
@@ -1311,7 +1324,8 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
               style: 'SECONDARY',
               customId: `bc:service:support:${input.orderId}:v${input.version}`,
               label: '联系客服'
-            }
+            },
+            refreshOrderControl(input.orderId)
           ]
         }
       ]
@@ -1329,7 +1343,7 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
       .filter(Boolean)
       .join('\n'),
     visibility: 'PRIVATE_CHANNEL',
-    components: []
+    components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(input.orderId)] }]
   };
 }
 
@@ -1394,6 +1408,39 @@ export async function handleOpenOrderConfirmation(input: {
       kind: 'EPHEMERAL_MESSAGE',
       message: formatApiError(error, '打开订单确认面板')
     };
+  }
+}
+
+export async function handleOrderRefresh(input: {
+  api: BotApiClient;
+  actor: BotActorContext;
+  orderId: string;
+}): Promise<
+  Extract<BotFlowResult, { kind: 'EDIT_ORIGINAL_MESSAGE' } | { kind: 'EPHEMERAL_MESSAGE' }>
+> {
+  try {
+    const order = await input.api.getOrder(input.orderId, input.actor);
+    if (order.status === 'DRAFT') {
+      const services = await input.api.listServices(input.actor);
+      if (input.api.listOrderRequirements) {
+        const requirements = await input.api.listOrderRequirements(input.orderId, input.actor, undefined, 10);
+        if (requirements.items.some((item) => item.status === 'ACTIVE'))
+          return {
+            kind: 'EDIT_ORIGINAL_MESSAGE',
+            message: buildMultiProjectOrderPanelMessage(order, requirements, services.items)
+          };
+      }
+      const packages = input.api.listServicePackages
+        ? await input.api.listServicePackages(input.actor, undefined, 25)
+        : { items: [], nextCursor: null };
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildGamePickerMessage(order, services.items, packages.items)
+      };
+    }
+    return { kind: 'EDIT_ORIGINAL_MESSAGE', message: buildOrderPanelMessage(order) };
+  } catch (error) {
+    return { kind: 'EPHEMERAL_MESSAGE', message: formatApiError(error, '刷新订单') };
   }
 }
 
@@ -2139,6 +2186,7 @@ function requirePackageApi(api: BotApiClient) {
 
 function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
   return [
+    refreshOrderControl(orderId),
     {
       type: 'BUTTON',
       style: 'DANGER',
@@ -2152,6 +2200,43 @@ function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
       label: '我要申诉'
     }
   ];
+}
+
+function orderStatusControls(orderId: string, version: number, status: string): ComponentSpec[] {
+  const controls = orderMenuControls(orderId, version);
+  if (status === 'ACCEPTED')
+    controls.unshift({
+      type: 'BUTTON',
+      style: 'PRIMARY',
+      customId: `bc:service:ready:${orderId}:v${version}`,
+      label: '我已就绪'
+    });
+  if (status === 'IN_SERVICE')
+    controls.unshift({
+      type: 'BUTTON',
+      style: 'PRIMARY',
+      customId: `bc:service:request-completion:${orderId}:v${version}`,
+      label: '申请完成'
+    });
+  if (status === 'PENDING_CONFIRMATION')
+    controls.unshift({
+      type: 'BUTTON',
+      style: 'PRIMARY',
+      customId: `bc:service:confirm:${orderId}:v${version}`,
+      label: '确认完成'
+    });
+  if (status === 'COMPLETED' || status === 'CANCELLED')
+    return controls.filter((control) => control.type !== 'BUTTON' || control.label !== '取消订单');
+  return controls;
+}
+
+function refreshOrderControl(orderId: string): ComponentSpec {
+  return {
+    type: 'BUTTON',
+    style: 'SECONDARY',
+    customId: `bc:order:${orderId}:refresh`,
+    label: '刷新订单'
+  };
 }
 
 function serviceOptions(
@@ -2315,7 +2400,7 @@ function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {
           {
             type: 'BUTTON',
             style: 'SECONDARY',
-            customId: `bc:order:${order.id}:refresh:v${order.version}`,
+            customId: `bc:order:${order.id}:refresh`,
             label: '返回修改'
           }
         ]

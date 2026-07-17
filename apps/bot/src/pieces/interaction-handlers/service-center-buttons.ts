@@ -18,6 +18,7 @@ import {
   buildRequirementNoteModal,
   buildDiscordIdempotencyKey,
   handleOpenOrderConfirmation,
+  handleOrderRefresh,
   handleOrderRequirementAction,
   handleOrderRequirementSelectSubmit,
   handleGameMenuSelect,
@@ -300,6 +301,19 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       }
     }
 
+    if (parsedData.area === 'order-refresh') {
+      const actor = actorFromInteraction(interaction);
+      if (!actor) return void (await guildRequired(interaction, '刷新订单'));
+      await interaction.deferUpdate();
+      const result = await handleOrderRefresh({ api: createBotApiClient(), actor, orderId: parsedData.orderId });
+      if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
+        await interaction.editReply(toDiscordUpdate(result.message));
+      } else {
+        await interaction.followUp({ content: result.message, ephemeral: true });
+      }
+      return;
+    }
+
     if (parsedData.area !== 'order-action') {
       if (parsedData.area === 'service-action') {
         await this.handleServiceLifecycleButton(interaction, parsedData);
@@ -307,7 +321,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
 
-    if (parsedData.action === 'submit' || parsedData.action === 'refresh') {
+    if (parsedData.action === 'submit') {
       await this.openOrderConfirmation(interaction, parsedData);
       return;
     }

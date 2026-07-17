@@ -7,6 +7,7 @@ const buttonAreas = new Set<ServiceCenterRoute['area']>([
   'service-center-action',
   'order-open',
   'order-action',
+  'order-refresh',
   'order-requirement-action',
   'order-requirement-add-action',
   'order-game-action',

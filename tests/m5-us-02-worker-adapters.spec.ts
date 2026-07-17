@@ -155,7 +155,8 @@ describe('M5-US-02 Worker production adapters', () => {
     const actionRow = panelBody.components[0].components.find((component: { type: number }) => component.type === 1);
     expect(actionRow.components).toEqual(expect.arrayContaining([
       expect.objectContaining({ custom_id: `bc:service:request-completion:${projection.orderId}:v8` }),
-      expect.objectContaining({ custom_id: `bc:service:support:${projection.orderId}:v8` })
+      expect.objectContaining({ custom_id: `bc:service:support:${projection.orderId}:v8` }),
+      expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:refresh` })
     ]));
   });
 
@@ -197,7 +198,7 @@ describe('M5-US-02 Worker production adapters', () => {
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
     const actionRow = body.components[0].components.find((component: { type: number }) => component.type === 1);
     expect(actionRow.components).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:submit:v8` }),
+      expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:refresh` }),
       expect.objectContaining({ label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v8` }),
       expect.objectContaining({ label: '联系客服' })
     ]));
