@@ -1281,7 +1281,7 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
       BOT_COPY.orders.reservationOnly,
       '',
       '**下一步**',
-      '请选择 3、5、10、15 或 30 分钟的报名等待时间。',
+      '请选择 1、3、5、10、15 或 30 分钟的报名等待时间。',
       '选择后系统才会在派单频道发布报名卡；尚未选择前不会通知陪玩。'
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
@@ -1315,7 +1315,7 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
 }
 
 function selectionWaitRows(customId: string): MessageComponentSpec[] {
-  const waitMinutes = [3, 5, 10, 15, 30];
+  const waitMinutes = [1, 3, 5, 10, 15, 30];
   return [
     {
       type: 'ACTION_ROW',

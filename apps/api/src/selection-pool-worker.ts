@@ -586,26 +586,23 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
 
 function selectionWaitRows(customId: string) {
   return [
-    { suffix: "a", from: 1, to: 15 },
-    { suffix: "b", from: 16, to: 30 },
-  ].map(({ suffix, from, to }) => ({
-    type: 1,
-    components: [
-      {
-        type: 3,
-        custom_id: `${customId}:${suffix}`,
-        placeholder: `选择 ${from}–${to} 分钟`,
-        min_values: 1,
-        max_values: 1,
-        options: Array.from({ length: to - from + 1 }, (_, index) => from + index).map(
-          (minutes) => ({
-            label: `继续等待 ${minutes} 分钟`,
+    {
+      type: 1,
+      components: [
+        {
+          type: 3,
+          custom_id: customId,
+          placeholder: "选择等待时间",
+          min_values: 1,
+          max_values: 1,
+          options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
+            label: `等待 ${minutes} 分钟`,
             value: String(minutes),
-          }),
-        ),
-      },
-    ],
-  }));
+          })),
+        },
+      ],
+    },
+  ];
 }
 function workerAudit(orderId: string, key: string, now: Date): AuditRecord {
   return {

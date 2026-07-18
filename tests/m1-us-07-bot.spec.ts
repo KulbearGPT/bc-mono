@@ -271,7 +271,7 @@ describe('M1-US-07 order confirmation panel', () => {
 
     expect(rendered).toContain(`bc:sp:new:${orderId}:o9`);
     expect(rendered).toContain('选择等待时间');
-    for (const minutes of [3, 5, 10, 15, 30]) expect(rendered).toContain(`等待 ${minutes} 分钟`);
+    for (const minutes of [1, 3, 5, 10, 15, 30]) expect(rendered).toContain(`等待 ${minutes} 分钟`);
     expect(rendered).not.toContain('已通知符合条件的陪玩：0 人');
   });
 

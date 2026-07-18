@@ -94,7 +94,7 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(commitSubmit).not.toContain("insertOrderPanelSync");
   });
 
-  test("offers the five customer-approved wait-time presets", () => {
+  test("offers the six customer-approved wait-time presets", () => {
     const message = buildSubmittedOrderMessage({
       orderId,
       status: "PENDING_DISPATCH",
@@ -122,7 +122,7 @@ describe("M11-US-03 Discord selection flow", () => {
     );
     expect(selects).toHaveLength(1);
     expect(selects[0]!.options.map((option) => Number(option.value))).toEqual([
-      3, 5, 10, 15, 30,
+      1, 3, 5, 10, 15, 30,
     ]);
   });
 
@@ -372,6 +372,40 @@ describe("M11-US-03 Discord selection flow", () => {
           call.method === "POST",
       ),
     ).toHaveLength(1);
+    await adapter.sync(
+      {
+        ...projection,
+        poolId: "00000000-0000-0000-0000-000000011041",
+        voiceChannelId: voice,
+        applicants: [],
+      },
+      "SELECTION",
+      "2026-08-04T12:00:30Z",
+    );
+    const emptyRoundNotice = calls.find(
+      (call) =>
+        call.url.endsWith("/channels/111111111111111110/messages") &&
+        call.method === "POST" &&
+        String(call.body?.content).includes("共 0 位候选"),
+    )!;
+    const repeatSelects = (
+      emptyRoundNotice.body?.components as Array<{
+        components: Array<{
+          type: number;
+          custom_id?: string;
+          options?: Array<{ value: string }>;
+        }>;
+      }>
+    )
+      .flatMap((row) => row.components)
+      .filter(
+        (component) =>
+          component.type === 3 && component.custom_id?.startsWith("bc:sp:r:"),
+      );
+    expect(repeatSelects).toHaveLength(1);
+    expect(repeatSelects[0]!.options?.map((option) => Number(option.value))).toEqual([
+      1, 3, 5, 10, 15, 30,
+    ]);
     const selectedPlayers = projection.applicants.slice(0, 3).map((item) => ({
       discordUserId: item.discordUserId,
       displayName: item.displayName,

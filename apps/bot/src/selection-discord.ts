@@ -186,7 +186,7 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
               placeholder: '选择等待时间',
               minValues: 1,
               maxValues: 1,
-              options: [3, 5, 10, 15, 30].map((minutes) => ({
+              options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
                 label: `等待 ${minutes} 分钟`,
                 value: String(minutes)
               }))
