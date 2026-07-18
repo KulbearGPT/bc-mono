@@ -1268,7 +1268,7 @@ function readinessLabel(value: 'READY' | 'NOT_READY'): string {
 
 export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult): MessageSpec {
   return {
-    title: '🔎 订单已提交 · 正在匹配陪玩',
+    title: '🐾 订单已提交 · 请选择报名等待时间',
     body: [
       '**订单状态**',
       `订单状态：${input.status}`,
@@ -1280,7 +1280,9 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
       `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
       BOT_COPY.orders.reservationOnly,
       '',
-      BOT_COPY.orders.dispatchStarted
+      '**下一步**',
+      '请选择 3、5、10、15 或 30 分钟的报名等待时间。',
+      '选择后系统才会在派单频道发布报名卡；尚未选择前不会通知陪玩。'
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [
