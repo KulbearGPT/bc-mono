@@ -38,6 +38,7 @@ describe('M11-US-01 selection-pool dispatch contract', () => {
     expect(spec).toContain('Bot 提供 1、3、5、10、15、30 分钟报名等待预设');
     expect(spec).toContain('API 校验一至三十分钟整数边界');
     expect(spec).toContain('选秀阶段不设置业务超时');
+    expect(spec).toContain('原位更新为报名已结束并移除报名组件');
     expect(spec).toContain('报名和进入选秀语音房均不占用活动订单槽位');
     expect(spec).toContain('不以 Discord presence 或手动 AVAILABLE 状态作为报名资格');
 
@@ -66,6 +67,7 @@ describe('M11-US-01 selection-pool dispatch contract', () => {
     for (const id of ['AT-SEL-001', 'AT-SEL-002', 'AT-SEL-003', 'AT-SEL-004', 'AT-SEL-005', 'AT-SEL-006']) {
       expect(acceptance).toContain(id);
     }
+    expect(acceptance).toContain('派单频道原报名卡原位更新为已结束且移除报名组件');
     expect(backlog).toContain('M11-US-01');
     expect(backlog).toContain('M11-US-04');
     expect(todo).toContain('M11：候选池选秀式派单');

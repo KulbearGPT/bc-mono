@@ -260,6 +260,11 @@ export class DiscordSelectionPoolAdapter {
       );
       return projection.voiceChannelId;
     }
+    await this.editOnce(
+      projection.dispatchChannelId,
+      `selection-offer:${projection.poolId}`,
+      closedOfferPayload(projection),
+    );
     let voice = projection.voiceChannelId;
     if (!voice) {
       const channels = await this.request<
@@ -395,6 +400,25 @@ export class DiscordSelectionPoolAdapter {
       body: JSON.stringify({ ...payload, nonce, enforce_nonce: true }),
     });
   }
+  private async editOnce(
+    channel: string,
+    key: string,
+    payload: Record<string, unknown>,
+  ) {
+    const nonce = createHash("sha256").update(key).digest("hex").slice(0, 24);
+    const messages = await this.request<
+      Array<{ id?: string; nonce?: string }>
+    >(`/channels/${channel}/messages?limit=100`, { method: "GET" });
+    const message = messages.find(
+      (candidate) => candidate.nonce === nonce && candidate.id,
+    );
+    if (!message?.id)
+      throw new Error("Selection pool offer message was not found.");
+    await this.request(`/channels/${channel}/messages/${message.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  }
   private async request<T = void>(
     path: string,
     init: RequestInit,
@@ -520,6 +544,21 @@ function offerPayload(p: SelectionWorkerProjection) {
           },
         ]
       : [],
+    allowed_mentions: { parse: [] },
+  };
+}
+function closedOfferPayload(p: SelectionWorkerProjection) {
+  const applicationCount = p.applicants.filter(
+    (item) => item.status === "APPLIED",
+  ).length;
+  return {
+    embeds: [
+      {
+        title: `候选池 #${p.orderPublicId} · 报名已结束`,
+        description: `本轮报名已结束，共 ${applicationCount} 位候选。此卡片已停止接受报名。`,
+      },
+    ],
+    components: [],
     allowed_mentions: { parse: [] },
   };
 }

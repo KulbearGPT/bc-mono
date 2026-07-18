@@ -270,7 +270,10 @@ describe("M11-US-03 Discord selection flow", () => {
       body: Record<string, unknown> | null;
     }> = [];
     let voiceCreated = false;
-    const postedMessages = new Map<string, Array<{ nonce: string; timestamp: string }>>();
+    const postedMessages = new Map<
+      string,
+      Array<{ id: string; nonce: string; timestamp: string }>
+    >();
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
@@ -304,7 +307,11 @@ describe("M11-US-03 Discord selection flow", () => {
             const channel = url.slice(0, -"/messages".length);
             postedMessages.set(channel, [
               ...(postedMessages.get(channel) ?? []),
-              { nonce: body.nonce, timestamp: "2026-08-04T12:00:00.000Z" },
+              {
+                id: "999999999999999998",
+                nonce: body.nonce,
+                timestamp: "2026-08-04T12:00:00.000Z",
+              },
             ]);
           }
           return Response.json({ id: "999999999999999998" });
@@ -349,12 +356,25 @@ describe("M11-US-03 Discord selection flow", () => {
       selectedDiscordUserIds: [],
       requirements: [],
     };
+    await adapter.sync(
+      { ...projection, poolStatus: "COLLECTING" },
+      "COLLECTING",
+      "2026-08-04T11:57:00Z",
+    );
     const voice = await adapter.sync(
       projection,
       "SELECTION",
       "2026-08-04T12:00:00Z",
     );
     expect(voice).toBe("666666666666666666");
+    const closedOffer = calls.find(
+      (call) =>
+        call.url.endsWith(
+          "/channels/222222222222222220/messages/999999999999999998",
+        ) && call.method === "PATCH",
+    )!;
+    expect(JSON.stringify(closedOffer.body)).toContain("报名已结束");
+    expect(closedOffer.body?.components).toEqual([]);
     const create = calls.find(
       (call) =>
         call.url.endsWith("/guilds/999999999999999999/channels") &&
@@ -372,13 +392,19 @@ describe("M11-US-03 Discord selection flow", () => {
           call.method === "POST",
       ),
     ).toHaveLength(1);
+    const emptyProjection = {
+      ...projection,
+      poolId: "00000000-0000-0000-0000-000000011041",
+      voiceChannelId: voice,
+      applicants: [],
+    };
     await adapter.sync(
-      {
-        ...projection,
-        poolId: "00000000-0000-0000-0000-000000011041",
-        voiceChannelId: voice,
-        applicants: [],
-      },
+      { ...emptyProjection, poolStatus: "COLLECTING" },
+      "COLLECTING",
+      "2026-08-04T12:00:20Z",
+    );
+    await adapter.sync(
+      emptyProjection,
       "SELECTION",
       "2026-08-04T12:00:30Z",
     );
