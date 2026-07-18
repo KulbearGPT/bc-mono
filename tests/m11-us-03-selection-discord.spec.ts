@@ -12,6 +12,8 @@ import {
   createSelectionPoolSyncHandler,
   DiscordSelectionPoolAdapter,
 } from "@blackcat/api/selection-pool-worker";
+import { BotApiError } from "@blackcat/bot/service-center-api";
+import { executeSelectionWaitSelection } from "../apps/bot/src/pieces/interaction-handlers/selection-selects";
 
 const orderId = "00000000-0000-0000-0000-000000011020";
 const poolId = "00000000-0000-0000-0000-000000011040";
@@ -19,6 +21,67 @@ const requirementId = "00000000-0000-0000-0000-000000011050";
 const applicationId = "00000000-0000-0000-0000-000000011060";
 
 describe("M11-US-03 Discord selection flow", () => {
+  test("replaces the stale wait selector with the active round immediately after creation", async () => {
+    const events: string[] = [];
+    const interaction = selectionInteraction(events);
+    const api = selectionApi(events, {
+      createSelectionPool: vi.fn(async () => {
+        events.push("create");
+        return { pool: selectionPool() };
+      }),
+    });
+
+    await executeSelectionWaitSelection({
+      interaction: interaction as never,
+      api,
+      actor: selectionActor(),
+      route: { action: "repeat", orderId, poolId: null, expectedOrderVersion: 3 },
+    });
+
+    expect(events).toEqual(["read-order", "create", "edit"]);
+    const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
+    expect(rendered).toContain("报名进行中");
+    expect(rendered).toContain("提前结束报名");
+    expect(rendered).not.toContain("bc:sp:new:");
+    expect(interaction.followUp).not.toHaveBeenCalled();
+  });
+
+  test("recovers the active three-minute round when a stale selector tries to open five minutes", async () => {
+    const events: string[] = [];
+    const interaction = selectionInteraction(events, "5");
+    const api = selectionApi(events, {
+      createSelectionPool: vi.fn(async () => {
+        events.push("create");
+        throw new BotApiError({
+          code: "CONFLICT",
+          message: "The order already has an active selection pool.",
+          requestId: "req-active-pool",
+          statusCode: 409,
+        });
+      }),
+      getCurrentSelectionPool: vi.fn(async () => {
+        events.push("read-pool");
+        return { pool: selectionPool() };
+      }),
+    });
+
+    await executeSelectionWaitSelection({
+      interaction: interaction as never,
+      api,
+      actor: selectionActor(),
+      route: { action: "repeat", orderId, poolId: null, expectedOrderVersion: 3 },
+    });
+
+    expect(events).toEqual(["read-order", "create", "read-pool", "edit", "follow-up"]);
+    expect(JSON.stringify(interaction.editReply.mock.calls[0]?.[0])).toContain("报名进行中");
+    expect(interaction.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("本轮已经按 3 分钟开始"),
+        ephemeral: true,
+      }),
+    );
+  });
+
   test("does not let the retired pending-dispatch panel overwrite the wait-time selector", async () => {
     const source = await readFile("apps/api/src/orders.ts", "utf8");
     const postgres = source.slice(source.indexOf("export class PostgresOrderStore"));
@@ -351,6 +414,54 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(worker).toContain("createSelectionPoolSyncHandler");
   });
 });
+
+function selectionActor() {
+  return {
+    guildId: "999999999999999999",
+    discordUserId: "111111111111111111",
+    interactionId: "777777777777777777",
+    clientSource: "DISCORD_BOT" as const,
+  };
+}
+
+function selectionPool() {
+  return {
+    id: poolId,
+    orderId,
+    round: 1,
+    status: "COLLECTING" as const,
+    version: 1,
+    waitMinutes: 3,
+    openedAt: "2026-08-07T21:25:44.504Z",
+    closesAt: "2026-08-07T21:28:44.504Z",
+    applicationCount: 0,
+  };
+}
+
+function selectionApi(events: string[], overrides: Record<string, unknown>) {
+  return {
+    getOrder: vi.fn(async () => {
+      events.push("read-order");
+      return {
+        id: orderId,
+        publicId: "P-BE7E43CE",
+        status: "PENDING_DISPATCH",
+        version: 3,
+      };
+    }),
+    ...overrides,
+  } as never;
+}
+
+function selectionInteraction(events: string[], waitMinutes = "3") {
+  return {
+    id: "777777777777777777",
+    values: [waitMinutes],
+    editReply: vi.fn(async () => events.push("edit")),
+    followUp: vi.fn(async () => events.push("follow-up")),
+    client: { logger: { error: vi.fn() } },
+  };
+}
 
 function job(
   type: "SELECTION_POOL_CLOSE" | "SELECTION_POOL_SYNC",

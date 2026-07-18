@@ -2,8 +2,19 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { StringSelectMenuInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
-import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
-import { closeCustomId, decodeSelectionId, parseSelectionCustomId, withdrawCustomId } from '../../selection-discord.js';
+import { toDiscordUpdate } from '../../discord-renderer.js';
+import {
+  HttpBotApiClient,
+  buildDiscordIdempotencyKey,
+  type BotActorContext,
+  type BotApiClient
+} from '../../service-center.js';
+import {
+  buildSelectionPoolRefreshMessage,
+  decodeSelectionId,
+  parseSelectionCustomId,
+  withdrawCustomId
+} from '../../selection-discord.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class SelectionSelectsHandler extends InteractionHandler {
@@ -44,12 +55,15 @@ export default class SelectionSelectsHandler extends InteractionHandler {
           expectedOrderVersion: number;
         }
   ) {
-    await interaction.deferReply({ ephemeral: true });
+    const updatesOrderPanel = route.action === 'repeat';
+    if (updatesOrderPanel) await interaction.deferUpdate();
+    else await interaction.deferReply({ ephemeral: true });
     const env = validateRuntimeEnv(process.env, {
       allowMissingDiscordToken: true
     });
     if (!env.ok) {
-      await interaction.editReply({ content: '配置暂不可用，请联系管理员。' });
+      if (updatesOrderPanel) await interaction.followUp({ content: '配置暂不可用，请联系管理员。', ephemeral: true });
+      else await interaction.editReply({ content: '配置暂不可用，请联系管理员。' });
       return;
     }
     const api = new HttpBotApiClient({
@@ -58,40 +72,16 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     });
     const actor = buildBotActorContext(interaction);
     if (!actor) {
-      await interaction.editReply({ content: '请在服务器内进行候选池操作。request_id: local-guild-required' });
+      const content = '请在服务器内进行候选池操作。request_id: local-guild-required';
+      if (updatesOrderPanel) await interaction.followUp({ content, ephemeral: true });
+      else await interaction.editReply({ content });
+      return;
+    }
+    if (route.action === 'repeat') {
+      await executeSelectionWaitSelection({ interaction, api, actor, route });
       return;
     }
     try {
-      if (route.action === 'repeat') {
-        const waitMinutes = Number(interaction.values[0]);
-        const result = await api.createSelectionPool(
-          route.orderId,
-          { expectedOrderVersion: route.expectedOrderVersion, waitMinutes },
-          actor,
-          buildDiscordIdempotencyKey(route.poolId ? 'selection:repeat' : 'selection:create', interaction.id)
-        );
-        await interaction.editReply({
-          content: `已开启新一轮 ${waitMinutes} 分钟报名，原预留保持不变。`,
-          components: [
-            {
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  style: 2,
-                  label: '提前结束报名',
-                  custom_id: closeCustomId({
-                    orderId: route.orderId,
-                    poolId: result.pool.id,
-                    poolVersion: result.pool.version
-                  })
-                }
-              ]
-            }
-          ]
-        });
-        return;
-      }
       if (route.action === 'apply-menu') {
         const result = await api.applyToSelectionPool(
           route.orderId,
@@ -155,6 +145,64 @@ export default class SelectionSelectsHandler extends InteractionHandler {
       });
     }
   }
+}
+
+export interface SelectionWaitRoute {
+  action: 'repeat';
+  orderId: string;
+  poolId: string | null;
+  expectedOrderVersion: number;
+}
+
+export async function executeSelectionWaitSelection(input: {
+  interaction: StringSelectMenuInteraction;
+  api: BotApiClient;
+  actor: BotActorContext;
+  route: SelectionWaitRoute;
+}): Promise<void> {
+  const waitMinutes = Number(input.interaction.values[0]);
+  let order;
+  try {
+    order = await input.api.getOrder(input.route.orderId, input.actor);
+    const result = await input.api.createSelectionPool(
+      input.route.orderId,
+      { expectedOrderVersion: input.route.expectedOrderVersion, waitMinutes },
+      input.actor,
+      buildDiscordIdempotencyKey(input.route.poolId ? 'selection:repeat' : 'selection:create', input.interaction.id)
+    );
+    await input.interaction.editReply(toDiscordUpdate(buildSelectionPoolRefreshMessage(order, result.pool)));
+    return;
+  } catch (error) {
+    if (isConflict(error) && order && input.api.getCurrentSelectionPool) {
+      try {
+        const current = await input.api.getCurrentSelectionPool(input.route.orderId, input.actor);
+        await input.interaction.editReply(toDiscordUpdate(buildSelectionPoolRefreshMessage(order, current.pool)));
+        await input.interaction.followUp({
+          content: `本轮已经按 ${current.pool.waitMinutes} 分钟开始，活动报名期间不能直接修改时长。你可以提前结束本轮报名。`,
+          ephemeral: true
+        });
+        return;
+      } catch {
+        // Fall through to the original API error when current-state recovery also fails.
+      }
+    }
+    input.interaction.client.logger.error({
+      event: 'selection.wait_failed',
+      route: input.route,
+      error
+    });
+    await input.interaction.followUp({
+      content: formatUserFacingError(error, {
+        operation: selectionOperation(input.route.action),
+        localRequestId: `discord-interaction-${input.interaction.id}`
+      }),
+      ephemeral: true
+    });
+  }
+}
+
+function isConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'CONFLICT';
 }
 
 function selectionOperation(action: 'repeat' | 'finalize' | 'apply-menu'): string {
