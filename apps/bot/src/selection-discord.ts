@@ -176,27 +176,10 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
         '目前还没有开始报名。请选择等待时间；选择后系统才会在派单频道发布报名卡。'
       ].join('\n'),
       visibility: 'PRIVATE_CHANNEL',
-      components: [
-        {
-          type: 'ACTION_ROW',
-          components: [
-            {
-              type: 'STRING_SELECT',
-              customId: `bc:sp:new:${order.id}:o${order.version}`,
-              placeholder: '选择等待时间',
-              minValues: 1,
-              maxValues: 1,
-              options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
-                label: `等待 ${minutes} 分钟`,
-                value: String(minutes)
-              }))
-            }
-          ]
-        },
-        selectionOrderControls(order)
-      ]
+      components: [selectionWaitSelector(`bc:sp:new:${order.id}:o${order.version}`), selectionOrderControls(order)]
     };
   const collecting = pool.status === 'COLLECTING';
+  const emptySelection = pool.status === 'SELECTION' && pool.applicationCount === 0;
   const components: MessageSpec['components'] = [];
   if (collecting)
     components.push({
@@ -210,20 +193,49 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
         }
       ]
     });
+  if (emptySelection)
+    components.push(selectionWaitSelector(`bc:sp:r:${short(order.id)}:${short(pool.id)}:o${order.version}`));
   components.push(selectionOrderControls(order));
   return {
-    title: collecting ? `🐾 订单 #${order.publicId} · 报名进行中` : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
+    title: collecting
+      ? `🐾 订单 #${order.publicId} · 报名进行中`
+      : emptySelection
+        ? `🐾 订单 #${order.publicId} · 选择新一轮等待时间`
+        : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
     body: collecting
       ? [
           `第 ${pool.round} 轮`,
           `当前报名：${pool.applicationCount} 人`,
           `报名截止：<t:${Math.floor(Date.parse(pool.closesAt) / 1000)}:R>`
         ].join('\n')
-      : [`第 ${pool.round} 轮报名已结束。`, `当前候选：${pool.applicationCount} 人`, '请刷新候选名单或联系客服。'].join(
-          '\n'
-        ),
+      : emptySelection
+        ? [`第 ${pool.round} 轮报名已结束。`, '当前候选：0 人', '本轮暂无候选，请选择新的等待时间。'].join('\n')
+        : [
+            `第 ${pool.round} 轮报名已结束。`,
+            `当前候选：${pool.applicationCount} 人`,
+            '请刷新候选名单或联系客服。'
+          ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components
+  };
+}
+
+function selectionWaitSelector(customId: string): NonNullable<MessageSpec['components']>[number] {
+  return {
+    type: 'ACTION_ROW',
+    components: [
+      {
+        type: 'STRING_SELECT',
+        customId,
+        placeholder: '选择等待时间',
+        minValues: 1,
+        maxValues: 1,
+        options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
+          label: `等待 ${minutes} 分钟`,
+          value: String(minutes)
+        }))
+      }
+    ]
   };
 }
 

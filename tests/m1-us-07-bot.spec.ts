@@ -305,6 +305,37 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(rendered).not.toContain(`bc:sp:new:${orderId}`);
   });
 
+  test('restores the repeat wait selector when cancellation is abandoned after an empty round', async () => {
+    const latest = draftOrder({ status: 'PENDING_DISPATCH', version: 9 });
+    const result = await handleOrderRefresh({
+      api: api({
+        getOrder: vi.fn().mockResolvedValue(latest),
+        getCurrentSelectionPool: vi.fn().mockResolvedValue({
+          pool: {
+            id: '00000000-0000-0000-0000-000000110001',
+            orderId,
+            round: 1,
+            status: 'SELECTION',
+            version: 2,
+            waitMinutes: 1,
+            openedAt: '2026-08-07T19:30:00.000Z',
+            closesAt: '2026-08-07T19:31:00.000Z',
+            applicationCount: 0
+          }
+        })
+      }),
+      actor: actor(),
+      orderId
+    });
+    const rendered = JSON.stringify(result);
+
+    expect(rendered).toContain('本轮暂无候选，请选择新的等待时间');
+    expect(rendered).toContain('选择等待时间');
+    for (const minutes of [1, 3, 5, 10, 15, 30]) expect(rendered).toContain(`等待 ${minutes} 分钟`);
+    expect(rendered).toContain('bc:sp:r:');
+    expect(rendered).not.toContain('请刷新候选名单或联系客服');
+  });
+
   test.each([
     ['ACCEPTED', 'bc:service:ready:'],
     ['IN_SERVICE', 'bc:service:request-completion:'],
