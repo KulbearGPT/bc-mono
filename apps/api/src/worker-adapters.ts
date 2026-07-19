@@ -176,7 +176,11 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
   }
 
   async upsertOrderPanel(projection: OrderPanelProjection, notBefore: string): Promise<{ messageId: string; recreated: boolean; voiceChannelId?: string }> {
-    const voiceChannelId = projection.status === 'ACCEPTED' ? await this.ensureAcceptedCoordination(projection, notBefore) : projection.voiceChannelId ?? undefined;
+    const voiceChannelId = projection.status === 'ACCEPTED'
+      ? await this.ensureAcceptedCoordination(projection, notBefore)
+      : projection.voiceChannelId ?? undefined;
+    if (projection.status !== 'ACCEPTED' && voiceChannelId)
+      await this.updateStaffCoordination(projection, voiceChannelId, notBefore);
     for (const playerDiscordUserId of activePlayerDiscordUserIds(projection)) {
       await this.request(
         `/channels/${encodeURIComponent(projection.channelId)}/permissions/${encodeURIComponent(playerDiscordUserId)}`,
@@ -243,6 +247,24 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`,
       buildStaffCoordinationNotice(projection, voiceChannelId), notBefore);
     return voiceChannelId;
+  }
+
+  private async updateStaffCoordination(
+    projection: OrderPanelProjection,
+    voiceChannelId: string,
+    notBefore: string
+  ): Promise<void> {
+    if (!projection.guildId || !projection.staffTaskChannelId || activePlayerDiscordUserIds(projection).length === 0) return;
+    const nonce = createHash('sha256').update(`accepted-staff:${projection.orderId}`).digest('hex').slice(0, 24);
+    const messageId = await this.findMessageByNonce(projection.staffTaskChannelId, nonce, notBefore);
+    if (!messageId) return;
+    await this.request(
+      `/channels/${encodeURIComponent(projection.staffTaskChannelId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(buildStaffCoordinationNotice(projection, voiceChannelId))
+      }
+    );
   }
 
   private async sendOnce(

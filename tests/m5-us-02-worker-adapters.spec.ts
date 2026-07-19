@@ -329,6 +329,46 @@ describe('M5-US-02 Worker production adapters', () => {
     expect(staffPayload).not.toMatch(/金额|余额|支付|内部定价|1200/);
   });
 
+  test.each([
+    ['IN_SERVICE', '服务进行中（IN_SERVICE）'],
+    ['PENDING_CONFIRMATION', '等待客户确认完成（PENDING_CONFIRMATION）'],
+    ['COMPLETED', '订单已完成（COMPLETED）'],
+    ['CANCELLED', '订单已取消（CANCELLED）']
+  ])('updates the existing staff coordination card when the order becomes %s', async (status, expectedStatus) => {
+    const staffNonce = createHash('sha256').update(`accepted-staff:${projection.orderId}`).digest('hex').slice(0, 24);
+    const staffMessageId = '530000000000000021';
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes(`/channels/${projection.staffTaskChannelId}/messages?`))
+        return response(200, [{ id: staffMessageId, nonce: staffNonce, timestamp: notBefore }]);
+      if (url.endsWith(`/channels/${projection.staffTaskChannelId}/messages/${staffMessageId}`))
+        return response(200, { id: staffMessageId });
+      if (url.endsWith(`/channels/${projection.channelId}/messages/${projection.panelMessageId}`))
+        return response(200, { id: projection.panelMessageId });
+      return response(204);
+    });
+    const adapter = new DiscordRestWorkerAdapter({ token: 'discord-token', fetch: fetchMock });
+
+    await adapter.upsertOrderPanel({
+      ...projection,
+      status,
+      voiceChannelId: '530000000000000020'
+    }, notBefore);
+
+    const staffPatch = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).endsWith(`/channels/${projection.staffTaskChannelId}/messages/${staffMessageId}`) &&
+      init?.method === 'PATCH'
+    );
+    expect(staffPatch).toBeDefined();
+    const payload = JSON.parse(staffPatch?.[1]?.body as string);
+    expect(payload.embeds[0].fields).toContainEqual({
+      name: '当前状态',
+      value: expectedStatus,
+      inline: true
+    });
+    expect(JSON.stringify(payload.components)).toContain('/530000000000000020');
+  });
+
   test('posts a replacement only when the existing panel PATCH returns 404', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(404, { message: 'Unknown Message' }))
