@@ -557,6 +557,18 @@ describe("M11-US-03 Discord selection flow", () => {
       calls.filter((call) => call.url.includes("/members/") && call.method === "PATCH"),
     ).toHaveLength(6);
     expect(JSON.stringify(calls)).toContain("入选陪玩：候选1、候选2、候选3");
+    const finalizedCustomerPanel = calls.find(
+      (call) =>
+        call.url.endsWith(
+          "/channels/111111111111111110/messages/999999999999999998",
+        ) &&
+        call.method === "PATCH" &&
+        String(call.body?.content).includes("本轮选拔已完成"),
+    );
+    expect(finalizedCustomerPanel?.body).toMatchObject({ components: [] });
+    expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
+      "候选1、候选2、候选3",
+    );
   });
 
   test("retires first-wins and manual availability from runtime interaction paths", async () => {

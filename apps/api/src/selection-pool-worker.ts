@@ -399,6 +399,11 @@ export class DiscordSelectionPoolAdapter {
           projection.poolId,
         );
       }
+      await this.editIfPresent(
+        projection.orderChannelId,
+        `selection-customer:${projection.poolId}`,
+        finalizedCustomerPayload(projection),
+      );
     }
     return voice;
   }
@@ -633,6 +638,13 @@ function cancelledOfferPayload(p: SelectionWorkerProjection) {
 function cancelledCustomerPayload(p: SelectionWorkerProjection) {
   return {
     content: `<@${p.customerDiscordUserId}> 订单已取消，本轮陪玩选择已经关闭。`,
+    components: [],
+    allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
+  };
+}
+function finalizedCustomerPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
     components: [],
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
