@@ -77,6 +77,22 @@ SELECT orders.id AS order_id,
        orders.accepted_at,
        orders.amount_minor,
        orders.currency,
+       (SELECT jsonb_build_object(
+                 'id', selection_pool.id,
+                 'status', selection_pool.status::text,
+                 'version', selection_pool.row_version,
+                 'round', selection_pool.round,
+                 'applicationCount', (SELECT COUNT(*)::int
+                                        FROM selection_applications application
+                                       WHERE application.selection_pool_id=selection_pool.id
+                                         AND application.status='APPLIED'),
+                 'closesAt', selection_pool.closes_at
+               )
+          FROM selection_pools selection_pool
+         WHERE selection_pool.order_id=orders.id
+           AND selection_pool.status IN ('COLLECTING','SELECTION')
+         ORDER BY selection_pool.round DESC
+         LIMIT 1) AS selection_pool,
        (orders.status='COMPLETED'
         AND orders.completed_at IS NOT NULL
         AND orders.completed_at+interval '24 hours'>=now()
@@ -329,6 +345,27 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     ,privateOrderCategoryId: nullableConfigText(config.private_order_category_id)
     ,staffTaskChannelId: nullableConfigText(config.staff_task_channel_id)
     ,staffRoleIds: ['staff_l1_role_id','staff_l2_role_id','staff_l3_role_id','staff_l4_role_id'].map((key)=>nullableConfigText(config[key])).filter((value):value is string=>Boolean(value))
+    ,...selectionPoolProjection(row.selection_pool)
+  };
+}
+
+function selectionPoolProjection(value: unknown): Pick<OrderPanelProjection, 'selectionPool'> | Record<string, never> {
+  if (value === null || value === undefined) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw invalidRow('selection_pool');
+  const pool = value as Record<string, unknown>;
+  const status = text(pool.status, 'selection_pool.status');
+  if (status !== 'COLLECTING' && status !== 'SELECTION') throw invalidRow('selection_pool.status');
+  const closesAt = nullableDateText(pool.closesAt, 'selection_pool.closesAt');
+  if (!closesAt) throw invalidRow('selection_pool.closesAt');
+  return {
+    selectionPool: {
+      id: text(pool.id, 'selection_pool.id'),
+      status,
+      version: integer(pool.version, 'selection_pool.version'),
+      round: integer(pool.round, 'selection_pool.round'),
+      applicationCount: integer(pool.applicationCount, 'selection_pool.applicationCount'),
+      closesAt
+    }
   };
 }
 
@@ -449,35 +486,27 @@ function nullableDateText(value: unknown, field: string): string | null {
   return date.toISOString();
 }
 
-function renderOrderPanel(projection: OrderPanelProjection): {
-  flags: number;
-  allowed_mentions: { parse: never[] };
-  components: Array<{
-    type: 17;
-    accent_color: number;
-    components: Array<
-      | { type: 10; content: string }
-      | { type: 1; components: Array<{ type: 2; style: number; label: string; custom_id: string }> }
-    >;
-  }>;
-} {
+function renderOrderPanel(projection: OrderPanelProjection) {
   const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
   const requestedPlayerCount = projection.requestedPlayerCount ?? Math.max(playerDiscordUserIds.length, 1);
   const filledPlayerCount = projection.filledPlayerCount ?? playerDiscordUserIds.length;
   const participants = playerDiscordUserIds.length > 0
     ? `已到位陪玩：${playerDiscordUserIds.map((id) => `<@${id}>`).join('、')}`
     : '陪玩：待接单';
-  const assembly = projection.status === 'PENDING_DISPATCH' && requestedPlayerCount > 0
+  const assembly = projection.status === 'PENDING_DISPATCH' && !projection.selectionPool && requestedPlayerCount > 0
     ? `陪玩到位：${filledPlayerCount}/${requestedPlayerCount}\n${filledPlayerCount < requestedPlayerCount ? `还差 ${requestedPlayerCount - filledPlayerCount} 位，全部到齐后开放准备确认。` : '队伍已到齐，正在进入准备确认。'}`
     : null;
+  const selection = selectionPanelSummary(projection);
   const body = [
-    `-# 订单 #${projection.publicId} · ${orderStatusLabel(projection.status)}`,
+    `-# 订单 #${projection.publicId} · ${selection?.label ?? orderStatusLabel(projection.status)}`,
     `## 当前订单状态：${projection.status}`,
     `金额：${projection.currency} ${(projection.amountMinor / (projection.currency === 'CAT' ? 10 : 100)).toFixed(projection.currency === 'CAT' ? 1 : 2)}`,
     `客户：<@${projection.customerDiscordUserId}>`,
     participants,
-    assembly
+    assembly,
+    selection?.body
   ].filter(Boolean).join('\n');
+  const interactionRows = selectionPanelRows(projection);
   return {
     flags: 1 << 15,
     allowed_mentions: { parse: [] },
@@ -486,11 +515,75 @@ function renderOrderPanel(projection: OrderPanelProjection): {
       accent_color: 2_410_696,
       components: [
         { type: 10, content: body },
+        ...interactionRows,
         { type: 1, components: panelActions(projection) },
         { type: 10, content: '-# Blackcat Companion' }
       ]
     }]
   };
+}
+
+function selectionPanelSummary(projection: OrderPanelProjection): { label: string; body: string } | null {
+  if (projection.status !== 'PENDING_DISPATCH') return null;
+  const pool = projection.selectionPool;
+  if (!pool) return { label: '选择报名时间', body: '目前还没有开始报名，请选择等待时间。' };
+  if (pool.status === 'COLLECTING') {
+    return {
+      label: '报名进行中',
+      body: `第 ${pool.round} 轮\n当前报名：${pool.applicationCount} 人\n报名截止：<t:${Math.floor(Date.parse(pool.closesAt) / 1_000)}:R>`
+    };
+  }
+  if (pool.applicationCount === 0) {
+    return {
+      label: '选择新一轮等待时间',
+      body: `第 ${pool.round} 轮报名已结束。\n当前候选：0 人\n本轮暂无候选，请选择新的等待时间。`
+    };
+  }
+  return {
+    label: '等待选择陪玩',
+    body: `第 ${pool.round} 轮报名已结束。\n当前候选：${pool.applicationCount} 人\n请在候选名单中确认入选陪玩。`
+  };
+}
+
+function selectionPanelRows(projection: OrderPanelProjection): Array<Record<string, unknown>> {
+  if (projection.status !== 'PENDING_DISPATCH') return [];
+  const pool = projection.selectionPool;
+  if (!pool)
+    return [selectionWaitRow(`bc:sp:new:${projection.orderId}:o${projection.version}`)];
+  if (pool.status === 'COLLECTING')
+    return [{
+      type: 1,
+      components: [{
+        type: 2,
+        style: 1,
+        label: '提前结束报名',
+        custom_id: `bc:sp:c:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}`
+      }]
+    }];
+  if (pool.applicationCount === 0)
+    return [selectionWaitRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:o${projection.version}`)];
+  return [];
+}
+
+function selectionWaitRow(customId: string): Record<string, unknown> {
+  return {
+    type: 1,
+    components: [{
+      type: 3,
+      custom_id: customId,
+      placeholder: '选择等待时间',
+      min_values: 1,
+      max_values: 1,
+      options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
+        label: `等待 ${minutes} 分钟`,
+        value: String(minutes)
+      }))
+    }]
+  };
+}
+
+function shortSelectionId(uuid: string): string {
+  return Buffer.from(uuid.replaceAll('-', ''), 'hex').toString('base64url');
 }
 
 function activePlayerDiscordUserIds(projection: OrderPanelProjection): string[] {

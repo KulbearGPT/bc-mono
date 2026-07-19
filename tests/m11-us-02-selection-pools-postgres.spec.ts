@@ -153,8 +153,32 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
     );
     expect(applied.application).toMatchObject({ playerId, status: "APPLIED" });
     expect(competingApplied).toMatchObject({
-      pool: { version: created.pool.version, applicationCount: 2 },
+      pool: { version: created.pool.version },
       application: { playerId: secondPlayerId, status: "APPLIED" },
+    });
+    await expect(
+      pool.query(
+        `SELECT count(*)::int application_count FROM selection_applications WHERE selection_pool_id=$1 AND status='APPLIED'`,
+        [created.pool.id],
+      ),
+    ).resolves.toMatchObject({ rows: [{ application_count: 2 }] });
+    const withdrawn = await commit(
+      await store.withdraw({
+        orderId,
+        selectionPoolId: created.pool.id,
+        applicationId: competingApplied.application.id,
+        actorGuildId: guildId,
+        actorDiscordUserId: secondPlayerDiscord,
+        expectedPoolVersion: created.pool.version,
+        expectedApplicationVersion: competingApplied.application.version,
+        idempotencyKey: "m11:pool:withdraw:0002:second-player",
+        now,
+      }),
+      secondPlayerId,
+    );
+    expect(withdrawn).toMatchObject({
+      pool: { version: created.pool.version, applicationCount: 1 },
+      application: { playerId: secondPlayerId, status: "WITHDRAWN" },
     });
     expect(
       (
@@ -234,9 +258,19 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       invalidated_count: 1,
       reservation_count: 0,
       participant_event_count: 1,
-      panel_sync_count: 1,
+      panel_sync_count: 7,
       readiness_timeout_count: 1,
     });
+    const panelJobs = await pool.query(
+      `SELECT payload->>'kind' kind,count(*)::int count FROM outbox_events WHERE order_id=ANY($1::uuid[]) AND event_type='PANEL_SYNC' GROUP BY payload->>'kind' ORDER BY payload->>'kind'`,
+      [[orderId, secondOrderId]],
+    );
+    expect(panelJobs.rows).toEqual([
+      { kind: "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC", count: 3 },
+      { kind: "ORDER_SELECTION_CLOSED_CHANNEL_SYNC", count: 2 },
+      { kind: "ORDER_SELECTION_FINALIZED_CHANNEL_SYNC", count: 1 },
+      { kind: "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC", count: 1 },
+    ]);
     const jobs = await pool.query(
       `SELECT event_type,count(*)::int count FROM outbox_events WHERE selection_pool_id=ANY($1::uuid[]) GROUP BY event_type ORDER BY event_type`,
       [[created.pool.id, secondCreated.pool.id]],

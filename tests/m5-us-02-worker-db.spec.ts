@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -31,7 +31,11 @@ describe('M5-US-02 PostgreSQL panel recovery', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m5_panel_recovery']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m5_panel_recovery', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    for (const migration of (await readdir('database/prisma/migrations')).sort())
+      await execFile('psql', [
+        '-h', root, '-p', String(port), '-d', 'blackcat_m5_panel_recovery',
+        '-v', 'ON_ERROR_STOP=1', '-f', `database/prisma/migrations/${migration}/migration.sql`
+      ]);
     pool = new Pool({ host: root, port, database: 'blackcat_m5_panel_recovery' });
     await seed();
   }, 30_000);
@@ -112,20 +116,6 @@ async function orderFacts() {
 
 async function seed() {
   await pool.query(`
-    CREATE TABLE order_requirements (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL,
-      requested_player_count integer NOT NULL, status text NOT NULL
-    );
-    CREATE TABLE order_participants (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL,
-      player_id uuid NOT NULL, status text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
-    );
-    ALTER TABLE staff_tasks
-      ADD COLUMN first_responded_at timestamptz,
-      ADD COLUMN first_response_event_id uuid;
-    CREATE TABLE order_support_ratings (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), order_id uuid NOT NULL UNIQUE
-    );
     INSERT INTO users (id,display_name,status,row_version,created_at,updated_at) VALUES
       ('${customerId}','Customer','ACTIVE',1,now(),now()),
       ('${staffUserId}','Supervisor','ACTIVE',1,now(),now());

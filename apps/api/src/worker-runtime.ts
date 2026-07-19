@@ -130,6 +130,14 @@ export interface OrderPanelProjection {
   staffTaskChannelId?: string | null;
   staffRoleIds?: string[];
   supportRatingEligible?: boolean;
+  selectionPool?: {
+    id: string;
+    status: "COLLECTING" | "SELECTION";
+    version: number;
+    round: number;
+    applicationCount: number;
+    closesAt: string;
+  } | null;
 }
 
 export interface OrderCoordinationRequirement {

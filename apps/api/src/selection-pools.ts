@@ -1118,6 +1118,13 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       input.idempotencyKey,
       input.now,
     );
+    await this.panelOutbox(
+      client,
+      input.orderId,
+      "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC",
+      `${input.idempotencyKey}:panel-sync`,
+      input.now,
+    );
     return {
       pool: await this.selectionPool(client, input.orderId, pool.id, false),
       application,
@@ -1176,6 +1183,13 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       row.player_user_id,
       "WITHDRAWN",
       input.idempotencyKey,
+      input.now,
+    );
+    await this.panelOutbox(
+      client,
+      input.orderId,
+      "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC",
+      `${input.idempotencyKey}:panel-sync`,
       input.now,
     );
     return {
@@ -1240,6 +1254,13 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       { orderId: input.orderId, selectionPoolId: pool.id, phase: "SELECTION" },
       `${input.idempotencyKey}:voice-sync`,
       input.now,
+      input.now,
+    );
+    await this.panelOutbox(
+      client,
+      input.orderId,
+      "ORDER_SELECTION_CLOSED_CHANNEL_SYNC",
+      `${input.idempotencyKey}:panel-sync`,
       input.now,
     );
     return { pool: updated };
@@ -1678,6 +1699,21 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
         availableAt,
         createdAt,
       ],
+    );
+  }
+  private async panelOutbox(
+    client: PoolClient,
+    orderId: string,
+    kind:
+      | "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC"
+      | "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC"
+      | "ORDER_SELECTION_CLOSED_CHANNEL_SYNC",
+    key: string,
+    now: Date,
+  ) {
+    await client.query(
+      `INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at) VALUES($1,'PANEL_SYNC','order',$2,$2,$3,$4,'PENDING',1,0,8,$5,$5,$5)`,
+      [crypto.randomUUID(), orderId, key, { orderId, kind }, now],
     );
   }
 }
