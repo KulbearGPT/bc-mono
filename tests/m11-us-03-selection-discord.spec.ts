@@ -331,6 +331,11 @@ describe("M11-US-03 Discord selection flow", () => {
       call.url.includes("/channels/111111111111111110/messages/") &&
       JSON.stringify(call.body).includes("陪玩选择已经关闭")
     )).toBe(true);
+    expect(calls.some((call) =>
+      call.method === "PATCH" &&
+      call.url.includes("/channels/555555555555555555/messages/") &&
+      JSON.stringify(call.body).includes("订单已取消")
+    )).toBe(true);
   });
 
   test("creates one recovery task only on the terminal Discord sync attempt", async () => {
@@ -567,6 +572,17 @@ describe("M11-US-03 Discord selection flow", () => {
     );
     expect(finalizedCustomerPanel?.body).toMatchObject({ components: [] });
     expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
+      "候选1、候选2、候选3",
+    );
+    const finalizedStaffNotice = calls.find(
+      (call) =>
+        call.url.endsWith(
+          "/channels/555555555555555555/messages/999999999999999998",
+        ) &&
+        call.method === "PATCH" &&
+        String(call.body?.content).includes("选拔已完成"),
+    );
+    expect(JSON.stringify(finalizedStaffNotice?.body)).toContain(
       "候选1、候选2、候选3",
     );
   });

@@ -269,6 +269,16 @@ export class DiscordSelectionPoolAdapter {
         `selection-offer:${projection.poolId}`,
         cancelledOfferPayload(projection),
       );
+      await this.editIfPresent(
+        projection.orderChannelId,
+        `selection-customer:${projection.poolId}`,
+        cancelledCustomerPayload(projection),
+      );
+      await this.editIfPresent(
+        projection.staffTaskChannelId,
+        `selection-staff:${projection.poolId}`,
+        cancelledStaffPayload(projection),
+      );
       if (!projection.voiceChannelId) return null;
       await this.request(`/channels/${projection.voiceChannelId}`, {
         method: "PATCH",
@@ -295,11 +305,6 @@ export class DiscordSelectionPoolAdapter {
           [404],
         );
       }
-      await this.editIfPresent(
-        projection.orderChannelId,
-        `selection-customer:${projection.poolId}`,
-        cancelledCustomerPayload(projection),
-      );
       return projection.voiceChannelId;
     }
     await this.editOnce(
@@ -403,6 +408,11 @@ export class DiscordSelectionPoolAdapter {
         projection.orderChannelId,
         `selection-customer:${projection.poolId}`,
         finalizedCustomerPayload(projection),
+      );
+      await this.editIfPresent(
+        projection.staffTaskChannelId,
+        `selection-staff:${projection.poolId}`,
+        finalizedStaffPayload(projection),
       );
     }
     return voice;
@@ -642,11 +652,25 @@ function cancelledCustomerPayload(p: SelectionWorkerProjection) {
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
 }
+function cancelledStaffPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `订单已取消：${p.orderPublicId}。本轮陪玩选拔已关闭。`,
+    components: [],
+    allowed_mentions: { parse: [] },
+  };
+}
 function finalizedCustomerPayload(p: SelectionWorkerProjection) {
   return {
     content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
     components: [],
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
+  };
+}
+function finalizedStaffPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `订单 ${p.orderPublicId} 选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+    components: [],
+    allowed_mentions: { parse: [] },
   };
 }
 function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
