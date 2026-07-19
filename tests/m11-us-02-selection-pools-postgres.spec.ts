@@ -20,6 +20,8 @@ const customerId = "00000000-0000-0000-0000-000000011001";
 const customerDiscord = "111111111111111111";
 const playerId = "00000000-0000-0000-0000-000000011002";
 const playerDiscord = "222222222222222222";
+const secondPlayerId = "00000000-0000-0000-0000-000000011007";
+const secondPlayerDiscord = "444444444444444444";
 const staffId = "00000000-0000-0000-0000-000000011003";
 const catalogId = "00000000-0000-0000-0000-000000011011";
 const orderId = "00000000-0000-0000-0000-000000011020";
@@ -110,8 +112,8 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       }),
       secondCustomerId,
     );
-    const applied = await commit(
-      await store.apply({
+    const [firstApplicationWrite, competingApplicationWrite] = await Promise.all([
+      store.apply({
         orderId,
         selectionPoolId: created.pool.id,
         orderRequirementId: requirementId,
@@ -121,8 +123,21 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
         idempotencyKey: "m11:pool:apply:0002",
         now,
       }),
-      playerId,
-    );
+      store.apply({
+        orderId,
+        selectionPoolId: created.pool.id,
+        orderRequirementId: requirementId,
+        actorGuildId: guildId,
+        actorDiscordUserId: secondPlayerDiscord,
+        expectedPoolVersion: created.pool.version,
+        idempotencyKey: "m11:pool:apply:0002:second-player",
+        now,
+      }),
+    ]);
+    const [applied, competingApplied] = await Promise.all([
+      commit(firstApplicationWrite, playerId),
+      commit(competingApplicationWrite, secondPlayerId),
+    ]);
     const secondApplied = await commit(
       await store.apply({
         orderId: secondOrderId,
@@ -137,6 +152,10 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       playerId,
     );
     expect(applied.application).toMatchObject({ playerId, status: "APPLIED" });
+    expect(competingApplied).toMatchObject({
+      pool: { version: created.pool.version, applicationCount: 2 },
+      application: { playerId: secondPlayerId, status: "APPLIED" },
+    });
     expect(
       (
         await pool.query(
@@ -151,7 +170,7 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
         selectionPoolId: created.pool.id,
         actorGuildId: guildId,
         actorDiscordUserId: customerDiscord,
-        expectedPoolVersion: applied.pool.version,
+        expectedPoolVersion: created.pool.version,
         reason: "CUSTOMER_EARLY_CLOSE",
         idempotencyKey: "m11:pool:close:0003",
         now,
@@ -164,7 +183,7 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
         selectionPoolId: secondCreated.pool.id,
         actorGuildId: guildId,
         actorDiscordUserId: secondCustomerDiscord,
-        expectedPoolVersion: secondApplied.pool.version,
+        expectedPoolVersion: secondCreated.pool.version,
         reason: "CUSTOMER_EARLY_CLOSE",
         idempotencyKey: "m11:pool:close:1003",
         now,
@@ -314,11 +333,11 @@ async function commit<T>(
 
 async function seed() {
   await pool.query(
-    `INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES($1,'老板','ACTIVE',1,now(),now()),($2,'离线猫','ACTIVE',1,now(),now()),($3,'店主','ACTIVE',1,now(),now()),($4,'另一位老板','ACTIVE',1,now(),now())`,
-    [customerId, playerId, staffId, secondCustomerId],
+    `INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES($1,'老板','ACTIVE',1,now(),now()),($2,'离线猫','ACTIVE',1,now(),now()),($3,'店主','ACTIVE',1,now(),now()),($4,'另一位老板','ACTIVE',1,now(),now()),($5,'第二只猫','ACTIVE',1,now(),now())`,
+    [customerId, playerId, staffId, secondCustomerId, secondPlayerId],
   );
   await pool.query(
-    `INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011004',$1,$3,$4,now(),now(),now()),('00000000-0000-0000-0000-000000011005',$2,$3,$5,now(),now(),now()),('00000000-0000-0000-0000-000000011033',$6,$3,$7,now(),now(),now())`,
+    `INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011004',$1,$3,$4,now(),now(),now()),('00000000-0000-0000-0000-000000011005',$2,$3,$5,now(),now(),now()),('00000000-0000-0000-0000-000000011033',$6,$3,$7,now(),now(),now()),('00000000-0000-0000-0000-000000011008',$8,$3,$9,now(),now(),now())`,
     [
       customerId,
       playerId,
@@ -327,6 +346,8 @@ async function seed() {
       playerDiscord,
       secondCustomerId,
       secondCustomerDiscord,
+      secondPlayerId,
+      secondPlayerDiscord,
     ],
   );
   await pool.query(
@@ -334,8 +355,8 @@ async function seed() {
     [staffId],
   );
   await pool.query(
-    `INSERT INTO player_profiles(id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011006',$1,'ACTIVE',1,'BUSY','OFFLINE',now(),now())`,
-    [playerId],
+    `INSERT INTO player_profiles(id,user_id,review_status,row_version,availability,discord_presence,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011006',$1,'ACTIVE',1,'BUSY','OFFLINE',now(),now()),('00000000-0000-0000-0000-000000011009',$2,'ACTIVE',1,'AVAILABLE','ONLINE',now(),now())`,
+    [playerId, secondPlayerId],
   );
   await pool.query(
     `INSERT INTO service_offerings(id,code,game_code,game_name,service_code,service_name,region_code,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011010','VAL-TECH-NA','VALORANT','瓦洛兰特','TECH','技术陪玩','NA',now(),now())`,

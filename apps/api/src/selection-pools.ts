@@ -398,7 +398,6 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
     };
     const nextPool = {
       ...clone(pool),
-      version: pool.version + 1,
       applicationCount: pool.applicationCount + 1,
     };
     return this.stage(
@@ -463,6 +462,8 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         "CONFLICT",
         "Only an active collecting application can be withdrawn.",
       );
+    if (input.now.getTime() >= Date.parse(pool.closesAt))
+      throw new SelectionPoolError("CONFLICT", "Selection pool deadline has elapsed.");
     const nextApplication = {
       ...clone(application),
       status: "WITHDRAWN" as const,
@@ -471,7 +472,6 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
     };
     const nextPool = {
       ...clone(pool),
-      version: pool.version + 1,
       applicationCount: Math.max(0, pool.applicationCount - 1),
     };
     return this.stage(
@@ -788,6 +788,8 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       throw new SelectionPoolError("CONFLICT", "Order is not accepting applications.");
     if (facts.pool.status !== "COLLECTING")
       throw new SelectionPoolError("CONFLICT", "Selection pool is closed.");
+    if (input.now.getTime() >= Date.parse(facts.pool.closesAt))
+      throw new SelectionPoolError("CONFLICT", "Selection pool deadline has elapsed.");
     if (
       !requirement ||
       facts.player.reviewStatus !== "ACTIVE" ||
@@ -1059,7 +1061,8 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     );
     if (
       pool.status !== "COLLECTING" ||
-      pool.version !== input.expectedPoolVersion
+      pool.version !== input.expectedPoolVersion ||
+      input.now.getTime() >= Date.parse(pool.closesAt)
     )
       throw new SelectionPoolError(
         "CONFLICT",
@@ -1106,15 +1109,6 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
         input.now,
       ],
     );
-    const bumped = await client.query(
-      `UPDATE selection_pools SET row_version=row_version+1,updated_at=$3 WHERE id=$1 AND row_version=$2 RETURNING id`,
-      [pool.id, pool.version, input.now],
-    );
-    if (!bumped.rows[0])
-      throw new SelectionPoolError(
-        "CONFLICT",
-        "Selection pool version is stale.",
-      );
     const application = await this.application(client, id);
     await this.applicationEvent(
       client,
@@ -1163,6 +1157,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     if (
       pool.status !== "COLLECTING" ||
       pool.version !== input.expectedPoolVersion ||
+      input.now.getTime() >= Date.parse(pool.closesAt) ||
       application.status !== "APPLIED" ||
       application.version !== input.expectedApplicationVersion
     )
@@ -1173,10 +1168,6 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     await client.query(
       `UPDATE selection_applications SET status='WITHDRAWN',row_version=row_version+1,withdrawn_at=$3,decided_at=$3,updated_at=$3 WHERE id=$1 AND row_version=$2`,
       [application.id, application.version, input.now],
-    );
-    await client.query(
-      `UPDATE selection_pools SET row_version=row_version+1,updated_at=$3 WHERE id=$1 AND row_version=$2`,
-      [pool.id, pool.version, input.now],
     );
     const updated = await this.application(client, application.id);
     await this.applicationEvent(

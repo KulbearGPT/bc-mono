@@ -75,10 +75,10 @@ describe('M11-US-02 selection pool API', () => {
     const store = fixtureStore({ requestedPlayerCount: 3, includeSecondPlayer: true });
     const created = await commit(store.createPool(customerScope(orderId, 1, 3, 'pool:create')));
     const first = await commit(store.apply(playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'apply:first')));
-    const second = await commit(store.apply({ ...playerScope(orderId, created.pool.id, requirementId, created.pool.version + 1, 'apply:second'), actorDiscordUserId: '333333333333333333' }));
+    const second = await commit(store.apply({ ...playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'apply:second'), actorDiscordUserId: '333333333333333333' }));
     const closed = await commit(store.closePool({
       orderId, selectionPoolId: created.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId,
-      expectedPoolVersion: second.pool.version, reason: 'CUSTOMER_EARLY_CLOSE', idempotencyKey: 'pool:close', now: instant(1)
+      expectedPoolVersion: created.pool.version, reason: 'CUSTOMER_EARLY_CLOSE', idempotencyKey: 'pool:close', now: instant(1)
     }));
     const finalized = await commit(store.finalize({
       orderId, selectionPoolId: created.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId,
@@ -99,8 +99,8 @@ describe('M11-US-02 selection pool API', () => {
     const store = fixtureStore({ requestedPlayerCount: 2, includeSecondPlayer: true });
     const created = await commit(store.createPool(customerScope(orderId, 1, 3, 'pool:create')));
     const first = await commit(store.apply(playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'apply:first')));
-    const second = await commit(store.apply({ ...playerScope(orderId, created.pool.id, requirementId, created.pool.version + 1, 'apply:second'), actorDiscordUserId: '333333333333333333' }));
-    const closed = await commit(store.closePool({ orderId, selectionPoolId: created.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId, expectedPoolVersion: second.pool.version, reason: 'CUSTOMER_EARLY_CLOSE', idempotencyKey: 'pool:close', now: instant(1) }));
+    const second = await commit(store.apply({ ...playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'apply:second'), actorDiscordUserId: '333333333333333333' }));
+    const closed = await commit(store.closePool({ orderId, selectionPoolId: created.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId, expectedPoolVersion: created.pool.version, reason: 'CUSTOMER_EARLY_CLOSE', idempotencyKey: 'pool:close', now: instant(1) }));
     store.players[1]!.activeOrderId = '00000000-0000-0000-0000-000000119999';
 
     await expect(Promise.resolve().then(() => store.finalize({ orderId, selectionPoolId: created.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId, expectedOrderVersion: 1, expectedPoolVersion: closed.pool.version, applicationIds: [first.application.id, second.application.id], idempotencyKey: 'pool:finalize', now: instant(2) }))).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -151,6 +151,53 @@ describe('M11-US-02 selection pool API', () => {
     for (const waitMinutes of [0, 31, 1.5]) {
       expect(() => store.createPool(customerScope(orderId, 1, waitMinutes, `wait:${waitMinutes}`))).toThrow(SelectionPoolError);
     }
+  });
+
+  test('keeps the collecting lifecycle version stable across applications and withdrawals', async () => {
+    const store = fixtureStore({ requestedPlayerCount: 2, includeSecondPlayer: true });
+    const created = await commit(store.createPool(customerScope(orderId, 1, 3, 'stable:create')));
+    const first = await commit(store.apply(
+      playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'stable:apply:first')
+    ));
+    const second = await commit(store.apply({
+      ...playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'stable:apply:second'),
+      actorDiscordUserId: '333333333333333333'
+    }));
+    const withdrawn = await commit(store.withdraw({
+      orderId,
+      selectionPoolId: created.pool.id,
+      applicationId: first.application.id,
+      actorGuildId: guildId,
+      actorDiscordUserId: playerDiscordId,
+      expectedPoolVersion: first.pool.version,
+      expectedApplicationVersion: first.application.version,
+      idempotencyKey: 'stable:withdraw:first',
+      now: instant(1)
+    }));
+    const closed = await commit(store.closePool({
+      orderId,
+      selectionPoolId: created.pool.id,
+      actorGuildId: guildId,
+      actorDiscordUserId: customerDiscordId,
+      expectedPoolVersion: created.pool.version,
+      reason: 'CUSTOMER_EARLY_CLOSE',
+      idempotencyKey: 'stable:close',
+      now: instant(1)
+    }));
+
+    expect(first.pool).toMatchObject({ version: 1, applicationCount: 1 });
+    expect(second.pool).toMatchObject({ version: 1, applicationCount: 2 });
+    expect(withdrawn.pool).toMatchObject({ version: 1, applicationCount: 1 });
+    expect(closed.pool).toMatchObject({ version: 2, status: 'SELECTION' });
+  });
+
+  test('rejects an application at or after the server-side pool deadline', async () => {
+    const store = fixtureStore();
+    const created = await commit(store.createPool(customerScope(orderId, 1, 3, 'deadline:create')));
+    expect(() => store.apply({
+      ...playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'deadline:apply'),
+      now: instant(3)
+    })).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
   });
 
   test('rejects application, close, and finalization once the order is cancelled', async () => {
