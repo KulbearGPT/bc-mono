@@ -4,6 +4,8 @@ import type { Pool } from "pg";
 import { PostgresSelectionPoolStore } from "./selection-pools.js";
 import type { AuditRecord } from "./security.js";
 
+type SelectionSyncPhase = "COLLECTING" | "SELECTION" | "FINALIZED" | "CANCELLED";
+
 export function createSelectionPoolCloseHandler(input: {
   close: (selectionPoolId: string, deadline: string) => Promise<unknown>;
 }): OutboxHandler {
@@ -28,7 +30,7 @@ export function createSelectionPoolCloseHandler(input: {
 export function createSelectionPoolSyncHandler(input: {
   sync: (
     selectionPoolId: string,
-    phase: "COLLECTING" | "SELECTION" | "FINALIZED",
+    phase: SelectionSyncPhase,
     notBefore: string,
   ) => Promise<unknown>;
   onTerminalFailure?: (
@@ -52,7 +54,8 @@ export function createSelectionPoolSyncHandler(input: {
       payload.selectionPoolId !== job.aggregateId ||
       (payload.phase !== "COLLECTING" &&
         payload.phase !== "SELECTION" &&
-        payload.phase !== "FINALIZED")
+        payload.phase !== "FINALIZED" &&
+        payload.phase !== "CANCELLED")
     )
       throw new Error("Selection pool sync payload is invalid.");
     try {
@@ -248,7 +251,7 @@ export class DiscordSelectionPoolAdapter {
   private readonly token: string;
   async sync(
     projection: SelectionWorkerProjection,
-    phase: "COLLECTING" | "SELECTION" | "FINALIZED",
+    phase: SelectionSyncPhase,
     notBefore: string,
   ): Promise<string | null> {
     if (phase === "COLLECTING") {
@@ -257,6 +260,45 @@ export class DiscordSelectionPoolAdapter {
         `selection-offer:${projection.poolId}`,
         offerPayload(projection),
         notBefore,
+      );
+      return projection.voiceChannelId;
+    }
+    if (phase === "CANCELLED") {
+      await this.editOnce(
+        projection.dispatchChannelId,
+        `selection-offer:${projection.poolId}`,
+        cancelledOfferPayload(projection),
+      );
+      if (!projection.voiceChannelId) return null;
+      await this.request(`/channels/${projection.voiceChannelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          user_limit: 0,
+          permission_overwrites: overwrites(projection, phase),
+        }),
+      });
+      for (const applicant of projection.applicants) {
+        await this.request(
+          `/channels/${projection.voiceChannelId}/permissions/${applicant.discordUserId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              allow: "0",
+              deny: String(VIEW_CHANNEL | CONNECT),
+              type: 1,
+            }),
+          },
+        );
+        await this.request(
+          `/guilds/${projection.guildId}/members/${applicant.discordUserId}`,
+          { method: "PATCH", body: JSON.stringify({ channel_id: null }) },
+          [404],
+        );
+      }
+      await this.editIfPresent(
+        projection.orderChannelId,
+        `selection-customer:${projection.poolId}`,
+        cancelledCustomerPayload(projection),
       );
       return projection.voiceChannelId;
     }
@@ -419,6 +461,24 @@ export class DiscordSelectionPoolAdapter {
       body: JSON.stringify(payload),
     });
   }
+  private async editIfPresent(
+    channel: string,
+    key: string,
+    payload: Record<string, unknown>,
+  ) {
+    const nonce = createHash("sha256").update(key).digest("hex").slice(0, 24);
+    const messages = await this.request<
+      Array<{ id?: string; nonce?: string }>
+    >(`/channels/${channel}/messages?limit=100`, { method: "GET" });
+    const message = messages.find(
+      (candidate) => candidate.nonce === nonce && candidate.id,
+    );
+    if (!message?.id) return;
+    await this.request(`/channels/${channel}/messages/${message.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  }
   private async request<T = void>(
     path: string,
     init: RequestInit,
@@ -447,17 +507,13 @@ export class SelectionPoolWorkerService {
   ) {}
   async sync(
     poolId: string,
-    phase: "COLLECTING" | "SELECTION" | "FINALIZED",
+    phase: SelectionSyncPhase,
     notBefore: string,
   ) {
     const projection = await this.store.projection(poolId);
     if (!projection)
       throw new Error("Selection pool projection was not found.");
-    if (
-      projection.poolStatus !== phase &&
-      !(phase === "FINALIZED" && projection.poolStatus === "FINALIZED")
-    )
-      return;
+    if (projection.poolStatus !== phase) return;
     const voice = await this.discord.sync(projection, phase, notBefore);
     if (voice && voice !== projection.voiceChannelId)
       await this.store.setVoice(projection.orderId, voice);
@@ -560,6 +616,25 @@ function closedOfferPayload(p: SelectionWorkerProjection) {
     ],
     components: [],
     allowed_mentions: { parse: [] },
+  };
+}
+function cancelledOfferPayload(p: SelectionWorkerProjection) {
+  return {
+    embeds: [
+      {
+        title: `候选池 #${p.orderPublicId} · 订单已取消`,
+        description: "订单已取消，本轮报名已经关闭，此卡片不再接受报名。",
+      },
+    ],
+    components: [],
+    allowed_mentions: { parse: [] },
+  };
+}
+function cancelledCustomerPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `<@${p.customerDiscordUserId}> 订单已取消，本轮陪玩选择已经关闭。`,
+    components: [],
+    allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
 }
 function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {

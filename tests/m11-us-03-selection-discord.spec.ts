@@ -219,15 +219,118 @@ describe("M11-US-03 Discord selection flow", () => {
       job("SELECTION_POOL_SYNC", {
         orderId,
         selectionPoolId: poolId,
-        phase: "SELECTION",
+        phase: "CANCELLED",
       }),
     );
     expect(close).toHaveBeenCalledWith(poolId, "2026-08-04T12:03:00.000Z");
     expect(sync).toHaveBeenCalledWith(
       poolId,
-      "SELECTION",
+      "CANCELLED",
       "2026-08-04T12:00:00.000Z",
     );
+  });
+
+  test("closes cancelled offers in place and removes applicants from an existing selection room", async () => {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+    const posted: Array<{ id: string; nonce: string; timestamp: string }> = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
+      calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.includes("/messages?limit=100")) return Response.json(posted);
+      if (init?.method === "POST" && url.endsWith("/messages")) {
+        posted.push({
+          id: "999999999999999998",
+          nonce: String(body?.nonce),
+          timestamp: "2026-08-04T12:00:00.000Z"
+        });
+        return Response.json({ id: "999999999999999998" });
+      }
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: "token",
+      apiBaseUrl: "https://discord.test",
+      fetch: fetcher as typeof fetch
+    });
+    const projection = {
+      poolId,
+      poolVersion: 2,
+      poolStatus: "COLLECTING",
+      orderId,
+      orderPublicId: "P-M11",
+      orderStatus: "PENDING_DISPATCH",
+      orderVersion: 1,
+      guildId: "999999999999999999",
+      orderChannelId: "111111111111111110",
+      voiceChannelId: null,
+      customerUserId: "00000000-0000-0000-0000-000000011001",
+      customerDiscordUserId: "111111111111111111",
+      dispatchChannelId: "222222222222222220",
+      staffTaskChannelId: "555555555555555555",
+      privateOrderCategoryId: null,
+      staffRoleIds: ["444444444444444444"],
+      applicants: [],
+      selectedPlayers: [],
+      selectedDiscordUserIds: [],
+      requirements: [{
+        id: requirementId,
+        label: "瓦洛兰特 · 技术陪玩",
+        remainingSlots: 1,
+        expectedEarningMinor: 120,
+        currency: "CAT"
+      }]
+    };
+    await adapter.sync(projection, "COLLECTING", "2026-08-04T12:00:00Z");
+    await adapter.sync(
+      { ...projection, poolStatus: "CANCELLED", orderStatus: "CANCELLED" },
+      "CANCELLED",
+      "2026-08-04T12:01:00Z"
+    );
+
+    const patch = calls.find((call) => call.method === "PATCH" && call.url.includes("/messages/"));
+    expect(JSON.stringify(patch?.body)).toContain("订单已取消");
+    expect(patch?.body?.components).toEqual([]);
+    expect(calls.some((call) => call.url.includes("/guilds/999999999999999999/channels"))).toBe(false);
+
+    const selectionProjection = {
+      ...projection,
+      poolId: "00000000-0000-0000-0000-000000011041",
+      voiceChannelId: "666666666666666666",
+      applicants: [{
+        applicationId,
+        discordUserId: "222222222222222222",
+        displayName: "奶糖",
+        status: "APPLIED",
+        applicationVersion: 1,
+        requirementId
+      }]
+    };
+    await adapter.sync(selectionProjection, "COLLECTING", "2026-08-04T12:02:00Z");
+    await adapter.sync(
+      { ...selectionProjection, poolStatus: "SELECTION" },
+      "SELECTION",
+      "2026-08-04T12:03:00Z"
+    );
+    await adapter.sync(
+      { ...selectionProjection, poolStatus: "CANCELLED", orderStatus: "CANCELLED" },
+      "CANCELLED",
+      "2026-08-04T12:04:00Z"
+    );
+
+    expect(calls).toContainEqual(expect.objectContaining({
+      url: expect.stringContaining("/channels/666666666666666666/permissions/222222222222222222"),
+      method: "PUT"
+    }));
+    expect(calls).toContainEqual(expect.objectContaining({
+      url: expect.stringContaining("/guilds/999999999999999999/members/222222222222222222"),
+      method: "PATCH"
+    }));
+    expect(calls.some((call) =>
+      call.method === "PATCH" &&
+      call.url.includes("/channels/111111111111111110/messages/") &&
+      JSON.stringify(call.body).includes("陪玩选择已经关闭")
+    )).toBe(true);
   });
 
   test("creates one recovery task only on the terminal Discord sync attempt", async () => {

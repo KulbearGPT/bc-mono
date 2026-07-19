@@ -153,6 +153,56 @@ describe('M11-US-02 selection pool API', () => {
     }
   });
 
+  test('rejects application, close, and finalization once the order is cancelled', async () => {
+    const collectingStore = fixtureStore();
+    const collecting = await commit(collectingStore.createPool(customerScope(orderId, 1, 3, 'cancelled:collecting:create')));
+    collectingStore.orders[0]!.status = 'CANCELLED';
+    collectingStore.orders[0]!.version = 2;
+
+    expect(() => collectingStore.apply(
+      playerScope(orderId, collecting.pool.id, requirementId, collecting.pool.version, 'cancelled:apply')
+    )).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+    expect(() => collectingStore.closePool({
+      orderId,
+      selectionPoolId: collecting.pool.id,
+      actorGuildId: guildId,
+      actorDiscordUserId: customerDiscordId,
+      expectedPoolVersion: collecting.pool.version,
+      reason: 'CUSTOMER_EARLY_CLOSE',
+      idempotencyKey: 'cancelled:close',
+      now: instant(1)
+    })).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+
+    const selectionStore = fixtureStore();
+    const opened = await commit(selectionStore.createPool(customerScope(orderId, 1, 3, 'cancelled:selection:create')));
+    const applied = await commit(selectionStore.apply(
+      playerScope(orderId, opened.pool.id, requirementId, opened.pool.version, 'cancelled:selection:apply')
+    ));
+    const closed = await commit(selectionStore.closePool({
+      orderId,
+      selectionPoolId: opened.pool.id,
+      actorGuildId: guildId,
+      actorDiscordUserId: customerDiscordId,
+      expectedPoolVersion: applied.pool.version,
+      reason: 'CUSTOMER_EARLY_CLOSE',
+      idempotencyKey: 'cancelled:selection:close',
+      now: instant(1)
+    }));
+    selectionStore.orders[0]!.status = 'CANCELLED';
+    selectionStore.orders[0]!.version = 2;
+    expect(() => selectionStore.finalize({
+      orderId,
+      selectionPoolId: opened.pool.id,
+      actorGuildId: guildId,
+      actorDiscordUserId: customerDiscordId,
+      expectedOrderVersion: 2,
+      expectedPoolVersion: closed.pool.version,
+      applicationIds: [applied.application.id],
+      idempotencyKey: 'cancelled:selection:finalize',
+      now: instant(2)
+    })).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+  });
+
   test('lets the owner explicitly start a new round after an empty selection without touching the reservation', async () => {
     const store=fixtureStore();const first=await commit(store.createPool(customerScope(orderId,1,3,'empty:create')));await commit(store.closePool({orderId,selectionPoolId:first.pool.id,actorGuildId:guildId,actorDiscordUserId:customerDiscordId,expectedPoolVersion:first.pool.version,reason:'CUSTOMER_EARLY_CLOSE',idempotencyKey:'empty:close',now:instant(1)}));
     const second=await commit(store.createPool(customerScope(orderId,1,5,'empty:continue')));

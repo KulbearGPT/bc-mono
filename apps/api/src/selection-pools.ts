@@ -433,7 +433,9 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
   withdraw(
     input: WithdrawSelectionApplicationInput,
   ): StagedWrite<SelectionApplicationResult> {
-    const { pool, player } = this.requirePlayerPool(input);
+    const { order, pool, player } = this.requirePlayerPool(input);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const application = this.applications.find(
       (item) =>
         item.id === input.applicationId && item.selectionPoolId === pool.id,
@@ -484,6 +486,8 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
 
   closePool(input: CloseSelectionPoolInput): StagedWrite<SelectionPoolResult> {
     const order = this.requireCustomerOrder(input);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const pool = this.requirePool(input.orderId, input.selectionPoolId);
     if (pool.version !== input.expectedPoolVersion)
       throw new SelectionPoolError(
@@ -622,6 +626,8 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
 
   private previewFinalize(input: FinalizeSelectionPoolInput) {
     const order = this.requireCustomerOrder(input);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const pool = this.requirePool(order.id, input.selectionPoolId);
     if (
       order.version !== input.expectedOrderVersion ||
@@ -778,6 +784,8 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         item.status === "ACTIVE" &&
         item.filledPlayerCount < item.requestedPlayerCount,
     );
+    if (facts.order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting applications.");
     if (facts.pool.status !== "COLLECTING")
       throw new SelectionPoolError("CONFLICT", "Selection pool is closed.");
     if (
@@ -1041,6 +1049,8 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     input: ApplySelectionPoolInput,
   ): Promise<SelectionApplicationResult> {
     const order = await this.order(client, input, false);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting applications.");
     const pool = await this.selectionPool(
       client,
       input.orderId,
@@ -1124,7 +1134,9 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     client: PoolClient,
     input: WithdrawSelectionApplicationInput,
   ): Promise<SelectionApplicationResult> {
-    await this.order(client, input, false);
+    const order = await this.order(client, input, false);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const pool = await this.selectionPool(
       client,
       input.orderId,
@@ -1187,6 +1199,8 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
   ): Promise<SelectionPoolResult> {
     const order = await this.order(client, input, true);
     this.owner(order, input.actorDiscordUserId);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const pool = await this.selectionPool(
       client,
       input.orderId,
@@ -1254,6 +1268,8 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       );
     const order = await this.order(client, input, true);
     this.owner(order, input.actorDiscordUserId);
+    if (order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Order is not accepting selection changes.");
     const pool = await this.selectionPool(
       client,
       input.orderId,

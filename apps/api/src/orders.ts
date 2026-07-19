@@ -1476,6 +1476,13 @@ WHERE order_id = $1
       if ((updated.rowCount ?? 0) !== 1) {
         throw new OrderError("CONFLICT", "Order version is stale.");
       }
+      await cancelActiveSelectionPools(transactionClient, {
+        orderId: input.order.id,
+        orderVersion: input.order.version,
+        actorUserId: input.orderEvent.actorUserId,
+        previewId: input.previewId,
+        now: input.now,
+      });
       if (input.reservationEvent) {
         await insertFundReservationEvent(
           transactionClient,
@@ -3736,6 +3743,144 @@ async function insertOrderPanelSync(
       input.now,
     ],
   );
+}
+
+interface CancelledSelectionPoolRow {
+  id: string;
+  order_id: string;
+  round: number;
+  row_version: number;
+  wait_minutes: number;
+  opened_at: Date | string;
+  closes_at: Date | string;
+  closed_at: Date | string;
+}
+
+interface InvalidatedSelectionApplicationRow {
+  id: string;
+  selection_pool_id: string;
+  order_requirement_id: string;
+  player_user_id: string;
+  row_version: number;
+  eligibility_snapshot: unknown;
+  applied_at: Date | string;
+  decided_at: Date | string;
+}
+
+async function cancelActiveSelectionPools(
+  client: OrderQueryClient,
+  input: {
+    orderId: string;
+    orderVersion: number;
+    actorUserId: string | null;
+    previewId: string;
+    now: Date;
+  },
+): Promise<void> {
+  const pools = (
+    await client.query<CancelledSelectionPoolRow>(
+      `UPDATE selection_pools
+       SET status='CANCELLED',row_version=row_version+1,closed_at=$2,
+           close_reason='ORDER_CANCELLED',updated_at=$2
+       WHERE order_id=$1 AND status IN ('COLLECTING','SELECTION')
+       RETURNING id,order_id,round,row_version,wait_minutes,opened_at,closes_at,closed_at`,
+      [input.orderId, input.now],
+    )
+  ).rows;
+  for (const pool of pools) {
+    const applications = (
+      await client.query<InvalidatedSelectionApplicationRow>(
+        `UPDATE selection_applications
+         SET status='INVALIDATED',row_version=row_version+1,decided_at=$2,updated_at=$2
+         WHERE selection_pool_id=$1 AND status='APPLIED'
+         RETURNING id,selection_pool_id,order_requirement_id,player_user_id,row_version,
+                   eligibility_snapshot,applied_at,decided_at`,
+        [pool.id, input.now],
+      )
+    ).rows;
+    for (const application of applications) {
+      await client.query(
+        `INSERT INTO selection_application_events(
+           id,selection_application_id,sequence,event_type,application_version,
+           actor_user_id,snapshot,idempotency_key,created_at
+         ) VALUES(
+           gen_random_uuid(),$1,
+           (SELECT COALESCE(MAX(sequence),0)+1 FROM selection_application_events WHERE selection_application_id=$1),
+           'INVALIDATED',$2,$3,$4::jsonb,$5,$6
+         )`,
+        [
+          application.id,
+          application.row_version,
+          input.actorUserId,
+          JSON.stringify({
+            id: application.id,
+            selectionPoolId: application.selection_pool_id,
+            orderRequirementId: application.order_requirement_id,
+            playerId: application.player_user_id,
+            status: "INVALIDATED",
+            version: application.row_version,
+            eligibilitySnapshot: application.eligibility_snapshot,
+            appliedAt: new Date(application.applied_at).toISOString(),
+            decidedAt: new Date(application.decided_at).toISOString(),
+          }),
+          `order-cancel:${input.previewId}:application:${application.id}`,
+          input.now,
+        ],
+      );
+    }
+    await client.query(
+      `INSERT INTO selection_pool_events(
+         id,selection_pool_id,sequence,event_type,pool_version,order_version,
+         actor_user_id,snapshot,idempotency_key,created_at
+       ) VALUES(
+         gen_random_uuid(),$1,
+         (SELECT COALESCE(MAX(sequence),0)+1 FROM selection_pool_events WHERE selection_pool_id=$1),
+         'CANCELLED',$2,$3,$4,$5::jsonb,$6,$7
+       )`,
+      [
+        pool.id,
+        pool.row_version,
+        input.orderVersion,
+        input.actorUserId,
+        JSON.stringify({
+          id: pool.id,
+          orderId: pool.order_id,
+          round: pool.round,
+          status: "CANCELLED",
+          version: pool.row_version,
+          waitMinutes: pool.wait_minutes,
+          openedAt: new Date(pool.opened_at).toISOString(),
+          closesAt: new Date(pool.closes_at).toISOString(),
+          closedAt: new Date(pool.closed_at).toISOString(),
+          closeReason: "ORDER_CANCELLED",
+          applicationCount: applications.length,
+        }),
+        `order-cancel:${input.previewId}:pool:${pool.id}`,
+        input.now,
+      ],
+    );
+    await client.query(
+      `INSERT INTO outbox_events(
+         id,event_type,aggregate_type,aggregate_id,order_id,selection_pool_id,
+         dedupe_key,payload,status,row_version,attempt_count,max_attempts,
+         available_at,created_at,updated_at
+       ) VALUES(
+         gen_random_uuid(),'SELECTION_POOL_SYNC','selection_pool',$1,$2,$1,
+         $3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5
+       ) ON CONFLICT DO NOTHING`,
+      [
+        pool.id,
+        input.orderId,
+        `order-cancel:${input.previewId}:selection-sync:${pool.id}`,
+        JSON.stringify({
+          orderId: input.orderId,
+          selectionPoolId: pool.id,
+          phase: "CANCELLED",
+        }),
+        input.now,
+      ],
+    );
+  }
 }
 
 async function updateSubmittedOrder(
