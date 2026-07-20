@@ -10,8 +10,10 @@ import {
   type BotApiClient
 } from '../../service-center.js';
 import {
+  buildSelectionCandidatePanel,
   buildSelectionCandidateConfirmation,
   buildSelectionPoolRefreshMessage,
+  buildSelectionPoolStartedNotice,
   decodeSelectionId,
   parseSelectionCustomId,
   withdrawCustomId
@@ -32,15 +34,26 @@ export default class SelectionSelectsHandler extends InteractionHandler {
         action: 'repeat' as const,
         orderId: initial[1]!,
         poolId: null,
+        expectedPoolVersion: null,
         expectedOrderVersion: Number(initial[2])
       });
-    const repeat = /^bc:sp:r:([^:]+):([^:]+):o(\d+)(?::[ab])?$/u.exec(interaction.customId);
+    const repeat = /^bc:sp:r:([^:]+):([^:]+):v(\d+):o(\d+)(?::[ab])?$/u.exec(interaction.customId);
     if (repeat)
       return this.some({
         action: 'repeat' as const,
         orderId: decodeSelectionId(repeat[1]!),
         poolId: decodeSelectionId(repeat[2]!),
-        expectedOrderVersion: Number(repeat[3])
+        expectedPoolVersion: Number(repeat[3]),
+        expectedOrderVersion: Number(repeat[4])
+      });
+    const legacyRepeat = /^bc:sp:r:([^:]+):([^:]+):o(\d+)(?::[ab])?$/u.exec(interaction.customId);
+    if (legacyRepeat)
+      return this.some({
+        action: 'repeat' as const,
+        orderId: decodeSelectionId(legacyRepeat[1]!),
+        poolId: decodeSelectionId(legacyRepeat[2]!),
+        expectedPoolVersion: null,
+        expectedOrderVersion: Number(legacyRepeat[3])
       });
     const route = parseSelectionCustomId(interaction.customId.replace(':s:', ':f:'));
     return route.action === 'finalize' || route.action === 'apply-menu' ? this.some(route) : this.none();
@@ -53,6 +66,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
           action: 'repeat';
           orderId: string;
           poolId: string | null;
+          expectedPoolVersion: number | null;
           expectedOrderVersion: number;
         }
   ) {
@@ -157,6 +171,7 @@ export interface SelectionWaitRoute {
   action: 'repeat';
   orderId: string;
   poolId: string | null;
+  expectedPoolVersion: number | null;
   expectedOrderVersion: number;
 }
 
@@ -172,19 +187,43 @@ export async function executeSelectionWaitSelection(input: {
     order = await input.api.getOrder(input.route.orderId, input.actor);
     const result = await input.api.createSelectionPool(
       input.route.orderId,
-      { expectedOrderVersion: input.route.expectedOrderVersion, waitMinutes },
+      {
+        expectedOrderVersion: input.route.expectedOrderVersion,
+        waitMinutes,
+        ...(input.route.poolId && input.route.expectedPoolVersion
+          ? {
+              replacesSelectionPoolId: input.route.poolId,
+              expectedSelectionPoolVersion: input.route.expectedPoolVersion
+            }
+          : {})
+      },
       input.actor,
       buildDiscordIdempotencyKey(input.route.poolId ? 'selection:repeat' : 'selection:create', input.interaction.id)
     );
-    await input.interaction.editReply(toDiscordUpdate(buildSelectionPoolRefreshMessage(order, result.pool)));
+    await input.interaction.editReply(
+      toDiscordUpdate(
+        input.route.poolId
+          ? buildSelectionPoolStartedNotice(order, result.pool, input.actor.guildId)
+          : buildSelectionPoolRefreshMessage(order, result.pool)
+      )
+    );
     return;
   } catch (error) {
     if (isConflict(error) && order && input.api.getCurrentSelectionPool) {
       try {
         const current = await input.api.getCurrentSelectionPool(input.route.orderId, input.actor);
-        await input.interaction.editReply(toDiscordUpdate(buildSelectionPoolRefreshMessage(order, current.pool)));
+        await input.interaction.editReply(
+          toDiscordUpdate(
+            input.route.poolId && current.pool.status === 'COLLECTING'
+              ? buildSelectionPoolStartedNotice(order, current.pool, input.actor.guildId)
+              : buildSelectionPoolRefreshMessage(order, current.pool)
+          )
+        );
         await input.interaction.followUp({
-          content: `本轮已经按 ${current.pool.waitMinutes} 分钟开始，活动报名期间不能直接修改时长。你可以提前结束本轮报名。`,
+          content:
+            current.pool.status === 'COLLECTING'
+              ? `本轮已经按 ${current.pool.waitMinutes} 分钟开始，活动报名期间不能直接修改时长。你可以提前结束本轮报名。`
+              : '候选状态已刷新，请在最新面板中重新选择新一轮等待时间。',
           ephemeral: true
         });
         return;
@@ -205,6 +244,34 @@ export async function executeSelectionWaitSelection(input: {
       ephemeral: true
     });
   }
+}
+
+export async function executeSelectionReselect(input: {
+  interaction: Pick<StringSelectMenuInteraction, 'editReply'>;
+  api: BotApiClient;
+  actor: BotActorContext;
+  route: {
+    action: 'reselect';
+    orderId: string;
+    poolId: string;
+    expectedPoolVersion: number;
+    expectedOrderVersion: number;
+  };
+}): Promise<void> {
+  const page = await input.api.listSelectionApplications(input.route.orderId, input.route.poolId, input.actor);
+  await input.interaction.editReply(
+    toDiscordUpdate(
+      buildSelectionCandidatePanel({
+        orderId: input.route.orderId,
+        poolId: input.route.poolId,
+        poolVersion: page.pool.version,
+        orderVersion: input.route.expectedOrderVersion,
+        items: page.items,
+        nextCursor: page.nextCursor,
+        selectedApplicationIds: []
+      })
+    )
+  );
 }
 
 function isConflict(error: unknown): boolean {

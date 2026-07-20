@@ -86,14 +86,18 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
 
 export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptions {
   const reply = toDiscordReply(message);
+  if (message.layout === 'COMPONENTS_V2' || message.visibility === 'PRIVATE_CHANNEL') {
+    return {
+      content: null,
+      embeds: [],
+      components: reply.components,
+      flags: MessageFlags.IsComponentsV2
+    };
+  }
   return {
     content: null,
     embeds: reply.embeds,
-    components: reply.components,
-    flags:
-      message.layout === 'COMPONENTS_V2' || message.visibility === 'PRIVATE_CHANNEL'
-        ? MessageFlags.IsComponentsV2
-        : undefined
+    components: reply.components
   };
 }
 

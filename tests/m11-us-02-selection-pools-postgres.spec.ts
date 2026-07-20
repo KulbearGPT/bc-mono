@@ -258,7 +258,7 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       invalidated_count: 1,
       reservation_count: 0,
       participant_event_count: 1,
-      panel_sync_count: 7,
+      panel_sync_count: 9,
       readiness_timeout_count: 1,
     });
     const panelJobs = await pool.query(
@@ -269,6 +269,7 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       { kind: "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC", count: 3 },
       { kind: "ORDER_SELECTION_CLOSED_CHANNEL_SYNC", count: 2 },
       { kind: "ORDER_SELECTION_FINALIZED_CHANNEL_SYNC", count: 1 },
+      { kind: "ORDER_SELECTION_STARTED_CHANNEL_SYNC", count: 2 },
       { kind: "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC", count: 1 },
     ]);
     const jobs = await pool.query(
@@ -335,6 +336,55 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       close_reason: "TIME_ELAPSED",
       round_count: 1,
       sync_count: 2,
+    });
+  });
+
+  test("atomically rejects an active candidate round before opening the replacement", async () => {
+    const customer = "00000000-0000-0000-0000-000000011074";
+    const discord = "888888888888888888";
+    const order = "00000000-0000-0000-0000-000000011075";
+    const requirement = "00000000-0000-0000-0000-000000011076";
+    await pool.query(
+      `INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES($1,'重选老板','ACTIVE',1,now(),now())`,
+      [customer],
+    );
+    await pool.query(
+      `INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011077',$1,$2,$3,now(),now(),now())`,
+      [customer, guildId, discord],
+    );
+    await pool.query(
+      `INSERT INTO orders(id,public_id,customer_id,active_customer_slot_id,status,row_version,amount_minor,expected_player_earning_minor,currency,guild_id,submitted_at,created_at,updated_at) VALUES($1,'P-M11-RESELECT',$2,$2,'PENDING_DISPATCH',1,200,120,'CAT',$3,now(),now(),now())`,
+      [order, customer, guildId],
+    );
+    await pool.query(
+      `INSERT INTO order_requirements(id,order_id,service_catalog_version_id,status,row_version,game_code_snapshot,game_display_name_snapshot,service_code_snapshot,service_display_name_snapshot,region_code_snapshot,region_display_name_snapshot,billing_unit_minutes_snapshot,unit_count,requested_player_count,customer_unit_price_minor_snapshot,estimated_line_price_minor,created_at,updated_at) VALUES($1,$2,$3,'ACTIVE',1,'VALORANT','瓦洛兰特','TECH','技术陪玩','NA','北美',60,2,1,100,200,now(),now())`,
+      [requirement, order, catalogId],
+    );
+    const store = new PostgresSelectionPoolStore(pool);
+    const now = new Date("2026-08-04T13:00:00Z");
+    const first = await commit(await store.createPool({ orderId: order, actorGuildId: guildId, actorDiscordUserId: discord, expectedOrderVersion: 1, waitMinutes: 3, idempotencyKey: "m11:reselect:create", now }), customer);
+    const applied = await commit(await store.apply({ orderId: order, selectionPoolId: first.pool.id, orderRequirementId: requirement, actorGuildId: guildId, actorDiscordUserId: secondPlayerDiscord, expectedPoolVersion: first.pool.version, idempotencyKey: "m11:reselect:apply", now }), secondPlayerId);
+    const closed = await commit(await store.closePool({ orderId: order, selectionPoolId: first.pool.id, actorGuildId: guildId, actorDiscordUserId: discord, expectedPoolVersion: applied.pool.version, reason: "CUSTOMER_EARLY_CLOSE", idempotencyKey: "m11:reselect:close", now }), customer);
+    const replacement = await commit(await store.createPool({ orderId: order, actorGuildId: guildId, actorDiscordUserId: discord, expectedOrderVersion: 1, waitMinutes: 5, replacesSelectionPoolId: first.pool.id, expectedSelectionPoolVersion: closed.pool.version, idempotencyKey: "m11:reselect:replace", now: new Date("2026-08-04T13:01:00Z") }), customer);
+
+    const facts = await pool.query(
+      `SELECT old_pool.status::text old_status,old_pool.row_version old_version,new_pool.status::text new_status,new_pool.round new_round,application.status::text application_status,application.row_version application_version,application.decided_at IS NOT NULL application_decided,orders.status::text order_status,orders.row_version order_version,(SELECT count(*)::int FROM order_participants WHERE order_id=$3) participant_count,(SELECT count(*)::int FROM selection_application_events WHERE selection_application_id=application.id AND event_type='NOT_SELECTED') not_selected_event_count,(SELECT count(*)::int FROM outbox_events WHERE selection_pool_id=old_pool.id AND event_type='SELECTION_POOL_SYNC') old_sync_count,(SELECT count(*)::int FROM outbox_events WHERE order_id=$3 AND event_type='PANEL_SYNC' AND dedupe_key='m11:reselect:replace:panel-sync') new_panel_sync_count FROM selection_pools old_pool JOIN selection_pools new_pool ON new_pool.id=$2 JOIN selection_applications application ON application.id=$4 JOIN orders ON orders.id=$3 WHERE old_pool.id=$1`,
+      [first.pool.id, replacement.pool.id, order, applied.application.id],
+    );
+    expect(facts.rows[0]).toEqual({
+      old_status: "FINALIZED",
+      old_version: closed.pool.version + 1,
+      new_status: "COLLECTING",
+      new_round: 2,
+      application_status: "NOT_SELECTED",
+      application_version: applied.application.version + 1,
+      application_decided: true,
+      order_status: "PENDING_DISPATCH",
+      order_version: 1,
+      participant_count: 0,
+      not_selected_event_count: 1,
+      old_sync_count: 3,
+      new_panel_sync_count: 1,
     });
   });
 });

@@ -120,6 +120,8 @@ interface PlayerScope {
 export interface CreateSelectionPoolInput extends CustomerScope {
   expectedOrderVersion: number;
   waitMinutes: number;
+  replacesSelectionPoolId?: string;
+  expectedSelectionPoolVersion?: number;
   idempotencyKey: string;
   now: Date;
 }
@@ -279,6 +281,7 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
   createPool(
     input: CreateSelectionPoolInput,
   ): StagedWrite<SelectionPoolResult> {
+    assertReplacementPair(input);
     wholeNumber(input.waitMinutes, "waitMinutes", 1, 30);
     const order = this.requireCustomerOrder(input);
     if (order.version !== input.expectedOrderVersion)
@@ -301,15 +304,17 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
     if (
       activePool &&
       (activePool.status !== "SELECTION" ||
-        this.applications.some(
-          (application) =>
-            application.selectionPoolId === activePool.id &&
-            application.status === "APPLIED",
-        ))
+        activePool.id !== input.replacesSelectionPoolId ||
+        activePool.version !== input.expectedSelectionPoolVersion)
     )
       throw new SelectionPoolError(
         "CONFLICT",
         "The order already has an active selection pool.",
+      );
+    if (!activePool && input.replacesSelectionPoolId)
+      throw new SelectionPoolError(
+        "CONFLICT",
+        "The selection pool to replace is no longer active.",
       );
     const round =
       Math.max(
@@ -344,16 +349,23 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       if (current) {
         if (
           current.status !== "SELECTION" ||
-          this.applications.some(
-            (application) =>
-              application.selectionPoolId === current.id &&
-              application.status === "APPLIED",
-          )
+          current.id !== input.replacesSelectionPoolId ||
+          current.version !== input.expectedSelectionPoolVersion
         )
           throw new SelectionPoolError(
             "CONFLICT",
             "The order already has an active selection pool.",
           );
+        for (const application of this.applications) {
+          if (
+            application.selectionPoolId === current.id &&
+            application.status === "APPLIED"
+          ) {
+            application.status = "NOT_SELECTED";
+            application.version += 1;
+            application.decidedAt = input.now.toISOString();
+          }
+        }
         current.status = "FINALIZED";
         current.version += 1;
       }
@@ -947,6 +959,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     client: PoolClient,
     input: CreateSelectionPoolInput,
   ): Promise<SelectionPoolResult> {
+    assertReplacementPair(input);
     wholeNumber(input.waitMinutes, "waitMinutes", 1, 30);
     const order = await this.order(client, input, true);
     this.owner(order, input.actorDiscordUserId);
@@ -966,24 +979,57 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       await client.query<{
         id: string;
         status: SelectionPoolStatus;
-        application_count: string;
+        row_version: number;
       }>(
-        `SELECT pool.id,pool.status::text,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count FROM selection_pools pool WHERE pool.order_id=$1 AND pool.status IN ('COLLECTING','SELECTION') FOR UPDATE OF pool`,
+        `SELECT pool.id,pool.status::text,pool.row_version FROM selection_pools pool WHERE pool.order_id=$1 AND pool.status IN ('COLLECTING','SELECTION') FOR UPDATE OF pool`,
         [input.orderId],
       )
     ).rows[0];
     if (
       active &&
-      (active.status !== "SELECTION" || Number(active.application_count) > 0)
+      (active.status !== "SELECTION" ||
+        active.id !== input.replacesSelectionPoolId ||
+        active.row_version !== input.expectedSelectionPoolVersion)
     )
       throw new SelectionPoolError(
         "CONFLICT",
         "The order already has an active selection pool.",
       );
+    if (!active && input.replacesSelectionPoolId)
+      throw new SelectionPoolError(
+        "CONFLICT",
+        "The selection pool to replace is no longer active.",
+      );
     if (active) {
+      const replacedApplications = (
+        await client.query<SelectionApplicationRow>(
+          `${selectionApplicationSelect} WHERE application.selection_pool_id=$1 AND application.status='APPLIED' FOR UPDATE OF application`,
+          [active.id],
+        )
+      ).rows;
+      for (const row of replacedApplications) {
+        const current = mapSelectionApplication(row);
+        await client.query(
+          `UPDATE selection_applications SET status='NOT_SELECTED',row_version=row_version+1,decided_at=$2,updated_at=$2 WHERE id=$1 AND row_version=$3`,
+          [current.id, input.now, current.version],
+        );
+        await this.applicationEvent(
+          client,
+          {
+            ...current,
+            status: "NOT_SELECTED",
+            version: current.version + 1,
+            decidedAt: input.now.toISOString(),
+          },
+          order.customer_user_id,
+          "NOT_SELECTED",
+          `${input.idempotencyKey}:not-selected:${current.id}`,
+          input.now,
+        );
+      }
       await client.query(
-        `UPDATE selection_pools SET status='FINALIZED',row_version=row_version+1,finalized_at=$2,updated_at=$2 WHERE id=$1`,
-        [active.id, input.now],
+        `UPDATE selection_pools SET status='FINALIZED',row_version=row_version+1,finalized_at=$2,updated_at=$2 WHERE id=$1 AND row_version=$3`,
+        [active.id, input.now, active.row_version],
       );
       const prior = await this.selectionPool(
         client,
@@ -997,7 +1043,16 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
         order.row_version,
         order.customer_user_id,
         "FINALIZED",
-        `${input.idempotencyKey}:prior-empty-finalized`,
+        `${input.idempotencyKey}:prior-replaced`,
+        input.now,
+      );
+      await this.outbox(
+        client,
+        prior,
+        "SELECTION_POOL_SYNC",
+        { orderId: input.orderId, selectionPoolId: prior.id, phase: "FINALIZED" },
+        `${input.idempotencyKey}:prior-finalized-sync`,
+        input.now,
         input.now,
       );
     }
@@ -1032,6 +1087,13 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       { orderId: input.orderId, selectionPoolId: id, phase: "COLLECTING" },
       `${input.idempotencyKey}:publish`,
       input.now,
+      input.now,
+    );
+    await this.panelOutbox(
+      client,
+      input.orderId,
+      "ORDER_SELECTION_STARTED_CHANNEL_SYNC",
+      `${input.idempotencyKey}:panel-sync`,
       input.now,
     );
     await this.outbox(
@@ -1705,6 +1767,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     client: PoolClient,
     orderId: string,
     kind:
+      | "ORDER_SELECTION_STARTED_CHANNEL_SYNC"
       | "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC"
       | "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC"
       | "ORDER_SELECTION_CLOSED_CHANNEL_SYNC",
@@ -2096,14 +2159,55 @@ function buildParticipant(
   };
 }
 function parseCreate(value: unknown) {
-  const body = strict(value, ["expectedOrderVersion", "waitMinutes"]);
+  const body = strict(value, [
+    "expectedOrderVersion",
+    "waitMinutes",
+    "replacesSelectionPoolId",
+    "expectedSelectionPoolVersion",
+  ]);
+  const replacesSelectionPoolId =
+    body.replacesSelectionPoolId === undefined
+      ? undefined
+      : uuid(body.replacesSelectionPoolId, "replacesSelectionPoolId");
+  const expectedSelectionPoolVersion =
+    body.expectedSelectionPoolVersion === undefined
+      ? undefined
+      : version(
+          body.expectedSelectionPoolVersion,
+          "expectedSelectionPoolVersion",
+        );
+  if (
+    (replacesSelectionPoolId === undefined) !==
+    (expectedSelectionPoolVersion === undefined)
+  )
+    throw new SelectionPoolError(
+      "VALIDATION_ERROR",
+      "replacesSelectionPoolId and expectedSelectionPoolVersion must be provided together.",
+    );
   return {
     expectedOrderVersion: version(
       body.expectedOrderVersion,
       "expectedOrderVersion",
     ),
     waitMinutes: wholeNumber(body.waitMinutes, "waitMinutes", 1, 30),
+    replacesSelectionPoolId,
+    expectedSelectionPoolVersion,
   };
+}
+function assertReplacementPair(
+  input: Pick<
+    CreateSelectionPoolInput,
+    "replacesSelectionPoolId" | "expectedSelectionPoolVersion"
+  >,
+) {
+  if (
+    (input.replacesSelectionPoolId === undefined) !==
+    (input.expectedSelectionPoolVersion === undefined)
+  )
+    throw new SelectionPoolError(
+      "VALIDATION_ERROR",
+      "replacesSelectionPoolId and expectedSelectionPoolVersion must be provided together.",
+    );
 }
 function parseApply(value: unknown) {
   const body = strict(value, ["expectedPoolVersion", "orderRequirementId"]);

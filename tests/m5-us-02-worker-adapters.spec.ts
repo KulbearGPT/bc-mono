@@ -280,7 +280,12 @@ describe('M5-US-02 Worker production adapters', () => {
   });
 
   test('creates one private voice room and sends idempotent customer and staff coordination notices after acceptance', async () => {
-    const accepted = { ...projection, status: 'ACCEPTED', voiceChannelId: null };
+    const accepted = {
+      ...projection,
+      status: 'ACCEPTED',
+      selectionVoiceChannelId: '530000000000000019',
+      voiceChannelId: null
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response(200, []))
       .mockResolvedValueOnce(response(200, { id: '530000000000000020' }))
@@ -301,7 +306,11 @@ describe('M5-US-02 Worker production adapters', () => {
     expect(createVoice.permission_overwrites).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: projection.guildId, type: 0, deny: String((1 << 10) | (1 << 20)) }),
       expect.objectContaining({ id: projection.customerDiscordUserId, type: 1 }),
-      expect.objectContaining({ id: projection.playerDiscordUserId, type: 1 }),
+      expect.objectContaining({
+        id: projection.playerDiscordUserId,
+        type: 1,
+        deny: String(1 << 20)
+      }),
       expect.objectContaining({ id: projection.staffRoleIds?.[0], type: 0 })
     ]));
     const customerNotice = JSON.parse(fetchMock.mock.calls[3]?.[1]?.body as string);
@@ -325,7 +334,10 @@ describe('M5-US-02 Worker production adapters', () => {
     const staffPayload = JSON.stringify(staffNotice);
     expect(staffPayload).toContain('中文交流，希望轻松一点');
     expect(staffPayload).toContain(`/channels/${projection.guildId}/${projection.channelId}`);
+    expect(staffPayload).toContain(`/channels/${projection.guildId}/530000000000000019`);
     expect(staffPayload).toContain(`/channels/${projection.guildId}/530000000000000020`);
+    expect(staffPayload).toContain('进入协调语音房');
+    expect(staffPayload).toContain('进入服务房间');
     expect(staffPayload).not.toMatch(/金额|余额|支付|内部定价|1200/);
   });
 

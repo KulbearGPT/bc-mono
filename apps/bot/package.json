@@ -18,6 +18,7 @@
     "./service-center-support-interactions": "./src/service-center-support-interactions.ts",
     "./service-center-routes": "./src/service-center-routes.ts",
     "./selection-discord": "./src/selection-discord.ts",
+    "./selection-channel-cleanup": "./src/selection-channel-cleanup.ts",
     "./wallet-display": "./src/wallet-display.ts",
     "./onboarding": "./src/onboarding.ts",
     "./private-order-channel": "./src/private-order-channel.ts",

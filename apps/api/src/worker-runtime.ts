@@ -125,6 +125,7 @@ export interface OrderPanelProjection {
   amountMinor: number;
   currency: string;
   guildId?: string;
+  selectionVoiceChannelId?: string | null;
   voiceChannelId?: string | null;
   privateOrderCategoryId?: string | null;
   staffTaskChannelId?: string | null;

@@ -143,6 +143,12 @@ describe('M11-US-02 selection pool API', () => {
     const applied = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/applications`, headers: headers(playerDiscordId, 'apply'), payload: { expectedPoolVersion: pool.version, orderRequirementId: requirementId } });
     expect(applied.statusCode, applied.body).toBe(201);
     expect(applied.json().data.application).toMatchObject({ playerId, status: 'APPLIED' });
+    const closed = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/close`, headers: headers(customerDiscordId, 'close'), payload: { expectedPoolVersion: pool.version, reason: 'CUSTOMER_EARLY_CLOSE' } });
+    expect(closed.statusCode, closed.body).toBe(200);
+    const replacement = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'replace'), payload: { expectedOrderVersion: 1, waitMinutes: 5, replacesSelectionPoolId: pool.id, expectedSelectionPoolVersion: closed.json().data.pool.version } });
+    expect(replacement.statusCode, replacement.body).toBe(201);
+    expect(replacement.json().data.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: 5 });
+    expect(store.applications[0]).toMatchObject({ status: 'NOT_SELECTED' });
     await server.close();
   });
 
@@ -252,8 +258,26 @@ describe('M11-US-02 selection pool API', () => {
 
   test('lets the owner explicitly start a new round after an empty selection without touching the reservation', async () => {
     const store=fixtureStore();const first=await commit(store.createPool(customerScope(orderId,1,3,'empty:create')));await commit(store.closePool({orderId,selectionPoolId:first.pool.id,actorGuildId:guildId,actorDiscordUserId:customerDiscordId,expectedPoolVersion:first.pool.version,reason:'CUSTOMER_EARLY_CLOSE',idempotencyKey:'empty:close',now:instant(1)}));
-    const second=await commit(store.createPool(customerScope(orderId,1,5,'empty:continue')));
+    const second=await commit(store.createPool({...customerScope(orderId,1,5,'empty:continue'),replacesSelectionPoolId:first.pool.id,expectedSelectionPoolVersion:first.pool.version+1}));
     expect(second.pool).toMatchObject({round:2,status:'COLLECTING',waitMinutes:5});expect(store.pools[0]).toMatchObject({status:'FINALIZED'});expect(store.orders[0]).toMatchObject({status:'PENDING_DISPATCH',version:1,reservationId:'reservation-a'});expect(store.participants).toEqual([]);
+  });
+
+  test('lets the owner reject the current candidates and atomically start a new round', async () => {
+    const store = fixtureStore();
+    const first = await commit(store.createPool(customerScope(orderId, 1, 3, 'reject:create')));
+    const applied = await commit(store.apply(playerScope(orderId, first.pool.id, requirementId, first.pool.version, 'reject:apply')));
+    const closed = await commit(store.closePool({ orderId, selectionPoolId: first.pool.id, actorGuildId: guildId, actorDiscordUserId: customerDiscordId, expectedPoolVersion: applied.pool.version, reason: 'CUSTOMER_EARLY_CLOSE', idempotencyKey: 'reject:close', now: instant(1) }));
+
+    expect(() => store.createPool({ ...customerScope(orderId, 1, 5, 'reject:stale'), replacesSelectionPoolId: first.pool.id, expectedSelectionPoolVersion: closed.pool.version - 1 })).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+    expect(store.applications[0]).toMatchObject({ status: 'APPLIED' });
+    const second = await commit(store.createPool({ ...customerScope(orderId, 1, 5, 'reject:continue'), replacesSelectionPoolId: first.pool.id, expectedSelectionPoolVersion: closed.pool.version }));
+
+    expect(second.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: 5 });
+    expect(store.pools[0]).toMatchObject({ status: 'FINALIZED', version: closed.pool.version + 1 });
+    expect(store.applications[0]).toMatchObject({ status: 'NOT_SELECTED', version: applied.application.version + 1 });
+    expect(store.applications[0]!.decidedAt).not.toBeNull();
+    expect(store.orders[0]).toMatchObject({ status: 'PENDING_DISPATCH', version: 1, reservationId: 'reservation-a' });
+    expect(store.participants).toEqual([]);
   });
 });
 

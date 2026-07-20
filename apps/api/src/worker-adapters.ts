@@ -37,6 +37,7 @@ SELECT orders.id AS order_id,
        orders.channel_id,
        orders.panel_message_id,
        orders.guild_id,
+       orders.selection_voice_channel_id,
        orders.voice_channel_id,
        config.config_json,
        customer_discord.discord_user_id AS customer_discord_user_id,
@@ -226,14 +227,26 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     if (!projection.guildId || playerDiscordUserIds.length === 0 || !projection.staffTaskChannelId) return projection.voiceChannelId ?? undefined;
     let voiceChannelId = projection.voiceChannelId ?? null;
     if (!voiceChannelId) {
-      const channelName = `order-${projection.publicId}`.toLowerCase().replace(/[^a-z0-9-]/gu, '-').slice(0, 90);
+      const channelName = `service-${projection.publicId}`.toLowerCase().replace(/[^a-z0-9-]/gu, '-').slice(0, 90);
       const channels = await this.request<Array<{ id: string; name: string; type: number; parent_id?: string | null }>>(`/guilds/${projection.guildId}/channels`, { method: 'GET' });
       voiceChannelId = channels.find((channel) => channel.type === 2 && channel.name === channelName && channel.parent_id === projection.privateOrderCategoryId)?.id ?? null;
       if (!voiceChannelId) {
+        const customerFirst = Boolean(projection.selectionVoiceChannelId);
         const overwrites = [
           { id: projection.guildId, type: 0, allow: '0', deny: String(VIEW_CHANNEL | CONNECT) },
-          ...[projection.customerDiscordUserId, ...playerDiscordUserIds].map((id) => ({ id, type: 1, allow: String(VIEW_CHANNEL | CONNECT | SPEAK), deny: '0' })),
-          ...(projection.staffRoleIds ?? []).map((id) => ({ id, type: 0, allow: String(VIEW_CHANNEL | CONNECT | SPEAK | MANAGE_CHANNELS | MOVE_MEMBERS), deny: '0' }))
+          { id: projection.customerDiscordUserId, type: 1, allow: String(VIEW_CHANNEL | CONNECT | SPEAK), deny: '0' },
+          ...playerDiscordUserIds.map((id) => ({
+            id,
+            type: 1,
+            allow: String(VIEW_CHANNEL | (customerFirst ? 0 : CONNECT | SPEAK)),
+            deny: customerFirst ? String(CONNECT) : '0'
+          })),
+          ...(projection.staffRoleIds ?? []).map((id) => ({
+            id,
+            type: 0,
+            allow: String(VIEW_CHANNEL | MANAGE_CHANNELS | MOVE_MEMBERS | (customerFirst ? 0 : CONNECT | SPEAK)),
+            deny: customerFirst ? String(CONNECT) : '0'
+          }))
         ];
         const created = await this.request<{ id: string }>(`/guilds/${projection.guildId}/channels`, { method: 'POST', body: JSON.stringify({
           name: channelName, type: 2, parent_id: projection.privateOrderCategoryId ?? undefined,
@@ -243,9 +256,9 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
       }
     }
     const voiceLink = `https://discord.com/channels/${projection.guildId}/${voiceChannelId}`;
-    await this.sendOnce(projection.channelId, `accepted-customer:${projection.orderId}`, `<@${projection.customerDiscordUserId}> 你的陪玩已匹配成功，协调语音房已创建：${voiceLink}`, notBefore, [projection.customerDiscordUserId]);
+    await this.sendOnce(projection.channelId, `accepted-customer:${projection.orderId}`, `<@${projection.customerDiscordUserId}> 你的陪玩已匹配成功，正式服务语音房已创建：${voiceLink}`, notBefore, [projection.customerDiscordUserId]);
     await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`,
-      buildStaffCoordinationNotice(projection, voiceChannelId), notBefore);
+      buildStaffCoordinationNotice(projection, voiceChannelId, projection.selectionVoiceChannelId), notBefore);
     return voiceChannelId;
   }
 
@@ -262,7 +275,7 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
       `/channels/${encodeURIComponent(projection.staffTaskChannelId)}/messages/${encodeURIComponent(messageId)}`,
       {
         method: 'PATCH',
-        body: JSON.stringify(buildStaffCoordinationNotice(projection, voiceChannelId))
+        body: JSON.stringify(buildStaffCoordinationNotice(projection, voiceChannelId, projection.selectionVoiceChannelId))
       }
     );
   }
@@ -363,6 +376,9 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
       ? { supportRatingEligible: row.support_rating_eligible }
       : {})
     ,guildId: text(row.guild_id, 'guild_id')
+    ,...(nullableText(row.selection_voice_channel_id, 'selection_voice_channel_id')
+      ? { selectionVoiceChannelId: nullableText(row.selection_voice_channel_id, 'selection_voice_channel_id') }
+      : {})
     ,voiceChannelId: nullableText(row.voice_channel_id, 'voice_channel_id')
     ,privateOrderCategoryId: nullableConfigText(config.private_order_category_id)
     ,staffTaskChannelId: nullableConfigText(config.staff_task_channel_id)
@@ -393,11 +409,18 @@ function selectionPoolProjection(value: unknown): Pick<OrderPanelProjection, 'se
 
 function nullableConfigText(value: unknown): string | null { return typeof value === 'string' && value ? value : null; }
 
-function buildStaffCoordinationNotice(projection: OrderPanelProjection, voiceChannelId: string): Record<string, unknown> {
+function buildStaffCoordinationNotice(
+  projection: OrderPanelProjection,
+  voiceChannelId: string,
+  selectionVoiceChannelId?: string | null
+): Record<string, unknown> {
   const guildId = projection.guildId!;
   const playerIds = activePlayerDiscordUserIds(projection);
   const orderLink = `https://discord.com/channels/${guildId}/${projection.channelId}`;
   const voiceLink = `https://discord.com/channels/${guildId}/${voiceChannelId}`;
+  const selectionVoiceLink = selectionVoiceChannelId
+    ? `https://discord.com/channels/${guildId}/${selectionVoiceChannelId}`
+    : null;
   const requirements = projection.coordinationRequirements ?? [];
   const requirementSummary = requirements.length > 0
     ? requirements.map((requirement, index) => {
@@ -423,13 +446,20 @@ function buildStaffCoordinationNotice(projection: OrderPanelProjection, voiceCha
         embedField('已匹配陪玩', playerIds.map((id) => `<@${id}>`).join('、') || '待确认', false),
         embedField('项目需求', requirementSummary, false),
         embedField('关键时间', timeLines, false),
-        embedField('协调入口', `[打开订单频道](${orderLink}) · [进入协调语音房](${voiceLink})`, false)
+        embedField('协调入口', [
+          `[打开订单频道](${orderLink})`,
+          selectionVoiceLink ? `[进入协调语音房](${selectionVoiceLink})` : null,
+          `[进入服务房间](${voiceLink})`
+        ].filter(Boolean).join(' · '), false)
       ],
       footer: { text: '协调前请先确认需求、参与人与准备状态 · Blackcat Companion' }
     }],
     components: [{ type: 1, components: [
       { type: 2, style: 5, label: '打开订单频道', url: orderLink },
-      { type: 2, style: 5, label: '进入协调语音房', url: voiceLink }
+      ...(selectionVoiceLink
+        ? [{ type: 2, style: 5, label: '进入协调语音房', url: selectionVoiceLink }]
+        : []),
+      { type: 2, style: 5, label: '进入服务房间', url: voiceLink }
     ] }],
     allowed_mentions: { parse: [] }
   };
@@ -583,7 +613,7 @@ function selectionPanelRows(projection: OrderPanelProjection): Array<Record<stri
       }]
     }];
   if (pool.applicationCount === 0)
-    return [selectionWaitRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:o${projection.version}`)];
+    return [selectionWaitRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}:o${projection.version}`)];
   return [];
 }
 

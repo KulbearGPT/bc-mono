@@ -82,6 +82,7 @@ interface SelectionWorkerProjection {
   orderVersion: number;
   guildId: string;
   orderChannelId: string;
+  selectionVoiceChannelId: string | null;
   voiceChannelId: string | null;
   customerUserId: string;
   customerDiscordUserId: string;
@@ -151,7 +152,7 @@ export class PostgresSelectionPoolWorkerStore {
     selectionPoolId: string,
   ): Promise<SelectionWorkerProjection | null> {
     const result = await this.pool.query<Record<string, unknown>>(
-      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
+      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.selection_voice_channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
       [selectionPoolId],
     );
     const row = result.rows[0];
@@ -170,6 +171,7 @@ export class PostgresSelectionPoolWorkerStore {
       orderVersion: int(row.order_version),
       guildId: text(row.guild_id),
       orderChannelId: text(row.channel_id),
+      selectionVoiceChannelId: nullable(row.selection_voice_channel_id),
       voiceChannelId: nullable(row.voice_channel_id),
       customerUserId: text(row.customer_id),
       customerDiscordUserId: text(row.customer_discord_user_id),
@@ -200,13 +202,21 @@ export class PostgresSelectionPoolWorkerStore {
         (row.requirements as SelectionWorkerProjection["requirements"]) ?? [],
     };
   }
-  async setVoice(orderId: string, voiceChannelId: string) {
+  async setSelectionVoice(orderId: string, voiceChannelId: string) {
+    const updated = await this.pool.query(
+      `UPDATE orders SET selection_voice_channel_id=$2,updated_at=now() WHERE id=$1 AND (selection_voice_channel_id IS NULL OR selection_voice_channel_id=$2) RETURNING id`,
+      [orderId, voiceChannelId],
+    );
+    if (!updated.rows[0])
+      throw new Error("Order selection voice channel changed concurrently.");
+  }
+  async setServiceVoice(orderId: string, voiceChannelId: string) {
     const updated = await this.pool.query(
       `UPDATE orders SET voice_channel_id=$2,updated_at=now() WHERE id=$1 AND (voice_channel_id IS NULL OR voice_channel_id=$2) RETURNING id`,
       [orderId, voiceChannelId],
     );
     if (!updated.rows[0])
-      throw new Error("Order voice channel changed concurrently.");
+      throw new Error("Order service voice channel changed concurrently.");
   }
   async createFailureTask(
     selectionPoolId: string,
@@ -221,7 +231,7 @@ export class PostgresSelectionPoolWorkerStore {
       [
         publicId,
         projection.orderId,
-        projection.voiceChannelId,
+        projection.voiceChannelId ?? projection.selectionVoiceChannelId,
         JSON.stringify({
           selectionPoolId,
           error: error instanceof Error ? error.message : String(error),
@@ -261,7 +271,7 @@ export class DiscordSelectionPoolAdapter {
         offerPayload(projection),
         notBefore,
       );
-      return projection.voiceChannelId;
+      return projection.selectionVoiceChannelId;
     }
     if (phase === "CANCELLED") {
       await this.upsertOnce(
@@ -280,17 +290,12 @@ export class DiscordSelectionPoolAdapter {
         `selection-staff:${projection.poolId}`,
         cancelledStaffPayload(projection),
       );
-      if (!projection.voiceChannelId) return null;
-      await this.request(`/channels/${projection.voiceChannelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          user_limit: 0,
-          permission_overwrites: overwrites(projection, phase),
-        }),
-      });
+      const selectionVoice =
+        projection.selectionVoiceChannelId ?? projection.voiceChannelId;
+      if (!selectionVoice) return null;
       for (const applicant of projection.applicants) {
         await this.request(
-          `/channels/${projection.voiceChannelId}/permissions/${applicant.discordUserId}`,
+          `/channels/${selectionVoice}/permissions/${applicant.discordUserId}`,
           {
             method: "PUT",
             body: JSON.stringify({
@@ -303,10 +308,21 @@ export class DiscordSelectionPoolAdapter {
         await this.request(
           `/guilds/${projection.guildId}/members/${applicant.discordUserId}`,
           { method: "PATCH", body: JSON.stringify({ channel_id: null }) },
-          [404],
+          [400, 404],
         );
       }
-      return projection.voiceChannelId;
+      await this.request(`/channels/${selectionVoice}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: `${channelName("selection", projection.orderPublicId)}-closing`.slice(
+            0,
+            100,
+          ),
+          user_limit: 0,
+          permission_overwrites: closingOverwrites(projection),
+        }),
+      });
+      return selectionVoice;
     }
     await this.upsertOnce(
       projection.dispatchChannelId,
@@ -314,36 +330,37 @@ export class DiscordSelectionPoolAdapter {
       closedOfferPayload(projection),
       notBefore,
     );
-    let voice = projection.voiceChannelId;
-    if (!voice) {
-      const channels = await this.request<
-        Array<{
-          id: string;
-          name: string;
-          type: number;
-          parent_id?: string | null;
-        }>
-      >(`/guilds/${projection.guildId}/channels`, { method: "GET" });
-      const name = `selection-${projection.orderPublicId}`
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/gu, "-")
-        .slice(0, 90);
-      voice =
-        channels.find(
-          (channel) =>
-            channel.type === 2 &&
-            channel.name === name &&
-            channel.parent_id === projection.privateOrderCategoryId,
-        )?.id ?? null;
-      if (!voice) {
-        voice = text(
+    const channels = (await this.request<
+      Array<{
+        id: string;
+        name: string;
+        type: number;
+        parent_id?: string | null;
+      }>
+    >(`/guilds/${projection.guildId}/channels`, { method: "GET" })) ?? [];
+    const selectionName = channelName("selection", projection.orderPublicId);
+    const closingSelectionName = `${selectionName}-closing`.slice(0, 100);
+    let selectionVoice =
+      projection.selectionVoiceChannelId ??
+      channels.find(
+        (channel) =>
+          channel.type === 2 &&
+          (channel.name === selectionName ||
+            channel.name === closingSelectionName) &&
+          channel.parent_id === projection.privateOrderCategoryId,
+      )?.id ??
+      (phase === "SELECTION" ? projection.voiceChannelId : null) ??
+      null;
+    if (phase === "SELECTION") {
+      if (!selectionVoice) {
+        selectionVoice = text(
           (
             await this.request<{ id: string }>(
               `/guilds/${projection.guildId}/channels`,
               {
                 method: "POST",
                 body: JSON.stringify({
-                  name,
+                  name: selectionName,
                   type: 2,
                   parent_id: projection.privateOrderCategoryId ?? undefined,
                   user_limit: 0,
@@ -354,16 +371,14 @@ export class DiscordSelectionPoolAdapter {
           ).id,
         );
       }
-    }
-    await this.request(`/channels/${voice}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        user_limit: 0,
-        permission_overwrites: overwrites(projection, phase),
-      }),
-    });
-    const link = `https://discord.com/channels/${projection.guildId}/${voice}`;
-    if (phase === "SELECTION") {
+      await this.request(`/channels/${selectionVoice}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          user_limit: 0,
+          permission_overwrites: overwrites(projection, phase),
+        }),
+      });
+      const link = `https://discord.com/channels/${projection.guildId}/${selectionVoice}`;
       await this.sendOnce(
         projection.orderChannelId,
         `selection-customer:${projection.poolId}`,
@@ -379,12 +394,115 @@ export class DiscordSelectionPoolAdapter {
         },
         notBefore,
       );
-    } else {
-      const selected = new Set(projection.selectedDiscordUserIds);
-      for (const applicant of projection.applicants) {
-        if (selected.has(applicant.discordUserId)) continue;
+      return selectionVoice;
+    }
+    if (projection.orderStatus !== "ACCEPTED") {
+      await this.removeRejected(projection, selectionVoice, notBefore);
+      await this.editIfPresent(
+        projection.orderChannelId,
+        `selection-customer:${projection.poolId}`,
+        partialFinalizedCustomerPayload(projection),
+      );
+      await this.editIfPresent(
+        projection.staffTaskChannelId,
+        `selection-staff:${projection.poolId}`,
+        partialFinalizedStaffPayload(projection),
+      );
+      return selectionVoice;
+    }
+    const serviceName = channelName("service", projection.orderPublicId);
+    let serviceVoice =
+      channels.find(
+        (channel) =>
+          channel.type === 2 &&
+          channel.name === serviceName &&
+          channel.parent_id === projection.privateOrderCategoryId,
+      )?.id ??
+      (projection.voiceChannelId !== selectionVoice
+        ? projection.voiceChannelId
+        : null);
+    if (!serviceVoice) {
+      serviceVoice = text(
+        (
+          await this.request<{ id: string }>(
+            `/guilds/${projection.guildId}/channels`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                name: serviceName,
+                type: 2,
+                parent_id: projection.privateOrderCategoryId ?? undefined,
+                user_limit: Math.min(
+                  99,
+                  projection.selectedDiscordUserIds.length + 1,
+                ),
+                permission_overwrites: serviceOverwrites(projection, false),
+              }),
+            },
+          )
+        ).id,
+      );
+    }
+    const serviceLink = `https://discord.com/channels/${projection.guildId}/${serviceVoice}`;
+    await this.editIfPresent(
+      projection.orderChannelId,
+      `selection-customer:${projection.poolId}`,
+      finalizedCustomerPayload(projection, serviceLink),
+    );
+    await this.removeRejected(projection, selectionVoice, notBefore);
+    if (selectionVoice) {
+      await this.request(`/channels/${selectionVoice}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: closingSelectionName,
+          user_limit: 0,
+          permission_overwrites: closingOverwrites(projection),
+        }),
+      });
+    }
+    await this.moveMember(
+      projection.guildId,
+      projection.customerDiscordUserId,
+      serviceVoice,
+    );
+    await this.request(`/channels/${serviceVoice}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        user_limit: Math.min(99, projection.selectedDiscordUserIds.length + 1),
+        permission_overwrites: serviceOverwrites(projection, true),
+      }),
+    });
+    for (const selectedId of projection.selectedDiscordUserIds) {
+      await this.moveMember(projection.guildId, selectedId, serviceVoice);
+    }
+    const selectionLink = selectionVoice
+      ? `https://discord.com/channels/${projection.guildId}/${selectionVoice}`
+      : null;
+    await this.editIfPresent(
+      projection.staffTaskChannelId,
+      `selection-staff:${projection.poolId}`,
+      finalizedStaffPayload(projection, selectionLink, serviceLink),
+    );
+    return serviceVoice;
+  }
+  private async moveMember(guildId: string, userId: string, channelId: string) {
+    await this.request(
+      `/guilds/${guildId}/members/${userId}`,
+      { method: "PATCH", body: JSON.stringify({ channel_id: channelId }) },
+      [400, 404],
+    );
+  }
+  private async removeRejected(
+    projection: SelectionWorkerProjection,
+    selectionVoice: string | null,
+    notBefore: string,
+  ) {
+    const selected = new Set(projection.selectedDiscordUserIds);
+    for (const applicant of projection.applicants) {
+      if (selected.has(applicant.discordUserId)) continue;
+      if (selectionVoice) {
         await this.request(
-          `/channels/${voice}/permissions/${applicant.discordUserId}`,
+          `/channels/${selectionVoice}/permissions/${applicant.discordUserId}`,
           {
             method: "PUT",
             body: JSON.stringify({
@@ -394,30 +512,19 @@ export class DiscordSelectionPoolAdapter {
             }),
           },
         );
-        await this.request(
-          `/guilds/${projection.guildId}/members/${applicant.discordUserId}`,
-          { method: "PATCH", body: JSON.stringify({ channel_id: null }) },
-          [404],
-        );
-        await this.direct(
-          applicant.discordUserId,
-          `订单 ${projection.orderPublicId} 本轮选拔已结束，你本轮未入选。入选陪玩：${projection.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
-          notBefore,
-          projection.poolId,
-        );
       }
-      await this.editIfPresent(
-        projection.orderChannelId,
-        `selection-customer:${projection.poolId}`,
-        finalizedCustomerPayload(projection),
+      await this.request(
+        `/guilds/${projection.guildId}/members/${applicant.discordUserId}`,
+        { method: "PATCH", body: JSON.stringify({ channel_id: null }) },
+        [400, 404],
       );
-      await this.editIfPresent(
-        projection.staffTaskChannelId,
-        `selection-staff:${projection.poolId}`,
-        finalizedStaffPayload(projection),
+      await this.direct(
+        applicant.discordUserId,
+        `订单 ${projection.orderPublicId} 本轮选拔已结束，你本轮未入选。入选陪玩：${projection.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+        notBefore,
+        projection.poolId,
       );
     }
-    return voice;
   }
   private async direct(
     userId: string,
@@ -535,8 +642,19 @@ export class SelectionPoolWorkerService {
       throw new Error("Selection pool projection was not found.");
     if (projection.poolStatus !== phase) return;
     const voice = await this.discord.sync(projection, phase, notBefore);
-    if (voice && voice !== projection.voiceChannelId)
-      await this.store.setVoice(projection.orderId, voice);
+    if (
+      phase === "SELECTION" &&
+      voice &&
+      voice !== projection.selectionVoiceChannelId
+    )
+      await this.store.setSelectionVoice(projection.orderId, voice);
+    if (
+      phase === "FINALIZED" &&
+      projection.orderStatus === "ACCEPTED" &&
+      voice &&
+      voice !== projection.voiceChannelId
+    )
+      await this.store.setServiceVoice(projection.orderId, voice);
   }
 }
 
@@ -549,6 +667,7 @@ function overwrites(p: SelectionWorkerProjection, phase: string) {
   const selected = new Set(p.selectedDiscordUserIds);
   const memberIds = [
     p.customerDiscordUserId,
+    ...(phase === "SELECTION" ? p.selectedDiscordUserIds : []),
     ...p.applicants
       .filter((item) =>
         phase === "SELECTION"
@@ -579,6 +698,71 @@ function overwrites(p: SelectionWorkerProjection, phase: string) {
       deny: "0",
     })),
   ];
+}
+function serviceOverwrites(p: SelectionWorkerProjection, open: boolean) {
+  const participantAllow = String(VIEW_CHANNEL | (open ? CONNECT | SPEAK : 0));
+  const participantDeny = open ? "0" : String(CONNECT);
+  const staffAllow = String(
+    VIEW_CHANNEL | MANAGE_CHANNELS | MOVE_MEMBERS | (open ? CONNECT | SPEAK : 0),
+  );
+  const staffDeny = open ? "0" : String(CONNECT);
+  return [
+    {
+      id: p.guildId,
+      type: 0,
+      allow: "0",
+      deny: String(VIEW_CHANNEL | CONNECT),
+    },
+    {
+      id: p.customerDiscordUserId,
+      type: 1,
+      allow: String(VIEW_CHANNEL | CONNECT | SPEAK),
+      deny: "0",
+    },
+    ...p.selectedDiscordUserIds.map((id) => ({
+      id,
+      type: 1,
+      allow: participantAllow,
+      deny: participantDeny,
+    })),
+    ...p.staffRoleIds.map((id) => ({
+      id,
+      type: 0,
+      allow: staffAllow,
+      deny: staffDeny,
+    })),
+  ];
+}
+function closingOverwrites(p: SelectionWorkerProjection) {
+  return [
+    {
+      id: p.guildId,
+      type: 0,
+      allow: "0",
+      deny: String(VIEW_CHANNEL | CONNECT),
+    },
+    ...[
+      p.customerDiscordUserId,
+      ...p.applicants.map((item) => item.discordUserId),
+    ].map((id) => ({
+      id,
+      type: 1,
+      allow: String(VIEW_CHANNEL),
+      deny: String(CONNECT),
+    })),
+    ...p.staffRoleIds.map((id) => ({
+      id,
+      type: 0,
+      allow: String(VIEW_CHANNEL | MANAGE_CHANNELS | MOVE_MEMBERS),
+      deny: String(CONNECT),
+    })),
+  ];
+}
+function channelName(prefix: "selection" | "service", publicId: string) {
+  return `${prefix}-${publicId}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/gu, "-")
+    .slice(0, 90);
 }
 function offerPayload(p: SelectionWorkerProjection) {
   const requirements = p.requirements
@@ -660,17 +844,51 @@ function cancelledStaffPayload(p: SelectionWorkerProjection) {
     allowed_mentions: { parse: [] },
   };
 }
-function finalizedCustomerPayload(p: SelectionWorkerProjection) {
+function finalizedCustomerPayload(
+  p: SelectionWorkerProjection,
+  serviceLink: string,
+) {
   return {
-    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}\n正式服务语音房已经准备好，系统会先将您移入，再邀请入选陪玩加入。`,
+    components: [
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 5, label: "进入服务房间", url: serviceLink },
+        ],
+      },
+    ],
+    allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
+  };
+}
+function partialFinalizedCustomerPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。已入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}。订单仍有空缺，可继续开启下一轮报名。`,
     components: [],
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
 }
-function finalizedStaffPayload(p: SelectionWorkerProjection) {
+function partialFinalizedStaffPayload(p: SelectionWorkerProjection) {
+  return {
+    content: `订单 ${p.orderPublicId} 本轮选拔已完成但仍有空缺。已入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+    components: [],
+    allowed_mentions: { parse: [] },
+  };
+}
+function finalizedStaffPayload(
+  p: SelectionWorkerProjection,
+  selectionLink: string | null,
+  serviceLink: string,
+) {
+  const links = [
+    selectionLink
+      ? { type: 2, style: 5, label: "进入协调语音房", url: selectionLink }
+      : null,
+    { type: 2, style: 5, label: "进入服务房间", url: serviceLink },
+  ].filter(Boolean);
   return {
     content: `订单 ${p.orderPublicId} 选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
-    components: [],
+    components: [{ type: 1, components: links }],
     allowed_mentions: { parse: [] },
   };
 }
@@ -711,10 +929,14 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
               },
             ]
           : []),
+        ...selectionWaitRows(
+          `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
+          "候选不合适，选择新一轮等待时间",
+        ),
       ]
     : [
         ...selectionWaitRows(
-          `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:o${p.orderVersion}`,
+          `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
         ),
         {
           type: 1,
@@ -735,7 +957,7 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
   };
 }
 
-function selectionWaitRows(customId: string) {
+function selectionWaitRows(customId: string, placeholder = "选择等待时间") {
   return [
     {
       type: 1,
@@ -743,7 +965,7 @@ function selectionWaitRows(customId: string) {
         {
           type: 3,
           custom_id: customId,
-          placeholder: "选择等待时间",
+          placeholder,
           min_values: 1,
           max_values: 1,
           options: [1, 3, 5, 10, 15, 30].map((minutes) => ({

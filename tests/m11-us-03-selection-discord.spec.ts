@@ -7,6 +7,7 @@ import {
   buildSelectionPoolOfferMessage,
   buildSelectionVoicePlan,
   parseSelectionCustomId,
+  selectionFinalizeRouteFromConfirmationComponents,
   selectionIdsFromConfirmationComponents,
 } from "@blackcat/bot/selection-discord";
 import {
@@ -15,7 +16,11 @@ import {
   DiscordSelectionPoolAdapter,
 } from "@blackcat/api/selection-pool-worker";
 import { BotApiError } from "@blackcat/bot/service-center-api";
-import { executeSelectionWaitSelection } from "../apps/bot/src/pieces/interaction-handlers/selection-selects";
+import { deleteRetiredSelectionChannel } from "@blackcat/bot/selection-channel-cleanup";
+import {
+  executeSelectionReselect,
+  executeSelectionWaitSelection,
+} from "../apps/bot/src/pieces/interaction-handlers/selection-selects";
 
 const orderId = "00000000-0000-0000-0000-000000011020";
 const poolId = "00000000-0000-0000-0000-000000011040";
@@ -37,7 +42,7 @@ describe("M11-US-03 Discord selection flow", () => {
       interaction: interaction as never,
       api,
       actor: selectionActor(),
-      route: { action: "repeat", orderId, poolId: null, expectedOrderVersion: 3 },
+      route: { action: "repeat", orderId, poolId: null, expectedPoolVersion: null, expectedOrderVersion: 3 },
     });
 
     expect(events).toEqual(["read-order", "create", "edit"]);
@@ -46,6 +51,31 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(rendered).toContain("提前结束报名");
     expect(rendered).not.toContain("bc:sp:new:");
     expect(interaction.followUp).not.toHaveBeenCalled();
+  });
+
+  test("does not present a reselect response as a live application counter", async () => {
+    const events: string[] = [];
+    const interaction = selectionInteraction(events, "5");
+    const api = selectionApi(events, {
+      createSelectionPool: vi.fn(async () => {
+        events.push("create");
+        return { pool: { ...selectionPool(), round: 2, waitMinutes: 5 } };
+      }),
+    });
+
+    await executeSelectionWaitSelection({
+      interaction: interaction as never,
+      api,
+      actor: selectionActor(),
+      route: { action: "repeat", orderId, poolId, expectedPoolVersion: 4, expectedOrderVersion: 3 },
+    });
+
+    expect(events).toEqual(["read-order", "create", "edit"]);
+    const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
+    expect(rendered).toContain("新一轮报名已开始");
+    expect(rendered).toContain("实时报名人数会自动同步到订单主卡");
+    expect(rendered).toContain("查看实时订单卡");
+    expect(rendered).not.toContain("当前报名：0 人");
   });
 
   test("recovers the active three-minute round when a stale selector tries to open five minutes", async () => {
@@ -71,7 +101,7 @@ describe("M11-US-03 Discord selection flow", () => {
       interaction: interaction as never,
       api,
       actor: selectionActor(),
-      route: { action: "repeat", orderId, poolId: null, expectedOrderVersion: 3 },
+      route: { action: "repeat", orderId, poolId: null, expectedPoolVersion: null, expectedOrderVersion: 3 },
     });
 
     expect(events).toEqual(["read-order", "create", "read-pool", "edit", "follow-up"]);
@@ -222,6 +252,26 @@ describe("M11-US-03 Discord selection flow", () => {
           parseSelectionCustomId(component.customId).action === "reselect",
       ),
     ).toBe(true);
+    const reselect = components.find(
+      (component) => component.type === "BUTTON" && component.label === "返回重选",
+    );
+    expect(parseSelectionCustomId(reselect!.customId)).toMatchObject({
+      action: "reselect",
+      expectedPoolVersion: 4,
+      expectedOrderVersion: 7,
+    });
+    expect(selectionFinalizeRouteFromConfirmationComponents(confirmation.components)).toMatchObject({
+      action: "finalize",
+      orderId,
+      poolId,
+      expectedPoolVersion: 4,
+      expectedOrderVersion: 7,
+    });
+    expect(parseSelectionCustomId(reselect!.customId.replace(/:v4:o7$/u, ""))).toMatchObject({
+      action: "reselect",
+      expectedPoolVersion: null,
+      expectedOrderVersion: null,
+    });
 
     const selectHandler = await readFile(
       "apps/bot/src/pieces/interaction-handlers/selection-selects.ts",
@@ -237,7 +287,38 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(buttonHandler).toContain("selectionIdsFromConfirmationComponents");
   });
 
-  test("builds an unlimited selection room and revokes/disconnects every nonselected applicant after finalization", () => {
+  test("returns a single candidate to a fresh selectable panel and offers a new round", async () => {
+    const events: string[] = [];
+    const interaction = selectionInteraction(events);
+    const api = selectionApi(events, {
+      getOrder: vi.fn(async () => {
+        throw new Error("reselect must not require the stricter order read");
+      }),
+      listSelectionApplications: vi.fn(async () => {
+        events.push("list-candidates");
+        return {
+          pool: { ...selectionPool(), status: "SELECTION" as const, version: 4, applicationCount: 1 },
+          items: [{ id: applicationId, playerDisplayName: "Kulbear", orderRequirementId: requirementId, publicGameTags: [], publicServiceTags: [] }],
+          nextCursor: null,
+        };
+      }),
+    });
+
+    await executeSelectionReselect({ interaction: interaction as never, api, actor: selectionActor(), route: { action: "reselect", orderId, poolId, expectedPoolVersion: 4, expectedOrderVersion: 3 } });
+
+    expect(events).toEqual(["list-candidates", "edit"]);
+    const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
+    expect(rendered).toContain("Kulbear");
+    expect(rendered).toContain("选择本页入选陪玩");
+    expect(rendered).toContain("候选不合适，选择新一轮等待时间");
+    expect(rendered).toContain("bc:sp:r:");
+    expect(rendered).toContain(":v4:o3");
+    const update = interaction.editReply.mock.calls[0]?.[0];
+    expect(update).toHaveProperty("embeds", []);
+    expect(update).toHaveProperty("content", null);
+  });
+
+  test("builds an unlimited selection room and plans a separate service room after finalization", () => {
     const selection = buildSelectionVoicePlan({
       phase: "SELECTION",
       guildId: "999999999999999999",
@@ -265,6 +346,84 @@ describe("M11-US-03 Discord selection flow", () => {
     });
     expect(finalized.revokeMemberIds).toEqual(["333333333333333333"]);
     expect(finalized.disconnectMemberIds).toEqual(["333333333333333333"]);
+    expect(finalized.serviceChannelName).toBe("service-p-m11");
+    expect(finalized.moveMemberIds).toEqual([
+      "111111111111111111",
+      "222222222222222222",
+    ]);
+  });
+
+  test("enables voice-state cleanup and deletes a retired selection room only after it is empty", async () => {
+    const index = await readFile("apps/bot/src/index.ts", "utf8");
+    expect(index).toContain("GatewayIntentBits.GuildVoiceStates");
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const occupied = {
+      id: "666666666666666666",
+      type: 2,
+      name: "selection-p-m11-closing",
+      members: { size: 1 },
+      delete: remove,
+    };
+    await expect(deleteRetiredSelectionChannel(occupied)).resolves.toBe(false);
+    expect(remove).not.toHaveBeenCalled();
+    await expect(
+      deleteRetiredSelectionChannel({
+        ...occupied,
+        members: { size: 0 },
+      }),
+    ).resolves.toBe(true);
+    expect(remove).toHaveBeenCalledWith("Selection finished and the room is empty");
+  });
+
+  test("keeps the selection room for a partial finalization that has not reached ACCEPTED", async () => {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as Record<string, unknown>
+        : null;
+      calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.endsWith("/guilds/999999999999999999/channels")) {
+        return Response.json([
+          { id: "666666666666666666", name: "selection-p-m11", type: 2, parent_id: null },
+        ]);
+      }
+      if (url.includes("/messages?limit=100")) return Response.json([]);
+      if (init?.method === "POST") return Response.json({ id: "999999999999999998" });
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: "token",
+      apiBaseUrl: "https://discord.test",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(adapter.sync({
+      poolId,
+      poolVersion: 3,
+      poolStatus: "FINALIZED",
+      orderId,
+      orderPublicId: "P-M11",
+      orderStatus: "PENDING_DISPATCH",
+      orderVersion: 2,
+      guildId: "999999999999999999",
+      orderChannelId: "111111111111111110",
+      selectionVoiceChannelId: "666666666666666666",
+      voiceChannelId: null,
+      customerUserId: "00000000-0000-0000-0000-000000011001",
+      customerDiscordUserId: "111111111111111111",
+      dispatchChannelId: "222222222222222220",
+      staffTaskChannelId: "555555555555555555",
+      privateOrderCategoryId: null,
+      staffRoleIds: ["444444444444444444"],
+      applicants: [],
+      selectedPlayers: [{ discordUserId: "222222222222222222", displayName: "已选陪玩" }],
+      selectedDiscordUserIds: ["222222222222222222"],
+      requirements: [],
+    }, "FINALIZED", "2026-08-04T12:01:00Z")).resolves.toBe("666666666666666666");
+
+    expect(calls.some((call) => call.method === "POST" && call.body?.name === "service-p-m11")).toBe(false);
+    expect(calls.some((call) => call.method === "PATCH" && call.body?.name === "selection-p-m11-closing")).toBe(false);
   });
 
   test("validates close/sync jobs and delegates idempotent work", async () => {
@@ -453,6 +612,8 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(JSON.stringify(posts[0]?.body)).toContain("报名已结束");
     expect(JSON.stringify(posts[1]?.body)).toContain("共 1 位候选");
     expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:s:");
+    expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:r:");
+    expect(JSON.stringify(posts[1]?.body)).toContain("候选不合适，选择新一轮等待时间");
     expect(JSON.stringify(posts[2]?.body)).toContain("已开始陪玩选拔");
   });
 
@@ -495,7 +656,8 @@ describe("M11-US-03 Discord selection flow", () => {
       method: string;
       body: Record<string, unknown> | null;
     }> = [];
-    let voiceCreated = false;
+    let selectionCreated = false;
+    let serviceCreated = false;
     const postedMessages = new Map<
       string,
       Array<{ id: string; nonce: string; timestamp: string }>
@@ -512,16 +674,23 @@ describe("M11-US-03 Discord selection flow", () => {
           url.endsWith("/guilds/999999999999999999/channels") &&
           init?.method === "GET"
         )
-          return Response.json(
-            voiceCreated
+          return Response.json([
+            ...(selectionCreated
               ? [{ id: "666666666666666666", name: "selection-p-m11", type: 2, parent_id: null }]
-              : [],
-          );
+              : []),
+            ...(serviceCreated
+              ? [{ id: "777777777777777777", name: "service-p-m11", type: 2, parent_id: null }]
+              : []),
+          ]);
         if (
           url.endsWith("/guilds/999999999999999999/channels") &&
           init?.method === "POST"
         ) {
-          voiceCreated = true;
+          if (body?.name === "service-p-m11") {
+            serviceCreated = true;
+            return Response.json({ id: "777777777777777777" });
+          }
+          selectionCreated = true;
           return Response.json({ id: "666666666666666666" });
         }
         if (url.endsWith("/users/@me/channels"))
@@ -662,10 +831,11 @@ describe("M11-US-03 Discord selection flow", () => {
       discordUserId: item.discordUserId,
       displayName: item.displayName,
     }));
-    await adapter.sync(
+    const serviceVoice = await adapter.sync(
       {
         ...projection,
         poolStatus: "FINALIZED",
+        orderStatus: "ACCEPTED",
         voiceChannelId: voice,
         selectedPlayers,
         selectedDiscordUserIds: selectedPlayers.map((item) => item.discordUserId),
@@ -673,12 +843,40 @@ describe("M11-US-03 Discord selection flow", () => {
       "FINALIZED",
       "2026-08-04T12:01:00Z",
     );
+    expect(serviceVoice).toBe("777777777777777777");
+    const voiceCreates = calls.filter(
+      (call) =>
+        call.url.endsWith("/guilds/999999999999999999/channels") &&
+        call.method === "POST",
+    );
+    expect(voiceCreates).toHaveLength(2);
+    expect(voiceCreates[1]?.body).toMatchObject({ name: "service-p-m11", type: 2 });
+    const retiredSelection = calls.find(
+      (call) =>
+        call.url.endsWith("/channels/666666666666666666") &&
+        call.method === "PATCH" &&
+        call.body?.name === "selection-p-m11-closing",
+    );
+    expect(retiredSelection).toBeDefined();
     expect(
       calls.filter((call) => call.url.includes("/permissions/") && call.method === "PUT"),
     ).toHaveLength(6);
-    expect(
-      calls.filter((call) => call.url.includes("/members/") && call.method === "PATCH"),
-    ).toHaveLength(6);
+    const memberMoves = calls.filter(
+      (call) => call.url.includes("/members/") && call.method === "PATCH",
+    );
+    expect(memberMoves).toHaveLength(10);
+    const serviceMoves = memberMoves.filter(
+      (call) => call.body?.channel_id === "777777777777777777",
+    );
+    expect(serviceMoves[0]).toMatchObject({
+      url: expect.stringContaining("/members/111111111111111111"),
+      body: { channel_id: "777777777777777777" },
+    });
+    expect(serviceMoves.slice(1, 4).map((call) => call.body?.channel_id)).toEqual([
+      "777777777777777777",
+      "777777777777777777",
+      "777777777777777777",
+    ]);
     expect(JSON.stringify(calls)).toContain("入选陪玩：候选1、候选2、候选3");
     const finalizedCustomerPanel = calls.find(
       (call) =>
@@ -688,9 +886,20 @@ describe("M11-US-03 Discord selection flow", () => {
         call.method === "PATCH" &&
         String(call.body?.content).includes("本轮选拔已完成"),
     );
-    expect(finalizedCustomerPanel?.body).toMatchObject({ components: [] });
+    expect(finalizedCustomerPanel?.body).toMatchObject({
+      components: [
+        {
+          components: [
+            expect.objectContaining({ label: "进入服务房间" }),
+          ],
+        },
+      ],
+    });
     expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
       "候选1、候选2、候选3",
+    );
+    expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
+      "/777777777777777777",
     );
     const finalizedStaffNotice = calls.find(
       (call) =>
@@ -756,6 +965,11 @@ function selectionApi(events: string[], overrides: Record<string, unknown>) {
         publicId: "P-BE7E43CE",
         status: "PENDING_DISPATCH",
         version: 3,
+        channelSpec: {
+          channelId: "555555555555555555",
+          panelMessageId: "666666666666666666",
+          voiceChannelId: null,
+        },
       };
     }),
     ...overrides,

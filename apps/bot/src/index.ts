@@ -62,6 +62,7 @@ if (!validation.values.discordBotToken) {
       GatewayIntentBits.Guilds,
       GatewayIntentBits.GuildMembers,
       GatewayIntentBits.GuildPresences,
+      GatewayIntentBits.GuildVoiceStates,
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent
     ]

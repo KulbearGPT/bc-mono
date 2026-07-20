@@ -664,7 +664,12 @@ export interface BotApiClient {
   getCurrentSelectionPool?(orderId: string, actor: BotActorContext): Promise<SelectionPoolResult>;
   createSelectionPool(
     orderId: string,
-    input: { expectedOrderVersion: number; waitMinutes: number },
+    input: {
+      expectedOrderVersion: number;
+      waitMinutes: number;
+      replacesSelectionPoolId?: string;
+      expectedSelectionPoolVersion?: number;
+    },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<SelectionPoolResult>;
@@ -1237,7 +1242,12 @@ export class HttpBotApiClient implements BotApiClient {
 
   public createSelectionPool(
     orderId: string,
-    input: { expectedOrderVersion: number; waitMinutes: number },
+    input: {
+      expectedOrderVersion: number;
+      waitMinutes: number;
+      replacesSelectionPoolId?: string;
+      expectedSelectionPoolVersion?: number;
+    },
     actor: BotActorContext,
     idempotencyKey: string
   ) {

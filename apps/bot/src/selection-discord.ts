@@ -54,6 +54,8 @@ export type SelectionRoute =
       action: 'reselect';
       orderId: string;
       poolId: string;
+      expectedPoolVersion: number | null;
+      expectedOrderVersion: number | null;
     }
   | {
       action: 'page';
@@ -150,6 +152,13 @@ export function buildSelectionCandidatePanel(input: {
         }
       ]
     });
+  if (options.length)
+    components.push(
+      selectionWaitSelector(
+        `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
+        '候选不合适，选择新一轮等待时间'
+      )
+    );
   return {
     title: '🐈‍⬛ 选择陪玩',
     body: input.items.length
@@ -215,7 +224,7 @@ export function buildSelectionCandidateConfirmation(input: {
           {
             type: 'BUTTON',
             style: 'SECONDARY',
-            customId: `bc:sp:b:${short(input.orderId)}:${short(input.poolId)}`,
+            customId: `bc:sp:b:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
             label: '返回重选'
           }
         ]
@@ -249,6 +258,23 @@ export function selectionIdsFromConfirmationComponents(components: readonly unkn
   return [];
 }
 
+export function selectionFinalizeRouteFromConfirmationComponents(
+  components: readonly unknown[]
+): Extract<SelectionRoute, { action: 'finalize' }> | null {
+  for (const row of components) {
+    const children = (row as { components?: readonly unknown[] } | null)?.components;
+    if (!children) continue;
+    for (const component of children) {
+      const candidate = component as { customId?: unknown; custom_id?: unknown };
+      const customId = candidate.customId ?? candidate.custom_id;
+      if (typeof customId !== 'string') continue;
+      const route = parseSelectionCustomId(customId);
+      if (route.action === 'finalize') return route;
+    }
+  }
+  return null;
+}
+
 export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: SelectionPoolSummary | null): MessageSpec {
   if (!pool)
     return {
@@ -276,7 +302,11 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
       ]
     });
   if (emptySelection)
-    components.push(selectionWaitSelector(`bc:sp:r:${short(order.id)}:${short(pool.id)}:o${order.version}`));
+    components.push(
+      selectionWaitSelector(
+        `bc:sp:r:${short(order.id)}:${short(pool.id)}:v${pool.version}:o${order.version}`
+      )
+    );
   components.push(selectionOrderControls(order));
   return {
     title: collecting
@@ -302,14 +332,46 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
   };
 }
 
-function selectionWaitSelector(customId: string): NonNullable<MessageSpec['components']>[number] {
+export function buildSelectionPoolStartedNotice(
+  order: OrderSummary,
+  pool: SelectionPoolSummary,
+  guildId: string
+): MessageSpec {
+  return {
+    title: '🐾 新一轮报名已开始',
+    body: [
+      `第 ${pool.round} 轮已按 ${pool.waitMinutes} 分钟开启。`,
+      '实时报名人数会自动同步到订单主卡；这条仅你可见的确认提示不显示人数。'
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    layout: 'COMPONENTS_V2',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'LINK_BUTTON',
+            style: 'LINK',
+            url: `https://discord.com/channels/${guildId}/${order.channelSpec.channelId}/${order.channelSpec.panelMessageId}`,
+            label: '查看实时订单卡'
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function selectionWaitSelector(
+  customId: string,
+  placeholder = '选择等待时间'
+): NonNullable<MessageSpec['components']>[number] {
   return {
     type: 'ACTION_ROW',
     components: [
       {
         type: 'STRING_SELECT',
         customId,
-        placeholder: '选择等待时间',
+        placeholder,
         minValues: 1,
         maxValues: 1,
         options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
@@ -405,12 +467,23 @@ export function parseSelectionCustomId(value: string): SelectionRoute {
       expectedPoolVersion: Number(match[3]),
       expectedOrderVersion: Number(match[4])
     };
+  match = /^bc:sp:b:([^:]+):([^:]+):v(\d+):o(\d+)$/u.exec(value);
+  if (match)
+    return {
+      action: 'reselect',
+      orderId: long(match[1]!),
+      poolId: long(match[2]!),
+      expectedPoolVersion: Number(match[3]),
+      expectedOrderVersion: Number(match[4])
+    };
   match = /^bc:sp:b:([^:]+):([^:]+)$/u.exec(value);
   if (match)
     return {
       action: 'reselect',
       orderId: long(match[1]!),
-      poolId: long(match[2]!)
+      poolId: long(match[2]!),
+      expectedPoolVersion: null,
+      expectedOrderVersion: null
     };
   match = /^bc:sp:n:([^:]+):([^:]+):o(\d+):([A-Za-z0-9_-]+)$/u.exec(value);
   if (match)
@@ -445,6 +518,10 @@ export function buildSelectionVoicePlan(projection: SelectionVoiceProjection) {
   const rejected = projection.phase === 'FINALIZED' ? applicants.filter((id) => !selected.has(id)) : [];
   return {
     projection,
+    serviceChannelName: `service-${projection.orderPublicId}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/gu, '-')
+      .slice(0, 90),
     userLimit: 0,
     allowMemberIds: [
       projection.customerDiscordUserId,
@@ -453,6 +530,10 @@ export function buildSelectionVoicePlan(projection: SelectionVoiceProjection) {
     allowRoleIds: [...new Set(projection.staffRoleIds)],
     revokeMemberIds: rejected,
     disconnectMemberIds: rejected,
+    moveMemberIds:
+      projection.phase === 'FINALIZED'
+        ? [projection.customerDiscordUserId, ...projection.selectedDiscordUserIds]
+        : [],
     staffNotice: `订单 ${projection.orderPublicId} 已开始陪玩选拔，客服可以加入语音频道处理。`
   };
 }

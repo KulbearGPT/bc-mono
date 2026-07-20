@@ -1349,6 +1349,7 @@ model Order {
   guildId                    String?     @map("guild_id") @db.VarChar(32)
   channelId                  String?     @unique @map("channel_id") @db.VarChar(32)
   panelMessageId             String?     @unique @map("panel_message_id") @db.VarChar(32)
+  selectionVoiceChannelId    String?     @map("selection_voice_channel_id") @db.VarChar(32)
   voiceChannelId             String?     @map("voice_channel_id") @db.VarChar(32)
   dispatchRound              Int         @default(0) @map("dispatch_round")
   submittedAt                DateTime?   @map("submitted_at") @db.Timestamptz(3)

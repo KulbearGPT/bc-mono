@@ -6,11 +6,13 @@ import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-cent
 import {
   buildSelectionCandidatePanel,
   parseSelectionCustomId,
+  selectionFinalizeRouteFromConfirmationComponents,
   selectionIdsFromConfirmationComponents,
   withdrawCustomId
 } from '../../selection-discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
+import { executeSelectionReselect } from './selection-selects.js';
 
 export class DispatchButtonsHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
@@ -32,14 +34,6 @@ export class DispatchButtonsHandler extends InteractionHandler {
     const updatesConfirmation = route.action === 'finalize' || route.action === 'reselect';
     if (updatesConfirmation) await interaction.deferUpdate();
     else await interaction.deferReply({ ephemeral: true });
-    if (route.action === 'reselect') {
-      await interaction.editReply({
-        content: '已返回候选名单，请重新选择陪玩。',
-        embeds: [],
-        components: []
-      });
-      return;
-    }
     const env = validateRuntimeEnv(process.env, {
       allowMissingDiscordToken: true
     });
@@ -57,6 +51,34 @@ export class DispatchButtonsHandler extends InteractionHandler {
       return;
     }
     try {
+      if (route.action === 'reselect') {
+        const confirmationRoute =
+          route.expectedPoolVersion === null || route.expectedOrderVersion === null
+            ? selectionFinalizeRouteFromConfirmationComponents(interaction.message.components)
+            : null;
+        const expectedPoolVersion = route.expectedPoolVersion ?? confirmationRoute?.expectedPoolVersion;
+        const expectedOrderVersion = route.expectedOrderVersion ?? confirmationRoute?.expectedOrderVersion;
+        if (
+          expectedPoolVersion === undefined ||
+          expectedOrderVersion === undefined ||
+          (confirmationRoute &&
+            (confirmationRoute.orderId !== route.orderId || confirmationRoute.poolId !== route.poolId))
+        ) {
+          await interaction.editReply({
+            content: '确认信息已经失效，请刷新候选名单后再试。',
+            embeds: [],
+            components: []
+          });
+          return;
+        }
+        await executeSelectionReselect({
+          interaction,
+          api,
+          actor,
+          route: { ...route, expectedPoolVersion, expectedOrderVersion }
+        });
+        return;
+      }
       if (route.action === 'finalize') {
         const applicationIds = selectionIdsFromConfirmationComponents(interaction.message.components);
         if (!applicationIds.length) {
