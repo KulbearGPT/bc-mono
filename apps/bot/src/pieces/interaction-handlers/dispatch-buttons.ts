@@ -3,7 +3,12 @@ import type { ButtonInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
 import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
-import { buildSelectionCandidatePanel, parseSelectionCustomId, withdrawCustomId } from '../../selection-discord.js';
+import {
+  buildSelectionCandidatePanel,
+  parseSelectionCustomId,
+  selectionIdsFromConfirmationComponents,
+  withdrawCustomId
+} from '../../selection-discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
@@ -16,7 +21,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
   }
   public override parse(interaction: ButtonInteraction) {
     const route = parseSelectionCustomId(interaction.customId);
-    return route.action === 'unknown' || route.action === 'finalize' || route.action === 'apply-menu'
+    return route.action === 'unknown' || route.action === 'apply-menu'
       ? this.none()
       : this.some(route);
   }
@@ -24,7 +29,17 @@ export class DispatchButtonsHandler extends InteractionHandler {
     interaction: ButtonInteraction,
     route: Exclude<ReturnType<typeof parseSelectionCustomId>, { action: 'unknown' }>
   ) {
-    await interaction.deferReply({ ephemeral: true });
+    const updatesConfirmation = route.action === 'finalize' || route.action === 'reselect';
+    if (updatesConfirmation) await interaction.deferUpdate();
+    else await interaction.deferReply({ ephemeral: true });
+    if (route.action === 'reselect') {
+      await interaction.editReply({
+        content: '已返回候选名单，请重新选择陪玩。',
+        embeds: [],
+        components: []
+      });
+      return;
+    }
     const env = validateRuntimeEnv(process.env, {
       allowMissingDiscordToken: true
     });
@@ -42,6 +57,34 @@ export class DispatchButtonsHandler extends InteractionHandler {
       return;
     }
     try {
+      if (route.action === 'finalize') {
+        const applicationIds = selectionIdsFromConfirmationComponents(interaction.message.components);
+        if (!applicationIds.length) {
+          await interaction.editReply({
+            content: '确认信息已经失效，请返回候选名单重新选择。',
+            embeds: [],
+            components: []
+          });
+          return;
+        }
+        const result = await api.finalizeSelectionPool(
+          route.orderId,
+          route.poolId,
+          {
+            expectedOrderVersion: route.expectedOrderVersion,
+            expectedPoolVersion: route.expectedPoolVersion,
+            applicationIds
+          },
+          actor,
+          buildDiscordIdempotencyKey('selection:finalize', interaction.id)
+        );
+        await interaction.editReply({
+          content: `已确认入选：${result.selectedDisplayNames.join('、')}。${result.remainingSlotCount ? `还缺 ${result.remainingSlotCount} 位，可继续开启下一轮。` : '订单人员已选齐。'}`,
+          embeds: [],
+          components: []
+        });
+        return;
+      }
       if (route.action === 'apply') {
         const result = await api.applyToSelectionPool(
           route.orderId,
@@ -135,17 +178,19 @@ export class DispatchButtonsHandler extends InteractionHandler {
         content: formatUserFacingError(error, {
           operation: dispatchOperation(route.action),
           localRequestId: `discord-interaction-${interaction.id}`
-        })
+        }),
+        components: updatesConfirmation ? [] : undefined
       });
     }
   }
 }
 
-function dispatchOperation(action: 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'page'): string {
+function dispatchOperation(action: 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'): string {
   if (action === 'apply') return '报名候选池';
   if (action === 'withdraw') return '撤回候选池报名';
   if (action === 'close') return '提前结束候选池报名';
   if (action === 'finalize') return '确认候选名单';
+  if (action === 'reselect') return '返回候选名单';
   if (action === 'apply-menu') return '打开报名项目菜单';
   return '查看候选名单下一页';
 }

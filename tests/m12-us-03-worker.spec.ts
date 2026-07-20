@@ -46,6 +46,30 @@ describe('M12-US-03 response jobs and transcript projection', () => {
     expect(updated).toEqual(['你的请求（T-4001）已由客服响应，排队提醒已结束。']);
   });
 
+  test('readiness timeout reminder explains the ten-minute wait and automatic staff intervention', async () => {
+    const sent:string[]=[];const updated:string[]=[];let state:'WAITING'|'RESPONDED'='WAITING';
+    const store:SupportResponseJobStore={
+      getReminder:()=>({
+        taskId,channelId:'777777777777777777',publicId:'TASK-P-C1E8E835-READY',
+        createdAt:'2026-08-05T16:10:00.000Z',state,reasonCode:'READINESS_TIMEOUT',
+        readiness:{waitMinutes:10,customerReady:false,playerReady:false}
+      }),
+      markOverdue:()=>false
+    };
+    await createSupportResponseReminderHandler({
+      store,send:async(message)=>{sent.push(message.content);},now:()=>new Date('2026-08-05T16:14:00.000Z')
+    })(job('SUPPORT_RESPONSE_REMINDER'));
+    expect(sent).toEqual([
+      '订单匹配成功后已超过 10 分钟，您和陪玩均未确认开始。系统已自动请求客服介入，请留意后续处理消息。任务编号：TASK-P-C1E8E835-READY。'
+    ]);
+    state='RESPONDED';
+    await createSupportResponseReminderHandler({
+      store,send:async(message)=>{sent.push(message.content);},update:async(message)=>{updated.push(message.content);},
+      now:()=>new Date('2026-08-05T16:14:30.000Z')
+    })(job('SUPPORT_RESPONSE_REMINDER'));
+    expect(updated).toEqual(['客服已开始处理订单未按时确认开始的问题。任务编号：TASK-P-C1E8E835-READY。']);
+  });
+
   test('migration atomically schedules fixed reminder and overdue jobs', () => {
     const sql = readFileSync('database/prisma/migrations/000032_m12_support_response_jobs/migration.sql','utf8');
     expect(sql).toContain("NEW.created_at + interval '4 minutes'");

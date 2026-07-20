@@ -591,7 +591,7 @@ function offerPayload(p: SelectionWorkerProjection) {
         description: "可同时报名多个订单；报名不会占用正式订单名额。",
         fields: requirements.map((item) => ({
           name: item.label,
-          value: `缺 ${item.remainingSlots} 位 · 默认预计收益 ${item.expectedEarningMinor} ${item.currency}`,
+          value: `缺 ${item.remainingSlots} 位`,
         })),
       },
     ],
@@ -609,11 +609,7 @@ function offerPayload(p: SelectionWorkerProjection) {
                 options: requirements.map((item) => ({
                   label: item.label.slice(0, 100),
                   value: short(item.id),
-                  description:
-                    `缺 ${item.remainingSlots} 位 · 默认预计收益 ${item.expectedEarningMinor} ${item.currency}`.slice(
-                      0,
-                      100,
-                    ),
+                  description: `缺 ${item.remainingSlots} 位`,
                 })),
               },
             ],

@@ -51,6 +51,11 @@ export type SelectionRoute =
       expectedOrderVersion: number;
     }
   | {
+      action: 'reselect';
+      orderId: string;
+      poolId: string;
+    }
+  | {
       action: 'page';
       orderId: string;
       poolId: string;
@@ -75,10 +80,7 @@ export function buildSelectionPoolOfferMessage(input: {
       '可同时报名多个订单；报名不会占用正式订单名额。',
       '',
       '**可报名项目**',
-      ...requirements.map(
-        (item) =>
-          `${item.label} · 缺 ${item.remainingSlots} 位 · 默认预计收益 ${item.expectedEarningMinor} ${item.currency}`
-      )
+      ...requirements.map((item) => `${item.label} · 缺 ${item.remainingSlots} 位`)
     ].join('\n'),
     visibility: 'PUBLIC',
     components: requirements.length
@@ -93,11 +95,7 @@ export function buildSelectionPoolOfferMessage(input: {
                 options: requirements.map((item) => ({
                   label: item.label.slice(0, 100),
                   value: short(item.id),
-                  description:
-                    `缺 ${item.remainingSlots} 位 · 默认预计收益 ${item.expectedEarningMinor} ${item.currency}`.slice(
-                      0,
-                      100
-                    )
+                  description: `缺 ${item.remainingSlots} 位`
                 })),
                 minValues: 1,
                 maxValues: 1
@@ -133,7 +131,7 @@ export function buildSelectionCandidatePanel(input: {
         {
           type: 'STRING_SELECT',
           customId: `bc:sp:s:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-          placeholder: '选择并确认本页入选陪玩',
+          placeholder: '选择本页入选陪玩（下一步确认）',
           options,
           minValues: 1,
           maxValues: Math.min(25, options.length)
@@ -165,6 +163,90 @@ export function buildSelectionCandidatePanel(input: {
     visibility: 'PRIVATE_CHANNEL',
     components
   };
+}
+
+export function buildSelectionCandidateConfirmation(input: {
+  orderId: string;
+  poolId: string;
+  poolVersion: number;
+  orderVersion: number;
+  selectedCandidates: Array<{ id: string; playerDisplayName: string }>;
+}): MessageSpec {
+  if (input.selectedCandidates.length < 1 || input.selectedCandidates.length > 25)
+    throw new Error('Selection confirmation requires one to twenty-five candidates.');
+  const count = input.selectedCandidates.length;
+  return {
+    title: '🐈‍⬛ 确认选择陪玩',
+    body: [
+      '请核对本次入选名单：',
+      ...input.selectedCandidates.map((candidate) => `• **${candidate.playerDisplayName}**`),
+      '',
+      '确认后将立即创建正式陪玩席位；如有误，请返回候选名单重新选择。'
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'STRING_SELECT',
+            customId: `bc:sp:p:${short(input.orderId)}:${short(input.poolId)}`,
+            placeholder: `已选择 ${count} 位陪玩`,
+            options: input.selectedCandidates.map((candidate) => ({
+              label: candidate.playerDisplayName.slice(0, 100),
+              value: short(candidate.id),
+              default: true
+            })),
+            minValues: count,
+            maxValues: count,
+            disabled: true
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: `bc:sp:f:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
+            label: '确认选择'
+          },
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:sp:b:${short(input.orderId)}:${short(input.poolId)}`,
+            label: '返回重选'
+          }
+        ]
+      }
+    ]
+  };
+}
+
+export function selectionIdsFromConfirmationComponents(components: readonly unknown[]): string[] {
+  for (const row of components) {
+    const children = (row as { components?: readonly unknown[] } | null)?.components;
+    if (!children) continue;
+    for (const component of children) {
+      const candidate = component as {
+        customId?: unknown;
+        custom_id?: unknown;
+        options?: ReadonlyArray<{ value?: unknown }>;
+      };
+      const customId = candidate.customId ?? candidate.custom_id;
+      if (typeof customId !== 'string' || !customId.startsWith('bc:sp:p:') || !candidate.options) continue;
+      return Array.from(
+        new Set(
+          candidate.options
+            .map((option) => option.value)
+            .filter((value): value is string => typeof value === 'string')
+            .map(decodeSelectionId)
+        )
+      );
+    }
+  }
+  return [];
 }
 
 export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: SelectionPoolSummary | null): MessageSpec {
@@ -322,6 +404,13 @@ export function parseSelectionCustomId(value: string): SelectionRoute {
       poolId: long(match[2]!),
       expectedPoolVersion: Number(match[3]),
       expectedOrderVersion: Number(match[4])
+    };
+  match = /^bc:sp:b:([^:]+):([^:]+)$/u.exec(value);
+  if (match)
+    return {
+      action: 'reselect',
+      orderId: long(match[1]!),
+      poolId: long(match[2]!)
     };
   match = /^bc:sp:n:([^:]+):([^:]+):o(\d+):([A-Za-z0-9_-]+)$/u.exec(value);
   if (match)

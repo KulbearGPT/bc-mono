@@ -10,6 +10,7 @@ import {
   type BotApiClient
 } from '../../service-center.js';
 import {
+  buildSelectionCandidateConfirmation,
   buildSelectionPoolRefreshMessage,
   decodeSelectionId,
   parseSelectionCustomId,
@@ -58,6 +59,25 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     const updatesOrderPanel = route.action === 'repeat';
     if (updatesOrderPanel) await interaction.deferUpdate();
     else await interaction.deferReply({ ephemeral: true });
+    if (route.action === 'finalize') {
+      const selectedCandidates = interaction.values.map((value) => ({
+        id: decodeSelectionId(value),
+        playerDisplayName:
+          interaction.component.options.find((option) => option.value === value)?.label ?? '候选陪玩'
+      }));
+      await interaction.editReply(
+        toDiscordUpdate(
+          buildSelectionCandidateConfirmation({
+            orderId: route.orderId,
+            poolId: route.poolId,
+            poolVersion: route.expectedPoolVersion,
+            orderVersion: route.expectedOrderVersion,
+            selectedCandidates
+          })
+        )
+      );
+      return;
+    }
     const env = validateRuntimeEnv(process.env, {
       allowMissingDiscordToken: true
     });
@@ -117,20 +137,6 @@ export default class SelectionSelectsHandler extends InteractionHandler {
         });
         return;
       }
-      const result = await api.finalizeSelectionPool(
-        route.orderId,
-        route.poolId,
-        {
-          expectedOrderVersion: route.expectedOrderVersion,
-          expectedPoolVersion: route.expectedPoolVersion,
-          applicationIds: interaction.values.map(decodeSelectionId)
-        },
-        actor,
-        buildDiscordIdempotencyKey('selection:finalize', interaction.id)
-      );
-      await interaction.editReply({
-        content: `已确认入选：${result.selectedDisplayNames.join('、')}。${result.remainingSlotCount ? `还缺 ${result.remainingSlotCount} 位，可继续开启下一轮。` : '订单人员已选齐。'}`
-      });
     } catch (error) {
       interaction.client.logger.error({
         event: 'selection.finalize_failed',

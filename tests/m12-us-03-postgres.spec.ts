@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresOrderChannelEventStore, recordOrderChannelEvent } from '@blackcat/api/order-channel-events';
+import { PostgresSupportResponseJobStore } from '@blackcat/api/support-response-jobs';
 
 const execFile = promisify(execFileCallback);
 const guildId='999999999999999999';
@@ -55,5 +56,21 @@ describe('M12-US-03 PostgreSQL first response concurrency',()=>{
     expect((await pool.query(`SELECT count(*)::int count FROM audit_logs WHERE action='AUTO_CLAIM_STAFF_TASK'`)).rows[0].count).toBe(1);
     expect((await pool.query(`SELECT count(*)::int count FROM outbox_events WHERE aggregate_type='staff_task'`)).rows[0].count).toBe(6);
     expect((await pool.query(`SELECT count(*)::int count FROM outbox_events WHERE event_type='SUPPORT_RESPONSE_REMINDER' AND dedupe_key LIKE 'support-response-reminder-met:%'`)).rows[0].count).toBe(2);
+  });
+
+  test('projects readiness timeout duration and pending sides for the customer reminder',async()=>{
+    const readinessOrderId='00000000-0000-0000-0000-000000013021';
+    const readinessTaskId='00000000-0000-0000-0000-000000013022';
+    await pool.query(`INSERT INTO orders(id,public_id,customer_id,active_customer_slot_id,status,row_version,guild_id,channel_id,accepted_at,readiness_due_at,updated_at)
+      VALUES($1,'P-M12-READY',$2,$2,'ACCEPTED',1,$3,'777777777777777779','2026-08-05T16:00:00Z','2026-08-05T16:10:00Z','2026-08-05T16:00:00Z')`,[readinessOrderId,staffIds[0],guildId]);
+    await pool.query(`INSERT INTO staff_tasks(id,public_id,type,reason_code,status,row_version,order_id,context_snapshot,created_at,updated_at)
+      VALUES($1,'TASK-P-M12-READY','ORDER_ASSIST','READINESS_TIMEOUT','OPEN',1,$2,$3::jsonb,'2026-08-05T16:10:00Z','2026-08-05T16:10:00Z')`,[
+        readinessTaskId,readinessOrderId,JSON.stringify({readinessDueAt:'2026-08-05T16:10:00.000Z',customerReady:false,playerReady:true})
+      ]);
+    const reminder=await new PostgresSupportResponseJobStore(pool).getReminder(readinessTaskId,new Date('2026-08-05T16:14:00Z'));
+    expect(reminder).toMatchObject({
+      publicId:'TASK-P-M12-READY',reasonCode:'READINESS_TIMEOUT',state:'WAITING',
+      readiness:{waitMinutes:10,customerReady:false,playerReady:true}
+    });
   });
 });

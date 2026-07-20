@@ -2,10 +2,12 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import { buildSubmittedOrderMessage } from "@blackcat/bot/service-center";
 import {
+  buildSelectionCandidateConfirmation,
   buildSelectionCandidatePanel,
   buildSelectionPoolOfferMessage,
   buildSelectionVoicePlan,
   parseSelectionCustomId,
+  selectionIdsFromConfirmationComponents,
 } from "@blackcat/bot/selection-discord";
 import {
   createSelectionPoolCloseHandler,
@@ -175,6 +177,64 @@ describe("M11-US-03 Discord selection flow", () => {
         .flatMap((row) => row.components)
         .every((component) => component.customId.length <= 100),
     ).toBe(true);
+  });
+
+  test("requires an explicit customer confirmation before finalizing selected applicants", async () => {
+    const confirmation = buildSelectionCandidateConfirmation({
+      orderId,
+      poolId,
+      poolVersion: 4,
+      orderVersion: 7,
+      selectedCandidates: [
+        { id: applicationId, playerDisplayName: "Kulbear" },
+        {
+          id: "00000000-0000-0000-0000-000000011061",
+          playerDisplayName: "OnlyMyKulbear",
+        },
+      ],
+    });
+
+    expect(confirmation.visibility).toBe("EPHEMERAL");
+    expect(confirmation.body).toContain("Kulbear");
+    expect(confirmation.body).toContain("OnlyMyKulbear");
+    const components = confirmation.components.flatMap((row) =>
+      row.type === "ACTION_ROW" ? row.components : [],
+    );
+    const selected = components.find((component) => component.type === "STRING_SELECT");
+    expect(selected).toMatchObject({ disabled: true, minValues: 2, maxValues: 2 });
+    expect(selectionIdsFromConfirmationComponents(confirmation.components)).toEqual([
+      applicationId,
+      "00000000-0000-0000-0000-000000011061",
+    ]);
+    expect(
+      components.some(
+        (component) =>
+          component.type === "BUTTON" &&
+          component.label === "确认选择" &&
+          parseSelectionCustomId(component.customId).action === "finalize",
+      ),
+    ).toBe(true);
+    expect(
+      components.some(
+        (component) =>
+          component.type === "BUTTON" &&
+          component.label === "返回重选" &&
+          parseSelectionCustomId(component.customId).action === "reselect",
+      ),
+    ).toBe(true);
+
+    const selectHandler = await readFile(
+      "apps/bot/src/pieces/interaction-handlers/selection-selects.ts",
+      "utf8",
+    );
+    const buttonHandler = await readFile(
+      "apps/bot/src/pieces/interaction-handlers/dispatch-buttons.ts",
+      "utf8",
+    );
+    expect(selectHandler).not.toContain("api.finalizeSelectionPool(");
+    expect(selectHandler).toContain("buildSelectionCandidateConfirmation");
+    expect(buttonHandler).toContain("api.finalizeSelectionPool(");
+    expect(buttonHandler).toContain("selectionIdsFromConfirmationComponents");
   });
 
   test("builds an unlimited selection room and revokes/disconnects every nonselected applicant after finalization", () => {
