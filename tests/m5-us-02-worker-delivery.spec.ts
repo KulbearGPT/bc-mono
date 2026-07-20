@@ -19,6 +19,45 @@ describe('M5-US-02 Worker delivery adapters', () => {
     expect(requests).toEqual(['GET']);
   });
 
+  test('updates an existing nonce message without creating one when the original reminder is absent', async () => {
+    const nonce = createHash('sha256').update('support-response-reminder:task-1').digest('hex').slice(0, 24);
+    const requests: Array<{ method: string; url: string; body: unknown }> = [];
+    let existing = true;
+    const adapter = new DiscordRestDeliveryAdapter({
+      botToken: 'discord-token-value',
+      fetch: async (url, init) => {
+        requests.push({
+          method: init?.method ?? 'GET',
+          url: String(url),
+          body: init?.body ? JSON.parse(String(init.body)) : null
+        });
+        if (!init?.method || init.method === 'GET')
+          return new Response(JSON.stringify(existing ? [{ id: 'reminder-1', nonce }] : []), { status: 200 });
+        return new Response(JSON.stringify({ id: 'reminder-1' }), { status: 200 });
+      }
+    });
+
+    await expect(adapter.updateMessage({
+      channelId: 'channel-1',
+      content: '客服已响应',
+      dedupeKey: 'support-response-reminder:task-1',
+      notBefore: '2026-07-18T23:00:00.000Z'
+    })).resolves.toEqual({ messageId: 'reminder-1', updated: true });
+    existing = false;
+    await expect(adapter.updateMessage({
+      channelId: 'channel-1',
+      content: '客服已响应',
+      dedupeKey: 'support-response-reminder:task-1',
+      notBefore: '2026-07-18T23:00:00.000Z'
+    })).resolves.toEqual({ messageId: null, updated: false });
+
+    expect(requests.map(({ method }) => method)).toEqual(['GET', 'PATCH', 'GET']);
+    expect(requests[1]).toMatchObject({
+      url: 'https://discord.com/api/v10/channels/channel-1/messages/reminder-1',
+      body: { content: '客服已响应' }
+    });
+  });
+
   test('paginates nonce reconciliation beyond the latest 100 messages', async () => {
     const nonce = createHash('sha256').update('gift:announcement:paged').digest('hex').slice(0, 24);
     let page = 0;

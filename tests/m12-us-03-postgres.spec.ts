@@ -53,6 +53,7 @@ describe('M12-US-03 PostgreSQL first response concurrency',()=>{
     expect(tasks.rows[0]).toMatchObject({public_id:'T-M12-OLD',status:'CLAIMED',response_status:'MET',claimed_by_staff_id:expect.stringMatching(/^00000000-/),first_response_event_id:expect.any(String)});
     expect(tasks.rows[1]).toMatchObject({public_id:'T-M12-NEW',status:'OPEN',response_status:'MET',claimed_by_staff_id:null,first_response_event_id:expect.any(String)});
     expect((await pool.query(`SELECT count(*)::int count FROM audit_logs WHERE action='AUTO_CLAIM_STAFF_TASK'`)).rows[0].count).toBe(1);
-    expect((await pool.query(`SELECT count(*)::int count FROM outbox_events WHERE aggregate_type='staff_task'`)).rows[0].count).toBe(4);
+    expect((await pool.query(`SELECT count(*)::int count FROM outbox_events WHERE aggregate_type='staff_task'`)).rows[0].count).toBe(6);
+    expect((await pool.query(`SELECT count(*)::int count FROM outbox_events WHERE event_type='SUPPORT_RESPONSE_REMINDER' AND dedupe_key LIKE 'support-response-reminder-met:%'`)).rows[0].count).toBe(2);
   });
 });

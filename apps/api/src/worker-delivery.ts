@@ -104,6 +104,17 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
     return { messageId: requiredString(response.id, 'message.id') };
   }
 
+  async updateMessage(input: { channelId: string; content: string; dedupeKey: string; notBefore: string }): Promise<{ messageId: string | null; updated: boolean }> {
+    const nonce = stableNonce(input.dedupeKey);
+    const messageId = await this.findMessageByNonce(input.channelId, nonce, input.notBefore);
+    if (!messageId) return { messageId: null, updated: false };
+    const response = await this.request(`/channels/${encodeURIComponent(input.channelId)}/messages/${encodeURIComponent(messageId)}`, {
+      method: 'PATCH',
+      body: { content: input.content }
+    });
+    return { messageId: requiredString(response.id, 'message.id'), updated: true };
+  }
+
   async sendDirectMessage(input: { discordUserId: string; content: string; dedupeKey: string; notBefore: string }): Promise<{ messageId: string }> {
     const channel = await this.request('/users/@me/channels', { method: 'POST', body: { recipient_id: input.discordUserId } });
     return this.sendMessage({ channelId: requiredString(channel.id, 'dm_channel.id'), content: input.content,

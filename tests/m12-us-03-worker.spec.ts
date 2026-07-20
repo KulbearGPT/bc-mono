@@ -7,8 +7,13 @@ import { InMemoryOrderChannelEventStore, recordOrderChannelEvent, type FirstResp
 const now = new Date('2026-08-05T16:05:00.000Z');
 const taskId = '00000000-0000-0000-0000-000000004001';
 class Store implements SupportResponseJobStore {
-  pending = true; overdue = false;
-  getReminder() { return this.pending ? { taskId, channelId: '777777777777777777', publicId: 'T-4001', createdAt: '2026-08-05T16:00:00.000Z' } : null; }
+  pending = true; responded = false; overdue = false;
+  getReminder() {
+    if (this.pending) return { taskId, channelId: '777777777777777777', publicId: 'T-4001', createdAt: '2026-08-05T16:00:00.000Z', state: 'WAITING' as const };
+    return this.responded
+      ? { taskId, channelId: '777777777777777777', publicId: 'T-4001', createdAt: '2026-08-05T16:00:00.000Z', state: 'RESPONDED' as const }
+      : null;
+  }
   markOverdue() { if (!this.pending) return false; this.pending = false; this.overdue = true; return true; }
 }
 function job(type: 'SUPPORT_RESPONSE_REMINDER' | 'SUPPORT_RESPONSE_OVERDUE'): OutboxJob {
@@ -19,14 +24,26 @@ function job(type: 'SUPPORT_RESPONSE_REMINDER' | 'SUPPORT_RESPONSE_OVERDUE'): Ou
 
 describe('M12-US-03 response jobs and transcript projection', () => {
   test('reminder sends once while pending and overdue changes facts without punishment', async () => {
-    const store = new Store(); const sent:string[] = [];
-    await createSupportResponseReminderHandler({ store, send: async (message) => { sent.push(message.content); },
+    const store = new Store(); const sent:string[] = []; const updated:string[] = [];
+    await createSupportResponseReminderHandler({
+      store,
+      send: async (message) => { sent.push(message.content); },
+      update: async (message) => { updated.push(message.content); },
       now: () => new Date('2026-08-05T16:04:00.000Z') })(job('SUPPORT_RESPONSE_REMINDER'));
     expect(sent).toEqual(['你的请求（T-4001）已进入客服队列，正在等待处理。']);
     await createSupportResponseOverdueHandler({ store, now: () => now })(job('SUPPORT_RESPONSE_OVERDUE'));
     expect(store.overdue).toBe(true);
     await createSupportResponseReminderHandler({ store, send: async (message) => { sent.push(message.content); }, now: () => now })(job('SUPPORT_RESPONSE_REMINDER'));
     expect(sent).toHaveLength(1);
+    store.responded = true;
+    await createSupportResponseReminderHandler({
+      store,
+      send: async (message) => { sent.push(message.content); },
+      update: async (message) => { updated.push(message.content); },
+      now: () => now
+    })(job('SUPPORT_RESPONSE_REMINDER'));
+    expect(sent).toHaveLength(1);
+    expect(updated).toEqual(['你的请求（T-4001）已由客服响应，排队提醒已结束。']);
   });
 
   test('migration atomically schedules fixed reminder and overdue jobs', () => {

@@ -123,10 +123,17 @@ export class PostgresOrderChannelEventStore implements OrderChannelEventStore {
               context_snapshot=context_snapshot||jsonb_build_object('claimSource','DISCORD_FIRST_RESPONSE','claimMessageEventId',$5::text)
             FROM target WHERE st.id=target.id AND st.status='OPEN' RETURNING st.id`,
           [data.orderId,staff.id,respondedAt,data.observedAt,data.id]);
-          await client.query(`UPDATE staff_tasks st SET response_status='MET',first_responded_at=$2,first_response_event_id=$3,
+          const responded = await client.query<{id:string}>(`UPDATE staff_tasks st SET response_status='MET',first_responded_at=$2,first_response_event_id=$3,
               row_version=row_version+1,updated_at=$4
             WHERE st.order_id=$1 AND st.response_status IN ('PENDING','OVERDUE') AND st.status IN ('OPEN','CLAIMED','PENDING_APPROVAL')
-              AND $2::timestamptz>=st.created_at`,[data.orderId,respondedAt,data.id,data.observedAt]);
+              AND $2::timestamptz>=st.created_at RETURNING st.id`,[data.orderId,respondedAt,data.id,data.observedAt]);
+          for(const task of responded.rows)await client.query(`INSERT INTO outbox_events
+            (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
+            VALUES($1,'SUPPORT_RESPONSE_REMINDER','staff_task',$2,$3,$4,$5::jsonb,'PENDING',1,0,8,$6,$6,$6)
+            ON CONFLICT(dedupe_key) DO NOTHING`,[
+            randomUUID(),task.id,data.orderId,`support-response-reminder-met:${task.id}:${data.id}`,
+            JSON.stringify({staffTaskId:task.id}),data.observedAt
+          ]);
           if (claimed.rows[0]) await insertPostgresAuditRecord(client,{
             id:randomUUID(),actorId:staff.user_id,actorStaffId:staff.id,actorLevel:staff.level,actorSource:'DISCORD_BOT',
             clientId:'DISCORD_BOT_SERVICE',interactionId:null,permissionCode:'staff_task.claim',action:'AUTO_CLAIM_STAFF_TASK',

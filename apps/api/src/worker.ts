@@ -156,6 +156,7 @@ const runtime = new ProductionOutboxRuntime({
     supportResponseReminder: createSupportResponseReminderHandler({
       store: supportResponseStore,
       send: (message) => delivery.sendMessage(message),
+      update: (message) => delivery.updateMessage(message),
     }),
     supportResponseOverdue: createSupportResponseOverdueHandler({
       store: supportResponseStore,
