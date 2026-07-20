@@ -338,6 +338,64 @@ describe("M11-US-03 Discord selection flow", () => {
     )).toBe(true);
   });
 
+  test("recreates a missing closed offer and continues publishing the customer candidate panel", async () => {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
+      calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.includes("/messages?limit=100")) return Response.json([]);
+      if (init?.method === "POST" && url.endsWith("/messages"))
+        return Response.json({ id: `message-${calls.length}` });
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: "token",
+      apiBaseUrl: "https://discord.test",
+      fetch: fetcher as typeof fetch
+    });
+    const projection = {
+      poolId,
+      poolVersion: 2,
+      poolStatus: "SELECTION",
+      orderId,
+      orderPublicId: "P-M11",
+      orderStatus: "PENDING_DISPATCH",
+      orderVersion: 3,
+      guildId: "999999999999999999",
+      orderChannelId: "111111111111111110",
+      voiceChannelId: "666666666666666666",
+      customerUserId: "00000000-0000-0000-0000-000000011001",
+      customerDiscordUserId: "111111111111111111",
+      dispatchChannelId: "222222222222222220",
+      staffTaskChannelId: "555555555555555555",
+      privateOrderCategoryId: null,
+      staffRoleIds: ["444444444444444444"],
+      applicants: [{
+        applicationId,
+        discordUserId: "222222222222222222",
+        displayName: "奶糖",
+        status: "APPLIED",
+        applicationVersion: 1,
+        requirementId
+      }],
+      selectedPlayers: [],
+      selectedDiscordUserIds: [],
+      requirements: []
+    };
+
+    await expect(
+      adapter.sync(projection, "SELECTION", "2026-08-04T12:00:00Z")
+    ).resolves.toBe("666666666666666666");
+
+    const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/messages"));
+    expect(posts).toHaveLength(3);
+    expect(JSON.stringify(posts[0]?.body)).toContain("报名已结束");
+    expect(JSON.stringify(posts[1]?.body)).toContain("共 1 位候选");
+    expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:s:");
+    expect(JSON.stringify(posts[2]?.body)).toContain("已开始陪玩选拔");
+  });
+
   test("creates one recovery task only on the terminal Discord sync attempt", async () => {
     const sync = vi.fn().mockRejectedValue(new Error("Discord unavailable"));
     const terminalFailure = vi.fn().mockResolvedValue(undefined);

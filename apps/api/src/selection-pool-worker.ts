@@ -264,10 +264,11 @@ export class DiscordSelectionPoolAdapter {
       return projection.voiceChannelId;
     }
     if (phase === "CANCELLED") {
-      await this.editOnce(
+      await this.upsertOnce(
         projection.dispatchChannelId,
         `selection-offer:${projection.poolId}`,
         cancelledOfferPayload(projection),
+        notBefore,
       );
       await this.editIfPresent(
         projection.orderChannelId,
@@ -307,10 +308,11 @@ export class DiscordSelectionPoolAdapter {
       }
       return projection.voiceChannelId;
     }
-    await this.editOnce(
+    await this.upsertOnce(
       projection.dispatchChannelId,
       `selection-offer:${projection.poolId}`,
       closedOfferPayload(projection),
+      notBefore,
     );
     let voice = projection.voiceChannelId;
     if (!voice) {
@@ -457,10 +459,11 @@ export class DiscordSelectionPoolAdapter {
       body: JSON.stringify({ ...payload, nonce, enforce_nonce: true }),
     });
   }
-  private async editOnce(
+  private async upsertOnce(
     channel: string,
     key: string,
     payload: Record<string, unknown>,
+    notBefore: string,
   ) {
     const nonce = createHash("sha256").update(key).digest("hex").slice(0, 24);
     const messages = await this.request<
@@ -469,8 +472,10 @@ export class DiscordSelectionPoolAdapter {
     const message = messages.find(
       (candidate) => candidate.nonce === nonce && candidate.id,
     );
-    if (!message?.id)
-      throw new Error("Selection pool offer message was not found.");
+    if (!message?.id) {
+      await this.sendOnce(channel, key, payload, notBefore);
+      return;
+    }
     await this.request(`/channels/${channel}/messages/${message.id}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
