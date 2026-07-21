@@ -56,4 +56,13 @@ describe('M9-US-12 append-only order channel transcript events', () => {
     expect(sql).toContain('CREATE INDEX');
     expect(sql).toContain('prevent_order_channel_message_event_mutation');
   });
+
+  test('grants the runtime role only the append and read permissions required by transcript storage', async () => {
+    const sql = await readFile(
+      'database/prisma/migrations/000037_order_channel_transcript_runtime_grant/migration.sql',
+      'utf8'
+    );
+    expect(sql).toContain('GRANT SELECT, INSERT ON TABLE "order_channel_message_events" TO blackcat_app');
+    expect(sql).not.toMatch(/GRANT[^;]*(?:UPDATE|DELETE)[^;]*order_channel_message_events/iu);
+  });
 });
