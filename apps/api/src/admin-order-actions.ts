@@ -14,6 +14,7 @@ import {
 import { insertPostgresAuditRecord, registerSecureWriteRoute } from './security.js';
 import type { PolicyReader } from './operations.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
+import { enqueueTerminalChannelArchive } from './order-channel-cleanup.js';
 
 type StaffLevel = 'L1_SUPPORT' | 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER';
 interface Transaction {
@@ -816,6 +817,11 @@ VALUES (
       await insertAdminOrderPanelSync(client, {
         orderId: input.updatedOrder.id, version: input.updatedOrder.version,
         kind: 'ORDER_RESOLVED_CHANNEL_SYNC', now: new Date(input.updatedOrder.updatedAt)
+      });
+      await enqueueTerminalChannelArchive(client, {
+        orderId: input.updatedOrder.id,
+        orderVersion: input.updatedOrder.version,
+        now: new Date(input.updatedOrder.updatedAt)
       });
     });
   }

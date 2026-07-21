@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DispatchMessageStore, DispatchOfferDiscordAdapter } from './worker-handlers.js';
+import type { DiscordChannelMessageSnapshot, TerminalChannelDiscordAdapter } from './order-channel-cleanup.js';
 
 interface QueryClient {
   query<Row = Record<string, unknown>>(
@@ -37,7 +38,7 @@ export class PostgresDispatchMessageStore implements DispatchMessageStore {
   }
 }
 
-export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
+export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter, TerminalChannelDiscordAdapter {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly input: {
@@ -143,6 +144,39 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter {
       method: 'PATCH',
       body: { permission_overwrites: permissionOverwrites }
     });
+  }
+
+  async freezeChannelIfExists(channelId: string): Promise<void> {
+    try {
+      await this.archiveChannel(channelId);
+    } catch (error) {
+      if (error instanceof DiscordDeliveryError && error.status === 404) return;
+      throw error;
+    }
+  }
+
+  async listChannelMessages(channelId: string, before: string | null): Promise<DiscordChannelMessageSnapshot[] | null> {
+    const suffix = before ? `&before=${encodeURIComponent(before)}` : '';
+    try {
+      const messages = await this.request<unknown>(
+        `/channels/${encodeURIComponent(channelId)}/messages?limit=100${suffix}`,
+        { method: 'GET' }
+      );
+      if (!Array.isArray(messages)) throw new Error('Discord message history response is invalid.');
+      return messages as DiscordChannelMessageSnapshot[];
+    } catch (error) {
+      if (error instanceof DiscordDeliveryError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  async deleteChannelIfExists(channelId: string): Promise<void> {
+    try {
+      await this.request(`/channels/${encodeURIComponent(channelId)}`, { method: 'DELETE' });
+    } catch (error) {
+      if (error instanceof DiscordDeliveryError && error.status === 404) return;
+      throw error;
+    }
   }
 
   async reconcileRoles(guildId: string, mappingVersion: number, observedAt: string): Promise<void> {

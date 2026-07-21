@@ -19,10 +19,13 @@ import {
 } from "./worker-adapters.js";
 import { DiscordRestDeliveryAdapter } from "./worker-delivery.js";
 import {
-  createChannelArchiveHandler,
   createReadinessTimeoutHandler,
   createRoleReconciliationHandler,
 } from "./worker-handlers.js";
+import {
+  createTerminalChannelArchiveHandler,
+  PostgresTerminalChannelCleanupStore,
+} from "./order-channel-cleanup.js";
 import {
   ProductionOutboxRuntime,
   createPanelSyncHandler,
@@ -72,6 +75,7 @@ const giftStore = new PostgresGiftStore(pool);
 const panelStore = new PostgresOrderPanelProjectionStore(pool);
 const weeklyReportStore = new PostgresWeeklyReportStore(pool);
 const supportResponseStore = new PostgresSupportResponseJobStore(pool);
+const terminalChannelCleanupStore = new PostgresTerminalChannelCleanupStore(pool);
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
@@ -135,8 +139,9 @@ const runtime = new ProductionOutboxRuntime({
           now: new Date(),
         }),
     }),
-    channelArchive: createChannelArchiveHandler({
-      archive: (channelId) => delivery.archiveChannel(channelId),
+    channelArchive: createTerminalChannelArchiveHandler({
+      store: terminalChannelCleanupStore,
+      discord: delivery,
     }),
     panelSync: createPanelSyncHandler({
       store: panelStore,
@@ -173,12 +178,15 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 try {
   const recovered = await runtime.initialize();
+  const queuedTerminalChannelCleanups =
+    await terminalChannelCleanupStore.enqueueDueTerminalOrders(new Date());
   await writeFile(READY_FILE, new Date().toISOString(), "utf8");
   console.log(
     JSON.stringify({
       level: "info",
       event: "worker.started",
       recoveredJobs: recovered.length,
+      queuedTerminalChannelCleanups,
     }),
   );
   const pollIntervalMs = positiveInteger(
@@ -187,8 +195,13 @@ try {
   );
   const reportGuildId = process.env.DISCORD_GUILD_ID?.trim();
   let nextReportScheduleCheckAt = 0;
+  let nextTerminalChannelCleanupCheckAt = 0;
   while (!stopping) {
     const loopNow = Date.now();
+    if (loopNow >= nextTerminalChannelCleanupCheckAt) {
+      await terminalChannelCleanupStore.enqueueDueTerminalOrders(new Date(loopNow));
+      nextTerminalChannelCleanupCheckAt = loopNow + 60_000;
+    }
     if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
       await weeklyReportStore.enqueueScheduledGeneration({
         guildId: reportGuildId,

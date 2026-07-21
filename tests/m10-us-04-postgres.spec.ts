@@ -84,11 +84,12 @@ describe('M10-US-04 PostgreSQL multi-player capture', () => {
       (SELECT amount_minor::text FROM wallet_entries WHERE source_id=$2 AND entry_type='ORDER_CAPTURE_DEBIT') captured_minor,
       (SELECT count(*)::int FROM player_earnings WHERE order_id=$1) earning_count,
       (SELECT COALESCE(sum(amount_minor),0)::text FROM player_earnings WHERE order_id=$1) earning_total,
-      (SELECT count(DISTINCT order_participant_id)::int FROM player_earnings WHERE order_id=$1) linked_participant_count
+      (SELECT count(DISTINCT order_participant_id)::int FROM player_earnings WHERE order_id=$1) linked_participant_count,
+      (SELECT count(*)::int FROM outbox_events WHERE order_id=$1 AND event_type='CHANNEL_ARCHIVE') channel_cleanup_jobs
       FROM orders JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`, [orderId, reservationId]);
     expect(facts.rows[0]).toEqual({
       status: 'COMPLETED', amount_minor: '900', reservation_status: 'CAPTURED', captured_minor: '900',
-      earning_count: 9, earning_total: '450', linked_participant_count: 9
+      earning_count: 9, earning_total: '450', linked_participant_count: 9, channel_cleanup_jobs: 1
     });
 
     const participants = new PostgresOrderParticipantStore(pool);

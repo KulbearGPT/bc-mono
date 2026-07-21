@@ -68,7 +68,7 @@
 "timeout_policy","gift_review_reminder_minutes","","true","P0_APPROVED","送礼审核无人认领提醒","","","","10","","","","GIFT_REVIEW_REMINDER","{""automatic_approval"":false}"
 "timeout_policy","gift_post_completion_window","","true","P0_APPROVED","完成后可送礼时间","","","","1440","","","","GIFT_WINDOW","{}"
 "timeout_policy","channel_read_only_after_completion","","true","P0_APPROVED","完成后立即只读","","","","0","","","","CHANNEL_READ_ONLY","{}"
-"timeout_policy","channel_archive_after_completion","","true","P0_APPROVED","完成后归档","","","","1440","","","","CHANNEL_ARCHIVE","{}"
+"timeout_policy","channel_archive_after_completion","","true","P0_APPROVED","完成或取消后清理相关频道（清理前完整回填 transcript）","","","","1440","","","","CHANNEL_ARCHIVE","{}"
 "feature_flag","new_orders_enabled","","true","P0_APPROVED","允许新订单","","","","","","","","true","{}"
 "feature_flag","auto_dispatch_enabled","","true","P0_APPROVED","启用自动派单","","","","","","","","true","{}"
 "feature_flag","gift_requests_enabled","","true","P0_APPROVED","允许礼物请求","","","","","","","","true","{}"

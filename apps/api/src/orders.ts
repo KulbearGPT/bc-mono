@@ -23,6 +23,7 @@ import {
 } from "./funding.js";
 import type { WalletFundingService } from "./wallet.js";
 import type { OutboxJob } from "./outbox.js";
+import { enqueueTerminalChannelArchive } from "./order-channel-cleanup.js";
 import {
   createOrderStaffTask,
   type StaffTaskRecord,
@@ -1494,6 +1495,11 @@ WHERE order_id = $1
         orderId: input.order.id,
         version: input.order.version,
         kind: "ORDER_CANCELLED_CHANNEL_SYNC",
+        now: input.now,
+      });
+      await enqueueTerminalChannelArchive(transactionClient, {
+        orderId: input.order.id,
+        orderVersion: input.order.version,
         now: input.now,
       });
       await transactionClient.query(
@@ -3920,6 +3926,7 @@ SET status = $2::"OrderStatus",
     row_version = $3,
     active_customer_slot_id = NULL,
     active_player_slot_id = NULL,
+    cancelled_at = $4,
     updated_at = $4
 WHERE id = $1
   AND status = ANY($6::"OrderStatus"[])

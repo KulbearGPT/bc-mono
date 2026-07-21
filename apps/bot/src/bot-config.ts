@@ -801,7 +801,7 @@ function fieldLabel(field: BotConfigManageableField): string {
     readiness_timeout_minutes: '就绪确认超时时间（分钟）',
     completion_confirmation_minutes: '完单确认时限（分钟）',
     gift_review_reminder_minutes: '礼物审核提醒间隔（分钟）',
-    channel_archive_after_completion_minutes: '完单后频道归档时间（分钟）',
+    channel_archive_after_completion_minutes: '订单终态后频道清理等待（分钟）',
     new_orders_enabled: '允许新订单',
     gift_requests_enabled: '允许礼物申请',
     maintenance_notice: '启用维护公告',

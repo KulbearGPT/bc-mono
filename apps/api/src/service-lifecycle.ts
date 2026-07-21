@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { OutboxJob } from './outbox.js';
+import { enqueueTerminalChannelArchive } from './order-channel-cleanup.js';
 import { registerSecureWriteRoute } from './security.js';
 import { calculateReferralCommissionMinor, createEligibleReferralCommission } from './referrals.js';
 
@@ -901,6 +902,11 @@ RETURNING *
           kind: 'ORDER_COMPLETED_CHANNEL_SYNC', orderId: input.orderId
         }), input.now.toISOString()]
       );
+      await enqueueTerminalChannelArchive(transactionClient, {
+        orderId: input.orderId,
+        orderVersion: row.row_version,
+        now: input.now
+      });
       await transactionClient.query('COMMIT');
       return {
         orderId: row.id,

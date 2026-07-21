@@ -76,7 +76,9 @@ SELECT
   (SELECT row_version::text FROM selection_applications WHERE id = '${selectionApplicationId}') AS application_version,
   (SELECT count(*)::text FROM selection_pool_events WHERE selection_pool_id = '${selectionPoolId}' AND event_type = 'CANCELLED') AS pool_cancel_events,
   (SELECT count(*)::text FROM selection_application_events WHERE selection_application_id = '${selectionApplicationId}' AND event_type = 'INVALIDATED') AS application_invalidated_events,
-  (SELECT count(*)::text FROM outbox_events WHERE selection_pool_id = '${selectionPoolId}' AND event_type = 'SELECTION_POOL_SYNC' AND payload->>'phase' = 'CANCELLED') AS cancelled_sync_jobs
+  (SELECT count(*)::text FROM outbox_events WHERE selection_pool_id = '${selectionPoolId}' AND event_type = 'SELECTION_POOL_SYNC' AND payload->>'phase' = 'CANCELLED') AS cancelled_sync_jobs,
+  (SELECT count(*)::text FROM outbox_events WHERE order_id = '${orderId}' AND event_type = 'CHANNEL_ARCHIVE') AS channel_cleanup_jobs,
+  (SELECT (cancelled_at IS NOT NULL)::text FROM orders WHERE id = '${orderId}') AS cancelled_at_recorded
     `);
     expect(preview.statusCode).toBe(200);
     expect(cancelled.statusCode, JSON.stringify(cancelled.json())).toBe(200);
@@ -92,7 +94,9 @@ SELECT
       application_version: '2',
       pool_cancel_events: '1',
       application_invalidated_events: '1',
-      cancelled_sync_jobs: '1'
+      cancelled_sync_jobs: '1',
+      channel_cleanup_jobs: '1',
+      cancelled_at_recorded: 'true'
     });
   });
 });
