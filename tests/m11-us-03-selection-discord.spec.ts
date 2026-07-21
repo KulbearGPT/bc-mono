@@ -14,6 +14,8 @@ import {
   createSelectionPoolCloseHandler,
   createSelectionPoolSyncHandler,
   DiscordSelectionPoolAdapter,
+  PostgresSelectionPoolWorkerStore,
+  SelectionPoolWorkerService,
 } from "@blackcat/api/selection-pool-worker";
 import { BotApiError } from "@blackcat/bot/service-center-api";
 import { deleteRetiredSelectionChannel } from "@blackcat/bot/selection-channel-cleanup";
@@ -426,6 +428,134 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(calls.some((call) => call.method === "PATCH" && call.body?.name === "selection-p-m11-closing")).toBe(false);
   });
 
+  test("replaces a retired selection room before publishing a later-round staff link", async () => {
+    const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as Record<string, unknown>
+        : null;
+      calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
+        return Response.json([
+          { id: "666666666666666666", name: "selection-p-m11-closing", type: 2, parent_id: null },
+        ]);
+      if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "POST")
+        return Response.json({ id: "777777777777777777" });
+      if (url.includes("/messages?limit=100")) return Response.json([]);
+      if (init?.method === "POST" && url.endsWith("/messages"))
+        return Response.json({ id: "999999999999999998" });
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: "token",
+      apiBaseUrl: "https://discord.test",
+      fetch: fetcher as typeof fetch,
+    });
+    const projection = {
+      poolId,
+      poolVersion: 2,
+      poolStatus: "SELECTION",
+      orderId,
+      orderPublicId: "P-M11",
+      orderStatus: "PENDING_DISPATCH",
+      orderVersion: 4,
+      guildId: "999999999999999999",
+      orderChannelId: "111111111111111110",
+      selectionVoiceChannelId: "666666666666666666",
+      voiceChannelId: null,
+      customerUserId: "00000000-0000-0000-0000-000000011001",
+      customerDiscordUserId: "111111111111111111",
+      dispatchChannelId: "222222222222222220",
+      staffTaskChannelId: "555555555555555555",
+      privateOrderCategoryId: null,
+      staffRoleIds: ["444444444444444444"],
+      applicants: [{
+        applicationId,
+        discordUserId: "222222222222222222",
+        displayName: "奶糖",
+        status: "APPLIED",
+        applicationVersion: 1,
+        requirementId,
+      }],
+      selectedPlayers: [],
+      selectedDiscordUserIds: [],
+      requirements: [],
+    };
+
+    await expect(
+      adapter.sync(projection, "SELECTION", "2026-08-04T12:00:00Z"),
+    ).resolves.toBe("777777777777777777");
+
+    expect(calls).toContainEqual(expect.objectContaining({
+      method: "POST",
+      url: "https://discord.test/guilds/999999999999999999/channels",
+      body: expect.objectContaining({ name: "selection-p-m11" }),
+    }));
+    const staffPost = calls.find((call) =>
+      call.method === "POST" &&
+      call.url === "https://discord.test/channels/555555555555555555/messages"
+    );
+    expect(JSON.stringify(staffPost?.body)).toContain("777777777777777777");
+    expect(JSON.stringify(staffPost?.body)).not.toContain("666666666666666666");
+  });
+
+  test("persists a recreated selection room by replacing only the projected stale mapping", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: orderId }] });
+    const store = new PostgresSelectionPoolWorkerStore({ query } as never);
+
+    await store.setSelectionVoice(
+      orderId,
+      "777777777777777777",
+      "666666666666666666",
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("selection_voice_channel_id IS NOT DISTINCT FROM $3"),
+      [orderId, "777777777777777777", "666666666666666666"],
+    );
+  });
+
+  test("passes the projected selection room to the optimistic mapping replacement", async () => {
+    const projection = {
+      poolId,
+      poolVersion: 2,
+      poolStatus: "SELECTION",
+      orderId,
+      orderPublicId: "P-M11",
+      orderStatus: "PENDING_DISPATCH",
+      orderVersion: 4,
+      guildId: "999999999999999999",
+      orderChannelId: "111111111111111110",
+      selectionVoiceChannelId: "666666666666666666",
+      voiceChannelId: null,
+      customerUserId: "00000000-0000-0000-0000-000000011001",
+      customerDiscordUserId: "111111111111111111",
+      dispatchChannelId: "222222222222222220",
+      staffTaskChannelId: "555555555555555555",
+      privateOrderCategoryId: null,
+      staffRoleIds: [],
+      applicants: [],
+      selectedPlayers: [],
+      selectedDiscordUserIds: [],
+      requirements: [],
+    };
+    const store = {
+      projection: vi.fn().mockResolvedValue(projection),
+      setSelectionVoice: vi.fn().mockResolvedValue(undefined),
+    };
+    const discord = { sync: vi.fn().mockResolvedValue("777777777777777777") };
+    const service = new SelectionPoolWorkerService(store as never, discord as never);
+
+    await service.sync(poolId, "SELECTION", "2026-08-04T12:00:00Z");
+
+    expect(store.setSelectionVoice).toHaveBeenCalledWith(
+      orderId,
+      "777777777777777777",
+      "666666666666666666",
+    );
+  });
+
   test("validates close/sync jobs and delegates idempotent work", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
     const sync = vi.fn().mockResolvedValue(undefined);
@@ -456,6 +586,10 @@ describe("M11-US-03 Discord selection flow", () => {
       const url = String(input);
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
       calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
+        return Response.json([
+          { id: "666666666666666666", name: "selection-p-m11", type: 2, parent_id: null },
+        ]);
       if (url.includes("/messages?limit=100")) return Response.json(posted);
       if (init?.method === "POST" && url.endsWith("/messages")) {
         posted.push({
@@ -563,6 +697,10 @@ describe("M11-US-03 Discord selection flow", () => {
       const url = String(input);
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
       calls.push({ url, method: init?.method ?? "GET", body });
+      if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
+        return Response.json([
+          { id: "666666666666666666", name: "selection-p-m11", type: 2, parent_id: null },
+        ]);
       if (url.includes("/messages?limit=100")) return Response.json([]);
       if (init?.method === "POST" && url.endsWith("/messages"))
         return Response.json({ id: `message-${calls.length}` });

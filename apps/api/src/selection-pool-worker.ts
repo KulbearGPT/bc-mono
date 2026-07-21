@@ -202,10 +202,14 @@ export class PostgresSelectionPoolWorkerStore {
         (row.requirements as SelectionWorkerProjection["requirements"]) ?? [],
     };
   }
-  async setSelectionVoice(orderId: string, voiceChannelId: string) {
+  async setSelectionVoice(
+    orderId: string,
+    voiceChannelId: string,
+    expectedPreviousChannelId: string | null,
+  ) {
     const updated = await this.pool.query(
-      `UPDATE orders SET selection_voice_channel_id=$2,updated_at=now() WHERE id=$1 AND (selection_voice_channel_id IS NULL OR selection_voice_channel_id=$2) RETURNING id`,
-      [orderId, voiceChannelId],
+      `UPDATE orders SET selection_voice_channel_id=$2,updated_at=now() WHERE id=$1 AND (selection_voice_channel_id IS NOT DISTINCT FROM $3 OR selection_voice_channel_id=$2) RETURNING id`,
+      [orderId, voiceChannelId, expectedPreviousChannelId],
     );
     if (!updated.rows[0])
       throw new Error("Order selection voice channel changed concurrently.");
@@ -340,17 +344,30 @@ export class DiscordSelectionPoolAdapter {
     >(`/guilds/${projection.guildId}/channels`, { method: "GET" })) ?? [];
     const selectionName = channelName("selection", projection.orderPublicId);
     const closingSelectionName = `${selectionName}-closing`.slice(0, 100);
+    const activeSelectionVoice = channels.find(
+      (channel) =>
+        channel.type === 2 &&
+        channel.name === selectionName &&
+        channel.parent_id === projection.privateOrderCategoryId,
+    )?.id;
+    const projectedSelectionVoice = channels.find(
+      (channel) =>
+        channel.type === 2 &&
+        channel.id === projection.selectionVoiceChannelId &&
+        channel.parent_id === projection.privateOrderCategoryId,
+    )?.id;
     let selectionVoice =
-      projection.selectionVoiceChannelId ??
-      channels.find(
-        (channel) =>
-          channel.type === 2 &&
-          (channel.name === selectionName ||
-            channel.name === closingSelectionName) &&
-          channel.parent_id === projection.privateOrderCategoryId,
-      )?.id ??
-      (phase === "SELECTION" ? projection.voiceChannelId : null) ??
-      null;
+      phase === "SELECTION"
+        ? (activeSelectionVoice ?? null)
+        : (projectedSelectionVoice ??
+          channels.find(
+            (channel) =>
+              channel.type === 2 &&
+              (channel.name === selectionName ||
+                channel.name === closingSelectionName) &&
+              channel.parent_id === projection.privateOrderCategoryId,
+          )?.id ??
+          null);
     if (phase === "SELECTION") {
       if (!selectionVoice) {
         selectionVoice = text(
@@ -374,6 +391,7 @@ export class DiscordSelectionPoolAdapter {
       await this.request(`/channels/${selectionVoice}`, {
         method: "PATCH",
         body: JSON.stringify({
+          name: selectionName,
           user_limit: 0,
           permission_overwrites: overwrites(projection, phase),
         }),
@@ -647,7 +665,11 @@ export class SelectionPoolWorkerService {
       voice &&
       voice !== projection.selectionVoiceChannelId
     )
-      await this.store.setSelectionVoice(projection.orderId, voice);
+      await this.store.setSelectionVoice(
+        projection.orderId,
+        voice,
+        projection.selectionVoiceChannelId,
+      );
     if (
       phase === "FINALIZED" &&
       projection.orderStatus === "ACCEPTED" &&
