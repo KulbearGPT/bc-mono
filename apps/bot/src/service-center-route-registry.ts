@@ -13,6 +13,7 @@ const buttonAreas = new Set<ServiceCenterRoute['area']>([
   'order-game-action',
   'service-package-action',
   'order-notes-open',
+  'order-menu-notes-open',
   'requirement-note-open',
   'service-action',
   'cancellation-action',
@@ -34,6 +35,7 @@ const selectAreas = new Set<ServiceCenterRoute['area']>([
 
 const modalAreas = new Set<ServiceCenterRoute['area']>([
   'order-notes-modal',
+  'order-menu-notes-modal',
   'requirement-note-modal',
   'support-rating-comment'
 ]);

@@ -44,6 +44,7 @@ export * from './service-center-api.js';
 export * from './service-center-components.js';
 export * from './service-center-profile.js';
 export * from './service-center-routes.js';
+export * from './service-center-order-notes.js';
 
 const dispatchEligibilityReasonLabels: Record<string, string> = {
   ACTIVE_REVIEW_STATUS: '陪玩资格当前不是可接单状态',
@@ -82,23 +83,6 @@ export function buildPublicServiceEntryMessage(): MessageSpec {
             label: '🐈‍⬛ 我的服务中心'
           }
         ]
-      }
-    ]
-  };
-}
-
-export function buildOrderNotesModal(input: { orderId: string; expectedVersion: number }): ModalSpec {
-  return {
-    title: '📝 补充订单备注',
-    customId: `bc:modal:order-notes:${input.orderId}:v${input.expectedVersion}`,
-    components: [
-      {
-        type: 'TEXT_INPUT',
-        customId: 'notes',
-        label: '补充备注（可选）',
-        style: 'PARAGRAPH',
-        required: false,
-        maxLength: 500
       }
     ]
   };
@@ -565,6 +549,12 @@ export function buildGameOrderingMenuMessage(
       {
         type: 'BUTTON',
         style: 'SECONDARY',
+        customId: `bc:omno:${order.id}:${game}:v${order.version}`,
+        label: order.notes ? '修改需求备注' : '填写需求备注'
+      },
+      {
+        type: 'BUTTON',
+        style: 'SECONDARY',
         customId: `bc:package:${order.id}:open:v${order.version}`,
         label: '换一个游戏'
       },
@@ -585,7 +575,8 @@ export function buildGameOrderingMenuMessage(
     title: `🐾 订单 ${order.publicId} · 第 2/4 步 · ${gameName} 菜单`,
     body: [
       `▓▓░░\n当前游戏 · ${gameName}\u3000套餐 ${packages.items.length}\u3000单点 ${services.length}`,
-      '套餐使用右侧按钮预览；单点项目先选择预览，再按“单点加入”。所有选项都只来自当前游戏。'
+      '套餐使用右侧按钮预览；单点项目先选择预览，再按“单点加入”。所有选项都只来自当前游戏。',
+      `需求备注：${order.notes || '未填写'}`
     ].join('\n\n'),
     visibility: 'PRIVATE_CHANNEL',
     components,
@@ -1225,6 +1216,7 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
       '▓▓▓▓',
       '这是提交前的最终确认。价格、余额、目录有效性与套餐调整仍由业务 API 重新校验。',
       lines || '还没有添加陪玩项目。',
+      `需求备注：${input.order.notes || '未填写'}`,
       `订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor, input.requirements.currency)}`,
       `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
       '确认后创建资金预留，不立即扣款。',
@@ -2014,6 +2006,7 @@ export async function handleOrderNotesSubmit(input: {
   orderId: string;
   expectedVersion: number;
   notes: string;
+  returnGame?: string;
   idempotencyKey: string;
 }): Promise<BotFlowResult> {
   try {
@@ -2023,6 +2016,17 @@ export async function handleOrderNotesSubmit(input: {
       input.actor,
       input.idempotencyKey
     );
+    if (input.returnGame) {
+      if (!input.api.listServicePackages) throw new Error('Service package API is unavailable.');
+      const [services, packages] = await Promise.all([
+        input.api.listServices(input.actor, input.returnGame),
+        input.api.listServicePackages(input.actor, undefined, 25, input.returnGame)
+      ]);
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildGameOrderingMenuMessage(updated, input.returnGame, services.items, packages)
+      };
+    }
     if (input.api.listOrderRequirements) {
       const [page, services] = await Promise.all([
         input.api.listOrderRequirements(input.orderId, input.actor, undefined, 10),
@@ -2040,6 +2044,18 @@ export async function handleOrderNotesSubmit(input: {
   } catch (error) {
     if (isApiError(error, 'CONFLICT')) {
       const refreshed = await input.api.getOrder(input.orderId, input.actor);
+      if (input.returnGame) {
+        if (!input.api.listServicePackages) throw new Error('Service package API is unavailable.');
+        const [services, packages] = await Promise.all([
+          input.api.listServices(input.actor, input.returnGame),
+          input.api.listServicePackages(input.actor, undefined, 25, input.returnGame)
+        ]);
+        return {
+          kind: 'EDIT_ORIGINAL_MESSAGE',
+          message: buildGameOrderingMenuMessage(refreshed, input.returnGame, services.items, packages),
+          notice: botCopy.orders.conflictRefreshed(requestId(error))
+        };
+      }
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildOrderPanelMessage(refreshed),

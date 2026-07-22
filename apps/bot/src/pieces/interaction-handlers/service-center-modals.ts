@@ -58,7 +58,12 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
       }
       return;
     }
-    if (parsedData.area !== 'order-notes-modal' && parsedData.area !== 'requirement-note-modal') return;
+    if (
+      parsedData.area !== 'order-notes-modal' &&
+      parsedData.area !== 'order-menu-notes-modal' &&
+      parsedData.area !== 'requirement-note-modal'
+    )
+      return;
     await interaction.deferUpdate();
     const actor: BotActorContext = buildBotActorContext(interaction)!;
     const api = new HttpBotApiClient({
@@ -83,6 +88,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
             orderId: parsedData.orderId,
             expectedVersion: parsedData.expectedVersion,
             notes: interaction.fields.getTextInputValue('notes'),
+            returnGame: parsedData.area === 'order-menu-notes-modal' ? parsedData.game : undefined,
             idempotencyKey: buildDiscordIdempotencyKey('order:notes', interaction.id)
           });
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {

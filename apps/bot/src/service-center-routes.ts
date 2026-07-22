@@ -120,6 +120,8 @@ export type ServiceCenterRoute =
     }
   | { area: 'order-notes-modal'; orderId: string; expectedVersion: number }
   | { area: 'order-notes-open'; orderId: string; expectedVersion: number }
+  | { area: 'order-menu-notes-modal'; orderId: string; game: string; expectedVersion: number }
+  | { area: 'order-menu-notes-open'; orderId: string; game: string; expectedVersion: number }
   | {
       area: 'requirement-note-modal';
       orderId: string;
@@ -404,6 +406,23 @@ export function parseServiceCenterCustomId(customId: string): ServiceCenterRoute
       orderId: packageAction[1]!,
       action: packageAction[2] as 'open' | 'back',
       expectedVersion: Number(packageAction[3])
+    };
+
+  const menuNotesModal = /^bc:omn:([0-9a-f-]{36}):([A-Z0-9_]{1,24}):v([1-9][0-9]*)$/u.exec(customId);
+  if (menuNotesModal)
+    return {
+      area: 'order-menu-notes-modal',
+      orderId: menuNotesModal[1]!,
+      game: menuNotesModal[2]!,
+      expectedVersion: Number(menuNotesModal[3])
+    };
+  const menuNotesOpen = /^bc:omno:([0-9a-f-]{36}):([A-Z0-9_]{1,24}):v([1-9][0-9]*)$/u.exec(customId);
+  if (menuNotesOpen)
+    return {
+      area: 'order-menu-notes-open',
+      orderId: menuNotesOpen[1]!,
+      game: menuNotesOpen[2]!,
+      expectedVersion: Number(menuNotesOpen[3])
     };
 
   const notesModal = /^bc:modal:order-notes:([0-9a-f-]{36}):v([1-9][0-9]*)$/u.exec(customId);

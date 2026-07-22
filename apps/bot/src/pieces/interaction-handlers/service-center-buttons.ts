@@ -35,7 +35,6 @@ import {
   type ServiceCenterRoute
 } from '../../service-center.js';
 import { formatDiscordError, formatUnexpectedBotResult } from '../../user-facing-error.js';
-
 export default class ServiceCenterButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
     super(context, { interactionHandlerType: InteractionHandlerTypes.Button });
@@ -149,12 +148,13 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await this.confirmCancellation(interaction, parsedData);
       return;
     }
-    if (parsedData.area === 'order-notes-open') {
+    if (parsedData.area === 'order-notes-open' || parsedData.area === 'order-menu-notes-open') {
       await interaction.showModal(
         toDiscordModal(
           buildOrderNotesModal({
             orderId: parsedData.orderId,
-            expectedVersion: parsedData.expectedVersion
+            expectedVersion: parsedData.expectedVersion,
+            returnGame: parsedData.area === 'order-menu-notes-open' ? parsedData.game : undefined
           })
         )
       );
