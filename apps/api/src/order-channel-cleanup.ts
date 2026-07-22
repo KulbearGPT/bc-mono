@@ -59,7 +59,7 @@ export async function enqueueTerminalChannelArchive(
        row_version,attempt_count,max_attempts,available_at,created_at,updated_at
      )
      SELECT gen_random_uuid(),'CHANNEL_ARCHIVE','order',orders.id,orders.id,$2,$3::jsonb,'PENDING',
-            1,0,8,$4::timestamptz + interval '5 seconds' + make_interval(mins => ${retentionMinutesSql()}),$4,$4
+            1,0,8,$4::timestamptz + make_interval(mins => ${retentionMinutesSql()}),$4,$4
        FROM orders
        LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id
       WHERE orders.id=$1
@@ -179,7 +179,12 @@ export class PostgresTerminalChannelCleanupStore implements TerminalChannelClean
              WHERE panel.order_id=orders.id AND panel.event_type='PANEL_SYNC'
                AND panel.status IN ('PENDING','PROCESSING','FAILED')
           )
-       ON CONFLICT(dedupe_key) DO NOTHING
+       ON CONFLICT(dedupe_key) DO UPDATE
+         SET available_at=EXCLUDED.available_at,
+             updated_at=EXCLUDED.updated_at,
+             row_version=outbox_events.row_version+1
+       WHERE outbox_events.status='PENDING'
+         AND outbox_events.available_at>EXCLUDED.available_at
        RETURNING id`,
       [now]
     );
@@ -244,8 +249,8 @@ function cleanupDedupeKey(orderId: string, orderVersion: number): string {
 function retentionMinutesSql(): string {
   return `CASE
     WHEN config.config_json->>'channel_archive_after_completion_minutes' ~ '^[0-9]+$'
-    THEN LEAST(43200,GREATEST(0,(config.config_json->>'channel_archive_after_completion_minutes')::int))
-    ELSE 1440
+    THEN LEAST(60,GREATEST(0,(config.config_json->>'channel_archive_after_completion_minutes')::int))
+    ELSE 60
   END`;
 }
 

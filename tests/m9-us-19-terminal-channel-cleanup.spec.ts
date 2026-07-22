@@ -110,7 +110,21 @@ describe('M9-US-19 terminal order channel cleanup', () => {
   });
 
   test('contracts cover terminal enqueue, transcript gate, and zombie reconciliation', async () => {
-    const [spec, backlog, acceptance, interactions, orders, lifecycle, admin, worker] = await Promise.all([
+    const [
+      spec,
+      backlog,
+      acceptance,
+      interactions,
+      orders,
+      lifecycle,
+      admin,
+      worker,
+      cleanup,
+      apiConfig,
+      openApi,
+      businessConfigSchema,
+      businessConfigExample
+    ] = await Promise.all([
       readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
       readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
       readFile('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
@@ -118,7 +132,12 @@ describe('M9-US-19 terminal order channel cleanup', () => {
       readFile('apps/api/src/orders.ts', 'utf8'),
       readFile('apps/api/src/service-lifecycle.ts', 'utf8'),
       readFile('apps/api/src/admin-order-actions.ts', 'utf8'),
-      readFile('apps/api/src/worker.ts', 'utf8')
+      readFile('apps/api/src/worker.ts', 'utf8'),
+      readFile('apps/api/src/order-channel-cleanup.ts', 'utf8'),
+      readFile('apps/api/src/bot-config.ts', 'utf8'),
+      readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('outputs/P0开发交付包/05-业务配置/business-config.schema.json', 'utf8'),
+      readFile('outputs/P0开发交付包/05-业务配置/business-config.example.yaml', 'utf8')
     ]);
     expect(spec).toContain('COMPLETED 或 CANCELLED');
     expect(spec).toContain('完整回填');
@@ -128,6 +147,13 @@ describe('M9-US-19 terminal order channel cleanup', () => {
     expect(interactions).toContain('INT-W-M9-019');
     for (const source of [orders, lifecycle, admin]) expect(source).toContain('enqueueTerminalChannelArchive');
     expect(worker).toContain('enqueueDueTerminalOrders');
+    expect(spec).toContain('默认且最长保留 1 小时');
+    expect(cleanup).toContain('LEAST(60');
+    expect(cleanup).toContain('ELSE 60');
+    expect(apiConfig).toContain('channel_archive_after_completion_minutes: [0, 60]');
+    expect(openApi).toContain('channel_archive_after_completion_minutes: {type: integer, minimum: 0, maximum: 60}');
+    expect(businessConfigSchema).toContain('"channel_archive_after_completion_minutes": { "type": "integer", "minimum": 0, "maximum": 60 }');
+    expect(businessConfigExample).toContain('channel_archive_after_completion_minutes: 60');
   });
 });
 

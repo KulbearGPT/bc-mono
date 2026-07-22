@@ -96,19 +96,22 @@ describe('M9-US-19 PostgreSQL terminal channel reconciliation', () => {
       {
         order_id: completedOrderId,
         dedupe_key: `terminal-channel-cleanup:${completedOrderId}:v7`,
-        delay_seconds: 86_405
+        delay_seconds: 3_600
       }
     ]);
   });
 
   test('sweep queues only due terminal orders without an outstanding panel synchronization', async () => {
     const store = new PostgresTerminalChannelCleanupStore(pool);
-    expect(await store.enqueueDueTerminalOrders(now)).toBe(1);
+    expect(await store.enqueueDueTerminalOrders(now)).toBe(2);
     expect(await store.enqueueDueTerminalOrders(now)).toBe(0);
-    const queued = await pool.query<{ order_id: string }>(
-      `SELECT order_id FROM outbox_events WHERE event_type='CHANNEL_ARCHIVE' ORDER BY order_id`
+    const queued = await pool.query<{ order_id: string; available_at: Date }>(
+      `SELECT order_id,available_at FROM outbox_events WHERE event_type='CHANNEL_ARCHIVE' ORDER BY order_id`
     );
-    expect(queued.rows.map((row) => row.order_id)).toEqual([completedOrderId, cancelledOrderId]);
+    expect(queued.rows).toEqual([
+      { order_id: completedOrderId, available_at: now },
+      { order_id: cancelledOrderId, available_at: now }
+    ]);
   });
 
   test('snapshot backfill is append-only and idempotent by the live listener event id', async () => {

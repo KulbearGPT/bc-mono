@@ -733,7 +733,7 @@ const integerRules = {
   readiness_timeout_minutes: [1, 30],
   completion_confirmation_minutes: [5, 120],
   gift_review_reminder_minutes: [1, 60],
-  channel_archive_after_completion_minutes: [0, 43200],
+  channel_archive_after_completion_minutes: [0, 60],
 } as const;
 const booleanFields = [
   "new_orders_enabled",
