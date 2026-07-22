@@ -338,6 +338,77 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
     });
   });
 
+  test("persists a reaction card and reactivates the same application after reaction removal", async () => {
+    const reactionCustomer = "00000000-0000-0000-0000-000000011080";
+    const reactionCustomerDiscord = "888888888888888880";
+    const reactionOrder = "00000000-0000-0000-0000-000000011081";
+    const reactionRequirement = "00000000-0000-0000-0000-000000011082";
+    const channelId = "888888888888888881";
+    const messageId = "888888888888888882";
+    await pool.query(
+      `INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES($1,'Reaction 老板','ACTIVE',1,now(),now())`,
+      [reactionCustomer],
+    );
+    await pool.query(
+      `INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,bound_at,created_at,updated_at) VALUES('00000000-0000-0000-0000-000000011083',$1,$2,$3,now(),now(),now())`,
+      [reactionCustomer, guildId, reactionCustomerDiscord],
+    );
+    await pool.query(
+      `INSERT INTO orders(id,public_id,customer_id,active_customer_slot_id,status,row_version,amount_minor,expected_player_earning_minor,currency,guild_id,submitted_at,created_at,updated_at) VALUES($1,'P-M11-REACTION',$2,$2,'PENDING_DISPATCH',1,200,120,'CAT',$3,now(),now(),now())`,
+      [reactionOrder, reactionCustomer, guildId],
+    );
+    await pool.query(
+      `INSERT INTO order_requirements(id,order_id,service_catalog_version_id,status,row_version,game_code_snapshot,game_display_name_snapshot,service_code_snapshot,service_display_name_snapshot,region_code_snapshot,region_display_name_snapshot,billing_unit_minutes_snapshot,unit_count,requested_player_count,customer_unit_price_minor_snapshot,estimated_line_price_minor,created_at,updated_at) VALUES($1,$2,$3,'ACTIVE',1,'VALORANT','瓦洛兰特','TECH','技术陪玩','NA','北美',60,2,1,100,200,now(),now())`,
+      [reactionRequirement, reactionOrder, catalogId],
+    );
+    const store = new PostgresSelectionPoolStore(pool);
+    const workerStore = new PostgresSelectionPoolWorkerStore(pool);
+    const now = new Date("2026-08-08T12:00:00Z");
+    const created = await commit(await store.createPool({
+      orderId: reactionOrder,
+      actorGuildId: guildId,
+      actorDiscordUserId: reactionCustomerDiscord,
+      expectedOrderVersion: 1,
+      idempotencyKey: "m11:reaction:create",
+      now,
+    }), reactionCustomer);
+    await workerStore.setRecruitmentCard(created.pool.id, channelId, messageId, [{
+      emoji: "1️⃣",
+      orderRequirementId: reactionRequirement,
+      label: "瓦洛兰特 · 技术陪玩",
+    }]);
+
+    const observe = (state: "ADDED" | "REMOVED", key: string) => store.observeReaction({
+      actorGuildId: guildId,
+      actorDiscordUserId: playerDiscord,
+      channelId,
+      messageId,
+      emoji: "1️⃣",
+      state,
+      idempotencyKey: key,
+      now,
+    });
+    const added = await commit(await observe("ADDED", "m11:reaction:add:1"), playerId);
+    const removed = await commit(await observe("REMOVED", "m11:reaction:remove:1"), playerId);
+    const readded = await commit(await observe("ADDED", "m11:reaction:add:2"), playerId);
+
+    expect(added).toMatchObject({ changed: true, state: "APPLIED", application: { version: 1 } });
+    expect(removed).toMatchObject({ changed: true, state: "WITHDRAWN", application: { version: 2 } });
+    expect(readded).toMatchObject({ changed: true, state: "APPLIED", application: { version: 3 } });
+    await expect(store.listReactionCards({ guildId })).resolves.toEqual(expect.objectContaining({
+      items: expect.arrayContaining([expect.objectContaining({
+        poolId: created.pool.id,
+        channelId,
+        messageId,
+        bindings: [expect.objectContaining({ emoji: "1️⃣", appliedDiscordUserIds: [playerDiscord] })],
+      })]),
+    }));
+    await expect(pool.query(
+      `SELECT count(*)::int count FROM selection_applications WHERE selection_pool_id=$1`,
+      [created.pool.id],
+    )).resolves.toMatchObject({ rows: [{ count: 1 }] });
+  });
+
   test("atomically rejects an active candidate round before opening the replacement", async () => {
     const customer = "00000000-0000-0000-0000-000000011074";
     const discord = "888888888888888888";

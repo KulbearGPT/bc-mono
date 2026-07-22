@@ -178,6 +178,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 try {
   const recovered = await runtime.initialize();
+  const queuedSelectionReactionCards =
+    await selectionWorkerStore.enqueueRecruitmentCardNormalization(new Date());
   const queuedTerminalChannelCleanups =
     await terminalChannelCleanupStore.enqueueDueTerminalOrders(new Date());
   await writeFile(READY_FILE, new Date().toISOString(), "utf8");
@@ -186,6 +188,7 @@ try {
       level: "info",
       event: "worker.started",
       recoveredJobs: recovered.length,
+      queuedSelectionReactionCards,
       queuedTerminalChannelCleanups,
     }),
   );

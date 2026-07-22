@@ -9,6 +9,8 @@ import {
   reconcileDiscordGuilds
 } from './role-sync.js';
 import { BotReadinessState, initializeBotRuntime, type BotRuntimeTask } from './runtime.js';
+import { HttpBotApiClient } from './service-center-api.js';
+import { reconcileSelectionReactionCards } from './selection-reactions.js';
 
 interface RuntimeLogger {
   info(value: unknown): void;
@@ -28,6 +30,11 @@ export async function initializeLiveBotRuntime(input: {
   const roleSyncApi = new HttpRoleSyncApiClient({
     apiBaseUrl: input.apiBaseUrl,
     botServiceToken: input.botServiceToken
+  });
+  const selectionReactionApi = new HttpBotApiClient({
+    apiBaseUrl: input.apiBaseUrl,
+    botServiceToken: input.botServiceToken,
+    fetch: input.fetch
   });
   const mappingVersion = readRoleMappingVersion(input.roleMappingVersion);
   const criticalTasks: BotRuntimeTask[] = [
@@ -106,6 +113,34 @@ export async function initializeLiveBotRuntime(input: {
       event: 'bot.product_roles.reconciled',
       guildId: guild.id,
       ...productRoles
+    });
+    const reactionCards = await reconcileSelectionReactionCards({
+      guildId: guild.id,
+      api: selectionReactionApi,
+      fetchReactionUserIds: async (card, emoji) => {
+        const channel = await guild.channels.fetch(card.channelId);
+        if (!channel?.isTextBased()) throw new Error('Selection reaction channel is unavailable.');
+        const message = await channel.messages.fetch(card.messageId);
+        const reaction = message.reactions.resolve(emoji);
+        if (!reaction) return [];
+        const userIds: string[] = [];
+        let after: string | undefined;
+        while (true) {
+          const users = await reaction.users.fetch({ limit: 100, after });
+          const batch = [...users.values()];
+          userIds.push(...batch.filter((user) => !user.bot).map((user) => user.id));
+          if (batch.length < 100) break;
+          after = batch.at(-1)?.id;
+          if (!after) break;
+        }
+        return userIds;
+      },
+      logger: input.logger
+    });
+    input.logger.info({
+      event: 'bot.selection_reactions.reconciled',
+      guildId: guild.id,
+      ...reactionCards
     });
   });
 

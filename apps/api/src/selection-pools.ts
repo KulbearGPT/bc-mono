@@ -17,6 +17,13 @@ export type SelectionPoolCloseReason =
   "TIME_ELAPSED" | "CUSTOMER_EARLY_CLOSE" | "CUSTOMER_STOPPED" | "ORDER_CANCELLED";
 export type SelectionApplicationStatus =
   "APPLIED" | "WITHDRAWN" | "SELECTED" | "NOT_SELECTED" | "INVALIDATED";
+export type SelectionReactionState = "ADDED" | "REMOVED";
+
+export interface SelectionReactionBinding {
+  emoji: string;
+  orderRequirementId: string;
+  label: string;
+}
 
 export interface SelectionPoolRecord {
   id: string;
@@ -31,6 +38,9 @@ export interface SelectionPoolRecord {
   closeReason: SelectionPoolCloseReason | null;
   applicationCount: number;
   applicantDiscordUserIds?: string[];
+  recruitmentChannelId?: string | null;
+  recruitmentMessageId?: string | null;
+  reactionBindings?: SelectionReactionBinding[];
 }
 
 export interface SelectionApplicationRecord {
@@ -156,6 +166,19 @@ export interface ListSelectionApplicationsInput extends PoolScope {
   cursor: string | null;
   limit: number;
 }
+export interface ObserveSelectionReactionInput {
+  actorGuildId: string;
+  actorDiscordUserId: string;
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  state: SelectionReactionState;
+  idempotencyKey: string;
+  now: Date;
+}
+export interface ListSelectionReactionCardsInput {
+  guildId: string;
+}
 
 export interface SelectionPoolResult {
   pool: SelectionPoolRecord;
@@ -177,6 +200,20 @@ export interface SelectionFinalizeResult {
   selectedParticipantIds: string[];
   selectedDisplayNames: string[];
   remainingSlotCount: number;
+}
+export interface SelectionReactionObservationResult {
+  changed: boolean;
+  state: "APPLIED" | "WITHDRAWN";
+  poolId: string;
+  orderRequirementId: string;
+  application: SelectionApplicationRecord | null;
+}
+export interface SelectionReactionCard {
+  guildId: string;
+  channelId: string;
+  messageId: string;
+  poolId: string;
+  bindings: Array<SelectionReactionBinding & { appliedDiscordUserIds: string[] }>;
 }
 
 interface StagedWrite<T> {
@@ -216,6 +253,14 @@ export interface SelectionPoolStore {
   ):
     | Promise<StagedWrite<SelectionFinalizeResult>>
     | StagedWrite<SelectionFinalizeResult>;
+  observeReaction(
+    input: ObserveSelectionReactionInput,
+  ):
+    | Promise<StagedWrite<SelectionReactionObservationResult>>
+    | StagedWrite<SelectionReactionObservationResult>;
+  listReactionCards(
+    input: ListSelectionReactionCardsInput,
+  ): Promise<{ items: SelectionReactionCard[] }> | { items: SelectionReactionCard[] };
 }
 
 export class SelectionPoolError extends Error {
@@ -300,6 +345,11 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       throw new SelectionPoolError(
         "BUSINESS_RULE_ERROR",
         "The order has no remaining player slots.",
+      );
+    if (this.remainingRequirementCount(order.id) > 9)
+      throw new SelectionPoolError(
+        "BUSINESS_RULE_ERROR",
+        "Selection recruitment supports at most 9 requirements.",
       );
     const activePool = this.pools.find(
       (pool) =>
@@ -496,6 +546,136 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         Object.assign(pool, clone(nextPool));
       },
     );
+  }
+
+  observeReaction(
+    input: ObserveSelectionReactionInput,
+  ): StagedWrite<SelectionReactionObservationResult> {
+    const resolved = this.resolveReaction(input);
+    if (input.state === "ADDED") {
+      const facts = this.requireApplicationFacts({
+        orderId: resolved.order.id,
+        selectionPoolId: resolved.pool.id,
+        orderRequirementId: resolved.binding.orderRequirementId,
+        actorGuildId: input.actorGuildId,
+        actorDiscordUserId: input.actorDiscordUserId,
+        expectedPoolVersion: resolved.pool.version,
+        idempotencyKey: input.idempotencyKey,
+        now: input.now,
+      });
+      const existing = this.applications.find(
+        (application) =>
+          application.selectionPoolId === resolved.pool.id &&
+          application.orderRequirementId === resolved.binding.orderRequirementId &&
+          application.playerId === facts.player.id,
+      );
+      if (existing?.status === "APPLIED")
+        return this.stage(input.idempotencyKey, {
+          changed: false,
+          state: "APPLIED",
+          poolId: resolved.pool.id,
+          orderRequirementId: resolved.binding.orderRequirementId,
+          application: clone(existing),
+        }, () => undefined);
+      if (existing && existing.status !== "WITHDRAWN")
+        throw new SelectionPoolError("CONFLICT", "Selection application can no longer be restored.");
+      const application: SelectionApplicationRecord = existing
+        ? {
+            ...clone(existing),
+            status: "APPLIED",
+            version: existing.version + 1,
+            appliedAt: input.now.toISOString(),
+            decidedAt: null,
+          }
+        : {
+            id: crypto.randomUUID(),
+            selectionPoolId: resolved.pool.id,
+            orderRequirementId: resolved.binding.orderRequirementId,
+            playerId: facts.player.id,
+            playerDiscordUserId: facts.player.discordUserId,
+            playerDisplayName: facts.player.displayName,
+            publicGameTags: [...(facts.player.publicGameTags ?? [])],
+            publicServiceTags: [...(facts.player.publicServiceTags ?? [])],
+            status: "APPLIED",
+            version: 1,
+            appliedAt: input.now.toISOString(),
+            decidedAt: null,
+          };
+      return this.stage(input.idempotencyKey, {
+        changed: true,
+        state: "APPLIED",
+        poolId: resolved.pool.id,
+        orderRequirementId: resolved.binding.orderRequirementId,
+        application: clone(application),
+      }, () => {
+        if (existing) Object.assign(existing, clone(application));
+        else this.applications.push(clone(application));
+        resolved.pool.applicationCount += 1;
+      });
+    }
+
+    const player = this.players.find(
+      (candidate) => candidate.guildId === input.actorGuildId && candidate.discordUserId === input.actorDiscordUserId,
+    );
+    const existing = player
+      ? this.applications.find(
+          (application) =>
+            application.selectionPoolId === resolved.pool.id &&
+            application.orderRequirementId === resolved.binding.orderRequirementId &&
+            application.playerId === player.id,
+        )
+      : undefined;
+    if (!existing || existing.status === "WITHDRAWN")
+      return this.stage(input.idempotencyKey, {
+        changed: false,
+        state: "WITHDRAWN",
+        poolId: resolved.pool.id,
+        orderRequirementId: resolved.binding.orderRequirementId,
+        application: existing ? clone(existing) : null,
+      }, () => undefined);
+    if (existing.status !== "APPLIED")
+      throw new SelectionPoolError("CONFLICT", "Selection application can no longer be withdrawn.");
+    const application: SelectionApplicationRecord = {
+      ...clone(existing),
+      status: "WITHDRAWN",
+      version: existing.version + 1,
+      decidedAt: input.now.toISOString(),
+    };
+    return this.stage(input.idempotencyKey, {
+      changed: true,
+      state: "WITHDRAWN",
+      poolId: resolved.pool.id,
+      orderRequirementId: resolved.binding.orderRequirementId,
+      application: clone(application),
+    }, () => {
+      Object.assign(existing, clone(application));
+      resolved.pool.applicationCount = Math.max(0, resolved.pool.applicationCount - 1);
+    });
+  }
+
+  listReactionCards(input: ListSelectionReactionCardsInput): { items: SelectionReactionCard[] } {
+    return {
+      items: this.pools
+        .filter((pool) => {
+          const order = this.orders.find((candidate) => candidate.id === pool.orderId);
+          return order?.guildId === input.guildId && pool.status === "COLLECTING" &&
+            pool.recruitmentChannelId && pool.recruitmentMessageId && pool.reactionBindings?.length;
+        })
+        .map((pool) => ({
+          guildId: input.guildId,
+          channelId: pool.recruitmentChannelId!,
+          messageId: pool.recruitmentMessageId!,
+          poolId: pool.id,
+          bindings: (pool.reactionBindings ?? []).map((binding) => ({
+            ...clone(binding),
+            appliedDiscordUserIds: [...new Set(this.applications
+              .filter((application) => application.selectionPoolId === pool.id &&
+                application.orderRequirementId === binding.orderRequirementId && application.status === "APPLIED")
+              .map((application) => this.players.find((player) => player.id === application.playerId)?.discordUserId)
+              .filter((id): id is string => Boolean(id)))],
+          })),
+        })),
+    };
   }
 
   closePool(input: CloseSelectionPoolInput): StagedWrite<SelectionPoolResult> {
@@ -808,6 +988,23 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         0,
       );
   }
+  private remainingRequirementCount(orderId: string) {
+    return this.requirements.filter(
+      (item) => item.orderId === orderId && item.status === "ACTIVE" && item.filledPlayerCount < item.requestedPlayerCount,
+    ).length;
+  }
+  private resolveReaction(input: ObserveSelectionReactionInput) {
+    const pool = this.pools.find(
+      (candidate) => candidate.recruitmentChannelId === input.channelId && candidate.recruitmentMessageId === input.messageId,
+    );
+    const order = pool ? this.orders.find((candidate) => candidate.id === pool.orderId && candidate.guildId === input.actorGuildId) : undefined;
+    const binding = pool?.reactionBindings?.find((candidate) => candidate.emoji === input.emoji);
+    if (!pool || !order || !binding)
+      throw new SelectionPoolError("NOT_FOUND", "Active selection reaction mapping was not found.");
+    if (pool.status !== "COLLECTING" || order.status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Selection pool is no longer collecting reactions.");
+    return { pool, order, binding };
+  }
   private assertNoActivePool(orderId: string) {
     if (
       this.pools.some(
@@ -870,6 +1067,59 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
   }
   finalize(input: FinalizeSelectionPoolInput) {
     return this.prepare((client) => this.mutateFinalize(client, input));
+  }
+  observeReaction(input: ObserveSelectionReactionInput) {
+    return this.prepare((client) => this.mutateObserveReaction(client, input));
+  }
+
+  async listReactionCards(
+    input: ListSelectionReactionCardsInput,
+  ): Promise<{ items: SelectionReactionCard[] }> {
+    const pools = await this.pool.query<{
+      id: string;
+      recruitment_channel_id: string;
+      recruitment_message_id: string;
+      reaction_bindings: unknown;
+    }>(
+      `SELECT pool.id,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings
+       FROM selection_pools pool JOIN orders ON orders.id=pool.order_id
+       WHERE orders.guild_id=$1 AND pool.status='COLLECTING'
+         AND pool.recruitment_channel_id IS NOT NULL
+         AND pool.recruitment_message_id IS NOT NULL
+         AND pool.reaction_bindings IS NOT NULL
+       ORDER BY pool.opened_at,pool.id`,
+      [input.guildId],
+    );
+    const items: SelectionReactionCard[] = [];
+    for (const row of pools.rows) {
+      const bindings = parseReactionBindings(row.reaction_bindings);
+      const applied = await this.pool.query<{
+        order_requirement_id: string;
+        discord_user_id: string;
+      }>(
+        `SELECT application.order_requirement_id,account.discord_user_id
+         FROM selection_applications application
+         JOIN selection_pools pool ON pool.id=application.selection_pool_id
+         JOIN orders ON orders.id=pool.order_id
+         JOIN discord_accounts account ON account.user_id=application.player_user_id AND account.guild_id=orders.guild_id
+         WHERE application.selection_pool_id=$1 AND application.status='APPLIED'
+         ORDER BY application.applied_at,application.id`,
+        [row.id],
+      );
+      items.push({
+        guildId: input.guildId,
+        channelId: row.recruitment_channel_id,
+        messageId: row.recruitment_message_id,
+        poolId: row.id,
+        bindings: bindings.map((binding) => ({
+          ...binding,
+          appliedDiscordUserIds: [...new Set(applied.rows
+            .filter((application) => application.order_requirement_id === binding.orderRequirementId)
+            .map((application) => application.discord_user_id))],
+        })),
+      });
+    }
+    return { items };
   }
 
   async listApplications(
@@ -957,6 +1207,11 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       throw new SelectionPoolError(
         "BUSINESS_RULE_ERROR",
         "The order has no remaining player slots.",
+      );
+    if ((await this.remainingRequirementCount(client, input.orderId)) > 9)
+      throw new SelectionPoolError(
+        "BUSINESS_RULE_ERROR",
+        "Selection recruitment supports at most 9 requirements.",
       );
     const active = (
       await client.query<{
@@ -1227,6 +1482,125 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     );
     return {
       pool: await this.selectionPool(client, input.orderId, pool.id, false),
+      application: updated,
+    };
+  }
+
+  private async mutateObserveReaction(
+    client: PoolClient,
+    input: ObserveSelectionReactionInput,
+  ): Promise<SelectionReactionObservationResult> {
+    const mapped = (
+      await client.query<{
+        pool_id: string;
+        order_id: string;
+        pool_status: SelectionPoolStatus;
+        order_status: string;
+        reaction_bindings: unknown;
+      }>(
+        `SELECT pool.id pool_id,pool.order_id,pool.status::text pool_status,orders.status::text order_status,pool.reaction_bindings
+         FROM selection_pools pool JOIN orders ON orders.id=pool.order_id
+         WHERE pool.recruitment_channel_id=$1 AND pool.recruitment_message_id=$2 AND orders.guild_id=$3
+         FOR UPDATE OF pool`,
+        [input.channelId, input.messageId, input.actorGuildId],
+      )
+    ).rows[0];
+    const binding = mapped
+      ? parseReactionBindings(mapped.reaction_bindings).find((candidate) => candidate.emoji === input.emoji)
+      : undefined;
+    if (!mapped || !binding)
+      throw new SelectionPoolError("NOT_FOUND", "Active selection reaction mapping was not found.");
+    if (mapped.pool_status !== "COLLECTING" || mapped.order_status !== "PENDING_DISPATCH")
+      throw new SelectionPoolError("CONFLICT", "Selection pool is no longer collecting reactions.");
+
+    const account = (
+      await client.query<{ user_id: string }>(
+        `SELECT user_id FROM discord_accounts WHERE guild_id=$1 AND discord_user_id=$2`,
+        [input.actorGuildId, input.actorDiscordUserId],
+      )
+    ).rows[0];
+    const existingRow = account
+      ? (
+          await client.query<SelectionApplicationRow>(
+            `${selectionApplicationSelect} WHERE application.selection_pool_id=$1 AND application.order_requirement_id=$2 AND application.player_user_id=$3 FOR UPDATE OF application`,
+            [mapped.pool_id, binding.orderRequirementId, account.user_id],
+          )
+        ).rows[0]
+      : undefined;
+    const existing = existingRow ? mapSelectionApplication(existingRow) : null;
+
+    if (input.state === "REMOVED") {
+      if (!existing || existing.status === "WITHDRAWN")
+        return {
+          changed: false,
+          state: "WITHDRAWN",
+          poolId: mapped.pool_id,
+          orderRequirementId: binding.orderRequirementId,
+          application: existing,
+        };
+      if (existing.status !== "APPLIED")
+        throw new SelectionPoolError("CONFLICT", "Selection application can no longer be withdrawn.");
+      await client.query(
+        `UPDATE selection_applications SET status='WITHDRAWN',row_version=row_version+1,withdrawn_at=$3,decided_at=$3,updated_at=$3 WHERE id=$1 AND row_version=$2`,
+        [existing.id, existing.version, input.now],
+      );
+      const updated = await this.application(client, existing.id);
+      await this.applicationEvent(client, updated, existing.playerId, "WITHDRAWN", input.idempotencyKey, input.now);
+      await this.panelOutbox(client, mapped.order_id, "ORDER_SELECTION_WITHDRAWN_CHANNEL_SYNC", `${input.idempotencyKey}:panel-sync`, input.now);
+      return {
+        changed: true,
+        state: "WITHDRAWN",
+        poolId: mapped.pool_id,
+        orderRequirementId: binding.orderRequirementId,
+        application: updated,
+      };
+    }
+
+    const facts = await client.query<PlayerRequirementRow>(
+      `${playerRequirementSelect} WHERE requirement.id=$1 AND requirement.order_id=$2 AND account.guild_id=$3 AND account.discord_user_id=$4 AND requirement.status='ACTIVE' AND profile.review_status='ACTIVE' AND version.status='ACTIVE' AND NOT EXISTS(SELECT 1 FROM service_version_skill_requirements needed WHERE needed.service_catalog_version_id=version.id AND NOT EXISTS(SELECT 1 FROM player_skills skill WHERE skill.player_profile_id=profile.id AND skill.skill_tag_id=needed.skill_tag_id))`,
+      [binding.orderRequirementId, mapped.order_id, input.actorGuildId, input.actorDiscordUserId],
+    );
+    const fact = facts.rows[0];
+    if (!fact)
+      throw new SelectionPoolError("BUSINESS_RULE_ERROR", "Player is not eligible for this requirement.");
+    if ((await this.filled(client, binding.orderRequirementId)) >= fact.requested_player_count)
+      throw new SelectionPoolError("BUSINESS_RULE_ERROR", "Requirement has no remaining player slots.");
+    if (existing?.status === "APPLIED")
+      return {
+        changed: false,
+        state: "APPLIED",
+        poolId: mapped.pool_id,
+        orderRequirementId: binding.orderRequirementId,
+        application: existing,
+      };
+    if (existing && existing.status !== "WITHDRAWN")
+      throw new SelectionPoolError("CONFLICT", "Selection application can no longer be restored.");
+    const snapshot = {
+      playerDisplayName: fact.display_name,
+      publicGameTags: fact.public_game_tags ?? [],
+      publicServiceTags: fact.public_service_tags ?? [],
+      serviceCatalogVersionId: fact.service_catalog_version_id,
+    };
+    let id = existing?.id ?? crypto.randomUUID();
+    if (existing) {
+      await client.query(
+        `UPDATE selection_applications SET status='APPLIED',row_version=row_version+1,eligibility_snapshot=$3,applied_at=$4,withdrawn_at=NULL,decided_at=NULL,updated_at=$4 WHERE id=$1 AND row_version=$2`,
+        [existing.id, existing.version, snapshot, input.now],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO selection_applications(id,selection_pool_id,order_requirement_id,player_user_id,status,row_version,eligibility_snapshot,applied_at,created_at,updated_at) VALUES($1,$2,$3,$4,'APPLIED',1,$5,$6,$6,$6)`,
+        [id, mapped.pool_id, binding.orderRequirementId, fact.player_user_id, snapshot, input.now],
+      );
+    }
+    const updated = await this.application(client, id);
+    await this.applicationEvent(client, updated, fact.player_user_id, "APPLIED", input.idempotencyKey, input.now);
+    await this.panelOutbox(client, mapped.order_id, "ORDER_SELECTION_APPLICATION_CHANNEL_SYNC", `${input.idempotencyKey}:panel-sync`, input.now);
+    return {
+      changed: true,
+      state: "APPLIED",
+      poolId: mapped.pool_id,
+      orderRequirementId: binding.orderRequirementId,
       application: updated,
     };
   }
@@ -1639,6 +2013,19 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       ).rows[0]?.value ?? 0,
     );
   }
+  private async remainingRequirementCount(
+    client: Pick<Pool, "query"> | PoolClient,
+    id: string,
+  ) {
+    return Number(
+      (
+        await client.query<{ value: string }>(
+          `SELECT count(*)::text value FROM order_requirements requirement WHERE requirement.order_id=$1 AND requirement.status='ACTIVE' AND requirement.requested_player_count>(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE')`,
+          [id],
+        )
+      ).rows[0]?.value ?? 0,
+    );
+  }
   private async poolEvent(
     client: PoolClient,
     pool: SelectionPoolRecord,
@@ -1764,6 +2151,9 @@ interface SelectionPoolRow {
   close_reason: SelectionPoolCloseReason | null;
   application_count: string;
   applicant_discord_user_ids?: string[];
+  recruitment_channel_id?: string | null;
+  recruitment_message_id?: string | null;
+  reaction_bindings?: unknown;
 }
 interface SelectionApplicationRow {
   id: string;
@@ -1821,8 +2211,8 @@ interface FinalizeFactRow {
   compensation_value: string | number | null;
 }
 
-const selectionPoolSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count FROM selection_pools pool`;
-const selectionPoolCurrentSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count,ARRAY(SELECT applicant.discord_user_id FROM selection_applications application JOIN orders ON orders.id=pool.order_id JOIN discord_accounts applicant ON applicant.user_id=application.player_user_id AND applicant.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id AND application.status='APPLIED' GROUP BY applicant.discord_user_id ORDER BY MIN(application.applied_at),applicant.discord_user_id) applicant_discord_user_ids FROM selection_pools pool`;
+const selectionPoolSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count FROM selection_pools pool`;
+const selectionPoolCurrentSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count,ARRAY(SELECT applicant.discord_user_id FROM selection_applications application JOIN orders ON orders.id=pool.order_id JOIN discord_accounts applicant ON applicant.user_id=application.player_user_id AND applicant.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id AND application.status='APPLIED' GROUP BY applicant.discord_user_id ORDER BY MIN(application.applied_at),applicant.discord_user_id) applicant_discord_user_ids FROM selection_pools pool`;
 const selectionApplicationSelect = `SELECT application.id,application.selection_pool_id,application.order_requirement_id,application.player_user_id,account.discord_user_id actor_discord_user_id,users.display_name,application.status::text,application.row_version,application.eligibility_snapshot,application.applied_at,application.decided_at FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN selection_pools pool ON pool.id=application.selection_pool_id JOIN orders ON orders.id=pool.order_id JOIN discord_accounts account ON account.user_id=application.player_user_id AND account.guild_id=orders.guild_id`;
 const playerRequirementSelect = `SELECT users.id player_user_id,users.display_name,requirement.service_catalog_version_id,requirement.requested_player_count,ARRAY(SELECT DISTINCT tag.display_name FROM player_skills skill JOIN skill_tags tag ON tag.id=skill.skill_tag_id WHERE skill.player_profile_id=profile.id AND tag.type='GAME' ORDER BY tag.display_name) public_game_tags,ARRAY(SELECT DISTINCT tag.display_name FROM player_skills skill JOIN skill_tags tag ON tag.id=skill.skill_tag_id WHERE skill.player_profile_id=profile.id AND tag.type='SERVICE' ORDER BY tag.display_name) public_service_tags FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id JOIN discord_accounts account ON true JOIN users ON users.id=account.user_id JOIN player_profiles profile ON profile.user_id=users.id`;
 const finalizeFactSelect = `SELECT application.id application_id,application.status::text application_status,application.row_version application_version,application.applied_at,application.eligibility_snapshot,requirement.id requirement_id,requirement.status::text requirement_status,requirement.requested_player_count,application.player_user_id,users.display_name,profile.review_status::text,version.status::text catalog_status,NOT EXISTS(SELECT 1 FROM service_version_skill_requirements needed WHERE needed.service_catalog_version_id=version.id AND NOT EXISTS(SELECT 1 FROM player_skills skill WHERE skill.player_profile_id=profile.id AND skill.skill_tag_id=needed.skill_tag_id)) skills_match,requirement.service_catalog_version_id,requirement.game_code_snapshot,requirement.game_display_name_snapshot,requirement.service_code_snapshot,requirement.service_display_name_snapshot,requirement.region_code_snapshot,requirement.region_display_name_snapshot,requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.customer_unit_price_minor_snapshot,version.default_player_payout_bps,rule.type::text compensation_type,rule.value compensation_value FROM selection_applications application JOIN order_requirements requirement ON requirement.id=application.order_requirement_id JOIN users ON users.id=application.player_user_id JOIN player_profiles profile ON profile.user_id=users.id JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id JOIN service_offerings offering ON offering.id=version.service_offering_id LEFT JOIN player_service_compensation_rules rule ON rule.player_id=profile.id AND rule.service_offering_id=offering.id`;
@@ -1844,7 +2234,22 @@ function mapSelectionPool(row: SelectionPoolRow): SelectionPoolRecord {
     ...(row.applicant_discord_user_ids
       ? { applicantDiscordUserIds: row.applicant_discord_user_ids }
       : {}),
+    recruitmentChannelId: row.recruitment_channel_id ?? null,
+    recruitmentMessageId: row.recruitment_message_id ?? null,
+    reactionBindings: row.reaction_bindings ? parseReactionBindings(row.reaction_bindings) : [],
   };
+}
+function parseReactionBindings(value: unknown): SelectionReactionBinding[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 9)
+    throw new SelectionPoolError("BUSINESS_RULE_ERROR", "Stored selection reaction mapping is invalid.");
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object")
+      throw new SelectionPoolError("BUSINESS_RULE_ERROR", "Stored selection reaction mapping is invalid.");
+    const record = entry as Record<string, unknown>;
+    if (typeof record.emoji !== "string" || typeof record.orderRequirementId !== "string" || typeof record.label !== "string")
+      throw new SelectionPoolError("BUSINESS_RULE_ERROR", "Stored selection reaction mapping is invalid.");
+    return { emoji: record.emoji, orderRequirementId: record.orderRequirementId, label: record.label };
+  });
 }
 function mapSelectionApplication(
   row: SelectionApplicationRow,
@@ -2092,6 +2497,39 @@ export function registerSelectionPoolRoutes(
       }),
     mapError,
   });
+  registerSecureWriteRoute(server, security, {
+    method: "PUT",
+    url: "/api/v1/internal/discord/selection-reactions",
+    permission: "order.selection_pool.apply",
+    action: "OBSERVE_ORDER_SELECTION_REACTION",
+    targetType: "selection_application",
+    acceptedSources: ["DISCORD_BOT"],
+    handler: (request, actor) => {
+      if (!actor.guildId || !actor.discordUserId)
+        throw new SelectionPoolError("PERMISSION_DENIED", "Discord actor context is required.");
+      return options.store.observeReaction({
+        actorGuildId: actor.guildId,
+        actorDiscordUserId: actor.discordUserId,
+        ...parseReactionObservation(request.body),
+        idempotencyKey: idempotencyKey(request),
+        now: now(),
+      });
+    },
+    mapError,
+  });
+  registerSecureReadRoute(server, security, {
+    method: "GET",
+    url: "/api/v1/internal/discord/selection-reaction-cards",
+    permission: "selection.reaction.reconcile",
+    action: "LIST_ACTIVE_ORDER_SELECTION_REACTION_CARDS",
+    targetType: "selection_pool",
+    acceptedSources: ["DISCORD_BOT"],
+    allowServiceActor: true,
+    handler: (request) => options.store.listReactionCards({
+      guildId: snowflake((request.query as Record<string, unknown>).guildId, "guildId"),
+    }),
+    mapError,
+  });
 }
 
 function buildParticipant(
@@ -2186,6 +2624,22 @@ function parseApply(value: unknown) {
     orderRequirementId: uuid(body.orderRequirementId, "orderRequirementId"),
   };
 }
+function parseReactionObservation(value: unknown) {
+  const body = strict(value, ["channelId", "messageId", "emoji", "state"]);
+  if (typeof body.emoji !== "string" || !SELECTION_REACTION_EMOJIS.has(body.emoji))
+    throw new SelectionPoolError("VALIDATION_ERROR", "emoji is invalid.");
+  if (body.state !== "ADDED" && body.state !== "REMOVED")
+    throw new SelectionPoolError("VALIDATION_ERROR", "state is invalid.");
+  return {
+    channelId: snowflake(body.channelId, "channelId"),
+    messageId: snowflake(body.messageId, "messageId"),
+    emoji: body.emoji,
+    state: body.state as SelectionReactionState,
+  };
+}
+const SELECTION_REACTION_EMOJIS = new Set([
+  "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
+]);
 function parseVersionPair(value: unknown) {
   const body = strict(value, [
     "expectedPoolVersion",
@@ -2281,6 +2735,11 @@ function uuid(value: unknown, field: string) {
       value,
     )
   )
+    throw new SelectionPoolError("VALIDATION_ERROR", `${field} is invalid.`);
+  return value;
+}
+function snowflake(value: unknown, field: string) {
+  if (typeof value !== "string" || !/^\d{17,20}$/u.test(value))
     throw new SelectionPoolError("VALIDATION_ERROR", `${field} is invalid.`);
   return value;
 }

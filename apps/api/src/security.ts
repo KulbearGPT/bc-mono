@@ -276,6 +276,7 @@ const serviceActorPermissions = new Set([
   "access.role_sync",
   "bot_config.read",
   "onboarding.message.manage",
+  "selection.reaction.reconcile",
   "transcript.event.append",
 ]);
 

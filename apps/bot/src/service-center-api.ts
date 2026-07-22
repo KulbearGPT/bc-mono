@@ -507,6 +507,25 @@ export interface SelectionFinalizeResult {
   selectedDisplayNames: string[];
   remainingSlotCount: number;
 }
+export interface SelectionReactionObservationResult {
+  changed: boolean;
+  state: 'APPLIED' | 'WITHDRAWN';
+  poolId: string;
+  orderRequirementId: string;
+  application: SelectionApplicationSummary | null;
+}
+export interface SelectionReactionCard {
+  guildId: string;
+  channelId: string;
+  messageId: string;
+  poolId: string;
+  bindings: Array<{
+    emoji: string;
+    orderRequirementId: string;
+    label: string;
+    appliedDiscordUserIds: string[];
+  }>;
+}
 
 export interface BotApiClient {
   listServices(actor: BotActorContext, game?: string): Promise<{ items: PublicServiceSummary[] }>;
@@ -1321,12 +1340,30 @@ export class HttpBotApiClient implements BotApiClient {
       { method: 'POST', actor, idempotencyKey, body: input }
     );
   }
+  public observeSelectionReaction(
+    input: { channelId: string; messageId: string; emoji: string; state: 'ADDED' | 'REMOVED' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ) {
+    return this.request<SelectionReactionObservationResult>('/api/v1/internal/discord/selection-reactions', {
+      method: 'PUT',
+      actor,
+      idempotencyKey,
+      body: input
+    });
+  }
+  public listActiveSelectionReactionCards(guildId: string) {
+    return this.request<{ items: SelectionReactionCard[] }>(
+      `/api/v1/internal/discord/selection-reaction-cards?guildId=${encodeURIComponent(guildId)}`,
+      { method: 'GET' }
+    );
+  }
 
   private async request<T>(
     path: string,
     input: {
       method: 'GET' | 'POST' | 'PATCH' | 'PUT';
-      actor: BotActorContext;
+      actor?: BotActorContext;
       idempotencyKey?: string;
       body?: unknown;
       includeStatus?: false;
@@ -1336,7 +1373,7 @@ export class HttpBotApiClient implements BotApiClient {
     path: string,
     input: {
       method: 'GET' | 'POST' | 'PATCH' | 'PUT';
-      actor: BotActorContext;
+      actor?: BotActorContext;
       idempotencyKey?: string;
       body?: unknown;
       includeStatus: true;
@@ -1346,7 +1383,7 @@ export class HttpBotApiClient implements BotApiClient {
     path: string,
     input: {
       method: 'GET' | 'POST' | 'PATCH' | 'PUT';
-      actor: BotActorContext;
+      actor?: BotActorContext;
       idempotencyKey?: string;
       body?: unknown;
       includeStatus?: boolean;

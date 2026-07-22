@@ -1,5 +1,5 @@
 import { ApplicationCommandRegistries, SapphireClient } from '@sapphire/framework';
-import { GatewayIntentBits } from 'discord.js';
+import { GatewayIntentBits, Partials } from 'discord.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
@@ -64,8 +64,10 @@ if (!validation.values.discordBotToken) {
       GatewayIntentBits.GuildPresences,
       GatewayIntentBits.GuildVoiceStates,
       GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.GuildMessageReactions,
       GatewayIntentBits.MessageContent
-    ]
+    ],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User]
   });
   await client.login(validation.values.discordBotToken);
   const runtime = await initializeLiveBotRuntime({

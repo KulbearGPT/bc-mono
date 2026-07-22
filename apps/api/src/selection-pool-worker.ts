@@ -1,6 +1,7 @@
 import type { OutboxHandler } from "./worker-runtime.js";
 import { createHash } from "node:crypto";
 import type { Pool } from "pg";
+import type { SelectionReactionBinding } from "./selection-pools.js";
 
 type SelectionSyncPhase = "COLLECTING" | "SELECTION" | "FINALIZED" | "CANCELLED";
 
@@ -77,6 +78,9 @@ interface SelectionWorkerProjection {
   poolId: string;
   poolVersion: number;
   poolStatus: string;
+  recruitmentChannelId: string | null;
+  recruitmentMessageId: string | null;
+  reactionBindings: SelectionReactionBinding[];
   orderId: string;
   orderPublicId: string;
   orderStatus: string;
@@ -110,8 +114,38 @@ interface SelectionWorkerProjection {
   }>;
 }
 
+interface DiscordRecruitmentMessage {
+  id?: string;
+  embeds?: Array<{
+    title?: string;
+    footer?: { text?: string };
+  }>;
+  components?: Array<{
+    components?: Array<{ custom_id?: string }>;
+  }>;
+}
+
 export class PostgresSelectionPoolWorkerStore {
   constructor(private readonly pool: Pool) {}
+  async enqueueRecruitmentCardNormalization(now: Date) {
+    const queued = await this.pool.query(
+      `INSERT INTO outbox_events(
+         id,event_type,aggregate_type,aggregate_id,order_id,selection_pool_id,
+         dedupe_key,payload,status,row_version,attempt_count,max_attempts,
+         available_at,created_at,updated_at
+       )
+       SELECT gen_random_uuid(),'SELECTION_POOL_SYNC','selection_pool',pool.id,pool.order_id,pool.id,
+         'selection-reaction-card-normalize-v2:'||pool.id,
+         jsonb_build_object('orderId',pool.order_id,'selectionPoolId',pool.id,'phase','COLLECTING'),
+         'PENDING',1,0,8,$1,$1,$1
+       FROM selection_pools pool
+       WHERE pool.status='COLLECTING'
+       ON CONFLICT(dedupe_key) DO NOTHING
+       RETURNING id`,
+      [now],
+    );
+    return queued.rowCount ?? 0;
+  }
   async closeExpired(selectionPoolId: string, deadline: string) {
     void selectionPoolId;
     void deadline;
@@ -120,7 +154,7 @@ export class PostgresSelectionPoolWorkerStore {
     selectionPoolId: string,
   ): Promise<SelectionWorkerProjection | null> {
     const result = await this.pool.query<Record<string, unknown>>(
-      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.selection_voice_channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
+      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.selection_voice_channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
       [selectionPoolId],
     );
     const row = result.rows[0];
@@ -133,6 +167,11 @@ export class PostgresSelectionPoolWorkerStore {
       poolId: text(row.pool_id),
       poolVersion: int(row.pool_version),
       poolStatus: text(row.pool_status),
+      recruitmentChannelId: nullable(row.recruitment_channel_id),
+      recruitmentMessageId: nullable(row.recruitment_message_id),
+      reactionBindings: Array.isArray(row.reaction_bindings)
+        ? (row.reaction_bindings as SelectionReactionBinding[])
+        : [],
       orderId: text(row.order_id),
       orderPublicId: text(row.public_id),
       orderStatus: text(row.order_status),
@@ -190,6 +229,24 @@ export class PostgresSelectionPoolWorkerStore {
     if (!updated.rows[0])
       throw new Error("Order service voice channel changed concurrently.");
   }
+  async setRecruitmentCard(
+    poolId: string,
+    channelId: string,
+    messageId: string,
+    bindings: SelectionReactionBinding[],
+  ) {
+    const updated = await this.pool.query(
+      `UPDATE selection_pools
+       SET recruitment_channel_id=$2,recruitment_message_id=$3,reaction_bindings=$4::jsonb,updated_at=now()
+       WHERE id=$1 AND status='COLLECTING'
+         AND (recruitment_message_id IS NULL OR
+              (recruitment_channel_id=$2 AND recruitment_message_id=$3 AND reaction_bindings=$4::jsonb))
+       RETURNING id`,
+      [poolId, channelId, messageId, JSON.stringify(bindings)],
+    );
+    if (!updated.rows[0])
+      throw new Error("Selection recruitment card changed concurrently.");
+  }
   async createFailureTask(
     selectionPoolId: string,
     error: unknown,
@@ -237,21 +294,11 @@ export class DiscordSelectionPoolAdapter {
     notBefore: string,
   ): Promise<string | null> {
     if (phase === "COLLECTING") {
-      await this.sendOnce(
-        projection.dispatchChannelId,
-        `selection-offer:${projection.poolId}`,
-        offerPayload(projection),
-        notBefore,
-      );
+      await this.syncRecruitmentCard(projection);
       return projection.selectionVoiceChannelId;
     }
     if (phase === "CANCELLED") {
-      await this.upsertOnce(
-        projection.dispatchChannelId,
-        `selection-offer:${projection.poolId}`,
-        cancelledOfferPayload(projection),
-        notBefore,
-      );
+      await this.updateRecruitmentCard(projection, cancelledOfferPayload(projection), notBefore);
       await this.editIfPresent(
         projection.orderChannelId,
         `selection-customer:${projection.poolId}`,
@@ -296,12 +343,7 @@ export class DiscordSelectionPoolAdapter {
       });
       return selectionVoice;
     }
-    await this.upsertOnce(
-      projection.dispatchChannelId,
-      `selection-offer:${projection.poolId}`,
-      closedOfferPayload(projection),
-      notBefore,
-    );
+    await this.updateRecruitmentCard(projection, closedOfferPayload(projection), notBefore);
     const channels = (await this.request<
       Array<{
         id: string;
@@ -471,11 +513,99 @@ export class DiscordSelectionPoolAdapter {
     );
     return serviceVoice;
   }
+  async syncRecruitmentCard(projection: SelectionWorkerProjection): Promise<{
+    channelId: string;
+    messageId: string;
+    bindings: SelectionReactionBinding[];
+  }> {
+    const bindings = projection.reactionBindings?.length
+      ? validateSelectionReactionBindings(projection.reactionBindings)
+      : buildSelectionReactionBindings(projection.requirements);
+    const payload = buildSelectionReactionOfferPayload({
+      poolId: projection.poolId,
+      orderPublicId: projection.orderPublicId,
+      requirements: projection.requirements,
+      bindings,
+    });
+    const messages = await this.request<DiscordRecruitmentMessage[]>(
+      `/channels/${projection.dispatchChannelId}/messages?limit=100`,
+      { method: "GET" },
+    );
+    const matchingMessages = messages.filter((message) =>
+      isRecruitmentMessageForPool(message, projection),
+    );
+    let messageId = projection.recruitmentMessageId ??
+      oldestDiscordMessageId(matchingMessages) ?? null;
+    if (!messageId) {
+      const nonce = createHash("sha256")
+        .update(`selection-offer:${projection.poolId}`)
+        .digest("hex")
+        .slice(0, 24);
+      const sent = await this.request<{ id: string }>(
+        `/channels/${projection.dispatchChannelId}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify({ ...payload, nonce, enforce_nonce: true }),
+        },
+      );
+      messageId = text(sent.id);
+    } else {
+      await this.request(`/channels/${projection.dispatchChannelId}/messages/${messageId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+    }
+    for (const duplicate of matchingMessages) {
+      if (!duplicate.id || duplicate.id === messageId) continue;
+      await this.request(
+        `/channels/${projection.dispatchChannelId}/messages/${duplicate.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(supersededRecruitmentPayload(projection)),
+        },
+      );
+      await this.request(
+        `/channels/${projection.dispatchChannelId}/messages/${duplicate.id}/reactions`,
+        { method: "DELETE" },
+        [404],
+      );
+    }
+    for (const binding of bindings)
+      await this.request(
+        `/channels/${projection.dispatchChannelId}/messages/${messageId}/reactions/${encodeURIComponent(binding.emoji)}/@me`,
+        { method: "PUT" },
+      );
+    return { channelId: projection.dispatchChannelId, messageId, bindings };
+  }
   private async moveMember(guildId: string, userId: string, channelId: string) {
     await this.request(
       `/guilds/${guildId}/members/${userId}`,
       { method: "PATCH", body: JSON.stringify({ channel_id: channelId }) },
       [400, 404],
+    );
+  }
+  private async updateRecruitmentCard(
+    projection: SelectionWorkerProjection,
+    payload: Record<string, unknown>,
+    notBefore: string,
+  ) {
+    if (!projection.recruitmentMessageId) {
+      await this.upsertOnce(
+        projection.dispatchChannelId,
+        `selection-offer:${projection.poolId}`,
+        payload,
+        notBefore,
+      );
+      return;
+    }
+    await this.request(
+      `/channels/${projection.dispatchChannelId}/messages/${projection.recruitmentMessageId}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+    );
+    await this.request(
+      `/channels/${projection.dispatchChannelId}/messages/${projection.recruitmentMessageId}/reactions`,
+      { method: "DELETE" },
+      [404],
     );
   }
   private async removeRejected(
@@ -627,6 +757,16 @@ export class SelectionPoolWorkerService {
     if (!projection)
       throw new Error("Selection pool projection was not found.");
     if (projection.poolStatus !== phase) return;
+    if (phase === "COLLECTING") {
+      const delivery = await this.discord.syncRecruitmentCard(projection);
+      await this.store.setRecruitmentCard(
+        poolId,
+        delivery.channelId,
+        delivery.messageId,
+        delivery.bindings,
+      );
+      return;
+    }
     const voice = await this.discord.sync(projection, phase, notBefore);
     if (
       phase === "SELECTION" &&
@@ -754,44 +894,103 @@ function channelName(prefix: "selection" | "service", publicId: string) {
     .replace(/[^a-z0-9-]/gu, "-")
     .slice(0, 90);
 }
-function offerPayload(p: SelectionWorkerProjection) {
-  const requirements = p.requirements
-    .filter((item) => item.remainingSlots > 0)
-    .slice(0, 25);
+const SELECTION_REACTION_EMOJIS = [
+  "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
+] as const;
+
+export function buildSelectionReactionBindings(
+  requirements: Array<{ id: string; label: string; remainingSlots: number }>,
+): SelectionReactionBinding[] {
+  const remaining = requirements.filter((item) => item.remainingSlots > 0);
+  if (remaining.length < 1 || remaining.length > SELECTION_REACTION_EMOJIS.length)
+    throw new Error("Selection recruitment requires 1 to at most 9 requirements.");
+  return remaining.map((item, index) => ({
+    emoji: SELECTION_REACTION_EMOJIS[index]!,
+    orderRequirementId: item.id,
+    label: item.label,
+  }));
+}
+
+export function buildSelectionReactionOfferPayload(input: {
+  poolId: string;
+  orderPublicId: string;
+  requirements: Array<{ id: string; label: string; remainingSlots: number }>;
+  bindings?: SelectionReactionBinding[];
+}) {
+  const bindings = input.bindings
+    ? validateSelectionReactionBindings(input.bindings)
+    : buildSelectionReactionBindings(input.requirements);
+  const requirements = bindings.map((binding) => {
+    const requirement = input.requirements.find((item) => item.id === binding.orderRequirementId);
+    if (!requirement)
+      throw new Error("Persisted selection reaction requirement is unavailable.");
+    return requirement;
+  });
   return {
     embeds: [
       {
-        title: `候选池 #${p.orderPublicId}`,
-        description: "可同时报名多个订单；报名不会占用正式订单名额。",
-        fields: requirements.map((item) => ({
-          name: item.label,
+        title: `候选池 #${input.orderPublicId}`,
+        description: "点击项目对应的数字 Reaction 报名；移除 Reaction 即撤回。可同时报名多个项目或订单，报名不会占用正式订单名额。",
+        fields: requirements.map((item, index) => ({
+          name: `${bindings[index]!.emoji} ${item.label}`,
           value: `缺 ${item.remainingSlots} 位`,
         })),
+        footer: { text: `selection-pool:${input.poolId}` },
       },
     ],
-    components: requirements.length
-      ? [
-          {
-            type: 1,
-            components: [
-              {
-                type: 3,
-                custom_id: `bc:sp:m:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}`,
-                placeholder: "选择要报名的项目",
-                min_values: 1,
-                max_values: 1,
-                options: requirements.map((item) => ({
-                  label: item.label.slice(0, 100),
-                  value: short(item.id),
-                  description: `缺 ${item.remainingSlots} 位`,
-                })),
-              },
-            ],
-          },
-        ]
-      : [],
+    components: [],
     allowed_mentions: { parse: [] },
   };
+}
+
+function isRecruitmentMessageForPool(
+  message: DiscordRecruitmentMessage,
+  projection: SelectionWorkerProjection,
+) {
+  const marker = `selection-pool:${projection.poolId}`;
+  if (message.embeds?.some((embed) => embed.footer?.text === marker)) return true;
+  const legacyPrefix = `bc:sp:m:${short(projection.orderId)}:${short(projection.poolId)}:`;
+  return message.components?.some((row) =>
+    row.components?.some((component) =>
+      component.custom_id?.startsWith(legacyPrefix),
+    ),
+  ) ?? false;
+}
+
+function oldestDiscordMessageId(messages: DiscordRecruitmentMessage[]) {
+  return messages
+    .map((message) => message.id)
+    .filter((id): id is string => Boolean(id))
+    .sort((left, right) => {
+      try {
+        const first = BigInt(left);
+        const second = BigInt(right);
+        return first < second ? -1 : first > second ? 1 : 0;
+      } catch {
+        return left.localeCompare(right);
+      }
+    })[0];
+}
+
+function supersededRecruitmentPayload(projection: SelectionWorkerProjection) {
+  return {
+    embeds: [{
+      title: `候选池 #${projection.orderPublicId}（旧报名卡）`,
+      description: "此重复报名卡已停用，请使用本频道最新的数字 Reaction 报名卡。",
+      footer: { text: `selection-pool-superseded:${projection.poolId}` },
+    }],
+    components: [],
+    allowed_mentions: { parse: [] },
+  };
+}
+function validateSelectionReactionBindings(bindings: SelectionReactionBinding[]) {
+  if (
+    bindings.length < 1 ||
+    bindings.length > SELECTION_REACTION_EMOJIS.length ||
+    bindings.some((binding, index) => binding.emoji !== SELECTION_REACTION_EMOJIS[index])
+  )
+    throw new Error("Persisted selection reaction mapping is invalid.");
+  return bindings;
 }
 function closedOfferPayload(p: SelectionWorkerProjection) {
   const applicationCount = p.applicants.filter(

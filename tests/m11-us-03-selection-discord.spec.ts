@@ -886,7 +886,13 @@ describe("M11-US-03 Discord selection flow", () => {
       })),
       selectedPlayers: [],
       selectedDiscordUserIds: [],
-      requirements: [],
+      requirements: [{
+        id: requirementId,
+        label: "瓦洛兰特 · 技术陪玩",
+        remainingSlots: 1,
+        expectedEarningMinor: 120,
+        currency: "CAT",
+      }],
     };
     await adapter.sync(
       { ...projection, poolStatus: "COLLECTING" },

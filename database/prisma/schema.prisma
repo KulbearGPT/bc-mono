@@ -1622,6 +1622,9 @@ model SelectionPool {
   closedAt        DateTime?                @map("closed_at") @db.Timestamptz(3)
   closeReason     SelectionPoolCloseReason? @map("close_reason")
   finalizedAt     DateTime?                @map("finalized_at") @db.Timestamptz(3)
+  recruitmentChannelId String?             @map("recruitment_channel_id") @db.VarChar(32)
+  recruitmentMessageId String?             @unique @map("recruitment_message_id") @db.VarChar(32)
+  reactionBindings Json?                   @map("reaction_bindings") @db.JsonB
   createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
 
