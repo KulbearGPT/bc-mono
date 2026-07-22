@@ -20,6 +20,7 @@ COPY --from=build /app/node_modules ./node_modules
 RUN npm prune --omit=dev
 COPY --from=build /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/assets ./apps/api/assets
 COPY --from=build /app/apps/bot/package.json ./apps/bot/package.json
 COPY --from=build /app/apps/bot/dist ./apps/bot/dist
 COPY --from=build /app/apps/dashboard/dist ./apps/dashboard/dist

@@ -1,5 +1,6 @@
 import type { OutboxHandler } from "./worker-runtime.js";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
 import type { SelectionReactionBinding } from "./selection-pools.js";
 
@@ -116,6 +117,7 @@ interface SelectionWorkerProjection {
 
 interface DiscordRecruitmentMessage {
   id?: string;
+  nonce?: string;
   embeds?: Array<{
     title?: string;
     footer?: { text?: string };
@@ -299,6 +301,13 @@ export class DiscordSelectionPoolAdapter {
     }
     if (phase === "CANCELLED") {
       await this.updateRecruitmentCard(projection, cancelledOfferPayload(projection), notBefore);
+      await this.sendStatusImageOnce(
+        projection.dispatchChannelId,
+        `selection-cancelled:${projection.orderId}`,
+        ORDER_CANCELLED_BANNER,
+        "blackcat-order-cancelled.png",
+        "本单流单",
+      );
       await this.editIfPresent(
         projection.orderChannelId,
         `selection-customer:${projection.poolId}`,
@@ -534,6 +543,16 @@ export class DiscordSelectionPoolAdapter {
     const matchingMessages = messages.filter((message) =>
       isRecruitmentMessageForPool(message, projection),
     );
+    if (!projection.recruitmentMessageId && matchingMessages.length === 0) {
+      await this.sendStatusImageOnce(
+        projection.dispatchChannelId,
+        `selection-dispatching:${projection.orderId}`,
+        DISPATCHING_BANNER,
+        "blackcat-dispatching.png",
+        "正在派单",
+        messages,
+      );
+    }
     let messageId = projection.recruitmentMessageId ??
       oldestDiscordMessageId(matchingMessages) ?? null;
     if (!messageId) {
@@ -722,18 +741,49 @@ export class DiscordSelectionPoolAdapter {
       body: JSON.stringify(payload),
     });
   }
+  private async sendStatusImageOnce(
+    channel: string,
+    key: string,
+    asset: URL,
+    filename: string,
+    description: string,
+    knownMessages?: Array<{ nonce?: string }>,
+  ) {
+    const nonce = createHash("sha256").update(key).digest("hex").slice(0, 24);
+    const messages = knownMessages ?? await this.request<Array<{ nonce?: string }>>(
+      `/channels/${channel}/messages?limit=100`,
+      { method: "GET" },
+    );
+    if (messages.some((message) => message.nonce === nonce)) return;
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({
+      nonce,
+      enforce_nonce: true,
+      attachments: [{ id: 0, filename, description }],
+      allowed_mentions: { parse: [] },
+    }));
+    form.append(
+      "files[0]",
+      new Blob([await readFile(asset)], { type: "image/png" }),
+      filename,
+    );
+    await this.request(`/channels/${channel}/messages`, {
+      method: "POST",
+      body: form,
+    });
+  }
   private async request<T = void>(
     path: string,
     init: RequestInit,
     acceptedStatuses: number[] = [],
   ): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set("authorization", `Bot ${this.token}`);
+    if (!(init.body instanceof FormData))
+      headers.set("content-type", "application/json");
     const response = await this.fetcher(`${this.base}${path}`, {
       ...init,
-      headers: {
-        authorization: `Bot ${this.token}`,
-        "content-type": "application/json",
-        ...init.headers,
-      },
+      headers,
     });
     if (!response.ok && !acceptedStatuses.includes(response.status))
       throw new Error(`Discord selection sync failed (${response.status}).`);
@@ -897,6 +947,14 @@ function channelName(prefix: "selection" | "service", publicId: string) {
 const SELECTION_REACTION_EMOJIS = [
   "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
 ] as const;
+const DISPATCHING_BANNER = new URL(
+  "../assets/dispatch/dispatching.png",
+  import.meta.url,
+);
+const ORDER_CANCELLED_BANNER = new URL(
+  "../assets/dispatch/order-cancelled.png",
+  import.meta.url,
+);
 
 export function buildSelectionReactionBindings(
   requirements: Array<{ id: string; label: string; remainingSlots: number }>,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, test, vi } from 'vitest';
 import {
@@ -27,7 +28,7 @@ const messageId = '444444444444444444';
 
 describe('M11-US-06 numeric reaction signup', () => {
   test('keeps the reaction contract mirrored and explicit', async () => {
-    const [spec, outputApi, docsApi, outputBacklog, docsBacklog, outputAcceptance, docsAcceptance] =
+    const [spec, outputApi, docsApi, outputBacklog, docsBacklog, outputAcceptance, docsAcceptance, dockerfile] =
       await Promise.all([
         readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
         readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
@@ -35,7 +36,8 @@ describe('M11-US-06 numeric reaction signup', () => {
         readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
         readFile('docs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
         readFile('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
-        readFile('docs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8')
+        readFile('docs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
+        readFile('Dockerfile', 'utf8')
       ]);
 
     expect(outputApi).toBe(docsApi);
@@ -46,8 +48,13 @@ describe('M11-US-06 numeric reaction signup', () => {
     expect(spec).toContain('不得拆卡、分页、截断');
     expect(outputBacklog).toContain('M11-US-06');
     expect(outputAcceptance).toContain('AT-SEL-008');
+    expect(outputAcceptance).toContain('AT-SEL-009');
+    expect(spec).toContain('正在派单');
+    expect(spec).toContain('本单流单');
+    expect(spec).toContain('终止招募”进入 <code>SELECTION</code> 不属于取消');
     expect(outputApi).toContain('operationId: observeOrderSelectionReaction');
     expect(outputApi).toContain('operationId: listActiveOrderSelectionReactionCards');
+    expect(dockerfile).toContain('COPY --from=build /app/apps/api/assets ./apps/api/assets');
   });
 
   test('renders one reaction-only card for one through nine requirements and rejects ten', () => {
@@ -147,6 +154,83 @@ describe('M11-US-06 numeric reaction signup', () => {
     expect(query.mock.calls[0]?.[0]).toContain("WHERE pool.status='COLLECTING'");
     expect(query.mock.calls[0]?.[0]).not.toContain('recruitment_message_id IS NULL');
     expect(query.mock.calls[0]?.[0]).toContain('selection-reaction-card-normalize-v2:');
+  });
+
+  test('posts the dispatching image before the unchanged recruitment embed and deduplicates by order', async () => {
+    const requests: Array<{ method: string; url: string; body: BodyInit | null | undefined }> = [];
+    const statusNonce = createHash('sha256')
+      .update(`selection-dispatching:${orderId}`)
+      .digest('hex')
+      .slice(0, 24);
+    let statusExists = false;
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ method: init?.method ?? 'GET', url, body: init?.body });
+      if (url.includes('/messages?limit=100'))
+        return Response.json(statusExists ? [{ id: 'status-image', nonce: statusNonce }] : []);
+      if (init?.method === 'POST' && init.body instanceof FormData) {
+        statusExists = true;
+        return Response.json({ id: 'status-image' });
+      }
+      if (init?.method === 'POST') return Response.json({ id: messageId });
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: 'token', apiBaseUrl: 'https://discord.test', fetch: fetcher as typeof fetch
+    });
+
+    await adapter.syncRecruitmentCard(reactionProjection(null));
+    await adapter.syncRecruitmentCard(reactionProjection(null));
+
+    const posts = requests.filter((request) => request.method === 'POST');
+    expect(posts).toHaveLength(3);
+    expect(posts[0]?.body).toBeInstanceOf(FormData);
+    const form = posts[0]!.body as FormData;
+    const attachment = form.get('files[0]');
+    expect(attachment).toBeInstanceOf(Blob);
+    expect((attachment as File).name).toBe('blackcat-dispatching.png');
+    expect(JSON.parse(String(form.get('payload_json')))).toMatchObject({
+      nonce: statusNonce,
+      enforce_nonce: true,
+      attachments: [{ id: 0, filename: 'blackcat-dispatching.png' }]
+    });
+    expect(typeof posts[1]?.body).toBe('string');
+    const embedPayload = JSON.parse(String(posts[1]?.body));
+    expect(embedPayload.components).toEqual([]);
+    expect(embedPayload.embeds[0]).toMatchObject({ title: '候选池 #P-REACTION' });
+    expect(posts.filter((request) => request.body instanceof FormData)).toHaveLength(1);
+  });
+
+  test('posts the sad image only for a truly cancelled order', async () => {
+    const forms: FormData[] = [];
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/messages?limit=100')) return Response.json([]);
+      if (init?.body instanceof FormData) {
+        forms.push(init.body);
+        return Response.json({ id: 'cancel-image' });
+      }
+      if (init?.method === 'PATCH') return Response.json({ id: messageId });
+      return new Response(null, { status: 204 });
+    });
+    const adapter = new DiscordSelectionPoolAdapter({
+      token: 'token', apiBaseUrl: 'https://discord.test', fetch: fetcher as typeof fetch
+    });
+
+    await adapter.sync({
+      ...reactionProjection(messageId),
+      poolStatus: 'CANCELLED',
+      orderStatus: 'CANCELLED'
+    }, 'CANCELLED', '2026-08-08T12:05:00.000Z');
+
+    expect(forms).toHaveLength(1);
+    const file = forms[0]!.get('files[0]');
+    expect(file).toBeInstanceOf(Blob);
+    expect((file as File).name).toBe('blackcat-order-cancelled.png');
+    expect(JSON.parse(String(forms[0]!.get('payload_json')))).toMatchObject({
+      enforce_nonce: true,
+      attachments: [{ id: 0, filename: 'blackcat-order-cancelled.png' }]
+    });
   });
 
   test('rejects starting a round with ten remaining requirement rows before any pool write', () => {
