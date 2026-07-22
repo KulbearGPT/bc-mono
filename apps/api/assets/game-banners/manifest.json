@@ -1,0 +1,15 @@
+[
+  { "label": "英雄联盟", "file": "league-of-legends.png" },
+  { "label": "无畏契约", "file": "valorant.png" },
+  { "label": "三角洲行动", "file": "delta-force.png" },
+  { "label": "Apex 英雄", "file": "apex-legends.png" },
+  { "label": "绝地求生", "file": "pubg.png" },
+  { "label": "CS2 / CSGO", "file": "cs2-csgo.png" },
+  { "label": "守望先锋", "file": "overwatch.png" },
+  { "label": "永劫无间", "file": "naraka-bladepoint.png" },
+  { "label": "DOTA2", "file": "dota2.png" },
+  { "label": "金铲铲 / 云顶", "file": "tft.png" },
+  { "label": "聊天 / 小游戏", "file": "chat-minigames.png" },
+  { "label": "唱歌 / 声优", "file": "singing-voice.png" },
+  { "label": "其他", "file": "other.png" }
+]
