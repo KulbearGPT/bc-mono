@@ -28,8 +28,8 @@ const exactExplanations: ReadonlyArray<[RegExp, ErrorExplanation]> = [
   [
     /Only the order owner can close early\./iu,
     {
-      reason: '当前 Discord 账号不是该订单的客户所有者，因此不能提前结束报名。',
-      nextStep: '请由创建该订单的客户账号操作，或等待本轮报名自动结束。'
+      reason: '当前 Discord 账号不是该订单的客户所有者，因此不能终止招募。',
+      nextStep: '请由创建该订单的客户账号在订单面板手动操作。'
     }
   ],
   [

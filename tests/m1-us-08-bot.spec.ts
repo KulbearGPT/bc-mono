@@ -70,12 +70,13 @@ describe('M1-US-08 final submit Bot flow', () => {
     const message = buildSubmittedOrderMessage(reservationResult());
 
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
-    expect(message.title).toBe('🐾 订单已提交 · 请选择报名等待时间');
+    expect(message.title).toBe('🐾 订单已提交 · 开始招募陪玩');
     expect(message.body).toContain('订单状态：PENDING_DISPATCH');
     expect(message.body).toContain('本单预留：1,200.0 CAT');
     expect(message.body).toContain('提交后可用余额：98,800.0 CAT');
     expect(message.body).toContain('目前只是预留本单所需猫条，还没有产生正式消费。');
-    expect(message.body).toContain('选择后系统才会在派单频道发布报名卡');
+    expect(message.body).toContain('点击“开始招募”后，系统才会在派单频道发布报名卡');
+    expect(message.body).toContain('招募不会自动结束');
     expect(message.body).not.toContain('正在匹配陪玩');
     expect(JSON.stringify(message.components)).toContain(`bc:order:${orderId}:refresh`);
     expect(JSON.stringify(message.components)).not.toContain(`bc:order:${orderId}:submit:v`);
@@ -111,7 +112,7 @@ describe('M1-US-08 final submit Bot flow', () => {
     expect(source).toContain("buildDiscordIdempotencyKey('order:submit-final', interaction.id)");
   });
 
-  test('routes the real submit-final interaction into the wait-time selection card', async () => {
+  test('routes the real submit-final interaction into the manual recruitment card', async () => {
     const events: string[] = [];
     vi.stubEnv('API_BASE_URL', 'https://api.example.test');
     vi.stubEnv('BOT_SERVICE_TOKEN', 'bot-token');
@@ -148,8 +149,9 @@ describe('M1-US-08 final submit Bot flow', () => {
     expect(events).toEqual(['ack', 'api', 'edit']);
     const update = interaction.editReply.mock.calls[0]?.[0];
     expect(JSON.stringify(update)).toContain(`bc:sp:new:${orderId}:o3`);
-    expect(JSON.stringify(update)).toContain('选择等待时间');
-    expect(JSON.stringify(update)).toContain('订单已提交 · 请选择报名等待时间');
+    expect(JSON.stringify(update)).toContain('开始招募');
+    expect(JSON.stringify(update)).toContain('订单已提交 · 开始招募陪玩');
+    expect(JSON.stringify(update)).not.toContain('选择等待时间');
     expect(JSON.stringify(update)).not.toContain('正在匹配陪玩');
     expect(interaction.followUp).not.toHaveBeenCalled();
   });

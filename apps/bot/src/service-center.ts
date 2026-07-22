@@ -1260,7 +1260,7 @@ function readinessLabel(value: 'READY' | 'NOT_READY'): string {
 
 export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult): MessageSpec {
   return {
-    title: '🐾 订单已提交 · 请选择报名等待时间',
+    title: '🐾 订单已提交 · 开始招募陪玩',
     body: [
       '**订单状态**',
       `订单状态：${input.status}`,
@@ -1273,12 +1273,12 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
       BOT_COPY.orders.reservationOnly,
       '',
       '**下一步**',
-      '请选择 1、3、5、10、15 或 30 分钟的报名等待时间。',
-      '选择后系统才会在派单频道发布报名卡；尚未选择前不会通知陪玩。'
+      '点击“开始招募”后，系统才会在派单频道发布报名卡。',
+      '招募不会自动结束；请在合适时手动点击“终止招募”。'
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [
-      ...selectionWaitRows(`bc:sp:new:${input.orderId}:o${input.version}`),
+      ...selectionStartRows(`bc:sp:new:${input.orderId}:o${input.version}`),
       {
         type: 'ACTION_ROW',
         components: [
@@ -1306,22 +1306,16 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
   };
 }
 
-function selectionWaitRows(customId: string): MessageComponentSpec[] {
-  const waitMinutes = [1, 3, 5, 10, 15, 30];
+function selectionStartRows(customId: string): MessageComponentSpec[] {
   return [
     {
       type: 'ACTION_ROW',
       components: [
         {
-          type: 'STRING_SELECT',
+          type: 'BUTTON',
+          style: 'PRIMARY',
           customId,
-          placeholder: '选择等待时间',
-          minValues: 1,
-          maxValues: 1,
-          options: waitMinutes.map((minutes) => ({
-            label: `等待 ${minutes} 分钟`,
-            value: String(minutes)
-          }))
+          label: '开始招募'
         }
       ]
     }

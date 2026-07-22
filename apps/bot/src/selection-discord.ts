@@ -11,11 +11,19 @@ export interface SelectionRequirementOffer {
 export interface SelectionCandidate {
   id: string;
   playerDisplayName: string;
+  playerDiscordUserId?: string;
   orderRequirementId: string;
   publicGameTags: string[];
   publicServiceTags: string[];
 }
 export type SelectionRoute =
+  | {
+      action: 'start';
+      orderId: string;
+      poolId: string | null;
+      expectedPoolVersion: number | null;
+      expectedOrderVersion: number;
+    }
   | {
       action: 'apply';
       orderId: string;
@@ -71,15 +79,14 @@ export function buildSelectionPoolOfferMessage(input: {
   poolId: string;
   poolVersion: number;
   orderPublicId: string;
-  closesAt: string;
   requirements: SelectionRequirementOffer[];
 }): MessageSpec {
   const requirements = input.requirements.filter((item) => item.remainingSlots > 0).slice(0, 25);
   return {
     title: `🐾 候选池 #${input.orderPublicId}`,
     body: [
-      `**报名截止**：<t:${Math.floor(Date.parse(input.closesAt) / 1000)}:R>`,
       '可同时报名多个订单；报名不会占用正式订单名额。',
+      '招募会持续进行，直到客户手动终止。',
       '',
       '**可报名项目**',
       ...requirements.map((item) => `${item.label} · 缺 ${item.remainingSlots} 位`)
@@ -154,9 +161,9 @@ export function buildSelectionCandidatePanel(input: {
     });
   if (options.length)
     components.push(
-      selectionWaitSelector(
+      selectionActionButton(
         `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-        '候选不合适，选择新一轮等待时间'
+        '候选不合适，重新开始招募'
       )
     );
   return {
@@ -168,7 +175,7 @@ export function buildSelectionCandidatePanel(input: {
               `**${item.playerDisplayName}**\n${[...item.publicGameTags, ...item.publicServiceTags].join(' / ') || '暂无公开标签'}`
           )
           .join('\n')
-      : '本轮暂无报名。请选择继续等待或取消订单。',
+      : '本轮暂无报名。请选择重新开始招募或取消订单。',
     visibility: 'PRIVATE_CHANNEL',
     components
   };
@@ -278,13 +285,13 @@ export function selectionFinalizeRouteFromConfirmationComponents(
 export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: SelectionPoolSummary | null): MessageSpec {
   if (!pool)
     return {
-      title: `🐾 订单 #${order.publicId} · 选择报名时间`,
+      title: `🐾 订单 #${order.publicId} · 开始招募`,
       body: [
         '订单已提交，资金预留保持有效。',
-        '目前还没有开始报名。请选择等待时间；选择后系统才会在派单频道发布报名卡。'
+        '目前还没有开始招募。点击按钮后，系统会在派单频道发布报名卡。'
       ].join('\n'),
       visibility: 'PRIVATE_CHANNEL',
-      components: [selectionWaitSelector(`bc:sp:new:${order.id}:o${order.version}`), selectionOrderControls(order)]
+      components: [selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募'), selectionOrderControls(order)]
     };
   const collecting = pool.status === 'COLLECTING';
   const emptySelection = pool.status === 'SELECTION' && pool.applicationCount === 0;
@@ -297,14 +304,15 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
           type: 'BUTTON',
           style: 'PRIMARY',
           customId: closeCustomId({ orderId: order.id, poolId: pool.id, poolVersion: pool.version }),
-          label: '提前结束报名'
+          label: '终止招募'
         }
       ]
     });
   if (emptySelection)
     components.push(
-      selectionWaitSelector(
-        `bc:sp:r:${short(order.id)}:${short(pool.id)}:v${pool.version}:o${order.version}`
+      selectionActionButton(
+        `bc:sp:r:${short(order.id)}:${short(pool.id)}:v${pool.version}:o${order.version}`,
+        '重新开始招募'
       )
     );
   components.push(selectionOrderControls(order));
@@ -312,19 +320,18 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
     title: collecting
       ? `🐾 订单 #${order.publicId} · 报名进行中`
       : emptySelection
-        ? `🐾 订单 #${order.publicId} · 选择新一轮等待时间`
+        ? `🐾 订单 #${order.publicId} · 本轮无人报名`
         : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
     body: collecting
       ? [
           `第 ${pool.round} 轮`,
-          `当前报名：${pool.applicationCount} 人`,
-          `报名截止：<t:${Math.floor(Date.parse(pool.closesAt) / 1000)}:R>`
+          `当前报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`
         ].join('\n')
       : emptySelection
-        ? [`第 ${pool.round} 轮报名已结束。`, '当前候选：0 人', '本轮暂无候选，请选择新的等待时间。'].join('\n')
+        ? [`第 ${pool.round} 轮招募已终止。`, '当前候选：暂无', '本轮暂无候选，可以重新开始招募。'].join('\n')
         : [
-            `第 ${pool.round} 轮报名已结束。`,
-            `当前候选：${pool.applicationCount} 人`,
+            `第 ${pool.round} 轮招募已终止。`,
+            `当前候选：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`,
             '请刷新候选名单或联系客服。'
           ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
@@ -340,8 +347,8 @@ export function buildSelectionPoolStartedNotice(
   return {
     title: '🐾 新一轮报名已开始',
     body: [
-      `第 ${pool.round} 轮已按 ${pool.waitMinutes} 分钟开启。`,
-      '实时报名人数会自动同步到订单主卡；这条仅你可见的确认提示不显示人数。'
+      `第 ${pool.round} 轮招募已开启。`,
+      '实时报名名单会自动同步到订单主卡；招募将持续到你手动终止。'
     ].join('\n'),
     visibility: 'EPHEMERAL',
     layout: 'COMPONENTS_V2',
@@ -361,26 +368,25 @@ export function buildSelectionPoolStartedNotice(
   };
 }
 
-function selectionWaitSelector(
+function selectionActionButton(
   customId: string,
-  placeholder = '选择等待时间'
+  label: string
 ): NonNullable<MessageSpec['components']>[number] {
   return {
     type: 'ACTION_ROW',
     components: [
       {
-        type: 'STRING_SELECT',
+        type: 'BUTTON',
+        style: 'PRIMARY',
         customId,
-        placeholder,
-        minValues: 1,
-        maxValues: 1,
-        options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
-          label: `等待 ${minutes} 分钟`,
-          value: String(minutes)
-        }))
+        label
       }
     ]
   };
+}
+
+function selectionApplicantMentions(discordUserIds: string[]): string {
+  return discordUserIds.length ? discordUserIds.map((id) => `<@${id}>`).join('、') : '暂无陪玩报名';
 }
 
 function selectionOrderControls(order: OrderSummary): NonNullable<MessageSpec['components']>[number] {
@@ -423,6 +429,24 @@ export function closeCustomId(input: { orderId: string; poolId: string; poolVers
 }
 
 export function parseSelectionCustomId(value: string): SelectionRoute {
+  let initial = /^bc:sp:new:([0-9a-f-]{36}):o(\d+)$/u.exec(value);
+  if (initial)
+    return {
+      action: 'start',
+      orderId: initial[1]!,
+      poolId: null,
+      expectedPoolVersion: null,
+      expectedOrderVersion: Number(initial[2])
+    };
+  initial = /^bc:sp:r:([^:]+):([^:]+):v(\d+):o(\d+)$/u.exec(value);
+  if (initial)
+    return {
+      action: 'start',
+      orderId: long(initial[1]!),
+      poolId: long(initial[2]!),
+      expectedPoolVersion: Number(initial[3]),
+      expectedOrderVersion: Number(initial[4])
+    };
   let match = /^bc:sp:a:([^:]+):([^:]+):([^:]+):v(\d+)$/u.exec(value);
   if (match)
     return {

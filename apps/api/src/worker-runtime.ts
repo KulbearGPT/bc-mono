@@ -137,7 +137,8 @@ export interface OrderPanelProjection {
     version: number;
     round: number;
     applicationCount: number;
-    closesAt: string;
+    applicantDiscordUserIds?: string[];
+    closesAt: string | null;
   } | null;
 }
 

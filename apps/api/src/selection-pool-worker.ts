@@ -1,8 +1,6 @@
 import type { OutboxHandler } from "./worker-runtime.js";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Pool } from "pg";
-import { PostgresSelectionPoolStore } from "./selection-pools.js";
-import type { AuditRecord } from "./security.js";
 
 type SelectionSyncPhase = "COLLECTING" | "SELECTION" | "FINALIZED" | "CANCELLED";
 
@@ -23,7 +21,10 @@ export function createSelectionPoolCloseHandler(input: {
       payload.selectionPoolId !== job.aggregateId
     )
       throw new Error("Selection pool close payload is invalid.");
-    await input.close(payload.selectionPoolId, job.runAfter);
+    // Deadline-driven recruitment was retired by M11-US-05. Keep the handler
+    // registered only so legacy outbox rows can be consumed without retrying or
+    // changing the current business state.
+    void input;
   };
 }
 
@@ -112,41 +113,8 @@ interface SelectionWorkerProjection {
 export class PostgresSelectionPoolWorkerStore {
   constructor(private readonly pool: Pool) {}
   async closeExpired(selectionPoolId: string, deadline: string) {
-    const row = (
-      await this.pool.query<{
-        order_id: string;
-        guild_id: string;
-        discord_user_id: string;
-        row_version: number;
-        closes_at: Date | string;
-      }>(
-        `SELECT pool.order_id,orders.guild_id,account.discord_user_id,pool.row_version,pool.closes_at FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts account ON account.user_id=orders.customer_id AND account.guild_id=orders.guild_id WHERE pool.id=$1 AND pool.status='COLLECTING'`,
-        [selectionPoolId],
-      )
-    ).rows[0];
-    if (!row) return;
-    if (
-      new Date(row.closes_at).toISOString() !== new Date(deadline).toISOString()
-    )
-      return;
-    const store = new PostgresSelectionPoolStore(this.pool);
-    const staged = await store.closePool({
-      orderId: row.order_id,
-      selectionPoolId,
-      actorGuildId: row.guild_id,
-      actorDiscordUserId: row.discord_user_id,
-      expectedPoolVersion: row.row_version,
-      reason: "TIME_ELAPSED",
-      idempotencyKey: `selection-pool-close:${selectionPoolId}:v${row.row_version}`,
-      now: new Date(deadline),
-    });
-    await staged.commit(
-      workerAudit(
-        selectionPoolId,
-        `selection-pool-close:${selectionPoolId}:v${row.row_version}`,
-        new Date(deadline),
-      ),
-    );
+    void selectionPoolId;
+    void deadline;
   }
   async projection(
     selectionPoolId: string,
@@ -951,14 +919,15 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
               },
             ]
           : []),
-        ...selectionWaitRows(
+        selectionStartRow(
           `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
-          "候选不合适，选择新一轮等待时间",
+          "候选不合适，重新开始招募",
         ),
       ]
     : [
-        ...selectionWaitRows(
+        selectionStartRow(
           `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
+          "重新开始招募",
         ),
         {
           type: 1,
@@ -973,54 +942,23 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
         },
       ];
   return {
-    content: `<@${p.customerDiscordUserId}> 报名已结束，共 ${all.length} 位候选。选秀语音：${voiceLink}`,
+    content: `<@${p.customerDiscordUserId}> 招募已终止。当前候选：${all.map((item) => `<@${item.discordUserId}>`).join("、") || "暂无"}。选秀语音：${voiceLink}`,
     components,
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
 }
 
-function selectionWaitRows(customId: string, placeholder = "选择等待时间") {
-  return [
-    {
-      type: 1,
-      components: [
-        {
-          type: 3,
-          custom_id: customId,
-          placeholder,
-          min_values: 1,
-          max_values: 1,
-          options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
-            label: `等待 ${minutes} 分钟`,
-            value: String(minutes),
-          })),
-        },
-      ],
-    },
-  ];
-}
-function workerAudit(orderId: string, key: string, now: Date): AuditRecord {
+function selectionStartRow(customId: string, label: string) {
   return {
-    id: randomUUID(),
-    actorId: null,
-    actorStaffId: null,
-    actorLevel: null,
-    actorSource: "SYSTEM_JOB",
-    clientId: "SELECTION_POOL_WORKER",
-    interactionId: null,
-    permissionCode: "order.selection_pool.close",
-    action: "CLOSE_EXPIRED_SELECTION_POOL",
-    targetType: "selection_pool",
-    targetId: orderId,
-    outcome: "SUCCEEDED",
-    reason: "TIME_ELAPSED",
-    requestId: `job_${key}`,
-    idempotencyKey: key,
-    approvalRequestId: null,
-    jobId: null,
-    triggerSource: "OUTBOX",
-    retryAttempt: 0,
-    occurredAt: now.toISOString(),
+    type: 1,
+    components: [
+      {
+        type: 2,
+        style: 1,
+        custom_id: customId,
+        label,
+      },
+    ],
   };
 }
 function short(uuid: string) {

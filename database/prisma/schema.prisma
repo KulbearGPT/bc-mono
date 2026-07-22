@@ -224,6 +224,7 @@ enum SelectionPoolStatus {
 enum SelectionPoolCloseReason {
   TIME_ELAPSED
   CUSTOMER_EARLY_CLOSE
+  CUSTOMER_STOPPED
   ORDER_CANCELLED
 }
 
@@ -1615,9 +1616,9 @@ model SelectionPool {
   round           Int
   status          SelectionPoolStatus      @default(COLLECTING)
   rowVersion      Int                      @default(1) @map("row_version")
-  waitMinutes     Int                      @map("wait_minutes")
+  waitMinutes     Int?                     @map("wait_minutes")
   openedAt        DateTime                 @map("opened_at") @db.Timestamptz(3)
-  closesAt        DateTime                 @map("closes_at") @db.Timestamptz(3)
+  closesAt        DateTime?                @map("closes_at") @db.Timestamptz(3)
   closedAt        DateTime?                @map("closed_at") @db.Timestamptz(3)
   closeReason     SelectionPoolCloseReason? @map("close_reason")
   finalizedAt     DateTime?                @map("finalized_at") @db.Timestamptz(3)

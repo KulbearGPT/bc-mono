@@ -3856,7 +3856,7 @@ async function cancelActiveSelectionPools(
           version: pool.row_version,
           waitMinutes: pool.wait_minutes,
           openedAt: new Date(pool.opened_at).toISOString(),
-          closesAt: new Date(pool.closes_at).toISOString(),
+          closesAt: pool.closes_at ? new Date(pool.closes_at).toISOString() : null,
           closedAt: new Date(pool.closed_at).toISOString(),
           closeReason: "ORDER_CANCELLED",
           applicationCount: applications.length,

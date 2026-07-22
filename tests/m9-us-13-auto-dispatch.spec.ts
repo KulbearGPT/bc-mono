@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { buildSubmittedOrderMessage } from "@blackcat/bot/service-center";
 
 describe("M9-US-13 candidate-pool dispatch replacement", () => {
-  test("order submission no longer enqueues first-wins work and offers a customer-selected wait window", async () => {
+  test("order submission no longer enqueues first-wins work and offers manual recruitment", async () => {
     const [orders, worker] = await Promise.all([
       readFile("apps/api/src/orders.ts", "utf8"),
       readFile("apps/api/src/worker.ts", "utf8"),
@@ -32,11 +32,11 @@ describe("M9-US-13 candidate-pool dispatch replacement", () => {
         version: 1,
       },
     });
-    const waits = message.components.slice(0, 1).flatMap((row) => row.components);
-    expect(waits.every((component) => component.type === "STRING_SELECT")).toBe(true);
-    expect(waits.flatMap((component) => component.options?.map((option) => option.value) ?? [])).toEqual(
-      ["1", "3", "5", "10", "15", "30"],
-    );
+    const actions = message.components.slice(0, 1).flatMap((row) => row.components);
+    expect(actions).toEqual([
+      expect.objectContaining({ type: "BUTTON", label: "开始招募" }),
+    ]);
+    expect(JSON.stringify(message)).not.toContain("选择等待时间");
   });
 
   test("Discord handler acknowledges before applying and never exposes first-wins accept/decline", async () => {

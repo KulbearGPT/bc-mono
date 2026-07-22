@@ -277,7 +277,6 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       [[created.pool.id, secondCreated.pool.id]],
     );
     expect(jobs.rows).toEqual([
-      { event_type: "SELECTION_POOL_CLOSE", count: 2 },
       { event_type: "SELECTION_POOL_SYNC", count: 5 },
     ]);
     await expect(
@@ -288,7 +287,7 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
     ).rejects.toThrow(/append-only/u);
   });
 
-  test("closes a due pool from the recoverable worker without opening another round", async () => {
+  test("does not close a pool when a legacy deadline worker call is recovered", async () => {
     const customer = "00000000-0000-0000-0000-000000011070",
       discord = "777777777777777777",
       order = "00000000-0000-0000-0000-000000011071",
@@ -332,10 +331,10 @@ describe("M11-US-02 PostgreSQL selection pool transaction", () => {
       [created.pool.id, order],
     );
     expect(facts.rows[0]).toEqual({
-      status: "SELECTION",
-      close_reason: "TIME_ELAPSED",
+      status: "COLLECTING",
+      close_reason: null,
       round_count: 1,
-      sync_count: 2,
+      sync_count: 1,
     });
   });
 

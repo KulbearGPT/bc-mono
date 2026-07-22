@@ -112,7 +112,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
       return;
     }
     if (route.action === 'repeat') {
-      await executeSelectionWaitSelection({ interaction, api, actor, route });
+      await executeSelectionStart({ interaction, api, actor, route });
       return;
     }
     try {
@@ -167,21 +167,20 @@ export default class SelectionSelectsHandler extends InteractionHandler {
   }
 }
 
-export interface SelectionWaitRoute {
-  action: 'repeat';
+export interface SelectionStartRoute {
+  action: 'start' | 'repeat';
   orderId: string;
   poolId: string | null;
   expectedPoolVersion: number | null;
   expectedOrderVersion: number;
 }
 
-export async function executeSelectionWaitSelection(input: {
-  interaction: StringSelectMenuInteraction;
+export async function executeSelectionStart(input: {
+  interaction: Pick<StringSelectMenuInteraction, 'id' | 'editReply' | 'followUp' | 'client'>;
   api: BotApiClient;
   actor: BotActorContext;
-  route: SelectionWaitRoute;
+  route: SelectionStartRoute;
 }): Promise<void> {
-  const waitMinutes = Number(input.interaction.values[0]);
   let order;
   try {
     order = await input.api.getOrder(input.route.orderId, input.actor);
@@ -189,7 +188,6 @@ export async function executeSelectionWaitSelection(input: {
       input.route.orderId,
       {
         expectedOrderVersion: input.route.expectedOrderVersion,
-        waitMinutes,
         ...(input.route.poolId && input.route.expectedPoolVersion
           ? {
               replacesSelectionPoolId: input.route.poolId,
@@ -222,8 +220,8 @@ export async function executeSelectionWaitSelection(input: {
         await input.interaction.followUp({
           content:
             current.pool.status === 'COLLECTING'
-              ? `本轮已经按 ${current.pool.waitMinutes} 分钟开始，活动报名期间不能直接修改时长。你可以提前结束本轮报名。`
-              : '候选状态已刷新，请在最新面板中重新选择新一轮等待时间。',
+              ? '本轮招募已经开始。你可以在订单主卡查看实时报名名单，或手动终止招募。'
+              : '候选状态已刷新，请在最新面板中重新开始招募。',
           ephemeral: true
         });
         return;
@@ -232,7 +230,7 @@ export async function executeSelectionWaitSelection(input: {
       }
     }
     input.interaction.client.logger.error({
-      event: 'selection.wait_failed',
+      event: 'selection.start_failed',
       route: input.route,
       error
     });
@@ -245,6 +243,9 @@ export async function executeSelectionWaitSelection(input: {
     });
   }
 }
+
+// Transitional export for callers compiled against the pre-M11-US-05 name.
+export const executeSelectionWaitSelection = executeSelectionStart;
 
 export async function executeSelectionReselect(input: {
   interaction: Pick<StringSelectMenuInteraction, 'editReply'>;
@@ -278,8 +279,8 @@ function isConflict(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'CONFLICT';
 }
 
-function selectionOperation(action: 'repeat' | 'finalize' | 'apply-menu'): string {
-  if (action === 'repeat') return '继续等待并开启新一轮报名';
+function selectionOperation(action: 'start' | 'repeat' | 'finalize' | 'apply-menu'): string {
+  if (action === 'start' || action === 'repeat') return '开始新一轮招募';
   if (action === 'finalize') return '确认候选名单';
   return '打开报名项目菜单';
 }

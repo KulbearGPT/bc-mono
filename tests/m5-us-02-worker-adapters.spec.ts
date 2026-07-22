@@ -197,11 +197,11 @@ describe('M5-US-02 Worker production adapters', () => {
     await adapter.upsertOrderPanel(pending, notBefore);
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-    const actionRow = body.components[0].components.find(
-      (component: { type: number; components?: Array<{ type?: number }> }) =>
-        component.type === 1 && component.components?.some((item) => item.type === 2)
-    );
-    expect(actionRow.components).toEqual(expect.arrayContaining([
+    const buttons = body.components[0].components
+      .filter((component: { type: number }) => component.type === 1)
+      .flatMap((component: { components?: unknown[] }) => component.components ?? []);
+    expect(buttons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '开始招募', custom_id: `bc:sp:new:${projection.orderId}:o8` }),
       expect.objectContaining({ label: '刷新订单', custom_id: `bc:order:${projection.orderId}:refresh` }),
       expect.objectContaining({ label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v8` }),
       expect.objectContaining({ label: '联系客服' })
@@ -221,7 +221,8 @@ describe('M5-US-02 Worker production adapters', () => {
         version: 1,
         round: 2,
         applicationCount: 3,
-        closesAt: '2026-07-18T23:05:00.000Z'
+        applicantDiscordUserIds: ['530000000000000021', '530000000000000022', '530000000000000023'],
+        closesAt: null
       }
     } satisfies OrderPanelProjection;
     const fetchMock = vi.fn().mockResolvedValue(response(200, { id: projection.panelMessageId }));
@@ -230,17 +231,19 @@ describe('M5-US-02 Worker production adapters', () => {
     await adapter.upsertOrderPanel(pending, notBefore);
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    expect(body.allowed_mentions).toEqual({ parse: [] });
     expect(JSON.stringify(body.components)).toContain('第 2 轮');
-    expect(JSON.stringify(body.components)).toContain('当前报名：3 人');
+    expect(JSON.stringify(body.components)).toContain('<@530000000000000021>');
+    expect(JSON.stringify(body.components)).toContain('<@530000000000000023>');
     const actionRows = body.components[0].components.filter((component: { type: number }) => component.type === 1);
     expect(actionRows.flatMap((row: { components: unknown[] }) => row.components)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: '提前结束报名', custom_id: expect.stringMatching(/^bc:sp:c:/u) }),
+      expect.objectContaining({ label: '终止招募', custom_id: expect.stringMatching(/^bc:sp:c:/u) }),
       expect.objectContaining({ label: '刷新订单' }),
       expect.objectContaining({ label: '取消订单' })
     ]));
   });
 
-  test('restores the six-option wait selector after an empty selection round closes', async () => {
+  test('restores one restart button after an empty selection round closes', async () => {
     const pending = {
       ...projection,
       status: 'PENDING_DISPATCH',
@@ -253,7 +256,8 @@ describe('M5-US-02 Worker production adapters', () => {
         version: 2,
         round: 2,
         applicationCount: 0,
-        closesAt: '2026-07-18T23:05:00.000Z'
+        applicantDiscordUserIds: [],
+        closesAt: null
       }
     } satisfies OrderPanelProjection;
     const fetchMock = vi.fn().mockResolvedValue(response(200, { id: projection.panelMessageId }));
@@ -262,21 +266,11 @@ describe('M5-US-02 Worker production adapters', () => {
     await adapter.upsertOrderPanel(pending, notBefore);
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
-    expect(JSON.stringify(body.components)).toContain('选择新一轮等待时间');
-    const select = body.components[0].components
+    expect(JSON.stringify(body.components)).toContain('本轮无人报名');
+    const button = body.components[0].components
       .flatMap((component: { components?: unknown[] }) => component.components ?? [])
-      .find((component: { type?: number }) => component.type === 3);
-    expect(select).toMatchObject({
-      placeholder: '选择等待时间',
-      options: [
-        { label: '等待 1 分钟', value: '1' },
-        { label: '等待 3 分钟', value: '3' },
-        { label: '等待 5 分钟', value: '5' },
-        { label: '等待 10 分钟', value: '10' },
-        { label: '等待 15 分钟', value: '15' },
-        { label: '等待 30 分钟', value: '30' }
-      ]
-    });
+      .find((component: { type?: number; custom_id?: string }) => component.type === 2 && component.custom_id?.startsWith('bc:sp:r:'));
+    expect(button).toMatchObject({ label: '重新开始招募' });
   });
 
   test('creates one private voice room and sends idempotent customer and staff coordination notices after acceptance', async () => {

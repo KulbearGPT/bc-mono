@@ -466,16 +466,18 @@ export interface SelectionPoolSummary {
   round: number;
   status: 'COLLECTING' | 'SELECTION' | 'FINALIZED' | 'CANCELLED';
   version: number;
-  waitMinutes: number;
+  waitMinutes: number | null;
   openedAt: string;
-  closesAt: string;
+  closesAt: string | null;
   applicationCount: number;
+  applicantDiscordUserIds?: string[];
 }
 export interface SelectionApplicationSummary {
   id: string;
   selectionPoolId: string;
   orderRequirementId: string;
   playerId: string;
+  playerDiscordUserId?: string;
   playerDisplayName: string;
   publicGameTags: string[];
   publicServiceTags: string[];
@@ -666,7 +668,6 @@ export interface BotApiClient {
     orderId: string,
     input: {
       expectedOrderVersion: number;
-      waitMinutes: number;
       replacesSelectionPoolId?: string;
       expectedSelectionPoolVersion?: number;
     },
@@ -691,7 +692,7 @@ export interface BotApiClient {
   closeSelectionPool(
     orderId: string,
     poolId: string,
-    input: { expectedPoolVersion: number; reason: 'CUSTOMER_EARLY_CLOSE' },
+    input: { expectedPoolVersion: number },
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<SelectionPoolResult>;
@@ -1244,7 +1245,6 @@ export class HttpBotApiClient implements BotApiClient {
     orderId: string,
     input: {
       expectedOrderVersion: number;
-      waitMinutes: number;
       replacesSelectionPoolId?: string;
       expectedSelectionPoolVersion?: number;
     },
@@ -1286,7 +1286,7 @@ export class HttpBotApiClient implements BotApiClient {
   public closeSelectionPool(
     orderId: string,
     poolId: string,
-    input: { expectedPoolVersion: number; reason: 'CUSTOMER_EARLY_CLOSE' },
+    input: { expectedPoolVersion: number },
     actor: BotActorContext,
     idempotencyKey: string
   ) {

@@ -12,7 +12,7 @@ import {
 } from '../../selection-discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
-import { executeSelectionReselect } from './selection-selects.js';
+import { executeSelectionReselect, executeSelectionStart } from './selection-selects.js';
 
 export class DispatchButtonsHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options) {
@@ -31,7 +31,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
     interaction: ButtonInteraction,
     route: Exclude<ReturnType<typeof parseSelectionCustomId>, { action: 'unknown' }>
   ) {
-    const updatesConfirmation = route.action === 'finalize' || route.action === 'reselect';
+    const updatesConfirmation = route.action === 'finalize' || route.action === 'reselect' || route.action === 'start';
     if (updatesConfirmation) await interaction.deferUpdate();
     else await interaction.deferReply({ ephemeral: true });
     const env = validateRuntimeEnv(process.env, {
@@ -51,6 +51,10 @@ export class DispatchButtonsHandler extends InteractionHandler {
       return;
     }
     try {
+      if (route.action === 'start') {
+        await executeSelectionStart({ interaction, api, actor, route });
+        return;
+      }
       if (route.action === 'reselect') {
         const confirmationRoute =
           route.expectedPoolVersion === null || route.expectedOrderVersion === null
@@ -162,14 +166,13 @@ export class DispatchButtonsHandler extends InteractionHandler {
           route.orderId,
           route.poolId,
           {
-            expectedPoolVersion: route.expectedPoolVersion,
-            reason: 'CUSTOMER_EARLY_CLOSE'
+            expectedPoolVersion: route.expectedPoolVersion
           },
           actor,
           buildDiscordIdempotencyKey('selection:close', interaction.id)
         );
         await interaction.editReply({
-          content: '报名已提前结束，正在准备选秀语音与候选名单。'
+          content: '招募已终止，正在准备选秀语音与候选名单。'
         });
         return;
       }
@@ -207,10 +210,11 @@ export class DispatchButtonsHandler extends InteractionHandler {
   }
 }
 
-function dispatchOperation(action: 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'): string {
+function dispatchOperation(action: 'start' | 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'): string {
+  if (action === 'start') return '开始候选池招募';
   if (action === 'apply') return '报名候选池';
   if (action === 'withdraw') return '撤回候选池报名';
-  if (action === 'close') return '提前结束候选池报名';
+  if (action === 'close') return '终止候选池招募';
   if (action === 'finalize') return '确认候选名单';
   if (action === 'reselect') return '返回候选名单';
   if (action === 'apply-menu') return '打开报名项目菜单';

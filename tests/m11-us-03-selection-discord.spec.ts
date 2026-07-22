@@ -30,7 +30,7 @@ const requirementId = "00000000-0000-0000-0000-000000011050";
 const applicationId = "00000000-0000-0000-0000-000000011060";
 
 describe("M11-US-03 Discord selection flow", () => {
-  test("replaces the stale wait selector with the active round immediately after creation", async () => {
+  test("replaces the start button with the active round immediately after creation", async () => {
     const events: string[] = [];
     const interaction = selectionInteraction(events);
     const api = selectionApi(events, {
@@ -50,7 +50,7 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(events).toEqual(["read-order", "create", "edit"]);
     const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
     expect(rendered).toContain("报名进行中");
-    expect(rendered).toContain("提前结束报名");
+    expect(rendered).toContain("终止招募");
     expect(rendered).not.toContain("bc:sp:new:");
     expect(interaction.followUp).not.toHaveBeenCalled();
   });
@@ -75,12 +75,12 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(events).toEqual(["read-order", "create", "edit"]);
     const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
     expect(rendered).toContain("新一轮报名已开始");
-    expect(rendered).toContain("实时报名人数会自动同步到订单主卡");
+    expect(rendered).toContain("实时报名名单会自动同步到订单主卡");
     expect(rendered).toContain("查看实时订单卡");
     expect(rendered).not.toContain("当前报名：0 人");
   });
 
-  test("recovers the active three-minute round when a stale selector tries to open five minutes", async () => {
+  test("recovers the active round when a stale start button is clicked", async () => {
     const events: string[] = [];
     const interaction = selectionInteraction(events, "5");
     const api = selectionApi(events, {
@@ -110,7 +110,7 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(JSON.stringify(interaction.editReply.mock.calls[0]?.[0])).toContain("报名进行中");
     expect(interaction.followUp).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("本轮已经按 3 分钟开始"),
+        content: expect.stringContaining("本轮招募已经开始"),
         ephemeral: true,
       }),
     );
@@ -128,7 +128,7 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(commitSubmit).not.toContain("insertOrderPanelSync");
   });
 
-  test("offers the six customer-approved wait-time presets", () => {
+  test("offers one manual start button without wait-time presets", () => {
     const message = buildSubmittedOrderMessage({
       orderId,
       status: "PENDING_DISPATCH",
@@ -151,13 +151,12 @@ describe("M11-US-03 Discord selection flow", () => {
         calculatedAt: "2026-08-04T12:00:00.000Z",
       },
     });
-    const selects = message.components.flatMap((row) => row.components).filter(
-      (component) => component.type === "STRING_SELECT" && component.customId.startsWith("bc:sp:new:"),
+    const buttons = message.components.flatMap((row) => row.components).filter(
+      (component) => component.type === "BUTTON" && component.customId.startsWith("bc:sp:new:"),
     );
-    expect(selects).toHaveLength(1);
-    expect(selects[0]!.options.map((option) => Number(option.value))).toEqual([
-      1, 3, 5, 10, 15, 30,
-    ]);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toMatchObject({ label: "开始招募" });
+    expect(JSON.stringify(message)).not.toContain("等待 3 分钟");
   });
 
   test("renders nine-project apply and private customer selection controls under Discord custom-id limits", () => {
@@ -312,7 +311,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
     expect(rendered).toContain("Kulbear");
     expect(rendered).toContain("选择本页入选陪玩");
-    expect(rendered).toContain("候选不合适，选择新一轮等待时间");
+    expect(rendered).toContain("候选不合适，重新开始招募");
     expect(rendered).toContain("bc:sp:r:");
     expect(rendered).toContain(":v4:o3");
     const update = interaction.editReply.mock.calls[0]?.[0];
@@ -571,7 +570,7 @@ describe("M11-US-03 Discord selection flow", () => {
         phase: "CANCELLED",
       }),
     );
-    expect(close).toHaveBeenCalledWith(poolId, "2026-08-04T12:03:00.000Z");
+    expect(close).not.toHaveBeenCalled();
     expect(sync).toHaveBeenCalledWith(
       poolId,
       "CANCELLED",
@@ -748,10 +747,10 @@ describe("M11-US-03 Discord selection flow", () => {
     const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/messages"));
     expect(posts).toHaveLength(3);
     expect(JSON.stringify(posts[0]?.body)).toContain("报名已结束");
-    expect(JSON.stringify(posts[1]?.body)).toContain("共 1 位候选");
+    expect(JSON.stringify(posts[1]?.body)).toContain("<@222222222222222222>");
     expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:s:");
     expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:r:");
-    expect(JSON.stringify(posts[1]?.body)).toContain("候选不合适，选择新一轮等待时间");
+    expect(JSON.stringify(posts[1]?.body)).toContain("候选不合适，重新开始招募");
     expect(JSON.stringify(posts[2]?.body)).toContain("已开始陪玩选拔");
   });
 
@@ -945,26 +944,24 @@ describe("M11-US-03 Discord selection flow", () => {
       (call) =>
         call.url.endsWith("/channels/111111111111111110/messages") &&
         call.method === "POST" &&
-        String(call.body?.content).includes("共 0 位候选"),
+        String(call.body?.content).includes("当前候选：暂无"),
     )!;
-    const repeatSelects = (
+    const repeatButtons = (
       emptyRoundNotice.body?.components as Array<{
         components: Array<{
           type: number;
           custom_id?: string;
-          options?: Array<{ value: string }>;
+          label?: string;
         }>;
       }>
     )
       .flatMap((row) => row.components)
       .filter(
         (component) =>
-          component.type === 3 && component.custom_id?.startsWith("bc:sp:r:"),
+          component.type === 2 && component.custom_id?.startsWith("bc:sp:r:"),
       );
-    expect(repeatSelects).toHaveLength(1);
-    expect(repeatSelects[0]!.options?.map((option) => Number(option.value))).toEqual([
-      1, 3, 5, 10, 15, 30,
-    ]);
+    expect(repeatButtons).toHaveLength(1);
+    expect(repeatButtons[0]).toMatchObject({ label: "重新开始招募" });
     const selectedPlayers = projection.applicants.slice(0, 3).map((item) => ({
       discordUserId: item.discordUserId,
       displayName: item.displayName,
@@ -1087,9 +1084,9 @@ function selectionPool() {
     round: 1,
     status: "COLLECTING" as const,
     version: 1,
-    waitMinutes: 3,
+    waitMinutes: null,
     openedAt: "2026-08-07T21:25:44.504Z",
-    closesAt: "2026-08-07T21:28:44.504Z",
+    closesAt: null,
     applicationCount: 0,
   };
 }

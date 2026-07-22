@@ -122,7 +122,7 @@ describe('M11-US-02 selection pool API', () => {
       headers: headers(customerDiscordId, 'current-empty')
     });
     expect(empty.statusCode).toBe(404);
-    const create = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'create'), payload: { expectedOrderVersion: 1, waitMinutes: 3 } });
+    const create = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'create'), payload: { expectedOrderVersion: 1 } });
     expect(create.statusCode, create.body).toBe(201);
     const pool = create.json().data.pool;
     const current = await server.inject({
@@ -143,20 +143,21 @@ describe('M11-US-02 selection pool API', () => {
     const applied = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/applications`, headers: headers(playerDiscordId, 'apply'), payload: { expectedPoolVersion: pool.version, orderRequirementId: requirementId } });
     expect(applied.statusCode, applied.body).toBe(201);
     expect(applied.json().data.application).toMatchObject({ playerId, status: 'APPLIED' });
-    const closed = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/close`, headers: headers(customerDiscordId, 'close'), payload: { expectedPoolVersion: pool.version, reason: 'CUSTOMER_EARLY_CLOSE' } });
+    const rejectedReason = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/close`, headers: headers(customerDiscordId, 'close-with-reason'), payload: { expectedPoolVersion: pool.version, reason: 'CUSTOMER_EARLY_CLOSE' } });
+    expect(rejectedReason.statusCode).toBe(400);
+    const closed = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools/${pool.id}/close`, headers: headers(customerDiscordId, 'close'), payload: { expectedPoolVersion: pool.version } });
     expect(closed.statusCode, closed.body).toBe(200);
-    const replacement = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'replace'), payload: { expectedOrderVersion: 1, waitMinutes: 5, replacesSelectionPoolId: pool.id, expectedSelectionPoolVersion: closed.json().data.pool.version } });
+    const replacement = await server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/selection-pools`, headers: headers(customerDiscordId, 'replace'), payload: { expectedOrderVersion: 1, replacesSelectionPoolId: pool.id, expectedSelectionPoolVersion: closed.json().data.pool.version } });
     expect(replacement.statusCode, replacement.body).toBe(201);
-    expect(replacement.json().data.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: 5 });
+    expect(replacement.json().data.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: null, closesAt: null });
     expect(store.applications[0]).toMatchObject({ status: 'NOT_SELECTED' });
     await server.close();
   });
 
-  test('rejects waits outside 1-30 whole minutes', () => {
+  test('new pools ignore legacy timing fields internally and expose no deadline', () => {
     const store = fixtureStore();
-    for (const waitMinutes of [0, 31, 1.5]) {
-      expect(() => store.createPool(customerScope(orderId, 1, waitMinutes, `wait:${waitMinutes}`))).toThrow(SelectionPoolError);
-    }
+    const preview = store.createPool(customerScope(orderId, 1, 30, 'manual:no-deadline'));
+    expect(preview.data.pool).toMatchObject({ waitMinutes: null, closesAt: null });
   });
 
   test('keeps the collecting lifecycle version stable across applications and withdrawals', async () => {
@@ -197,13 +198,14 @@ describe('M11-US-02 selection pool API', () => {
     expect(closed.pool).toMatchObject({ version: 2, status: 'SELECTION' });
   });
 
-  test('rejects an application at or after the server-side pool deadline', async () => {
+  test('accepts an application long after recruitment started until the customer stops it', async () => {
     const store = fixtureStore();
     const created = await commit(store.createPool(customerScope(orderId, 1, 3, 'deadline:create')));
-    expect(() => store.apply({
+    const applied = await commit(store.apply({
       ...playerScope(orderId, created.pool.id, requirementId, created.pool.version, 'deadline:apply'),
       now: instant(3)
-    })).toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+    }));
+    expect(applied.application.status).toBe('APPLIED');
   });
 
   test('rejects application, close, and finalization once the order is cancelled', async () => {
@@ -259,7 +261,7 @@ describe('M11-US-02 selection pool API', () => {
   test('lets the owner explicitly start a new round after an empty selection without touching the reservation', async () => {
     const store=fixtureStore();const first=await commit(store.createPool(customerScope(orderId,1,3,'empty:create')));await commit(store.closePool({orderId,selectionPoolId:first.pool.id,actorGuildId:guildId,actorDiscordUserId:customerDiscordId,expectedPoolVersion:first.pool.version,reason:'CUSTOMER_EARLY_CLOSE',idempotencyKey:'empty:close',now:instant(1)}));
     const second=await commit(store.createPool({...customerScope(orderId,1,5,'empty:continue'),replacesSelectionPoolId:first.pool.id,expectedSelectionPoolVersion:first.pool.version+1}));
-    expect(second.pool).toMatchObject({round:2,status:'COLLECTING',waitMinutes:5});expect(store.pools[0]).toMatchObject({status:'FINALIZED'});expect(store.orders[0]).toMatchObject({status:'PENDING_DISPATCH',version:1,reservationId:'reservation-a'});expect(store.participants).toEqual([]);
+    expect(second.pool).toMatchObject({round:2,status:'COLLECTING',waitMinutes:null,closesAt:null});expect(store.pools[0]).toMatchObject({status:'FINALIZED'});expect(store.orders[0]).toMatchObject({status:'PENDING_DISPATCH',version:1,reservationId:'reservation-a'});expect(store.participants).toEqual([]);
   });
 
   test('lets the owner reject the current candidates and atomically start a new round', async () => {
@@ -272,7 +274,7 @@ describe('M11-US-02 selection pool API', () => {
     expect(store.applications[0]).toMatchObject({ status: 'APPLIED' });
     const second = await commit(store.createPool({ ...customerScope(orderId, 1, 5, 'reject:continue'), replacesSelectionPoolId: first.pool.id, expectedSelectionPoolVersion: closed.pool.version }));
 
-    expect(second.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: 5 });
+    expect(second.pool).toMatchObject({ round: 2, status: 'COLLECTING', waitMinutes: null, closesAt: null });
     expect(store.pools[0]).toMatchObject({ status: 'FINALIZED', version: closed.pool.version + 1 });
     expect(store.applications[0]).toMatchObject({ status: 'NOT_SELECTED', version: applied.application.version + 1 });
     expect(store.applications[0]!.decidedAt).not.toBeNull();

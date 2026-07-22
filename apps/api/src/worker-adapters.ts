@@ -87,6 +87,17 @@ SELECT orders.id AS order_id,
                                         FROM selection_applications application
                                        WHERE application.selection_pool_id=selection_pool.id
                                          AND application.status='APPLIED'),
+                 'applicantDiscordUserIds', ARRAY(
+                   SELECT applicant_discord.discord_user_id
+                     FROM selection_applications application
+                     JOIN discord_accounts applicant_discord
+                       ON applicant_discord.user_id=application.player_user_id
+                      AND applicant_discord.guild_id=orders.guild_id
+                    WHERE application.selection_pool_id=selection_pool.id
+                      AND application.status='APPLIED'
+                    GROUP BY applicant_discord.discord_user_id
+                    ORDER BY MIN(application.applied_at),applicant_discord.discord_user_id
+                 ),
                  'closesAt', selection_pool.closes_at
                )
           FROM selection_pools selection_pool
@@ -394,7 +405,6 @@ function selectionPoolProjection(value: unknown): Pick<OrderPanelProjection, 'se
   const status = text(pool.status, 'selection_pool.status');
   if (status !== 'COLLECTING' && status !== 'SELECTION') throw invalidRow('selection_pool.status');
   const closesAt = nullableDateText(pool.closesAt, 'selection_pool.closesAt');
-  if (!closesAt) throw invalidRow('selection_pool.closesAt');
   return {
     selectionPool: {
       id: text(pool.id, 'selection_pool.id'),
@@ -402,6 +412,9 @@ function selectionPoolProjection(value: unknown): Pick<OrderPanelProjection, 'se
       version: integer(pool.version, 'selection_pool.version'),
       round: integer(pool.round, 'selection_pool.round'),
       applicationCount: integer(pool.applicationCount, 'selection_pool.applicationCount'),
+      applicantDiscordUserIds: pool.applicantDiscordUserIds === undefined
+        ? []
+        : textArray(pool.applicantDiscordUserIds, 'selection_pool.applicantDiscordUserIds'),
       closesAt
     }
   };
@@ -578,22 +591,23 @@ function renderOrderPanel(projection: OrderPanelProjection) {
 function selectionPanelSummary(projection: OrderPanelProjection): { label: string; body: string } | null {
   if (projection.status !== 'PENDING_DISPATCH') return null;
   const pool = projection.selectionPool;
-  if (!pool) return { label: '选择报名时间', body: '目前还没有开始报名，请选择等待时间。' };
+  if (!pool) return { label: '尚未开始招募', body: '点击“开始招募”后，符合条件的陪玩即可报名。' };
   if (pool.status === 'COLLECTING') {
+    const applicants = selectionApplicantMentions(pool.applicantDiscordUserIds ?? []);
     return {
-      label: '报名进行中',
-      body: `第 ${pool.round} 轮\n当前报名：${pool.applicationCount} 人\n报名截止：<t:${Math.floor(Date.parse(pool.closesAt) / 1_000)}:R>`
+      label: '招募进行中',
+      body: `第 ${pool.round} 轮\n当前报名陪玩：${applicants}`
     };
   }
   if (pool.applicationCount === 0) {
     return {
-      label: '选择新一轮等待时间',
-      body: `第 ${pool.round} 轮报名已结束。\n当前候选：0 人\n本轮暂无候选，请选择新的等待时间。`
+      label: '本轮无人报名',
+      body: `第 ${pool.round} 轮招募已终止。\n当前候选：暂无\n可以重新开始招募或取消订单。`
     };
   }
   return {
     label: '等待选择陪玩',
-    body: `第 ${pool.round} 轮报名已结束。\n当前候选：${pool.applicationCount} 人\n请在候选名单中确认入选陪玩。`
+    body: `第 ${pool.round} 轮招募已终止。\n当前候选：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}\n请在候选名单中确认入选陪玩。`
   };
 }
 
@@ -601,37 +615,36 @@ function selectionPanelRows(projection: OrderPanelProjection): Array<Record<stri
   if (projection.status !== 'PENDING_DISPATCH') return [];
   const pool = projection.selectionPool;
   if (!pool)
-    return [selectionWaitRow(`bc:sp:new:${projection.orderId}:o${projection.version}`)];
+    return [selectionActionRow(`bc:sp:new:${projection.orderId}:o${projection.version}`, '开始招募', 1)];
   if (pool.status === 'COLLECTING')
     return [{
       type: 1,
       components: [{
         type: 2,
         style: 1,
-        label: '提前结束报名',
+        label: '终止招募',
         custom_id: `bc:sp:c:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}`
       }]
     }];
   if (pool.applicationCount === 0)
-    return [selectionWaitRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}:o${projection.version}`)];
+    return [selectionActionRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}:o${projection.version}`, '重新开始招募', 1)];
   return [];
 }
 
-function selectionWaitRow(customId: string): Record<string, unknown> {
+function selectionActionRow(customId: string, label: string, style: number): Record<string, unknown> {
   return {
     type: 1,
     components: [{
-      type: 3,
+      type: 2,
+      style,
       custom_id: customId,
-      placeholder: '选择等待时间',
-      min_values: 1,
-      max_values: 1,
-      options: [1, 3, 5, 10, 15, 30].map((minutes) => ({
-        label: `等待 ${minutes} 分钟`,
-        value: String(minutes)
-      }))
+      label
     }]
   };
+}
+
+function selectionApplicantMentions(discordUserIds: string[]): string {
+  return discordUserIds.length ? discordUserIds.map((id) => `<@${id}>`).join('、') : '暂无陪玩报名';
 }
 
 function shortSelectionId(uuid: string): string {

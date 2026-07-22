@@ -14,7 +14,7 @@ import {
 export type SelectionPoolStatus =
   "COLLECTING" | "SELECTION" | "FINALIZED" | "CANCELLED";
 export type SelectionPoolCloseReason =
-  "TIME_ELAPSED" | "CUSTOMER_EARLY_CLOSE" | "ORDER_CANCELLED";
+  "TIME_ELAPSED" | "CUSTOMER_EARLY_CLOSE" | "CUSTOMER_STOPPED" | "ORDER_CANCELLED";
 export type SelectionApplicationStatus =
   "APPLIED" | "WITHDRAWN" | "SELECTED" | "NOT_SELECTED" | "INVALIDATED";
 
@@ -24,12 +24,13 @@ export interface SelectionPoolRecord {
   round: number;
   status: SelectionPoolStatus;
   version: number;
-  waitMinutes: number;
+  waitMinutes: number | null;
   openedAt: string;
-  closesAt: string;
+  closesAt: string | null;
   closedAt: string | null;
   closeReason: SelectionPoolCloseReason | null;
   applicationCount: number;
+  applicantDiscordUserIds?: string[];
 }
 
 export interface SelectionApplicationRecord {
@@ -37,6 +38,7 @@ export interface SelectionApplicationRecord {
   selectionPoolId: string;
   orderRequirementId: string;
   playerId: string;
+  playerDiscordUserId?: string;
   playerDisplayName: string;
   publicGameTags: string[];
   publicServiceTags: string[];
@@ -119,7 +121,6 @@ interface PlayerScope {
 
 export interface CreateSelectionPoolInput extends CustomerScope {
   expectedOrderVersion: number;
-  waitMinutes: number;
   replacesSelectionPoolId?: string;
   expectedSelectionPoolVersion?: number;
   idempotencyKey: string;
@@ -140,7 +141,6 @@ export interface WithdrawSelectionApplicationInput extends PlayerScope {
 }
 export interface CloseSelectionPoolInput extends PoolScope {
   expectedPoolVersion: number;
-  reason: "TIME_ELAPSED" | "CUSTOMER_EARLY_CLOSE";
   idempotencyKey: string;
   now: Date;
 }
@@ -275,14 +275,19 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         "NOT_FOUND",
         "Active selection pool was not found.",
       );
-    return { pool: clone(pool) };
+    const applicantDiscordUserIds = [...new Set(
+      this.applications
+        .filter((application) => application.selectionPoolId === pool.id && application.status === "APPLIED")
+        .map((application) => this.players.find((player) => player.id === application.playerId)?.discordUserId)
+        .filter((value): value is string => Boolean(value)),
+    )];
+    return { pool: { ...clone(pool), applicantDiscordUserIds } };
   }
 
   createPool(
     input: CreateSelectionPoolInput,
   ): StagedWrite<SelectionPoolResult> {
     assertReplacementPair(input);
-    wholeNumber(input.waitMinutes, "waitMinutes", 1, 30);
     const order = this.requireCustomerOrder(input);
     if (order.version !== input.expectedOrderVersion)
       throw new SelectionPoolError("CONFLICT", "Order version is stale.");
@@ -330,11 +335,9 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       round,
       status: "COLLECTING",
       version: 1,
-      waitMinutes: input.waitMinutes,
+      waitMinutes: null,
       openedAt,
-      closesAt: new Date(
-        input.now.getTime() + input.waitMinutes * 60_000,
-      ).toISOString(),
+      closesAt: null,
       closedAt: null,
       closeReason: null,
       applicationCount: 0,
@@ -400,6 +403,7 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       selectionPoolId: pool.id,
       orderRequirementId: requirement.id,
       playerId: player.id,
+      playerDiscordUserId: player.discordUserId,
       playerDisplayName: player.displayName,
       publicGameTags: [...(player.publicGameTags ?? [])],
       publicServiceTags: [...(player.publicServiceTags ?? [])],
@@ -474,8 +478,6 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         "CONFLICT",
         "Only an active collecting application can be withdrawn.",
       );
-    if (input.now.getTime() >= Date.parse(pool.closesAt))
-      throw new SelectionPoolError("CONFLICT", "Selection pool deadline has elapsed.");
     const nextApplication = {
       ...clone(application),
       status: "WITHDRAWN" as const,
@@ -511,28 +513,12 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
         "CONFLICT",
         "Only a collecting selection pool can be closed.",
       );
-    if (
-      input.reason === "TIME_ELAPSED" &&
-      input.now.getTime() < Date.parse(pool.closesAt)
-    )
-      throw new SelectionPoolError(
-        "BUSINESS_RULE_ERROR",
-        "Selection pool deadline has not elapsed.",
-      );
-    if (
-      input.reason === "CUSTOMER_EARLY_CLOSE" &&
-      order.customerDiscordUserId !== input.actorDiscordUserId
-    )
-      throw new SelectionPoolError(
-        "PERMISSION_DENIED",
-        "Only the order owner can close early.",
-      );
     const next = {
       ...clone(pool),
       status: "SELECTION" as const,
       version: pool.version + 1,
       closedAt: input.now.toISOString(),
-      closeReason: input.reason,
+      closeReason: "CUSTOMER_STOPPED" as const,
     };
     return this.stage(input.idempotencyKey, { pool: next }, async () => {
       Object.assign(pool, clone(next));
@@ -800,8 +786,6 @@ export class InMemorySelectionPoolStore implements SelectionPoolStore {
       throw new SelectionPoolError("CONFLICT", "Order is not accepting applications.");
     if (facts.pool.status !== "COLLECTING")
       throw new SelectionPoolError("CONFLICT", "Selection pool is closed.");
-    if (input.now.getTime() >= Date.parse(facts.pool.closesAt))
-      throw new SelectionPoolError("CONFLICT", "Selection pool deadline has elapsed.");
     if (
       !requirement ||
       facts.player.reviewStatus !== "ACTIVE" ||
@@ -861,7 +845,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     this.owner(order, input.actorDiscordUserId);
     const row = (
       await this.pool.query<SelectionPoolRow>(
-        `${selectionPoolSelect} WHERE pool.order_id=$1 AND pool.status IN ('COLLECTING','SELECTION') ORDER BY pool.round DESC LIMIT 1`,
+        `${selectionPoolCurrentSelect} WHERE pool.order_id=$1 AND pool.status IN ('COLLECTING','SELECTION') ORDER BY pool.round DESC LIMIT 1`,
         [input.orderId],
       )
     ).rows[0];
@@ -960,7 +944,6 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     input: CreateSelectionPoolInput,
   ): Promise<SelectionPoolResult> {
     assertReplacementPair(input);
-    wholeNumber(input.waitMinutes, "waitMinutes", 1, 30);
     const order = await this.order(client, input, true);
     this.owner(order, input.actorDiscordUserId);
     if (order.row_version !== input.expectedOrderVersion)
@@ -1065,10 +1048,9 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       ).rows[0]?.value ?? 1,
     );
     const id = crypto.randomUUID();
-    const closesAt = new Date(input.now.getTime() + input.waitMinutes * 60_000);
     await client.query(
-      `INSERT INTO selection_pools(id,order_id,round,status,row_version,wait_minutes,opened_at,closes_at,created_at,updated_at) VALUES($1,$2,$3,'COLLECTING',1,$4,$5,$6,$5,$5)`,
-      [id, input.orderId, round, input.waitMinutes, input.now, closesAt],
+      `INSERT INTO selection_pools(id,order_id,round,status,row_version,wait_minutes,opened_at,closes_at,created_at,updated_at) VALUES($1,$2,$3,'COLLECTING',1,NULL,$4,NULL,$4,$4)`,
+      [id, input.orderId, round, input.now],
     );
     const pool = await this.selectionPool(client, input.orderId, id, false);
     await this.poolEvent(
@@ -1096,15 +1078,6 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       `${input.idempotencyKey}:panel-sync`,
       input.now,
     );
-    await this.outbox(
-      client,
-      pool,
-      "SELECTION_POOL_CLOSE",
-      { orderId: input.orderId, selectionPoolId: id },
-      `${input.idempotencyKey}:close`,
-      closesAt,
-      input.now,
-    );
     return { pool };
   }
 
@@ -1123,8 +1096,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     );
     if (
       pool.status !== "COLLECTING" ||
-      pool.version !== input.expectedPoolVersion ||
-      input.now.getTime() >= Date.parse(pool.closesAt)
+      pool.version !== input.expectedPoolVersion
     )
       throw new SelectionPoolError(
         "CONFLICT",
@@ -1226,7 +1198,6 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
     if (
       pool.status !== "COLLECTING" ||
       pool.version !== input.expectedPoolVersion ||
-      input.now.getTime() >= Date.parse(pool.closesAt) ||
       application.status !== "APPLIED" ||
       application.version !== input.expectedApplicationVersion
     )
@@ -1282,17 +1253,9 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
         "CONFLICT",
         "Only a current collecting selection pool can be closed.",
       );
-    if (
-      input.reason === "TIME_ELAPSED" &&
-      input.now.getTime() < Date.parse(pool.closesAt)
-    )
-      throw new SelectionPoolError(
-        "BUSINESS_RULE_ERROR",
-        "Selection pool deadline has not elapsed.",
-      );
     await client.query(
       `UPDATE selection_pools SET status='SELECTION',row_version=row_version+1,closed_at=$3,close_reason=$4,updated_at=$3 WHERE id=$1 AND row_version=$2`,
-      [pool.id, pool.version, input.now, input.reason],
+      [pool.id, pool.version, input.now, "CUSTOMER_STOPPED"],
     );
     const updated = await this.selectionPool(
       client,
@@ -1794,12 +1757,13 @@ interface SelectionPoolRow {
   round: number;
   status: SelectionPoolStatus;
   row_version: number;
-  wait_minutes: number;
+  wait_minutes: number | null;
   opened_at: Date | string;
-  closes_at: Date | string;
+  closes_at: Date | string | null;
   closed_at: Date | string | null;
   close_reason: SelectionPoolCloseReason | null;
   application_count: string;
+  applicant_discord_user_ids?: string[];
 }
 interface SelectionApplicationRow {
   id: string;
@@ -1858,6 +1822,7 @@ interface FinalizeFactRow {
 }
 
 const selectionPoolSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count FROM selection_pools pool`;
+const selectionPoolCurrentSelect = `SELECT pool.id,pool.order_id,pool.round,pool.status::text,pool.row_version,pool.wait_minutes,pool.opened_at,pool.closes_at,pool.closed_at,pool.close_reason::text,(SELECT count(*) FROM selection_applications application WHERE application.selection_pool_id=pool.id AND application.status='APPLIED')::text application_count,ARRAY(SELECT applicant.discord_user_id FROM selection_applications application JOIN orders ON orders.id=pool.order_id JOIN discord_accounts applicant ON applicant.user_id=application.player_user_id AND applicant.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id AND application.status='APPLIED' GROUP BY applicant.discord_user_id ORDER BY MIN(application.applied_at),applicant.discord_user_id) applicant_discord_user_ids FROM selection_pools pool`;
 const selectionApplicationSelect = `SELECT application.id,application.selection_pool_id,application.order_requirement_id,application.player_user_id,account.discord_user_id actor_discord_user_id,users.display_name,application.status::text,application.row_version,application.eligibility_snapshot,application.applied_at,application.decided_at FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN selection_pools pool ON pool.id=application.selection_pool_id JOIN orders ON orders.id=pool.order_id JOIN discord_accounts account ON account.user_id=application.player_user_id AND account.guild_id=orders.guild_id`;
 const playerRequirementSelect = `SELECT users.id player_user_id,users.display_name,requirement.service_catalog_version_id,requirement.requested_player_count,ARRAY(SELECT DISTINCT tag.display_name FROM player_skills skill JOIN skill_tags tag ON tag.id=skill.skill_tag_id WHERE skill.player_profile_id=profile.id AND tag.type='GAME' ORDER BY tag.display_name) public_game_tags,ARRAY(SELECT DISTINCT tag.display_name FROM player_skills skill JOIN skill_tags tag ON tag.id=skill.skill_tag_id WHERE skill.player_profile_id=profile.id AND tag.type='SERVICE' ORDER BY tag.display_name) public_service_tags FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id JOIN discord_accounts account ON true JOIN users ON users.id=account.user_id JOIN player_profiles profile ON profile.user_id=users.id`;
 const finalizeFactSelect = `SELECT application.id application_id,application.status::text application_status,application.row_version application_version,application.applied_at,application.eligibility_snapshot,requirement.id requirement_id,requirement.status::text requirement_status,requirement.requested_player_count,application.player_user_id,users.display_name,profile.review_status::text,version.status::text catalog_status,NOT EXISTS(SELECT 1 FROM service_version_skill_requirements needed WHERE needed.service_catalog_version_id=version.id AND NOT EXISTS(SELECT 1 FROM player_skills skill WHERE skill.player_profile_id=profile.id AND skill.skill_tag_id=needed.skill_tag_id)) skills_match,requirement.service_catalog_version_id,requirement.game_code_snapshot,requirement.game_display_name_snapshot,requirement.service_code_snapshot,requirement.service_display_name_snapshot,requirement.region_code_snapshot,requirement.region_display_name_snapshot,requirement.billing_unit_minutes_snapshot,requirement.unit_count,requirement.customer_unit_price_minor_snapshot,version.default_player_payout_bps,rule.type::text compensation_type,rule.value compensation_value FROM selection_applications application JOIN order_requirements requirement ON requirement.id=application.order_requirement_id JOIN users ON users.id=application.player_user_id JOIN player_profiles profile ON profile.user_id=users.id JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id JOIN service_offerings offering ON offering.id=version.service_offering_id LEFT JOIN player_service_compensation_rules rule ON rule.player_id=profile.id AND rule.service_offering_id=offering.id`;
@@ -1870,12 +1835,15 @@ function mapSelectionPool(row: SelectionPoolRow): SelectionPoolRecord {
     round: Number(row.round),
     status: row.status,
     version: Number(row.row_version),
-    waitMinutes: Number(row.wait_minutes),
+    waitMinutes: row.wait_minutes === null ? null : Number(row.wait_minutes),
     openedAt: new Date(row.opened_at).toISOString(),
-    closesAt: new Date(row.closes_at).toISOString(),
+    closesAt: row.closes_at === null ? null : new Date(row.closes_at).toISOString(),
     closedAt: row.closed_at ? new Date(row.closed_at).toISOString() : null,
     closeReason: row.close_reason,
     applicationCount: Number(row.application_count),
+    ...(row.applicant_discord_user_ids
+      ? { applicantDiscordUserIds: row.applicant_discord_user_ids }
+      : {}),
   };
 }
 function mapSelectionApplication(
@@ -1886,6 +1854,7 @@ function mapSelectionApplication(
     selectionPoolId: row.selection_pool_id,
     orderRequirementId: row.order_requirement_id,
     playerId: row.player_user_id,
+    playerDiscordUserId: row.actor_discord_user_id,
     playerDisplayName: row.display_name,
     publicGameTags: row.eligibility_snapshot.publicGameTags ?? [],
     publicServiceTags: row.eligibility_snapshot.publicServiceTags ?? [],
@@ -2161,7 +2130,6 @@ function buildParticipant(
 function parseCreate(value: unknown) {
   const body = strict(value, [
     "expectedOrderVersion",
-    "waitMinutes",
     "replacesSelectionPoolId",
     "expectedSelectionPoolVersion",
   ]);
@@ -2189,7 +2157,6 @@ function parseCreate(value: unknown) {
       body.expectedOrderVersion,
       "expectedOrderVersion",
     ),
-    waitMinutes: wholeNumber(body.waitMinutes, "waitMinutes", 1, 30),
     replacesSelectionPoolId,
     expectedSelectionPoolVersion,
   };
@@ -2237,16 +2204,13 @@ function parseVersionPair(value: unknown) {
 }
 function parseClose(
   value: unknown,
-): Pick<CloseSelectionPoolInput, "expectedPoolVersion" | "reason"> {
-  const body = strict(value, ["expectedPoolVersion", "reason"]);
-  if (body.reason !== "TIME_ELAPSED" && body.reason !== "CUSTOMER_EARLY_CLOSE")
-    throw new SelectionPoolError("VALIDATION_ERROR", "reason is invalid.");
+): Pick<CloseSelectionPoolInput, "expectedPoolVersion"> {
+  const body = strict(value, ["expectedPoolVersion"]);
   return {
     expectedPoolVersion: version(
       body.expectedPoolVersion,
       "expectedPoolVersion",
     ),
-    reason: body.reason,
   };
 }
 function parseFinalize(value: unknown) {
