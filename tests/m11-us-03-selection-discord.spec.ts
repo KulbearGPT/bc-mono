@@ -226,8 +226,8 @@ describe("M11-US-03 Discord selection flow", () => {
     });
 
     expect(confirmation.visibility).toBe("EPHEMERAL");
-    expect(confirmation.body).toContain("Kulbear");
-    expect(confirmation.body).toContain("OnlyMyKulbear");
+    expect(JSON.stringify(confirmation)).toContain("Kulbear");
+    expect(JSON.stringify(confirmation)).toContain("OnlyMyKulbear");
     const components = confirmation.components.flatMap((row) =>
       row.type === "ACTION_ROW" ? row.components : [],
     );
@@ -311,7 +311,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const rendered = JSON.stringify(interaction.editReply.mock.calls[0]?.[0]);
     expect(rendered).toContain("Kulbear");
     expect(rendered).toContain("选择本页入选陪玩");
-    expect(rendered).toContain("候选不合适，重新开始招募");
+    expect(rendered).toContain("本轮暂无合适陪玩，重新招募");
     expect(rendered).toContain("bc:sp:r:");
     expect(rendered).toContain(":v4:o3");
     const update = interaction.editReply.mock.calls[0]?.[0];

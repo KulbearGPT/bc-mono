@@ -188,7 +188,7 @@ describe('M1-US-07 order confirmation panel', () => {
       expectedVersion: 6,
       idempotencyKey: 'discord:order:refresh:submitted'
     });
-    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '订单 #P-1042' } });
+    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '📋 订单 #P-1042' } });
     expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && result.message.title).not.toContain('最后确认');
     expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && JSON.stringify(result.message.components)).not.toContain('submit-final');
     expect(client.estimateOrder).not.toHaveBeenCalled();
@@ -332,11 +332,11 @@ describe('M1-US-07 order confirmation panel', () => {
     });
     const rendered = JSON.stringify(result);
 
-    expect(rendered).toContain('本轮暂无候选，可以重新开始招募');
+    expect(rendered).toContain('本轮无人报名');
     expect(rendered).toContain('重新开始招募');
     expect(rendered).not.toContain('选择等待时间');
     expect(rendered).toContain('bc:sp:r:');
-    expect(rendered).not.toContain('请刷新候选名单或联系客服');
+    expect(rendered).not.toContain('请刷新报名名单或联系客服');
   });
 
   test.each([

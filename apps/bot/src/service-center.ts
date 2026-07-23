@@ -15,7 +15,6 @@ import {
   type OrderRequirementMutationSummary,
   type OrderRequirementPageSummary,
   type OrderRequirementSummary,
-  type OrderReservationSummaryResult,
   type OrderSummary,
   type PlayerWorkbenchSummary,
   type PublicServiceSummary,
@@ -41,6 +40,8 @@ import { DEFAULT_WALLET_DISPLAY_CONFIG, formatCustomerWalletAmount } from './wal
 import { buildSelectionPoolRefreshMessage } from './selection-discord.js';
 import { buildExperienceMessage } from './discord-experience.js';
 import { resolveGameBanner } from './game-banners.js';
+import { orderStatusDisplay } from './order-display.js';
+import { buildSubmittedOrderMessage } from './submitted-order-message.js';
 
 export * from './service-center-api.js';
 export * from './service-center-components.js';
@@ -48,6 +49,7 @@ export * from './service-center-profile.js';
 export * from './service-center-routes.js';
 export * from './service-center-order-notes.js';
 export * from './service-center-entry.js';
+export { buildSubmittedOrderMessage } from './submitted-order-message.js';
 
 export function buildRequirementNoteModal(input: {
   orderId: string;
@@ -161,23 +163,32 @@ export function buildOrderPanelMessage(
         `${selectedService?.gameDisplayName ?? order.gameDisplayName ?? formatGame(order.game)} · ${selectedService?.serviceDisplayName ?? order.serviceDisplayName ?? formatService(order.service)}`,
         `${selectedService?.regionDisplayName ?? order.regionDisplayName ?? formatRegion(order.region)} · ${formatDuration(order)}`
       ];
-  const body = [
-    ...selectionLines,
-    `订单金额：${formatCustomerMoney(order.amountMinor, order.currency)}`,
-    `当前状态：${order.status}`
-  ].join('\n');
-
-  return {
+  const terminal = order.status === 'COMPLETED' || order.status === 'CANCELLED';
+  return buildExperienceMessage({
     title,
-    body,
+    icon: terminal ? '🐈‍⬛' : '📋',
+    introduction: terminal
+      ? '这张订单已经结束，关键事实仍会保留在这里供你核对。'
+      : '订单信息已经整理好，当前可用操作都在卡片下方。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: order.status === 'COMPLETED' ? 'SUCCESS' : order.status === 'CANCELLED' ? 'MUTED' : 'BRAND',
+    coreFacts: [
+      { name: '🎮 服务内容', value: selectionLines.join('\n') },
+      { name: '🐟 订单金额', value: formatCustomerMoney(order.amountMinor, order.currency) }
+    ],
+    bossRequest: order.notes || null,
+    progress: orderStatusDisplay(order.status),
+    nextStep: terminal
+      ? '本单无需继续操作；如需核对资金或服务记录，请联系猫舍前台。'
+      : '使用下方当前可用按钮继续；状态有变化时点击“刷新订单”。',
     components: [
       {
         type: 'ACTION_ROW',
         components: orderStatusControls(order.id, order.version, order.status)
       }
     ]
-  };
+  });
 }
 
 export function buildMultiProjectOrderPanelMessage(
@@ -1260,70 +1271,6 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
 
 function readinessLabel(value: 'READY' | 'NOT_READY'): string {
   return value === 'READY' ? '已就绪' : '未就绪';
-}
-
-export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult): MessageSpec {
-  return {
-    title: '🐾 订单已提交 · 开始招募陪玩',
-    body: [
-      '**订单状态**',
-      `订单状态：${input.status}`,
-      '',
-      '**资金状态**',
-      `本单预留：${formatCustomerMoney(input.reservation.amountMinor, input.reservation.currency)}`,
-      `预留状态：${input.reservation.status}`,
-      `提交后可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
-      `当前预留总额：${formatCustomerMoney(input.balance.reservedMinor, input.balance.currency)}`,
-      BOT_COPY.orders.reservationOnly,
-      '',
-      '**下一步**',
-      '点击“开始招募”后，系统才会在派单频道发布报名卡。',
-      '招募不会自动结束；请在合适时手动点击“终止招募”。'
-    ].join('\n'),
-    visibility: 'PRIVATE_CHANNEL',
-    components: [
-      ...selectionStartRows(`bc:sp:new:${input.orderId}:o${input.version}`),
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:order:${input.orderId}:refresh`,
-            label: '刷新订单'
-          },
-          {
-            type: 'BUTTON',
-            style: 'DANGER',
-            customId: `bc:order:${input.orderId}:cancel:v${input.version}`,
-            label: '取消订单'
-          },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:service:support:${input.orderId}:v${input.version}`,
-            label: '我要申诉'
-          }
-        ]
-      }
-    ]
-  };
-}
-
-function selectionStartRows(customId: string): MessageComponentSpec[] {
-  return [
-    {
-      type: 'ACTION_ROW',
-      components: [
-        {
-          type: 'BUTTON',
-          style: 'PRIMARY',
-          customId,
-          label: '开始招募'
-        }
-      ]
-    }
-  ];
 }
 
 export function buildCancellationResultMessage(input: CancellationResultSummary): MessageSpec {

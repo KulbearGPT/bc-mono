@@ -1,4 +1,5 @@
-import type { MessageSpec } from './service-center.js';
+import { buildExperienceMessage } from './discord-experience.js';
+import type { MessageSpec } from './service-center-components.js';
 import type { OrderSummary, SelectionPoolSummary } from './service-center-api.js';
 
 export interface SelectionRequirementOffer {
@@ -82,16 +83,23 @@ export function buildSelectionPoolOfferMessage(input: {
   requirements: SelectionRequirementOffer[];
 }): MessageSpec {
   const requirements = input.requirements.filter((item) => item.remainingSlots > 0).slice(0, 25);
-  return {
-    title: `🐾 候选池 #${input.orderPublicId}`,
-    body: [
-      '可同时报名多个订单；报名不会占用正式订单名额。',
-      '招募会持续进行，直到客户手动终止。',
-      '',
-      '**可报名项目**',
-      ...requirements.map((item) => `${item.label} · 缺 ${item.remainingSlots} 位`)
-    ].join('\n'),
+  return buildExperienceMessage({
+    title: `新单报名 #${input.orderPublicId}`,
+    icon: '🐾',
+    introduction: '猫舍有新委托啦～报名不占用正式订单名额，合适就来留个爪印。',
     visibility: 'PUBLIC',
+    density: 'PUBLIC_MILESTONE',
+    tone: 'BRAND',
+    coreFacts: [
+      {
+        name: '🎮 可报名项目',
+        value:
+          requirements.map((item, index) => `${index + 1}️⃣ ${item.label} · 缺 ${item.remainingSlots} 位`).join('\n') ||
+          '暂无可报名项目'
+      }
+    ],
+    progress: '持续招募中，直到老板手动终止',
+    nextStep: '选择你想报名的项目；取消报名后会自动退出本轮。',
     components: requirements.length
       ? [
           {
@@ -113,7 +121,7 @@ export function buildSelectionPoolOfferMessage(input: {
           }
         ]
       : []
-  };
+  });
 }
 
 export function buildSelectionCandidatePanel(input: {
@@ -163,22 +171,35 @@ export function buildSelectionCandidatePanel(input: {
     components.push(
       selectionActionButton(
         `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-        '候选不合适，重新开始招募'
+        '本轮暂无合适陪玩，重新招募'
       )
     );
-  return {
-    title: '🐈‍⬛ 选择陪玩',
-    body: input.items.length
-      ? input.items
-          .map(
-            (item) =>
-              `**${item.playerDisplayName}**\n${[...item.publicGameTags, ...item.publicServiceTags].join(' / ') || '暂无公开标签'}`
-          )
-          .join('\n')
-      : '本轮暂无报名。请选择重新开始招募或取消订单。',
+  return buildExperienceMessage({
+    title: '试音匹配·选择陪玩',
+    icon: '🎧',
+    introduction: input.items.length
+      ? '本轮报名已终止，请结合公开资料选择想试音的陪玩。'
+      : '本轮没有收到报名，可以再开一轮招募。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: input.items.length ? 'BRAND' : 'WAITING',
+    coreFacts: [
+      {
+        name: '🐾 报名陪玩',
+        value: input.items.length
+          ? input.items
+              .map(
+                (item) =>
+                  `**${item.playerDisplayName}**\n${[...item.publicGameTags, ...item.publicServiceTags].join(' / ') || '暂无公开标签'}`
+              )
+              .join('\n\n')
+          : '暂无报名陪玩'
+      }
+    ],
+    progress: input.items.length ? '试音匹配进行中' : '本轮招募已终止',
+    nextStep: input.items.length ? '选中陪玩后进入确认页；如都不合适，可重新招募。' : '重新开始招募，或取消订单。',
     components
-  };
+  });
 }
 
 export function buildSelectionCandidateConfirmation(input: {
@@ -191,15 +212,20 @@ export function buildSelectionCandidateConfirmation(input: {
   if (input.selectedCandidates.length < 1 || input.selectedCandidates.length > 25)
     throw new Error('Selection confirmation requires one to twenty-five candidates.');
   const count = input.selectedCandidates.length;
-  return {
-    title: '🐈‍⬛ 确认选择陪玩',
-    body: [
-      '请核对本次入选名单：',
-      ...input.selectedCandidates.map((candidate) => `• **${candidate.playerDisplayName}**`),
-      '',
-      '确认后将立即创建正式陪玩席位；如有误，请返回候选名单重新选择。'
-    ].join('\n'),
+  return buildExperienceMessage({
+    title: '确认试音匹配结果',
+    icon: '🐈‍⬛',
+    introduction: '这是最后一次核对；确认后，系统将为选中的陪玩创建正式席位。',
     visibility: 'EPHEMERAL',
+    density: 'EPHEMERAL_FEEDBACK',
+    tone: 'INFO',
+    coreFacts: [
+      {
+        name: '🎧 本次选择',
+        value: input.selectedCandidates.map((candidate) => `• **${candidate.playerDisplayName}**`).join('\n')
+      }
+    ],
+    nextStep: '名单无误就点击“确认选择”；如需调整，返回报名名单重新选择。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -237,7 +263,7 @@ export function buildSelectionCandidateConfirmation(input: {
         ]
       }
     ]
-  };
+  });
 }
 
 export function selectionIdsFromConfirmationComponents(components: readonly unknown[]): string[] {
@@ -284,17 +310,21 @@ export function selectionFinalizeRouteFromConfirmationComponents(
 
 export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: SelectionPoolSummary | null): MessageSpec {
   if (!pool)
-    return {
-      title: `🐾 订单 #${order.publicId} · 开始招募`,
-      body: ['订单已提交，资金预留保持有效。', '目前还没有开始招募。点击按钮后，系统会在派单频道发布报名卡。'].join(
-        '\n'
-      ),
+    return buildExperienceMessage({
+      title: `订单 #${order.publicId} · 准备招募`,
+      icon: '🐾',
+      introduction: '订单已就位，预留资金保持有效，现在由你决定何时开始找陪玩。',
       visibility: 'PRIVATE_CHANNEL',
+      density: 'PRIVATE_ORDER',
+      tone: 'BRAND',
+      coreFacts: [{ name: '📋 订单状态', value: '已提交 · 资金预留中' }],
+      progress: '尚未开始招募',
+      nextStep: '点击“开始招募”，系统会在派单频道发布报名卡。',
       components: [
         selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募'),
         selectionOrderControls(order)
       ]
-    };
+    });
   const collecting = pool.status === 'COLLECTING';
   const emptySelection = pool.status === 'SELECTION' && pool.applicationCount === 0;
   const components: MessageSpec['components'] = [];
@@ -318,26 +348,33 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
       )
     );
   components.push(selectionOrderControls(order));
-  return {
+  return buildExperienceMessage({
     title: collecting
-      ? `🐾 订单 #${order.publicId} · 报名进行中`
+      ? `订单 #${order.publicId} · 报名进行中`
       : emptySelection
-        ? `🐾 订单 #${order.publicId} · 本轮无人报名`
-        : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
-    body: collecting
-      ? [`第 ${pool.round} 轮`, `当前报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`].join(
-          '\n'
-        )
+        ? `订单 #${order.publicId} · 本轮无人报名`
+        : `订单 #${order.publicId} · 试音匹配`,
+    icon: collecting || emptySelection ? '🐾' : '🎧',
+    introduction: collecting
+      ? '报名卡正在派单频道收集爪印，名单会在这里实时更新。'
       : emptySelection
-        ? [`第 ${pool.round} 轮招募已终止。`, '当前候选：暂无', '本轮暂无候选，可以重新开始招募。'].join('\n')
-        : [
-            `第 ${pool.round} 轮招募已终止。`,
-            `当前候选：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`,
-            '请刷新候选名单或联系客服。'
-          ].join('\n'),
+        ? '本轮招募已结束，但还没有陪玩报名。'
+        : '本轮招募已结束，现在可以从报名陪玩中进行试音匹配。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: collecting ? 'WAITING' : emptySelection ? 'MUTED' : 'BRAND',
+    coreFacts: [
+      { name: '📋 本轮招募', value: `第 ${pool.round} 轮 · ${collecting ? '无时限，老板手动终止' : '已终止'}` },
+      { name: '🐾 当前报名', value: selectionApplicantMentions(pool.applicantDiscordUserIds ?? []) }
+    ],
+    progress: collecting ? '报名进行中' : emptySelection ? '本轮无人报名' : '试音匹配进行中',
+    nextStep: collecting
+      ? '名单合适时点击“终止招募”，再进入试音匹配。'
+      : emptySelection
+        ? '点击“重新开始招募”，或取消订单。'
+        : '刷新报名名单后选择想试音的陪玩；如状态不一致，请联系客服。',
     components
-  };
+  });
 }
 
 export function buildSelectionPoolStartedNotice(

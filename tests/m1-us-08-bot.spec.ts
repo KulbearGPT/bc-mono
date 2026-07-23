@@ -71,13 +71,14 @@ describe('M1-US-08 final submit Bot flow', () => {
 
     expect(message.visibility).toBe('PRIVATE_CHANNEL');
     expect(message.title).toBe('🐾 订单已提交 · 开始招募陪玩');
-    expect(message.body).toContain('订单状态：PENDING_DISPATCH');
-    expect(message.body).toContain('本单预留：1,200.0 CAT');
-    expect(message.body).toContain('提交后可用余额：98,800.0 CAT');
-    expect(message.body).toContain('目前只是预留本单所需猫条，还没有产生正式消费。');
-    expect(message.body).toContain('点击“开始招募”后，系统才会在派单频道发布报名卡');
-    expect(message.body).toContain('招募不会自动结束');
-    expect(message.body).not.toContain('正在匹配陪玩');
+    expect(message.fields).toContainEqual({ name: '📋 订单状态', value: '等待招募与试音匹配' });
+    const rendered = JSON.stringify(message);
+    expect(rendered).toContain('本单预留：1,200.0 CAT');
+    expect(rendered).toContain('提交后可用：98,800.0 CAT');
+    expect(rendered).toContain('目前只是预留本单所需猫条，还没有产生正式消费。');
+    expect(rendered).toContain('点击“开始招募”发布报名卡');
+    expect(rendered).toContain('招募不会自动结束');
+    expect(rendered).not.toContain('正在匹配陪玩');
     expect(JSON.stringify(message.components)).toContain(`bc:order:${orderId}:refresh`);
     expect(JSON.stringify(message.components)).not.toContain(`bc:order:${orderId}:submit:v`);
     expect(JSON.stringify(message)).not.toMatch(/playerEarning|playerPayout|陪玩结算/i);
@@ -101,7 +102,7 @@ describe('M1-US-08 final submit Bot flow', () => {
       'discord:order:submit-final:777777777777777777'
     );
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(result.message.body).toContain('本单预留：1,200.0 CAT');
+    expect(JSON.stringify(result.message)).toContain('本单预留：1,200.0 CAT');
   });
 
   test('wires submit-final button to the final submit flow', async () => {
