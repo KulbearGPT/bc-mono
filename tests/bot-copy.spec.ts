@@ -6,10 +6,9 @@ import { buildPublicServiceEntryMessage } from '../apps/bot/src/service-center.j
 
 describe('Bot copy catalog', () => {
   test('keeps static and interpolated user-facing copy in one typed module', () => {
-    expect(BOT_COPY.onboarding.welcome).toContain('**🐈‍⬛ 欢迎来到黑猫电竞**');
-    expect(BOT_COPY.onboarding.welcome).toContain('今晚想找一位合拍的游戏搭子');
-    expect(BOT_COPY.onboarding.welcome).toContain('**第一次来？**');
-    expect(BOT_COPY.onboarding.welcome).toContain('ฅ^•ﻌ•^ฅ');
+    expect(BOT_COPY.onboarding.welcomeIntroduction).toContain('今晚想找一位合拍的游戏搭子');
+    expect(BOT_COPY.onboarding.customerPath).toContain('第一次来请先注册玩家');
+    expect(BOT_COPY.onboarding.welcomeIntroduction).toContain('ฅ^•ﻌ•^ฅ');
     expect(JSON.stringify(BOT_COPY).split('ฅ^•ﻌ•^ฅ')).toHaveLength(2);
     expect(botCopy.gifts.requestSubmitted('大袋猫粮', '50.0 CAT')).toBe(
       '**🎁 礼物已送到猫舍前台**\n\n**礼物**：大袋猫粮\n**已预留**：50.0 CAT\n**当前进度**：等待猫舍前台核对\n\n核对完成前不会正式扣除。'
@@ -32,7 +31,7 @@ describe('Bot copy catalog', () => {
       '🎮 开始找陪玩'
     ]);
     expect(publicEntry.title).toBe('🐈‍⬛ 陪玩服务中心');
-    expect(publicEntry.body).toContain('**下单前请留意**');
+    expect(publicEntry.fields?.map((field) => field.name)).toContain('🛎️ 下单前请留意');
     expect(publicEntry.components[0]).toMatchObject({
       components: [{ label: '🐾 创建订单' }, { label: '🐈‍⬛ 我的服务中心' }]
     });

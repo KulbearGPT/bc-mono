@@ -49,6 +49,7 @@ export interface ExperienceMessageInput {
   components: MessageComponentSpec[];
   layout?: MessageSpec['layout'];
   footer?: string;
+  attachments?: MessageSpec['attachments'];
 }
 
 export function buildExperienceMessage(input: ExperienceMessageInput): MessageSpec {
@@ -75,7 +76,8 @@ export function buildExperienceMessage(input: ExperienceMessageInput): MessageSp
     tone: input.tone,
     density: input.density,
     ...(fields.length ? { fields } : {}),
-    footer: input.footer?.trim() || DISCORD_EXPERIENCE.footer
+    footer: input.footer?.trim() || DISCORD_EXPERIENCE.footer,
+    ...(input.attachments?.length ? { attachments: input.attachments } : {})
   };
 }
 

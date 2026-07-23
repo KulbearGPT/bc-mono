@@ -1,22 +1,371 @@
-import { describe,expect,test,vi } from 'vitest';
-import { buildGameOrderingMenuMessage,buildGamePickerMessage,buildMultiProjectOrderConfirmationMessage,buildMultiProjectOrderPanelMessage,buildRequirementNoteModal,buildServicePackagePickerMessage,buildServicePackagePreviewMessage,handleGameMenuSelect,handleServicePackageAction,handleServicePackageSelect,parseServiceCenterCustomId,type BotActorContext,type BotApiClient,type OrderRequirementPageSummary,type OrderSummary,type ServicePackagePreviewSummary } from '@blackcat/bot/service-center';
+import { describe, expect, test, vi } from 'vitest';
+import {
+  buildGameOrderingMenuMessage,
+  buildGamePickerMessage,
+  buildMultiProjectOrderConfirmationMessage,
+  buildMultiProjectOrderPanelMessage,
+  buildRequirementNoteModal,
+  buildServicePackagePickerMessage,
+  buildServicePackagePreviewMessage,
+  handleGameMenuSelect,
+  handleServicePackageAction,
+  handleServicePackageSelect,
+  parseServiceCenterCustomId,
+  type BotActorContext,
+  type BotApiClient,
+  type OrderRequirementPageSummary,
+  type OrderSummary,
+  type ServicePackagePreviewSummary
+} from '@blackcat/bot/service-center';
 import { toDiscordReply } from '../apps/bot/src/discord-renderer';
 
-const orderId='00000000-0000-0000-0000-000000108001';const packageId='00000000-0000-0000-0000-000000108100';const actor:BotActorContext={guildId:'999999999999999999',discordUserId:'111111111111111111',interactionId:'222222222222222222',clientSource:'DISCORD_BOT'};
+const orderId = '00000000-0000-0000-0000-000000108001';
+const packageId = '00000000-0000-0000-0000-000000108100';
+const actor: BotActorContext = {
+  guildId: '999999999999999999',
+  discordUserId: '111111111111111111',
+  interactionId: '222222222222222222',
+  clientSource: 'DISCORD_BOT'
+};
 
-describe('M10-US-08 Discord package composer',()=>{
-  test('renders package entry, preview and restart-safe custom IDs',()=>{const order=botOrder();const pkg=preview();const picker=buildServicePackagePickerMessage(order,{items:[pkg],nextCursor:null});expect(picker.body).toContain('独立陪玩席位');expect(JSON.stringify(picker.components)).toContain(`bc:package:${orderId}:select:v1`);const detail=buildServicePackagePreviewMessage(order,pkg);expect(detail.body).toContain('1号位 · 三角洲行动 · 技术护航');expect(detail.body).toContain('2号位 · 三角洲行动 · 技术护航');expect(detail.body).toContain('18.0 CAT');expect(parseServiceCenterCustomId(`bc:package:${orderId}:${packageId}:apply:v1`)).toEqual({area:'service-package-action',orderId,servicePackageVersionId:packageId,action:'apply',expectedVersion:1});});
+describe('M10-US-08 Discord package composer', () => {
+  test('renders package entry, preview and restart-safe custom IDs', () => {
+    const order = botOrder();
+    const pkg = preview();
+    const picker = buildServicePackagePickerMessage(order, { items: [pkg], nextCursor: null });
+    expect(picker.body).toContain('独立陪玩席位');
+    expect(JSON.stringify(picker.components)).toContain(`bc:package:${orderId}:select:v1`);
+    const detail = buildServicePackagePreviewMessage(order, pkg);
+    const rendered = JSON.stringify(detail);
+    expect(rendered).toContain('1号位 · 三角洲行动 · 技术护航');
+    expect(rendered).toContain('2号位 · 三角洲行动 · 技术护航');
+    expect(rendered).toContain('18.0 CAT');
+    expect(parseServiceCenterCustomId(`bc:package:${orderId}:${packageId}:apply:v1`)).toEqual({
+      area: 'service-package-action',
+      orderId,
+      servicePackageVersionId: packageId,
+      action: 'apply',
+      expectedVersion: 1
+    });
+  });
 
-  test('previews a selected package and applies it before rebuilding the editable basket',async()=>{const api=stub();const selected=await handleServicePackageSelect({api,actor,orderId,expectedVersion:1,servicePackageVersionId:packageId});expect(selected.kind).toBe('EDIT_ORIGINAL_MESSAGE');if(selected.kind==='EDIT_ORIGINAL_MESSAGE')expect(selected.message.title).toContain('套餐预览');const applied=await handleServicePackageAction({api,actor,orderId,expectedVersion:1,action:'apply',servicePackageVersionId:packageId,idempotencyKey:'package:bot:apply:0001'});expect(api.applyServicePackage).toHaveBeenCalledWith(orderId,{expectedOrderVersion:1,servicePackageVersionId:packageId},actor,'package:bot:apply:0001');expect(applied.kind).toBe('EDIT_ORIGINAL_MESSAGE');if(applied.kind==='EDIT_ORIGINAL_MESSAGE'){expect(applied.message.title).toContain('陪玩清单');expect(applied.message.body).toContain('套餐默认阵容');}});
+  test('previews a selected package and applies it before rebuilding the editable basket', async () => {
+    const api = stub();
+    const selected = await handleServicePackageSelect({
+      api,
+      actor,
+      orderId,
+      expectedVersion: 1,
+      servicePackageVersionId: packageId
+    });
+    expect(selected.kind).toBe('EDIT_ORIGINAL_MESSAGE');
+    if (selected.kind === 'EDIT_ORIGINAL_MESSAGE') expect(selected.message.title).toContain('套餐预览');
+    const applied = await handleServicePackageAction({
+      api,
+      actor,
+      orderId,
+      expectedVersion: 1,
+      action: 'apply',
+      servicePackageVersionId: packageId,
+      idempotencyKey: 'package:bot:apply:0001'
+    });
+    expect(api.applyServicePackage).toHaveBeenCalledWith(
+      orderId,
+      { expectedOrderVersion: 1, servicePackageVersionId: packageId },
+      actor,
+      'package:bot:apply:0001'
+    );
+    expect(applied.kind).toBe('EDIT_ORIGINAL_MESSAGE');
+    if (applied.kind === 'EDIT_ORIGINAL_MESSAGE') {
+      expect(applied.message.title).toContain('陪玩清单');
+      expect(JSON.stringify(applied.message)).toContain('套餐默认阵容');
+    }
+  });
 
-  test('renders prototype step 3 without legacy draft controls',()=>{const message=buildMultiProjectOrderPanelMessage(botOrder(),page(),[]);const rendered=JSON.stringify(message);expect(message.title).toContain('第 3/4 步');expect(rendered).toContain('＋ 添加其他游戏或单点');expect(rendered).toContain('下一步 · 确认订单');for(const legacy of ['按游戏点单','优先陪玩','补充备注','取消订单','我要申诉'])expect(rendered).not.toContain(legacy);expect(message.body).toContain('目录小计：20.0 CAT');expect(message.body).toContain('套餐调整：-2.0 CAT');expect(message.body).toContain('合计：18.0 CAT');});
-  test('offers only same-game per-slot replacement and a recoverable note modal',()=>{const requirement=page().items[1]!;const service={id:'00000000-0000-0000-0000-000000108299',game:'DELTA',gameDisplayName:'三角洲行动',service:'FUN',serviceDisplayName:'娱乐陪玩',region:'NA',regionDisplayName:'北美',billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:35,currency:'CAT',version:1};const other={...service,id:'00000000-0000-0000-0000-000000108298',game:'VALORANT',gameDisplayName:'瓦洛兰特'};const message=buildMultiProjectOrderPanelMessage(botOrder(),page(),[service,other],requirement.id);expect(message.components).toHaveLength(5);expect(JSON.stringify(message.components)).toContain(service.id);expect(JSON.stringify(message.components)).not.toContain(other.id);expect(JSON.stringify(message.components)).toContain('席位偏好');const modal=buildRequirementNoteModal({orderId,requirementId:requirement.id,expectedVersion:2,expectedRequirementVersion:1});expect(modal.components[0]?.label).toContain('会聊天');expect(parseServiceCenterCustomId(modal.customId)).toMatchObject({area:'requirement-note-modal',orderId,requirementId:requirement.id,expectedVersion:2,expectedRequirementVersion:1});});
-  test('starts with prototype step 1 sections and renders only the selected game in step 2',async()=>{const lol={id:'00000000-0000-0000-0000-000000108299',game:'LOLNA',gameDisplayName:'英雄联盟美服',service:'FUN',serviceDisplayName:'娱乐陪玩',region:null,regionDisplayName:null,billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:35,currency:'CAT',version:1};const valorant={...lol,id:'00000000-0000-0000-0000-000000108298',game:'VALORANT',gameDisplayName:'瓦洛兰特'};const picker=buildGamePickerMessage(botOrder(),[lol,valorant]);const pickerJson=JSON.stringify(picker);expect(picker.title).toContain('第 1/4 步');expect(picker.title).toContain('选择游戏');expect(pickerJson).toContain('V2_SECTION');expect(pickerJson).toContain('进入');expect(pickerJson).not.toContain('选择一个游戏');expect(parseServiceCenterCustomId(`bc:game:${orderId}:LOLNA:open:v1`)).toMatchObject({area:'order-game-action',game:'LOLNA'});const api=stub();api.listServices=vi.fn().mockResolvedValue({items:[lol]});api.listServicePackages=vi.fn().mockResolvedValue({items:[preview()],nextCursor:null});const result=await handleGameMenuSelect({api,actor,orderId,expectedVersion:1,game:'LOLNA'});expect(api.listServices).toHaveBeenCalledWith(actor,'LOLNA');expect(api.listServicePackages).toHaveBeenCalledWith(actor,undefined,25,'LOLNA');if(result.kind==='EDIT_ORIGINAL_MESSAGE'){expect(result.message.title).toContain('第 2/4 步');expect(result.message.title).toContain('英雄联盟美服');expect(JSON.stringify(result.message)).toContain('V2_SECTION');expect(JSON.stringify(result.message.components)).toContain(lol.id);expect(JSON.stringify(result.message.components)).not.toContain(valorant.id);}const menu=buildGameOrderingMenuMessage(botOrder(),'LOLNA',[lol],{items:[preview()],nextCursor:null});expect(menu.body).toContain('套餐');expect(menu.body).toContain('单点');});
-  test('previews a single item before mutation and renders prototype step 4 confirmation',()=>{const single={id:'00000000-0000-0000-0000-000000108299',game:'DELTA',gameDisplayName:'三角洲行动',service:'FUN',serviceDisplayName:'娱乐陪玩',region:'NA',regionDisplayName:'北美',billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:35,currency:'CAT',version:1};const menu=buildGameOrderingMenuMessage(botOrder(),'DELTA',[single],{items:[preview()],nextCursor:null},single);expect(JSON.stringify(menu)).toContain('单点加入');expect(parseServiceCenterCustomId(`bc:req:${orderId}:${single.id}:add:v1`)).toMatchObject({area:'order-requirement-add-action',serviceCatalogVersionId:single.id});const confirmation=buildMultiProjectOrderConfirmationMessage({order:botOrder(),requirements:page(),balance:{ledgerBalanceMinor:1000,reservedMinor:0,availableMinor:1000,currency:'CAT',calculatedAt:'2026-08-04T12:00:00Z'}});const rendered=JSON.stringify(confirmation);expect(confirmation.title).toContain('第 4/4 步');expect(confirmation.title).toContain('最后确认');expect(rendered).toContain('返回编辑');expect(rendered).toContain('确认提交订单');expect(rendered).not.toContain('取消订单');});
-  test('serializes the game picker as a real Discord Components V2 container',()=>{const service={id:'00000000-0000-0000-0000-000000108299',game:'LOLNA',gameDisplayName:'英雄联盟美服',service:'FUN',serviceDisplayName:'娱乐陪玩',region:null,regionDisplayName:null,billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:35,currency:'CAT',version:1};const reply=toDiscordReply(buildGamePickerMessage(botOrder(),[service]));expect(reply.embeds).toBeUndefined();expect(reply.flags).toBeDefined();const container=reply.components?.[0] as {toJSON?:()=>unknown};expect(()=>container.toJSON?.()).not.toThrow();expect(JSON.stringify(container.toJSON?.())).toContain(`bc:game:${orderId}:LOLNA:open:v1`);});
+  test('renders prototype step 3 without legacy draft controls', () => {
+    const message = buildMultiProjectOrderPanelMessage(botOrder(), page(), []);
+    const rendered = JSON.stringify(message);
+    expect(message.title).toContain('第 3/4 步');
+    expect(rendered).toContain('＋ 添加其他游戏或单点');
+    expect(rendered).toContain('下一步 · 确认订单');
+    for (const legacy of ['按游戏点单', '优先陪玩', '补充备注', '取消订单', '我要申诉'])
+      expect(rendered).not.toContain(legacy);
+    expect(rendered).toContain('目录小计：20.0 CAT');
+    expect(rendered).toContain('套餐调整：-2.0 CAT');
+    expect(rendered).toContain('合计：18.0 CAT');
+  });
+  test('offers only same-game per-slot replacement and a recoverable note modal', () => {
+    const requirement = page().items[1]!;
+    const service = {
+      id: '00000000-0000-0000-0000-000000108299',
+      game: 'DELTA',
+      gameDisplayName: '三角洲行动',
+      service: 'FUN',
+      serviceDisplayName: '娱乐陪玩',
+      region: 'NA',
+      regionDisplayName: '北美',
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 35,
+      currency: 'CAT',
+      version: 1
+    };
+    const other = {
+      ...service,
+      id: '00000000-0000-0000-0000-000000108298',
+      game: 'VALORANT',
+      gameDisplayName: '瓦洛兰特'
+    };
+    const message = buildMultiProjectOrderPanelMessage(botOrder(), page(), [service, other], requirement.id);
+    expect(message.components).toHaveLength(5);
+    expect(JSON.stringify(message.components)).toContain(service.id);
+    expect(JSON.stringify(message.components)).not.toContain(other.id);
+    expect(JSON.stringify(message.components)).toContain('席位偏好');
+    const modal = buildRequirementNoteModal({
+      orderId,
+      requirementId: requirement.id,
+      expectedVersion: 2,
+      expectedRequirementVersion: 1
+    });
+    expect(modal.components[0]?.label).toContain('会聊天');
+    expect(parseServiceCenterCustomId(modal.customId)).toMatchObject({
+      area: 'requirement-note-modal',
+      orderId,
+      requirementId: requirement.id,
+      expectedVersion: 2,
+      expectedRequirementVersion: 1
+    });
+  });
+  test('starts with prototype step 1 sections and renders only the selected game in step 2', async () => {
+    const lol = {
+      id: '00000000-0000-0000-0000-000000108299',
+      game: 'LOLNA',
+      gameDisplayName: '英雄联盟美服',
+      service: 'FUN',
+      serviceDisplayName: '娱乐陪玩',
+      region: null,
+      regionDisplayName: null,
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 35,
+      currency: 'CAT',
+      version: 1
+    };
+    const valorant = {
+      ...lol,
+      id: '00000000-0000-0000-0000-000000108298',
+      game: 'VALORANT',
+      gameDisplayName: '瓦洛兰特'
+    };
+    const picker = buildGamePickerMessage(botOrder(), [lol, valorant]);
+    const pickerJson = JSON.stringify(picker);
+    expect(picker.title).toContain('第 1/4 步');
+    expect(picker.title).toContain('选择游戏');
+    expect(pickerJson).toContain('V2_SECTION');
+    expect(pickerJson).toContain('进入');
+    expect(pickerJson).not.toContain('选择一个游戏');
+    expect(parseServiceCenterCustomId(`bc:game:${orderId}:LOLNA:open:v1`)).toMatchObject({
+      area: 'order-game-action',
+      game: 'LOLNA'
+    });
+    const api = stub();
+    api.listServices = vi.fn().mockResolvedValue({ items: [lol] });
+    api.listServicePackages = vi.fn().mockResolvedValue({ items: [preview()], nextCursor: null });
+    const result = await handleGameMenuSelect({ api, actor, orderId, expectedVersion: 1, game: 'LOLNA' });
+    expect(api.listServices).toHaveBeenCalledWith(actor, 'LOLNA');
+    expect(api.listServicePackages).toHaveBeenCalledWith(actor, undefined, 25, 'LOLNA');
+    if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
+      expect(result.message.title).toContain('第 2/4 步');
+      expect(result.message.title).toContain('英雄联盟美服');
+      expect(JSON.stringify(result.message)).toContain('V2_SECTION');
+      expect(JSON.stringify(result.message.components)).toContain(lol.id);
+      expect(JSON.stringify(result.message.components)).not.toContain(valorant.id);
+    }
+    const menu = buildGameOrderingMenuMessage(botOrder(), 'LOLNA', [lol], { items: [preview()], nextCursor: null });
+    expect(menu.body).toContain('套餐');
+    expect(menu.body).toContain('单点');
+  });
+  test('previews a single item before mutation and renders prototype step 4 confirmation', () => {
+    const single = {
+      id: '00000000-0000-0000-0000-000000108299',
+      game: 'DELTA',
+      gameDisplayName: '三角洲行动',
+      service: 'FUN',
+      serviceDisplayName: '娱乐陪玩',
+      region: 'NA',
+      regionDisplayName: '北美',
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 35,
+      currency: 'CAT',
+      version: 1
+    };
+    const menu = buildGameOrderingMenuMessage(
+      botOrder(),
+      'DELTA',
+      [single],
+      { items: [preview()], nextCursor: null },
+      single
+    );
+    expect(JSON.stringify(menu)).toContain('单点加入');
+    expect(parseServiceCenterCustomId(`bc:req:${orderId}:${single.id}:add:v1`)).toMatchObject({
+      area: 'order-requirement-add-action',
+      serviceCatalogVersionId: single.id
+    });
+    const confirmation = buildMultiProjectOrderConfirmationMessage({
+      order: botOrder(),
+      requirements: page(),
+      balance: {
+        ledgerBalanceMinor: 1000,
+        reservedMinor: 0,
+        availableMinor: 1000,
+        currency: 'CAT',
+        calculatedAt: '2026-08-04T12:00:00Z'
+      }
+    });
+    const rendered = JSON.stringify(confirmation);
+    expect(confirmation.title).toContain('第 4/4 步');
+    expect(confirmation.title).toContain('最后确认');
+    expect(rendered).toContain('返回编辑');
+    expect(rendered).toContain('确认提交订单');
+    expect(rendered).not.toContain('取消订单');
+  });
+  test('serializes the game picker as a real Discord Components V2 container', () => {
+    const service = {
+      id: '00000000-0000-0000-0000-000000108299',
+      game: 'LOLNA',
+      gameDisplayName: '英雄联盟美服',
+      service: 'FUN',
+      serviceDisplayName: '娱乐陪玩',
+      region: null,
+      regionDisplayName: null,
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 35,
+      currency: 'CAT',
+      version: 1
+    };
+    const reply = toDiscordReply(buildGamePickerMessage(botOrder(), [service]));
+    expect(reply.embeds).toBeUndefined();
+    expect(reply.flags).toBeDefined();
+    const container = reply.components?.[0] as { toJSON?: () => unknown };
+    expect(() => container.toJSON?.()).not.toThrow();
+    expect(JSON.stringify(container.toJSON?.())).toContain(`bc:game:${orderId}:LOLNA:open:v1`);
+  });
 });
 
-function botOrder():OrderSummary{return{id:orderId,publicId:'P-PACKAGE',status:'DRAFT',version:1,orderType:'IMMEDIATE',serviceCatalogId:null,catalogVersion:null,game:null,gameDisplayName:null,service:null,serviceDisplayName:null,region:null,regionDisplayName:null,billingUnitMinutes:null,unitCount:null,amountMinor:0,currency:'CAT',notes:null,channelSpec:{guildId:actor.guildId,channelId:'333333333333333333',panelMessageId:null,voiceChannelId:null},matching:null,compositionMode:'PACKAGE_DEFAULT',sourcePackageVersionId:packageId};}
-function preview():ServicePackagePreviewSummary{return{id:packageId,code:'DELTA_ESCORT',version:1,game:'DELTA',gameDisplayName:'三角洲行动',displayName:'三角洲护航',description:'两只技术猫猫护航',defaultCustomerPriceMinor:180,currency:'CAT',derivedTotalMinor:180,compositionMode:'PACKAGE_DEFAULT',slots:[slot(1),slot(2)]};}function slot(position:number){return{id:`00000000-0000-0000-0000-00000010810${position}`,position,serviceCatalogVersionId:`00000000-0000-0000-0000-00000010820${position}`,gameDisplayName:'三角洲行动',serviceDisplayName:'技术护航',regionDisplayName:'北美',billingUnitMinutes:60,unitCount:1,customerNoteTemplate:position===2?'可改成会聊天的娱乐陪玩':null};}
-function page():OrderRequirementPageSummary{return{orderId,orderVersion:2,catalogSubtotalMinor:200,packageAdjustmentMinor:-20,derivedTotalMinor:180,currency:'CAT',items:preview().slots.map((slot,index)=>({id:`00000000-0000-0000-0000-00000010830${index+1}`,orderId,sourcePackageSlotId:slot.id,serviceCatalogVersionId:slot.serviceCatalogVersionId,game:'DELTA',gameDisplayName:slot.gameDisplayName,service:'TECH',serviceDisplayName:slot.serviceDisplayName,region:'NA',regionDisplayName:'北美',billingUnitMinutes:60,unitCount:1,requestedPlayerCount:1,customerUnitPriceMinor:100,estimatedLinePriceMinor:100,filledPlayerCount:0,customerNote:slot.customerNoteTemplate,status:'ACTIVE',version:1,createdAt:'2026-08-04T12:00:00Z',updatedAt:'2026-08-04T12:00:00Z'})),nextCursor:null};}
-function stub(){const updated={...botOrder(),version:2,amountMinor:180};return{getOrder:vi.fn().mockResolvedValue(updated),listServicePackages:vi.fn().mockResolvedValue({items:[preview()],nextCursor:null}),previewServicePackage:vi.fn().mockResolvedValue(preview()),applyServicePackage:vi.fn().mockResolvedValue({orderId,orderVersion:2,sourcePackageVersionId:packageId,compositionMode:'PACKAGE_DEFAULT',derivedTotalMinor:180,currency:'CAT',requirements:page().items}),listOrderRequirements:vi.fn().mockResolvedValue(page()),listServices:vi.fn().mockResolvedValue({items:[]})} as unknown as BotApiClient&{applyServicePackage:ReturnType<typeof vi.fn>};}
+function botOrder(): OrderSummary {
+  return {
+    id: orderId,
+    publicId: 'P-PACKAGE',
+    status: 'DRAFT',
+    version: 1,
+    orderType: 'IMMEDIATE',
+    serviceCatalogId: null,
+    catalogVersion: null,
+    game: null,
+    gameDisplayName: null,
+    service: null,
+    serviceDisplayName: null,
+    region: null,
+    regionDisplayName: null,
+    billingUnitMinutes: null,
+    unitCount: null,
+    amountMinor: 0,
+    currency: 'CAT',
+    notes: null,
+    channelSpec: {
+      guildId: actor.guildId,
+      channelId: '333333333333333333',
+      panelMessageId: null,
+      voiceChannelId: null
+    },
+    matching: null,
+    compositionMode: 'PACKAGE_DEFAULT',
+    sourcePackageVersionId: packageId
+  };
+}
+function preview(): ServicePackagePreviewSummary {
+  return {
+    id: packageId,
+    code: 'DELTA_ESCORT',
+    version: 1,
+    game: 'DELTA',
+    gameDisplayName: '三角洲行动',
+    displayName: '三角洲护航',
+    description: '两只技术猫猫护航',
+    defaultCustomerPriceMinor: 180,
+    currency: 'CAT',
+    derivedTotalMinor: 180,
+    compositionMode: 'PACKAGE_DEFAULT',
+    slots: [slot(1), slot(2)]
+  };
+}
+function slot(position: number) {
+  return {
+    id: `00000000-0000-0000-0000-00000010810${position}`,
+    position,
+    serviceCatalogVersionId: `00000000-0000-0000-0000-00000010820${position}`,
+    gameDisplayName: '三角洲行动',
+    serviceDisplayName: '技术护航',
+    regionDisplayName: '北美',
+    billingUnitMinutes: 60,
+    unitCount: 1,
+    customerNoteTemplate: position === 2 ? '可改成会聊天的娱乐陪玩' : null
+  };
+}
+function page(): OrderRequirementPageSummary {
+  return {
+    orderId,
+    orderVersion: 2,
+    catalogSubtotalMinor: 200,
+    packageAdjustmentMinor: -20,
+    derivedTotalMinor: 180,
+    currency: 'CAT',
+    items: preview().slots.map((slot, index) => ({
+      id: `00000000-0000-0000-0000-00000010830${index + 1}`,
+      orderId,
+      sourcePackageSlotId: slot.id,
+      serviceCatalogVersionId: slot.serviceCatalogVersionId,
+      game: 'DELTA',
+      gameDisplayName: slot.gameDisplayName,
+      service: 'TECH',
+      serviceDisplayName: slot.serviceDisplayName,
+      region: 'NA',
+      regionDisplayName: '北美',
+      billingUnitMinutes: 60,
+      unitCount: 1,
+      requestedPlayerCount: 1,
+      customerUnitPriceMinor: 100,
+      estimatedLinePriceMinor: 100,
+      filledPlayerCount: 0,
+      customerNote: slot.customerNoteTemplate,
+      status: 'ACTIVE',
+      version: 1,
+      createdAt: '2026-08-04T12:00:00Z',
+      updatedAt: '2026-08-04T12:00:00Z'
+    })),
+    nextCursor: null
+  };
+}
+function stub() {
+  const updated = { ...botOrder(), version: 2, amountMinor: 180 };
+  return {
+    getOrder: vi.fn().mockResolvedValue(updated),
+    listServicePackages: vi.fn().mockResolvedValue({ items: [preview()], nextCursor: null }),
+    previewServicePackage: vi.fn().mockResolvedValue(preview()),
+    applyServicePackage: vi
+      .fn()
+      .mockResolvedValue({
+        orderId,
+        orderVersion: 2,
+        sourcePackageVersionId: packageId,
+        compositionMode: 'PACKAGE_DEFAULT',
+        derivedTotalMinor: 180,
+        currency: 'CAT',
+        requirements: page().items
+      }),
+    listOrderRequirements: vi.fn().mockResolvedValue(page()),
+    listServices: vi.fn().mockResolvedValue({ items: [] })
+  } as unknown as BotApiClient & { applyServicePackage: ReturnType<typeof vi.fn> };
+}

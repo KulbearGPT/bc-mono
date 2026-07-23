@@ -27,7 +27,13 @@ export interface V2SeparatorSpec {
   type: 'V2_SEPARATOR';
 }
 
-export type MessageComponentSpec = ActionRowSpec | V2SectionSpec | V2TextSpec | V2SeparatorSpec;
+export interface V2MediaSpec {
+  type: 'V2_MEDIA';
+  url: string;
+  description: string;
+}
+
+export type MessageComponentSpec = ActionRowSpec | V2SectionSpec | V2TextSpec | V2SeparatorSpec | V2MediaSpec;
 
 export type ComponentSpec =
   | {
@@ -77,6 +83,7 @@ export interface MessageSpec {
   density?: MessageDensity;
   fields?: MessageFieldSpec[];
   footer?: string;
+  attachments?: MessageAttachmentSpec[];
 }
 
 export type MessageTone = 'BRAND' | 'INFO' | 'SUCCESS' | 'WAITING' | 'DANGER' | 'MUTED';
@@ -88,6 +95,11 @@ export interface MessageFieldSpec {
   name: string;
   value: string;
   inline?: boolean;
+}
+
+export interface MessageAttachmentSpec {
+  name: string;
+  path: string;
 }
 
 export interface ModalSpec {

@@ -80,7 +80,7 @@ describe('M2-US-03 Bot accepted dispatch channel sync', () => {
     }, 'req_70759ca4-1bfe-4e58-9c04-3711d74b01b7');
 
     expect(message).toContain('Discord 当前未在线');
-    expect(message).toContain('旧 availability 仅供诊断，不影响候选池报名');
+    expect(message).toContain('旧 availability 仅供诊断，不影响报名');
     expect(message).toContain('陪玩工作台');
     expect(message).toContain('req_70759ca4-1bfe-4e58-9c04-3711d74b01b7');
     expect(message).not.toContain('discordPresence is UNKNOWN');

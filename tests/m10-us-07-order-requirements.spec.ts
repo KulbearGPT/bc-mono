@@ -1,9 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, test } from 'vitest';
-import {
-  InMemoryOrderRequirementStore,
-  type RequirementCatalog
-} from '@blackcat/api/order-requirements';
+import { InMemoryOrderRequirementStore, type RequirementCatalog } from '@blackcat/api/order-requirements';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
 import {
@@ -31,7 +28,9 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     expect(openapi).toContain('operationId: addOrderRequirement');
     expect(openapi).toContain('operationId: updateOrderRequirement');
     expect(openapi).toContain('operationId: listAdminOrderRequirements');
-    expect(openapi).toContain('required: [expectedVersion]\n      properties:\n        expectedVersion: {$ref: \'#/components/schemas/Version\'}\n    CancellationPreviewRequest:');
+    expect(openapi).toContain(
+      "required: [expectedVersion]\n      properties:\n        expectedVersion: {$ref: '#/components/schemas/Version'}\n    CancellationPreviewRequest:"
+    );
     expect(openapi).not.toContain('required: [expectedVersion, acceptedAmount]');
     expect(prisma).toContain('model OrderRequirement');
     expect(prisma).toContain('orderRequirementId');
@@ -58,7 +57,16 @@ describe('M10-US-07 multi-project order requirement contract', () => {
 
   test('derives every line and order estimate without accepting client money', async () => {
     const store = new InMemoryOrderRequirementStore({
-      orders: [{ id: '00000000-0000-0000-0000-000000107001', guildId: 'guild', customerDiscordUserId: 'customer', status: 'DRAFT', version: 1, amountMinor: 0 }],
+      orders: [
+        {
+          id: '00000000-0000-0000-0000-000000107001',
+          guildId: 'guild',
+          customerDiscordUserId: 'customer',
+          status: 'DRAFT',
+          version: 1,
+          amountMinor: 0
+        }
+      ],
       catalogs: [catalog('00000000-0000-0000-0000-000000107101', 'RANKED', 125)]
     });
     const staged = store.add({
@@ -76,43 +84,148 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     expect(staged.data.requirement).toMatchObject({ estimatedLinePriceMinor: 750, requestedPlayerCount: 3 });
     await staged.commit({} as never);
     expect(store.orders[0]).toMatchObject({ version: 2, amountMinor: 750 });
-    const removed=store.update({orderId:store.orders[0]!.id,requirementId:staged.data.requirement.id,actorGuildId:'guild',actorDiscordUserId:'customer',expectedOrderVersion:2,expectedRequirementVersion:1,action:'REMOVE',serviceCatalogVersionId:null,unitCount:null,requestedPlayerCount:null,idempotencyKey:'requirement:remove:1',now:new Date('2026-08-04T10:01:00.000Z')});
+    const removed = store.update({
+      orderId: store.orders[0]!.id,
+      requirementId: staged.data.requirement.id,
+      actorGuildId: 'guild',
+      actorDiscordUserId: 'customer',
+      expectedOrderVersion: 2,
+      expectedRequirementVersion: 1,
+      action: 'REMOVE',
+      serviceCatalogVersionId: null,
+      unitCount: null,
+      requestedPlayerCount: null,
+      idempotencyKey: 'requirement:remove:1',
+      now: new Date('2026-08-04T10:01:00.000Z')
+    });
     await removed.commit({} as never);
-    expect(store.list({orderId:store.orders[0]!.id,actorGuildId:'guild',actorDiscordUserId:'customer',cursor:null,limit:25}).items).toEqual([]);
+    expect(
+      store.list({
+        orderId: store.orders[0]!.id,
+        actorGuildId: 'guild',
+        actorDiscordUserId: 'customer',
+        cursor: null,
+        limit: 25
+      }).items
+    ).toEqual([]);
   });
 
   test('exposes owner-scoped Bot routes and rejects client supplied amount fields', async () => {
     const orderId = '00000000-0000-0000-0000-000000107002';
     const catalogId = '00000000-0000-0000-0000-000000107102';
     const store = new InMemoryOrderRequirementStore({
-      orders: [{ id: orderId, guildId: '999999999999999999', customerDiscordUserId: '111111111111111111', status: 'DRAFT', version: 1, amountMinor: 0 }],
+      orders: [
+        {
+          id: orderId,
+          guildId: '999999999999999999',
+          customerDiscordUserId: '111111111111111111',
+          status: 'DRAFT',
+          version: 1,
+          amountMinor: 0
+        }
+      ],
       catalogs: [catalog(catalogId, 'FUN', 100)]
     });
     const server = buildApiServer({
-      env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost', BOT_SERVICE_TOKEN: 'valid-bot-token' },
+      env: {
+        NODE_ENV: 'development',
+        DATABASE_URL: '',
+        API_PORT: '0',
+        API_BASE_URL: 'http://localhost',
+        BOT_SERVICE_TOKEN: 'valid-bot-token'
+      },
       security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
       orderRequirements: { store, now: () => new Date('2026-08-04T10:00:00.000Z') }
     });
 
     const invalid = await server.inject({
-      method: 'POST', url: `/api/v1/orders/${orderId}/requirements`, headers: botHeaders('requirement:invalid'),
-      payload: { expectedOrderVersion: 1, serviceCatalogVersionId: catalogId, unitCount: 1, requestedPlayerCount: 2, estimatedLinePriceMinor: 1 }
+      method: 'POST',
+      url: `/api/v1/orders/${orderId}/requirements`,
+      headers: botHeaders('requirement:invalid'),
+      payload: {
+        expectedOrderVersion: 1,
+        serviceCatalogVersionId: catalogId,
+        unitCount: 1,
+        requestedPlayerCount: 2,
+        estimatedLinePriceMinor: 1
+      }
     });
     expect(invalid.statusCode).toBe(400);
     const added = await server.inject({
-      method: 'POST', url: `/api/v1/orders/${orderId}/requirements`, headers: botHeaders('requirement:add'),
+      method: 'POST',
+      url: `/api/v1/orders/${orderId}/requirements`,
+      headers: botHeaders('requirement:add'),
       payload: { expectedOrderVersion: 1, serviceCatalogVersionId: catalogId, unitCount: 2, requestedPlayerCount: 2 }
     });
     expect(added.statusCode, added.body).toBe(201);
-    expect(added.json()).toMatchObject({ data: { derivedTotalMinor: 400, requirement: { serviceDisplayName: '娱乐陪玩' } } });
-    const denied = await server.inject({ method: 'GET', url: `/api/v1/orders/${orderId}/requirements`, headers: botHeaders('requirement:denied', '222222222222222222') });
+    expect(added.json()).toMatchObject({
+      data: { derivedTotalMinor: 400, requirement: { serviceDisplayName: '娱乐陪玩' } }
+    });
+    const denied = await server.inject({
+      method: 'GET',
+      url: `/api/v1/orders/${orderId}/requirements`,
+      headers: botHeaders('requirement:denied', '222222222222222222')
+    });
     expect(denied.statusCode).toBe(403);
     await server.close();
   });
 
-  test('exposes the same requirement and fill facts to claimed Dashboard staff',async()=>{
-    const orderId='00000000-0000-0000-0000-000000107009';const staffId='00000000-0000-0000-0000-000000107099';const item={...requirementPage(orderId,2).items[0]!,orderId};const store=new InMemoryOrderRequirementStore({orders:[{id:orderId,guildId:'999999999999999999',customerDiscordUserId:'111111111111111111',status:'DRAFT',version:2,amountMinor:400}],catalogs:[],requirements:[item],claimedOrderIdsByStaffId:{[staffId]:[orderId]}});const server=buildApiServer({env:{NODE_ENV:'development',DATABASE_URL:'',API_PORT:'0',API_BASE_URL:'http://localhost',BOT_SERVICE_TOKEN:'valid-bot-token'},security:{staffDirectory:{resolveByDiscord:()=>({staffId,userId:'00000000-0000-0000-0000-000000107098',level:'L1_SUPPORT',permissionsVersion:1,status:'ACTIVE'})}},orderRequirements:{store}});
-    const response=await server.inject({method:'GET',url:`/api/v1/admin/orders/${orderId}/requirements?limit=25`,headers:{authorization:'Bearer valid-bot-token','x-client-source':'DASHBOARD','x-actor-discord-user-id':'777777777777777777','x-actor-guild-id':'999999999999999999'}});expect(response.statusCode,response.body).toBe(200);expect(response.json().data).toMatchObject({orderVersion:2,items:[{id:item.id,requestedPlayerCount:1,filledPlayerCount:0}]});await server.close();
+  test('exposes the same requirement and fill facts to claimed Dashboard staff', async () => {
+    const orderId = '00000000-0000-0000-0000-000000107009';
+    const staffId = '00000000-0000-0000-0000-000000107099';
+    const item = { ...requirementPage(orderId, 2).items[0]!, orderId };
+    const store = new InMemoryOrderRequirementStore({
+      orders: [
+        {
+          id: orderId,
+          guildId: '999999999999999999',
+          customerDiscordUserId: '111111111111111111',
+          status: 'DRAFT',
+          version: 2,
+          amountMinor: 400
+        }
+      ],
+      catalogs: [],
+      requirements: [item],
+      claimedOrderIdsByStaffId: { [staffId]: [orderId] }
+    });
+    const server = buildApiServer({
+      env: {
+        NODE_ENV: 'development',
+        DATABASE_URL: '',
+        API_PORT: '0',
+        API_BASE_URL: 'http://localhost',
+        BOT_SERVICE_TOKEN: 'valid-bot-token'
+      },
+      security: {
+        staffDirectory: {
+          resolveByDiscord: () => ({
+            staffId,
+            userId: '00000000-0000-0000-0000-000000107098',
+            level: 'L1_SUPPORT',
+            permissionsVersion: 1,
+            status: 'ACTIVE'
+          })
+        }
+      },
+      orderRequirements: { store }
+    });
+    const response = await server.inject({
+      method: 'GET',
+      url: `/api/v1/admin/orders/${orderId}/requirements?limit=25`,
+      headers: {
+        authorization: 'Bearer valid-bot-token',
+        'x-client-source': 'DASHBOARD',
+        'x-actor-discord-user-id': '777777777777777777',
+        'x-actor-guild-id': '999999999999999999'
+      }
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data).toMatchObject({
+      orderVersion: 2,
+      items: [{ id: item.id, requestedPlayerCount: 1, filledPlayerCount: 0 }]
+    });
+    await server.close();
   });
 
   test('renders a restart-safe multi-project basket with independent quantity and player controls', () => {
@@ -120,11 +233,12 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     const page = requirementPage(order.id, order.version);
     const message = buildMultiProjectOrderPanelMessage(order, page, botServices(), page.items[0]!.id);
 
-    expect(message.body).toContain('瓦洛兰特 · 技术陪玩 · 美服');
-    expect(message.body).toContain('2 小时 × 1 位');
-    expect(message.body).toContain('英雄联盟 · 娱乐陪玩 · 美服');
-    expect(message.body).toContain('3 小时 × 2 位');
-    expect(message.body).toContain('合计：100.0 CAT');
+    const rendered = JSON.stringify(message);
+    expect(rendered).toContain('瓦洛兰特 · 技术陪玩 · 美服');
+    expect(rendered).toContain('2 小时 × 1 位');
+    expect(rendered).toContain('英雄联盟 · 娱乐陪玩 · 美服');
+    expect(rendered).toContain('3 小时 × 2 位');
+    expect(rendered).toContain('合计：100.0 CAT');
     expect(message.components).toHaveLength(5);
     expect(JSON.stringify(message.components)).toContain(`bc:req:${order.id}:${page.items[0]!.id}:units:v7`);
     expect(JSON.stringify(message.components)).toContain(`bc:req:${order.id}:${page.items[0]!.id}:players:v7`);
@@ -139,10 +253,21 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     const firstPage = requirementPage(order.id, order.version);
     const addedPage = requirementPage(order.id, 8);
     const api = {
-      getOrder: vi.fn().mockResolvedValueOnce(order).mockResolvedValue(botOrder({ version: 8 })),
+      getOrder: vi
+        .fn()
+        .mockResolvedValueOnce(order)
+        .mockResolvedValue(botOrder({ version: 8 })),
       listServices: vi.fn().mockResolvedValue({ items: botServices() }),
       listOrderRequirements: vi.fn().mockResolvedValueOnce(firstPage).mockResolvedValue(addedPage),
-      addOrderRequirement: vi.fn().mockResolvedValue({ orderId: order.id, orderVersion: 8, derivedTotalMinor: 900, currency: 'CAT', requirement: addedPage.items[0] }),
+      addOrderRequirement: vi
+        .fn()
+        .mockResolvedValue({
+          orderId: order.id,
+          orderVersion: 8,
+          derivedTotalMinor: 900,
+          currency: 'CAT',
+          requirement: addedPage.items[0]
+        }),
       updateOrderRequirement: vi.fn()
     } as unknown as BotApiClient;
 
@@ -156,30 +281,88 @@ describe('M10-US-07 multi-project order requirement contract', () => {
       idempotencyKey: 'discord:requirement:add:1'
     });
 
-    expect(api.addOrderRequirement).toHaveBeenCalledWith(order.id, {
-      expectedOrderVersion: 7,
-      serviceCatalogVersionId: botServices()[0]!.id,
-      unitCount: 1,
-      requestedPlayerCount: 1
-    }, botActor(), 'discord:requirement:add:1');
+    expect(api.addOrderRequirement).toHaveBeenCalledWith(
+      order.id,
+      {
+        expectedOrderVersion: 7,
+        serviceCatalogVersionId: botServices()[0]!.id,
+        unitCount: 1,
+        requestedPlayerCount: 1
+      },
+      botActor(),
+      'discord:requirement:add:1'
+    );
     expect(JSON.stringify((result as { message: unknown }).message)).not.toContain('customerUnitPriceMinor:');
   });
 
   test('removes one requirement through an append-only API action and returns to the refreshed basket', async () => {
-    const order=botOrder();const page=requirementPage(order.id,order.version);const remaining={...page,orderVersion:8,derivedTotalMinor:600,items:[page.items[1]! ]};
-    const api={getOrder:vi.fn().mockResolvedValue(botOrder({version:8})),listServices:vi.fn().mockResolvedValue({items:botServices()}),listOrderRequirements:vi.fn().mockResolvedValue(remaining),updateOrderRequirement:vi.fn().mockResolvedValue({orderId:order.id,orderVersion:8,derivedTotalMinor:600,currency:'CAT',requirement:{...page.items[0]!,status:'REMOVED',version:2}}),addOrderRequirement:vi.fn()} as unknown as BotApiClient;
-    const result=await handleOrderRequirementAction({api,actor:botActor(),orderId:order.id,expectedVersion:7,action:'remove',requirementId:page.items[0]!.id,expectedRequirementVersion:1,idempotencyKey:'discord:requirement:remove:1'});
-    expect(api.updateOrderRequirement).toHaveBeenCalledWith(order.id,page.items[0]!.id,{expectedOrderVersion:7,expectedRequirementVersion:1,action:'REMOVE'},botActor(),'discord:requirement:remove:1');
-    expect((result as {message:{body:string}}).message.body).not.toContain('技术陪玩');
-    expect((result as {message:{body:string}}).message.body).toContain('娱乐陪玩');
+    const order = botOrder();
+    const page = requirementPage(order.id, order.version);
+    const remaining = { ...page, orderVersion: 8, derivedTotalMinor: 600, items: [page.items[1]!] };
+    const api = {
+      getOrder: vi.fn().mockResolvedValue(botOrder({ version: 8 })),
+      listServices: vi.fn().mockResolvedValue({ items: botServices() }),
+      listOrderRequirements: vi.fn().mockResolvedValue(remaining),
+      updateOrderRequirement: vi
+        .fn()
+        .mockResolvedValue({
+          orderId: order.id,
+          orderVersion: 8,
+          derivedTotalMinor: 600,
+          currency: 'CAT',
+          requirement: { ...page.items[0]!, status: 'REMOVED', version: 2 }
+        }),
+      addOrderRequirement: vi.fn()
+    } as unknown as BotApiClient;
+    const result = await handleOrderRequirementAction({
+      api,
+      actor: botActor(),
+      orderId: order.id,
+      expectedVersion: 7,
+      action: 'remove',
+      requirementId: page.items[0]!.id,
+      expectedRequirementVersion: 1,
+      idempotencyKey: 'discord:requirement:remove:1'
+    });
+    expect(api.updateOrderRequirement).toHaveBeenCalledWith(
+      order.id,
+      page.items[0]!.id,
+      { expectedOrderVersion: 7, expectedRequirementVersion: 1, action: 'REMOVE' },
+      botActor(),
+      'discord:requirement:remove:1'
+    );
+    expect(JSON.stringify((result as { message: unknown }).message)).not.toContain('技术陪玩');
+    expect(JSON.stringify((result as { message: unknown }).message)).toContain('娱乐陪玩');
   });
 
-  test('opens confirmation from server-derived requirement totals without calling the legacy single-project estimate',async()=>{
-    const order=botOrder();const page=requirementPage(order.id,order.version);const api={getOrder:vi.fn().mockResolvedValue(order),listOrderRequirements:vi.fn().mockResolvedValue(page),getCurrentBalance:vi.fn().mockResolvedValue({ledgerBalanceMinor:2000,reservedMinor:0,availableMinor:2000,currency:'CAT',calculatedAt:'2026-08-04T10:00:00Z',version:1}),estimateOrder:vi.fn()} as unknown as BotApiClient;
-    const result=await handleOpenOrderConfirmation({api,actor:botActor(),orderId:order.id,expectedVersion:7,idempotencyKey:'discord:confirm:1'});
+  test('opens confirmation from server-derived requirement totals without calling the legacy single-project estimate', async () => {
+    const order = botOrder();
+    const page = requirementPage(order.id, order.version);
+    const api = {
+      getOrder: vi.fn().mockResolvedValue(order),
+      listOrderRequirements: vi.fn().mockResolvedValue(page),
+      getCurrentBalance: vi
+        .fn()
+        .mockResolvedValue({
+          ledgerBalanceMinor: 2000,
+          reservedMinor: 0,
+          availableMinor: 2000,
+          currency: 'CAT',
+          calculatedAt: '2026-08-04T10:00:00Z',
+          version: 1
+        }),
+      estimateOrder: vi.fn()
+    } as unknown as BotApiClient;
+    const result = await handleOpenOrderConfirmation({
+      api,
+      actor: botActor(),
+      orderId: order.id,
+      expectedVersion: 7,
+      idempotencyKey: 'discord:confirm:1'
+    });
     expect(api.estimateOrder).not.toHaveBeenCalled();
-    expect((result as {message:{body:string}}).message.body).toContain('瓦洛兰特 · 技术陪玩');
-    expect((result as {message:{body:string}}).message.body).toContain('订单合计：100.0 CAT');
+    expect(JSON.stringify((result as { message: unknown }).message)).toContain('瓦洛兰特 · 技术陪玩');
+    expect(JSON.stringify((result as { message: unknown }).message)).toContain('订单合计：100.0 CAT');
   });
 });
 
@@ -210,23 +393,119 @@ function catalog(id: string, service: string, price: number): RequirementCatalog
 }
 
 function botActor(): BotActorContext {
-  return { guildId: '999999999999999999', discordUserId: '111111111111111111', interactionId: '777777777777777777', clientSource: 'DISCORD_BOT' };
+  return {
+    guildId: '999999999999999999',
+    discordUserId: '111111111111111111',
+    interactionId: '777777777777777777',
+    clientSource: 'DISCORD_BOT'
+  };
 }
 
 function botOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
-  return { id:'00000000-0000-0000-0000-000000107003',publicId:'P-MULTI',status:'DRAFT',version:7,serviceCatalogId:null,game:null,service:null,region:null,billingUnitMinutes:null,unitCount:null,amountMinor:800,currency:'CAT',notes:null,preferredPlayerDiscordUserIds:[],channelSpec:{channelId:'120000000000000001',panelMessageId:'120000000000000002',voiceChannelId:null},matching:null,...overrides };
+  return {
+    id: '00000000-0000-0000-0000-000000107003',
+    publicId: 'P-MULTI',
+    status: 'DRAFT',
+    version: 7,
+    serviceCatalogId: null,
+    game: null,
+    service: null,
+    region: null,
+    billingUnitMinutes: null,
+    unitCount: null,
+    amountMinor: 800,
+    currency: 'CAT',
+    notes: null,
+    preferredPlayerDiscordUserIds: [],
+    channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: null },
+    matching: null,
+    ...overrides
+  };
 }
 
 function botServices(): PublicServiceSummary[] {
   return [
-    {id:'00000000-0000-0000-0000-000000107101',game:'VALORANT',gameDisplayName:'瓦洛兰特',service:'RANKED',serviceDisplayName:'技术陪玩',region:'NA',regionDisplayName:'美服',billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:200,currency:'CAT',version:1},
-    {id:'00000000-0000-0000-0000-000000107102',game:'LOLNA',gameDisplayName:'英雄联盟',service:'FUN',serviceDisplayName:'娱乐陪玩',region:'NA',regionDisplayName:'美服',billingUnitMinutes:60,minimumUnits:1,customerUnitPriceMinor:100,currency:'CAT',version:1}
+    {
+      id: '00000000-0000-0000-0000-000000107101',
+      game: 'VALORANT',
+      gameDisplayName: '瓦洛兰特',
+      service: 'RANKED',
+      serviceDisplayName: '技术陪玩',
+      region: 'NA',
+      regionDisplayName: '美服',
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 200,
+      currency: 'CAT',
+      version: 1
+    },
+    {
+      id: '00000000-0000-0000-0000-000000107102',
+      game: 'LOLNA',
+      gameDisplayName: '英雄联盟',
+      service: 'FUN',
+      serviceDisplayName: '娱乐陪玩',
+      region: 'NA',
+      regionDisplayName: '美服',
+      billingUnitMinutes: 60,
+      minimumUnits: 1,
+      customerUnitPriceMinor: 100,
+      currency: 'CAT',
+      version: 1
+    }
   ];
 }
 
 function requirementPage(orderId: string, orderVersion: number): OrderRequirementPageSummary {
-  return {orderId,orderVersion,derivedTotalMinor:1000,currency:'CAT',nextCursor:null,items:[
-    {id:'00000000-0000-0000-0000-000000107201',orderId,serviceCatalogVersionId:botServices()[0]!.id,game:'VALORANT',gameDisplayName:'瓦洛兰特',service:'RANKED',serviceDisplayName:'技术陪玩',region:'NA',regionDisplayName:'美服',billingUnitMinutes:60,unitCount:2,requestedPlayerCount:1,customerUnitPriceMinor:200,estimatedLinePriceMinor:400,filledPlayerCount:0,status:'ACTIVE',version:1,createdAt:'2026-08-04T10:00:00.000Z',updatedAt:'2026-08-04T10:00:00.000Z'},
-    {id:'00000000-0000-0000-0000-000000107202',orderId,serviceCatalogVersionId:botServices()[1]!.id,game:'LOLNA',gameDisplayName:'英雄联盟',service:'FUN',serviceDisplayName:'娱乐陪玩',region:'NA',regionDisplayName:'美服',billingUnitMinutes:60,unitCount:3,requestedPlayerCount:2,customerUnitPriceMinor:100,estimatedLinePriceMinor:600,filledPlayerCount:0,status:'ACTIVE',version:1,createdAt:'2026-08-04T10:01:00.000Z',updatedAt:'2026-08-04T10:01:00.000Z'}
-  ]};
+  return {
+    orderId,
+    orderVersion,
+    derivedTotalMinor: 1000,
+    currency: 'CAT',
+    nextCursor: null,
+    items: [
+      {
+        id: '00000000-0000-0000-0000-000000107201',
+        orderId,
+        serviceCatalogVersionId: botServices()[0]!.id,
+        game: 'VALORANT',
+        gameDisplayName: '瓦洛兰特',
+        service: 'RANKED',
+        serviceDisplayName: '技术陪玩',
+        region: 'NA',
+        regionDisplayName: '美服',
+        billingUnitMinutes: 60,
+        unitCount: 2,
+        requestedPlayerCount: 1,
+        customerUnitPriceMinor: 200,
+        estimatedLinePriceMinor: 400,
+        filledPlayerCount: 0,
+        status: 'ACTIVE',
+        version: 1,
+        createdAt: '2026-08-04T10:00:00.000Z',
+        updatedAt: '2026-08-04T10:00:00.000Z'
+      },
+      {
+        id: '00000000-0000-0000-0000-000000107202',
+        orderId,
+        serviceCatalogVersionId: botServices()[1]!.id,
+        game: 'LOLNA',
+        gameDisplayName: '英雄联盟',
+        service: 'FUN',
+        serviceDisplayName: '娱乐陪玩',
+        region: 'NA',
+        regionDisplayName: '美服',
+        billingUnitMinutes: 60,
+        unitCount: 3,
+        requestedPlayerCount: 2,
+        customerUnitPriceMinor: 100,
+        estimatedLinePriceMinor: 600,
+        filledPlayerCount: 0,
+        status: 'ACTIVE',
+        version: 1,
+        createdAt: '2026-08-04T10:01:00.000Z',
+        updatedAt: '2026-08-04T10:01:00.000Z'
+      }
+    ]
+  };
 }

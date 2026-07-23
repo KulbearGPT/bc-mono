@@ -39,54 +39,15 @@ import type {
 import { buildServiceCenterMessage } from './service-center-profile.js';
 import { DEFAULT_WALLET_DISPLAY_CONFIG, formatCustomerWalletAmount } from './wallet-display.js';
 import { buildSelectionPoolRefreshMessage } from './selection-discord.js';
+import { buildExperienceMessage } from './discord-experience.js';
+import { resolveGameBanner } from './game-banners.js';
 
 export * from './service-center-api.js';
 export * from './service-center-components.js';
 export * from './service-center-profile.js';
 export * from './service-center-routes.js';
 export * from './service-center-order-notes.js';
-
-const dispatchEligibilityReasonLabels: Record<string, string> = {
-  ACTIVE_REVIEW_STATUS: '陪玩资格当前不是可接单状态',
-  MATCHING_TAGS: '本轮游戏或服务项目不在你的已认证范围内',
-  DISCORD_ONLINE: 'Discord 当前未在线',
-  AVAILABLE: '旧 availability 仅供诊断，不影响候选池报名',
-  NO_ACTIVE_ORDER: '已有进行中的订单'
-};
-
-export function buildDispatchIneligibleReply(workbench: PlayerWorkbenchSummary, requestId: string): string {
-  const reasons = workbench.eligibility.checks
-    .filter((check) => !check.passed)
-    .map((check) => dispatchEligibilityReasonLabels[check.code] ?? check.code);
-  return botCopy.dispatch.ineligible(reasons, requestId);
-}
-
-export function buildPublicServiceEntryMessage(): MessageSpec {
-  return {
-    title: '🐈‍⬛ 陪玩服务中心',
-    body: BOT_COPY.orders.publicEntryIntroduction,
-    visibility: 'PUBLIC',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: 'bc:entry:create-order',
-            label: '🐾 创建订单'
-          },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: 'bc:entry:service-center',
-            label: '🐈‍⬛ 我的服务中心'
-          }
-        ]
-      }
-    ]
-  };
-}
+export * from './service-center-entry.js';
 
 export function buildRequirementNoteModal(input: {
   orderId: string;
@@ -387,29 +348,40 @@ export function buildMultiProjectOrderPanelMessage(
         ]
   });
 
-  return {
-    title: `📋 订单 ${order.publicId} · 第 3/4 步 · 检查陪玩清单`,
-    body: [
-      '▓▓▓░',
-      '套餐只是快捷配菜：每个席位仍是独立项目，可以替换同游戏服务、修改时长或偏好。',
-      order.compositionMode === 'PACKAGE_DEFAULT'
-        ? '当前构成：套餐默认阵容'
-        : order.compositionMode === 'CUSTOMIZED'
-          ? '当前构成：已自定义阵容'
-          : null,
-      lines,
-      (page.packageAdjustmentMinor ?? 0) !== 0
-        ? `目录小计：${formatCustomerMoney(page.catalogSubtotalMinor ?? page.derivedTotalMinor, page.currency)}\n套餐调整：${formatCustomerMoney(page.packageAdjustmentMinor ?? 0, page.currency)}`
-        : null,
-      `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`,
-      `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`
-    ]
-      .filter(Boolean)
-      .join('\n\n'),
+  const composition =
+    order.compositionMode === 'PACKAGE_DEFAULT'
+      ? '套餐默认阵容'
+      : order.compositionMode === 'CUSTOMIZED'
+        ? '已自定义阵容'
+        : '自由搭配';
+  const priceLines = [
+    (page.packageAdjustmentMinor ?? 0) !== 0
+      ? `目录小计：${formatCustomerMoney(page.catalogSubtotalMinor ?? page.derivedTotalMinor, page.currency)}\n套餐调整：${formatCustomerMoney(page.packageAdjustmentMinor ?? 0, page.currency)}`
+      : null,
+    `合计：${formatCustomerMoney(page.derivedTotalMinor, page.currency)}`,
+    `共需 ${requirements.reduce((sum, item) => sum + item.requestedPlayerCount, 0)} 位陪玩`
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return buildExperienceMessage({
+    title: `订单 ${order.publicId} · 第 3/4 步 · 检查陪玩清单`,
+    icon: '📋',
+    introduction: '套餐只是快捷配菜；每个席位仍可独立修改服务、时长、人数和偏好。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: requirements.length ? 'BRAND' : 'WAITING',
+    coreFacts: [
+      { name: '🧭 下单进度', value: '第 3/4 步 · 检查陪玩清单' },
+      { name: '🎮 当前阵容', value: `${composition}\n${lines || '还没有添加陪玩项目。'}` },
+      { name: '🐟 当前报价', value: priceLines }
+    ],
+    bossRequest: order.notes || null,
+    nextStep: requirements.length
+      ? '可继续调整席位；确认无误后点击“下一步 · 确认订单”。'
+      : '先添加至少一个游戏或单点项目。',
     components,
     layout: 'COMPONENTS_V2'
-  };
+  });
 }
 
 export function buildServicePackagePickerMessage(order: OrderSummary, page: ServicePackagePageSummary): MessageSpec {
@@ -490,15 +462,20 @@ export function buildGamePickerMessage(
     type: 'ACTION_ROW',
     components: [refreshOrderControl(order.id)]
   });
-  return {
-    title: `🎮 订单 ${order.publicId} · 第 1/4 步 · 选择游戏`,
-    body: games.length
-      ? '▓░░░\n像翻开一张菜单：请选择右侧“进入”，下一页只会显示这个游戏的套餐和单点。'
-      : '今天暂时没有可下单的游戏项目。',
+  return buildExperienceMessage({
+    title: `订单 ${order.publicId} · 第 1/4 步 · 选择游戏`,
+    icon: '🎮',
+    introduction: games.length ? '像翻开一张菜单，先告诉黑猫今晚想去哪个游戏世界。' : '今天暂时没有可下单的游戏项目。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: games.length ? 'BRAND' : 'MUTED',
+    coreFacts: [{ name: '🧭 下单进度', value: '第 1/4 步 · 选择游戏' }],
+    nextStep: games.length
+      ? '点击游戏右侧的“进入”；下一页只显示该游戏的套餐和单点。'
+      : '请稍后刷新，或联系猫舍前台了解开放时间。',
     components,
     layout: 'COMPONENTS_V2'
-  };
+  });
 }
 
 export function buildGameOrderingMenuMessage(
@@ -509,16 +486,24 @@ export function buildGameOrderingMenuMessage(
   selectedService?: PublicServiceSummary
 ): MessageSpec {
   const gameName = services[0]?.gameDisplayName ?? packages.items[0]?.gameDisplayName ?? game;
-  const components: MessageComponentSpec[] = packages.items.slice(0, 20).map((item) => ({
-    type: 'V2_SECTION',
-    content: `### ${item.displayName}\n${item.description}\n**${item.defaultCustomerPriceMinor === null ? '由目录实时计价' : formatCustomerMoney(item.defaultCustomerPriceMinor, item.currency)}** · ${item.slots.length} 个席位`,
-    accessory: {
-      type: 'BUTTON',
-      style: 'PRIMARY',
-      customId: `bc:package:${order.id}:${item.id}:preview:v${order.version}`,
-      label: '查看'
-    }
-  }));
+  const banner = resolveGameBanner(game, gameName);
+  const components: MessageComponentSpec[] = [
+    {
+      type: 'V2_MEDIA',
+      url: banner.url,
+      description: `${gameName} × 黑猫陪玩主题横幅`
+    },
+    ...packages.items.slice(0, 20).map((item): MessageComponentSpec => ({
+      type: 'V2_SECTION',
+      content: `### ${item.displayName}\n${item.description}\n**${item.defaultCustomerPriceMinor === null ? '由目录实时计价' : formatCustomerMoney(item.defaultCustomerPriceMinor, item.currency)}** · ${item.slots.length} 个席位`,
+      accessory: {
+        type: 'BUTTON',
+        style: 'PRIMARY',
+        customId: `bc:package:${order.id}:${item.id}:preview:v${order.version}`,
+        label: '查看'
+      }
+    }))
+  ];
   if (selectedService)
     components.push({
       type: 'V2_TEXT',
@@ -571,17 +556,23 @@ export function buildGameOrderingMenuMessage(
       refreshOrderControl(order.id)
     ]
   });
-  return {
-    title: `🐾 订单 ${order.publicId} · 第 2/4 步 · ${gameName} 菜单`,
-    body: [
-      `▓▓░░\n当前游戏 · ${gameName}\u3000套餐 ${packages.items.length}\u3000单点 ${services.length}`,
-      '套餐使用右侧按钮预览；单点项目先选择预览，再按“单点加入”。所有选项都只来自当前游戏。',
-      `需求备注：${order.notes || '未填写'}`
-    ].join('\n\n'),
+  return buildExperienceMessage({
+    title: `订单 ${order.publicId} · 第 2/4 步 · ${gameName} 菜单`,
+    icon: '🐾',
+    introduction: '套餐适合快速开玩，单点适合自己搭配；这里的选项都只属于当前游戏。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: 'BRAND',
+    coreFacts: [
+      { name: '🧭 下单进度', value: '第 2/4 步 · 选择套餐或单点' },
+      { name: '📚 当前目录', value: `${gameName} · ${packages.items.length} 个套餐 · ${services.length} 个单点` }
+    ],
+    bossRequest: order.notes || null,
+    nextStep: '套餐点“查看”确认阵容；单点先在菜单选择预览，再点“单点加入”。',
     components,
-    layout: 'COMPONENTS_V2'
-  };
+    layout: 'COMPONENTS_V2',
+    attachments: [{ name: banner.attachmentName, path: banner.path }]
+  });
 }
 
 export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: ServicePackagePreviewSummary): MessageSpec {
@@ -591,17 +582,23 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
         `**${slot.position}号位 · ${slot.gameDisplayName} · ${slot.serviceDisplayName}**${slot.regionDisplayName ? ` · ${slot.regionDisplayName}` : ''}\n${(slot.unitCount * slot.billingUnitMinutes) / 60} 小时${slot.customerNoteTemplate ? ` · ${slot.customerNoteTemplate}` : ''}`
     )
     .join('\n\n');
-  return {
-    title: `🐾 订单 ${order.publicId} · 第 2/4 步 · ${pkg.displayName} 套餐预览`,
-    body: [
-      '▓▓░░',
-      pkg.description,
-      slots,
-      `套餐报价：${formatCustomerMoney(pkg.derivedTotalMinor, pkg.currency)}`,
-      '采用后每个席位都能单独调整；修改套餐席位后，API 会按最终阵容重新报价。'
-    ].join('\n\n'),
+  const banner = resolveGameBanner(pkg.game, pkg.gameDisplayName);
+  return buildExperienceMessage({
+    title: `订单 ${order.publicId} · 第 2/4 步 · ${pkg.displayName} 套餐预览`,
+    icon: '🐾',
+    introduction: pkg.description,
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: 'BRAND',
+    coreFacts: [
+      { name: '🧭 下单进度', value: '第 2/4 步 · 预览套餐阵容' },
+      { name: '🎧 套餐席位', value: slots },
+      { name: '🐟 套餐报价', value: formatCustomerMoney(pkg.derivedTotalMinor, pkg.currency) }
+    ],
+    bossRequest: order.notes || null,
+    nextStep: '采用后每个席位仍可单独调整；业务 API 会按最终阵容重新报价。',
     components: [
+      { type: 'V2_MEDIA', url: banner.url, description: `${pkg.gameDisplayName} × 黑猫陪玩主题横幅` },
       {
         type: 'ACTION_ROW',
         components: [
@@ -631,8 +628,9 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
         ]
       }
     ],
-    layout: 'COMPONENTS_V2'
-  };
+    layout: 'COMPONENTS_V2',
+    attachments: [{ name: banner.attachmentName, path: banner.path }]
+  });
 }
 
 export async function handleServicePackageSelect(input: {
@@ -1210,25 +1208,22 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
         `${index + 1}. ${item.gameDisplayName} · ${item.serviceDisplayName}${item.regionDisplayName ? ` · ${item.regionDisplayName}` : ''}\n   ${formatRequirementDuration(item)} × ${item.requestedPlayerCount} 位 · ${formatCustomerMoney(item.estimatedLinePriceMinor, input.requirements.currency)}${item.customerNote ? `\n   偏好：${item.customerNote}` : ''}`
     )
     .join('\n');
-  return {
-    title: `📋 订单 ${input.order.publicId} · 第 4/4 步 · 最后确认`,
-    body: [
-      '▓▓▓▓',
-      '这是提交前的最终确认。价格、余额、目录有效性与套餐调整仍由业务 API 重新校验。',
-      lines || '还没有添加陪玩项目。',
-      `需求备注：${input.order.notes || '未填写'}`,
-      `订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor, input.requirements.currency)}`,
-      `可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`,
-      '确认后创建资金预留，不立即扣款。',
-      canSubmit
-        ? '状态：可以提交。'
-        : currencyMismatch
-          ? '订单币种与钱包币种不一致。'
-          : active.length === 0
-            ? '请先添加至少一个陪玩项目。'
-            : `可用余额还差 ${formatCustomerMoney(deficitMinor, input.requirements.currency)}。`
-    ].join('\n\n'),
+  const submissionStatus = canSubmit
+    ? '可以提交 · 业务 API 会再次校验目录、价格、余额和版本。'
+    : currencyMismatch
+      ? '暂不可提交 · 订单币种与钱包币种不一致。'
+      : active.length === 0
+        ? '暂不可提交 · 请先添加至少一个陪玩项目。'
+        : `暂不可提交 · 可用余额还差 ${formatCustomerMoney(deficitMinor, input.requirements.currency)}。`;
+  return buildExperienceMessage({
+    title: `订单 ${input.order.publicId} · 第 4/4 步 · 最后确认`,
+    icon: '📋',
+    introduction: '提交前最后看一眼：确认的是最终陪玩清单与当前报价，提交后只创建资金预留。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'PRIVATE_ORDER',
+    tone: canSubmit ? 'SUCCESS' : 'WAITING',
+    bossRequest: input.order.notes || null,
+    nextStep: canSubmit ? '点击“确认提交订单”；系统会预留猫条，但此时不会正式扣款。' : '返回编辑或补足钱包后刷新本页。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -1250,8 +1245,17 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
         ]
       }
     ],
-    layout: 'COMPONENTS_V2'
-  };
+    layout: 'COMPONENTS_V2',
+    coreFacts: [
+      { name: '🧭 下单进度', value: '第 4/4 步 · 核对并提交' },
+      { name: '🎮 陪玩清单', value: lines || '还没有添加陪玩项目。' },
+      {
+        name: '🐟 价格与钱包',
+        value: `订单合计：${formatCustomerMoney(input.requirements.derivedTotalMinor, input.requirements.currency)}\n可用余额：${formatCustomerMoney(input.balance.availableMinor, input.balance.currency)}`
+      },
+      { name: '✅ 提交状态', value: submissionStatus }
+    ]
+  });
 }
 
 function readinessLabel(value: 'READY' | 'NOT_READY'): string {

@@ -4,6 +4,8 @@ import {
   ButtonStyle,
   ContainerBuilder,
   EmbedBuilder,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
   MessageFlags,
   ModalBuilder,
   SectionBuilder,
@@ -55,22 +57,27 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   assertDiscordMessageSpec(message);
   const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
   if (rendered.layout === 'COMPONENTS_V2' || rendered.visibility === 'PRIVATE_CHANNEL') {
-    const container = new ContainerBuilder()
-      .setAccentColor(discordExperienceColor(rendered.tone, rendered.visibility))
-      .addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000))
-      );
+    const container = new ContainerBuilder().setAccentColor(discordExperienceColor(rendered.tone, rendered.visibility));
+    for (const component of rendered.components) {
+      if (component.type === 'V2_MEDIA') addV2Component(container, component);
+    }
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000))
+    );
     for (const field of rendered.fields ?? []) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`### ${field.name}\n${field.value}`.slice(0, 4000))
       );
     }
-    for (const component of rendered.components) addV2Component(container, component);
+    for (const component of rendered.components) {
+      if (component.type !== 'V2_MEDIA') addV2Component(container, component);
+    }
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`-# ${rendered.footer ?? DISCORD_EXPERIENCE.footer}`)
     );
     return {
       components: [container],
+      files: rendered.attachments?.map((attachment) => ({ attachment: attachment.path, name: attachment.name })),
       flags:
         rendered.visibility === 'EPHEMERAL'
           ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
@@ -89,6 +96,7 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
     components: rendered.components
       .filter((component): component is ActionRowSpec => component.type === 'ACTION_ROW')
       .map(toDiscordActionRow),
+    files: rendered.attachments?.map((attachment) => ({ attachment: attachment.path, name: attachment.name })),
     ephemeral: rendered.visibility === 'EPHEMERAL'
   };
 }
@@ -100,13 +108,15 @@ export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptio
       content: null,
       embeds: [],
       components: reply.components,
+      files: reply.files,
       flags: MessageFlags.IsComponentsV2
     };
   }
   return {
     content: null,
     embeds: reply.embeds,
-    components: reply.components
+    components: reply.components,
+    files: reply.files
   };
 }
 
@@ -125,6 +135,14 @@ function addV2Component(container: ContainerBuilder, component: MessageComponent
   }
   if (component.type === 'V2_TEXT') {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(component.content.slice(0, 4000)));
+    return;
+  }
+  if (component.type === 'V2_MEDIA') {
+    container.addMediaGalleryComponents(
+      new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL(component.url).setDescription(component.description.slice(0, 1024))
+      )
+    );
     return;
   }
   container.addSeparatorComponents((separator) => separator.setDivider(true));

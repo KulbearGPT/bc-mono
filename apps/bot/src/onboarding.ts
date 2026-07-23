@@ -1,11 +1,13 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type Guild, type MessageEditOptions } from 'discord.js';
+import { type Guild, type MessageEditOptions } from 'discord.js';
 import type { DiscordBotActorContext } from './actor-context.js';
 import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { BOT_COPY } from './bot-copy.js';
+import { buildExperienceMessage } from './discord-experience.js';
+import { toDiscordReply } from './discord-renderer.js';
 
 export const REGISTER_PLAYER_CUSTOM_ID = 'onboarding:register-player:v1';
 export const APPLY_COMPANION_CUSTOM_ID = 'onboarding:apply-companion:v1';
-export const ONBOARDING_RENDERED_VERSION = 3;
+export const ONBOARDING_RENDERED_VERSION = 4;
 
 export interface OnboardingActor extends DiscordBotActorContext {
   displayName: string;
@@ -144,21 +146,34 @@ export async function reconcileProductRoleTasks(input: {
 }
 
 export function buildOnboardingMessage(): MessageEditOptions {
+  const rendered = toDiscordReply(
+    buildExperienceMessage({
+      title: '欢迎来到黑猫陪玩',
+      icon: '🐈‍⬛',
+      introduction: BOT_COPY.onboarding.welcomeIntroduction,
+      visibility: 'PUBLIC',
+      density: 'PUBLIC_WELCOME',
+      tone: 'BRAND',
+      coreFacts: [
+        { name: '🎮 想找陪玩', value: BOT_COPY.onboarding.customerPath },
+        { name: '🎧 想加入猫舍', value: BOT_COPY.onboarding.companionPath },
+        { name: '🛎️ 需要真人帮助', value: BOT_COPY.onboarding.supportPath }
+      ],
+      components: [
+        {
+          type: 'ACTION_ROW',
+          components: [
+            { type: 'BUTTON', style: 'PRIMARY', customId: REGISTER_PLAYER_CUSTOM_ID, label: '🐾 注册为玩家' },
+            { type: 'BUTTON', style: 'SECONDARY', customId: APPLY_COMPANION_CUSTOM_ID, label: '🎧 申请成为陪玩' },
+            { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '🎮 开始找陪玩' }
+          ]
+        }
+      ]
+    })
+  );
   return {
-    content: BOT_COPY.onboarding.welcome,
-    components: [
-      new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(REGISTER_PLAYER_CUSTOM_ID)
-          .setLabel('🐾 注册为玩家')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(APPLY_COMPANION_CUSTOM_ID)
-          .setLabel('🎧 申请成为陪玩')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('bc:entry:create-order').setLabel('🎮 开始找陪玩').setStyle(ButtonStyle.Success)
-      )
-    ],
+    embeds: rendered.embeds,
+    components: rendered.components,
     allowedMentions: { parse: [] }
   };
 }
@@ -182,6 +197,7 @@ export async function ensureOnboardingMessage(input: {
   else
     message = await channel.send({
       content: payload.content ?? undefined,
+      embeds: payload.embeds,
       components: payload.components,
       allowedMentions: payload.allowedMentions
     });

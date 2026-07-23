@@ -16,15 +16,13 @@ const orderId = '00000000-0000-0000-0000-000000109001';
 
 describe('M10-US-09 game menu order requirement note', () => {
   test('offers a recoverable modal button and shows the saved requirement note on step two', () => {
-    const message = buildGameOrderingMenuMessage(
-      order({ notes: '希望轻松聊天，不急着上分' }),
-      'VALORANT',
-      [service],
-      { items: [], nextCursor: null }
-    );
+    const message = buildGameOrderingMenuMessage(order({ notes: '希望轻松聊天，不急着上分' }), 'VALORANT', [service], {
+      items: [],
+      nextCursor: null
+    });
 
     expect(message.title).toContain('第 2/4 步');
-    expect(message.body).toContain('需求备注：希望轻松聊天，不急着上分');
+    expect(message.fields).toContainEqual({ name: '💬 老板需求', value: '> 希望轻松聊天，不急着上分' });
     expect(JSON.stringify(message.components)).toContain('修改需求备注');
     expect(parseServiceCenterCustomId(`bc:omno:${orderId}:VALORANT:v7`)).toEqual({
       area: 'order-menu-notes-open',
@@ -84,7 +82,7 @@ describe('M10-US-09 game menu order requirement note', () => {
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
       expect(result.message.title).toContain('第 2/4 步');
-      expect(result.message.body).toContain('需求备注：只想轻松聊天');
+      expect(result.message.fields).toContainEqual({ name: '💬 老板需求', value: '> 只想轻松聊天' });
     }
   });
 
@@ -110,7 +108,7 @@ describe('M10-US-09 game menu order requirement note', () => {
       }
     });
 
-    expect(message.body).toContain('需求备注：希望轻松聊天，不急着上分');
+    expect(message.fields).toContainEqual({ name: '💬 老板需求', value: '> 希望轻松聊天，不急着上分' });
   });
 
   test('refreshes a stale note modal back to the same game without overwriting newer notes', async () => {
@@ -140,7 +138,7 @@ describe('M10-US-09 game menu order requirement note', () => {
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
     if (result.kind === 'EDIT_ORIGINAL_MESSAGE') {
       expect(result.message.title).toContain('第 2/4 步');
-      expect(result.message.body).toContain('需求备注：另一个窗口已保存的需求');
+      expect(result.message.fields).toContainEqual({ name: '💬 老板需求', value: '> 另一个窗口已保存的需求' });
       expect(result.notice).toContain('request_id: req-note-conflict');
     }
   });
