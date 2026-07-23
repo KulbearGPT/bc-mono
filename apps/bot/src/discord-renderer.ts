@@ -24,6 +24,7 @@ import {
   type ModalSpec,
   type TextInputSpec
 } from './service-center-components.js';
+import { DISCORD_EXPERIENCE, discordExperienceColor } from './discord-experience.js';
 export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
 
 export function decorateSandboxPrivateMessage<
@@ -55,12 +56,19 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   const rendered = decorateSandboxPrivateMessage(message, rendererEnvironment);
   if (rendered.layout === 'COMPONENTS_V2' || rendered.visibility === 'PRIVATE_CHANNEL') {
     const container = new ContainerBuilder()
-      .setAccentColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
+      .setAccentColor(discordExperienceColor(rendered.tone, rendered.visibility))
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`-# ${rendered.title}\n## ${rendered.body}`.slice(0, 4000))
       );
+    for (const field of rendered.fields ?? []) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`### ${field.name}\n${field.value}`.slice(0, 4000))
+      );
+    }
     for (const component of rendered.components) addV2Component(container, component);
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent('-# Blackcat Companion'));
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`-# ${rendered.footer ?? DISCORD_EXPERIENCE.footer}`)
+    );
     return {
       components: [container],
       flags:
@@ -72,10 +80,11 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
   return {
     embeds: [
       new EmbedBuilder()
-        .setColor(rendered.visibility === 'PUBLIC' ? 0x5865f2 : 0x24c8c8)
+        .setColor(discordExperienceColor(rendered.tone, rendered.visibility))
         .setTitle(rendered.title.slice(0, 256))
         .setDescription(rendered.body.slice(0, 4096))
-        .setFooter({ text: 'Blackcat Companion' })
+        .addFields((rendered.fields ?? []).map((field) => ({ ...field })))
+        .setFooter({ text: rendered.footer ?? DISCORD_EXPERIENCE.footer })
     ],
     components: rendered.components
       .filter((component): component is ActionRowSpec => component.type === 'ACTION_ROW')

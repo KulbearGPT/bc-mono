@@ -950,7 +950,7 @@ describe("M11-US-03 Discord selection flow", () => {
       (call) =>
         call.url.endsWith("/channels/111111111111111110/messages") &&
         call.method === "POST" &&
-        String(call.body?.content).includes("当前候选：暂无"),
+        String(call.body?.content).includes("当前报名：暂无"),
     )!;
     const repeatButtons = (
       emptyRoundNotice.body?.components as Array<{

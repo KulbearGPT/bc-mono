@@ -23,9 +23,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
   }
   public override parse(interaction: ButtonInteraction) {
     const route = parseSelectionCustomId(interaction.customId);
-    return route.action === 'unknown' || route.action === 'apply-menu'
-      ? this.none()
-      : this.some(route);
+    return route.action === 'unknown' || route.action === 'apply-menu' ? this.none() : this.some(route);
   }
   public async run(
     interaction: ButtonInteraction,
@@ -172,7 +170,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
           buildDiscordIdempotencyKey('selection:close', interaction.id)
         );
         await interaction.editReply({
-          content: '招募已终止，正在准备选秀语音与候选名单。'
+          content: '招募已终止，正在准备试音房与报名名单。'
         });
         return;
       }
@@ -210,7 +208,9 @@ export class DispatchButtonsHandler extends InteractionHandler {
   }
 }
 
-function dispatchOperation(action: 'start' | 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'): string {
+function dispatchOperation(
+  action: 'start' | 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'
+): string {
   if (action === 'start') return '开始候选池招募';
   if (action === 'apply') return '报名候选池';
   if (action === 'withdraw') return '撤回候选池报名';

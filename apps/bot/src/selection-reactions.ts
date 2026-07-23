@@ -38,8 +38,9 @@ export async function handleSelectionReactionEvent(input: {
     input.user.id
   ].join(':');
   const previous = reactionQueues.get(queueKey);
-  const current = (previous ? previous.catch(() => ({ handled: true })) : Promise.resolve({ handled: false }))
-    .then(() => processSelectionReactionEvent(input));
+  const current = (previous ? previous.catch(() => ({ handled: true })) : Promise.resolve({ handled: false })).then(
+    () => processSelectionReactionEvent(input)
+  );
   reactionQueues.set(queueKey, current);
   try {
     return await current;
@@ -51,8 +52,7 @@ export async function handleSelectionReactionEvent(input: {
 async function processSelectionReactionEvent(input: Parameters<typeof handleSelectionReactionEvent>[0]) {
   const emoji = input.reaction.emoji.name;
   const guildId = input.reaction.message.guildId;
-  if (input.user.bot || !emoji || !SUPPORTED_REACTIONS.has(emoji) || !guildId)
-    return { handled: false };
+  if (input.user.bot || !emoji || !SUPPORTED_REACTIONS.has(emoji) || !guildId) return { handled: false };
   const sourceEventId = eventId();
   const actor = buildBotEventActorContext({
     guildId,
@@ -86,7 +86,9 @@ async function processSelectionReactionEvent(input: Parameters<typeof handleSele
     if (input.state === 'ADDED') {
       await Promise.resolve(input.removeUserReaction()).catch(() => undefined);
       await Promise.resolve(
-        input.user.send('这次报名未能确认，我已移除对应 Reaction。请稍后重试；如果持续失败，请把时间和订单编号提供给管理员。')
+        input.user.send(
+          '这次报名未能确认，我已移除对应 Reaction。请稍后重试；如果持续失败，请把时间和订单编号提供给管理员。'
+        )
       ).catch(() => undefined);
     }
     return { handled: true };
@@ -110,7 +112,12 @@ export async function reconcileSelectionReactionCards(input: {
         discordUsers = await input.fetchReactionUserIds(card, binding.emoji);
       } catch (error) {
         result.failed += 1;
-        input.logger.error({ event: 'bot.selection_reaction.reconcile_fetch_failed', card, emoji: binding.emoji, error });
+        input.logger.error({
+          event: 'bot.selection_reaction.reconcile_fetch_failed',
+          card,
+          emoji: binding.emoji,
+          error
+        });
         continue;
       }
       const discord = new Set(discordUsers);

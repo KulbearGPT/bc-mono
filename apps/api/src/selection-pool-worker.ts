@@ -1199,7 +1199,7 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
         },
       ];
   return {
-    content: `<@${p.customerDiscordUserId}> 招募已终止。当前候选：${all.map((item) => `<@${item.discordUserId}>`).join("、") || "暂无"}。选秀语音：${voiceLink}`,
+    content: `<@${p.customerDiscordUserId}> 招募已终止。当前报名：${all.map((item) => `<@${item.discordUserId}>`).join("、") || "暂无"}。试音房：${voiceLink}`,
     components,
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };

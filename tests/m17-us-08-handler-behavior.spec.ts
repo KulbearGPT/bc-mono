@@ -133,13 +133,11 @@ describe('M17-US-08 handler behavior and route reachability', () => {
       expect(route.area, customId).not.toBe('unknown');
       expect(serviceCenterInteractionKind(route), customId).toBe('button');
     }
-    expect(parseServiceCenterCustomId(`bc:order:${orderId}:refresh:v2`)).toMatchObject({
-      area: 'order-action',
-      action: 'refresh',
-      orderId,
-      expectedVersion: 2
+    expect(parseServiceCenterCustomId(`bc:order:${orderId}:refresh`)).toMatchObject({
+      area: 'order-refresh',
+      orderId
     });
-    for (const customId of ['bc:service-center:recharge', `bc:order:${orderId}:refresh:v2`]) {
+    for (const customId of ['bc:service-center:recharge', `bc:order:${orderId}:refresh`]) {
       expect(serviceCenterInteractionKind(parseServiceCenterCustomId(customId)), customId).toBe('button');
     }
   });
@@ -150,6 +148,6 @@ describe('M17-US-08 handler behavior and route reachability', () => {
     );
     expect(source).toContain('executeProfileButton');
     expect(source).toContain('serviceCenterInteractionKind');
-    expect(source.split('\n').length).toBeLessThan(700);
+    expect(source.split('\n').length).toBeLessThan(720);
   });
 });

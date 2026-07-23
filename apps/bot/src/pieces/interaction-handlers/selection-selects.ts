@@ -76,8 +76,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     if (route.action === 'finalize') {
       const selectedCandidates = interaction.values.map((value) => ({
         id: decodeSelectionId(value),
-        playerDisplayName:
-          interaction.component.options.find((option) => option.value === value)?.label ?? '候选陪玩'
+        playerDisplayName: interaction.component.options.find((option) => option.value === value)?.label ?? '候选陪玩'
       }));
       await interaction.editReply(
         toDiscordUpdate(

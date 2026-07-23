@@ -286,12 +286,14 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
   if (!pool)
     return {
       title: `🐾 订单 #${order.publicId} · 开始招募`,
-      body: [
-        '订单已提交，资金预留保持有效。',
-        '目前还没有开始招募。点击按钮后，系统会在派单频道发布报名卡。'
-      ].join('\n'),
+      body: ['订单已提交，资金预留保持有效。', '目前还没有开始招募。点击按钮后，系统会在派单频道发布报名卡。'].join(
+        '\n'
+      ),
       visibility: 'PRIVATE_CHANNEL',
-      components: [selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募'), selectionOrderControls(order)]
+      components: [
+        selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募'),
+        selectionOrderControls(order)
+      ]
     };
   const collecting = pool.status === 'COLLECTING';
   const emptySelection = pool.status === 'SELECTION' && pool.applicationCount === 0;
@@ -323,10 +325,9 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
         ? `🐾 订单 #${order.publicId} · 本轮无人报名`
         : `🐈‍⬛ 订单 #${order.publicId} · 等待选择陪玩`,
     body: collecting
-      ? [
-          `第 ${pool.round} 轮`,
-          `当前报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`
-        ].join('\n')
+      ? [`第 ${pool.round} 轮`, `当前报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}`].join(
+          '\n'
+        )
       : emptySelection
         ? [`第 ${pool.round} 轮招募已终止。`, '当前候选：暂无', '本轮暂无候选，可以重新开始招募。'].join('\n')
         : [
@@ -346,10 +347,7 @@ export function buildSelectionPoolStartedNotice(
 ): MessageSpec {
   return {
     title: '🐾 新一轮报名已开始',
-    body: [
-      `第 ${pool.round} 轮招募已开启。`,
-      '实时报名名单会自动同步到订单主卡；招募将持续到你手动终止。'
-    ].join('\n'),
+    body: [`第 ${pool.round} 轮招募已开启。`, '实时报名名单会自动同步到订单主卡；招募将持续到你手动终止。'].join('\n'),
     visibility: 'EPHEMERAL',
     layout: 'COMPONENTS_V2',
     components: [
@@ -368,10 +366,7 @@ export function buildSelectionPoolStartedNotice(
   };
 }
 
-function selectionActionButton(
-  customId: string,
-  label: string
-): NonNullable<MessageSpec['components']>[number] {
+function selectionActionButton(customId: string, label: string): NonNullable<MessageSpec['components']>[number] {
   return {
     type: 'ACTION_ROW',
     components: [
@@ -555,9 +550,7 @@ export function buildSelectionVoicePlan(projection: SelectionVoiceProjection) {
     revokeMemberIds: rejected,
     disconnectMemberIds: rejected,
     moveMemberIds:
-      projection.phase === 'FINALIZED'
-        ? [projection.customerDiscordUserId, ...projection.selectedDiscordUserIds]
-        : [],
+      projection.phase === 'FINALIZED' ? [projection.customerDiscordUserId, ...projection.selectedDiscordUserIds] : [],
     staffNotice: `订单 ${projection.orderPublicId} 已开始陪玩选拔，客服可以加入语音频道处理。`
   };
 }

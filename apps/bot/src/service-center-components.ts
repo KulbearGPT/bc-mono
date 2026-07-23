@@ -73,6 +73,21 @@ export interface MessageSpec {
   visibility: 'PUBLIC' | 'EPHEMERAL' | 'PRIVATE_CHANNEL';
   components: MessageComponentSpec[];
   layout?: 'EMBED' | 'COMPONENTS_V2';
+  tone?: MessageTone;
+  density?: MessageDensity;
+  fields?: MessageFieldSpec[];
+  footer?: string;
+}
+
+export type MessageTone = 'BRAND' | 'INFO' | 'SUCCESS' | 'WAITING' | 'DANGER' | 'MUTED';
+
+export type MessageDensity =
+  'PUBLIC_WELCOME' | 'PUBLIC_MILESTONE' | 'PRIVATE_ORDER' | 'EPHEMERAL_FEEDBACK' | 'HIGH_RISK';
+
+export interface MessageFieldSpec {
+  name: string;
+  value: string;
+  inline?: boolean;
 }
 
 export interface ModalSpec {
@@ -127,6 +142,16 @@ export type BotFlowResult =
 
 export function assertDiscordMessageSpec(message: MessageSpec): void {
   if ([...message.title].length > 256) throw new Error('Discord message title exceeds 256 characters.');
+  if ([...message.body].length > 4096) throw new Error('Discord message body exceeds 4096 characters.');
+  if (message.fields && message.fields.length > 25) throw new Error('Discord embed exceeds 25 fields.');
+  for (const field of message.fields ?? []) {
+    if ([...field.name].length < 1 || [...field.name].length > 256)
+      throw new Error('Discord embed field name must contain 1 to 256 characters.');
+    if ([...field.value].length < 1 || [...field.value].length > 1024)
+      throw new Error('Discord embed field value must contain 1 to 1024 characters.');
+  }
+  if (message.footer && [...message.footer].length > 2048)
+    throw new Error('Discord embed footer exceeds 2048 characters.');
   for (const item of message.components) {
     if (item.type === 'ACTION_ROW') assertActionRow(item);
     if (item.type === 'V2_SECTION') assertInteractiveComponent(item.accessory);
