@@ -1581,7 +1581,7 @@ export class PostgresSelectionPoolStore implements SelectionPoolStore {
       publicServiceTags: fact.public_service_tags ?? [],
       serviceCatalogVersionId: fact.service_catalog_version_id,
     };
-    let id = existing?.id ?? crypto.randomUUID();
+    const id = existing?.id ?? crypto.randomUUID();
     if (existing) {
       await client.query(
         `UPDATE selection_applications SET status='APPLIED',row_version=row_version+1,eligibility_snapshot=$3,applied_at=$4,withdrawn_at=NULL,decided_at=NULL,updated_at=$4 WHERE id=$1 AND row_version=$2`,
