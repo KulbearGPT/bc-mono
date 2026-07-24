@@ -23,16 +23,16 @@ describe('M17-US-10 precise Bot error messages', () => {
   });
 
   test.each([
-    ['CONFLICT', 'Order or selection pool version is stale.', 409, '页面中的订单或候选池版本已经过期'],
-    ['CONFLICT', 'Selection pool or application is stale.', 409, '候选池或报名记录版本已经过期'],
+    ['CONFLICT', 'Order or selection pool version is stale.', 409, '页面中的订单或报名轮次已经过期'],
+    ['CONFLICT', 'Selection pool or application is stale.', 409, '报名轮次或报名记录版本已经过期'],
     ['VALIDATION_ERROR', 'waitMinutes must be between 1 and 30.', 400, '提交的等待时间不符合要求'],
     ['BUSINESS_RULE_ERROR', 'Only a pending order can open a selection pool.', 422, '当前订单已不在等待派单状态'],
-    ['NOT_FOUND', 'Selection pool was not found.', 404, '候选池不存在、已结束，或当前账号无权查看'],
+    ['NOT_FOUND', 'Selection pool was not found.', 404, '报名轮次不存在、已结束，或当前账号无权查看'],
     ['INSUFFICIENT_FUNDS', 'Insufficient available balance.', 422, '可用余额不足']
   ])('translates %s failures without hiding the reason', (code, serverMessage, statusCode, expectedReason) => {
     const message = formatUserFacingError(
       new BotApiError({ code, message: serverMessage, requestId: `req-${code}`, statusCode }),
-      { operation: '处理候选池' }
+      { operation: '处理报名轮次' }
     );
     expect(message).toContain(expectedReason);
     expect(message).toContain(`request_id: req-${code}`);

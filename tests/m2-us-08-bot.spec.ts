@@ -71,7 +71,7 @@ const workbench: PlayerWorkbenchSummary = {
 describe("M2-US-08 Sapphire player workbench", () => {
   test("renders the API projection without recomputing eligibility or actions in the Bot", () => {
     const message = buildPlayerWorkbenchMessage(workbench);
-    expect(message.body).toContain("可报名候选池");
+    expect(message.body).toContain("可报名新单");
     expect(message.visibility).toBe("EPHEMERAL");
     expect(message.body).toContain("准入状态：可报名");
     expect(message.body).not.toContain("Discord 在线状态");
@@ -90,7 +90,7 @@ describe("M2-US-08 Sapphire player workbench", () => {
       matchingOrders: [],
       nextActions: ["SET_AVAILABLE"],
     });
-    expect(message.body).toContain("可报名候选池");
+    expect(message.body).toContain("可报名新单");
     expect(
       message.components
         .flatMap((row) => row.components)

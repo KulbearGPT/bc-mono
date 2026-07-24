@@ -18,7 +18,7 @@ describe("M9-US-16 staff selection observer", () => {
       staffTaskChannelId: "444444444444444444",
     });
     expect(plan.allowRoleIds).toEqual(["333333333333333333"]);
-    expect(plan.staffNotice).toContain("客服可以加入语音频道");
+    expect(plan.staffNotice).toContain("客服可以加入试音房");
     const page = buildAdminBusinessPage({
       page: "orders",
       permissions: ["order.read", "dispatch.manual"],

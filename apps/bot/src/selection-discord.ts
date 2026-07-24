@@ -588,7 +588,7 @@ export function buildSelectionVoicePlan(projection: SelectionVoiceProjection) {
     disconnectMemberIds: rejected,
     moveMemberIds:
       projection.phase === 'FINALIZED' ? [projection.customerDiscordUserId, ...projection.selectedDiscordUserIds] : [],
-    staffNotice: `订单 ${projection.orderPublicId} 已开始陪玩选拔，客服可以加入语音频道处理。`
+    staffNotice: `订单 ${projection.orderPublicId} 已进入试音匹配，客服可以加入试音房处理。`
   };
 }
 

@@ -870,7 +870,7 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
   const currentOrder = workbench.currentOrder
     ? `当前订单：#${workbench.currentOrder.publicId} · ${workbench.currentOrder.status}`
     : '当前订单：暂无';
-  const matchingLines = '可报名候选池：请查看派单频道；报名不会占用正式订单名额。';
+  const matchingLines = '可报名新单：请查看派单频道；报名不会占用正式订单名额。';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
   const components: ActionRowSpec[] = [
     {
@@ -960,7 +960,7 @@ export function buildAcceptedDispatchMessage(input: {
       `${input.offer.game} · ${input.offer.service}`,
       `区服：${input.offer.region}`,
       `时长：${input.offer.durationLabel}`,
-      '本轮派单已结束，其他候选按钮已失效。'
+      '本轮派单已结束，其他接单按钮已失效。'
     ].join('\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [

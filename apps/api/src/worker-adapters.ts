@@ -602,12 +602,12 @@ function selectionPanelSummary(projection: OrderPanelProjection): { label: strin
   if (pool.applicationCount === 0) {
     return {
       label: '本轮无人报名',
-      body: `第 ${pool.round} 轮招募已终止。\n当前候选：暂无\n可以重新开始招募或取消订单。`
+      body: `第 ${pool.round} 轮招募已终止。\n当前报名：暂无\n可以重新开始招募或取消订单。`
     };
   }
   return {
     label: '等待选择陪玩',
-    body: `第 ${pool.round} 轮招募已终止。\n当前候选：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}\n请在候选名单中确认入选陪玩。`
+    body: `第 ${pool.round} 轮招募已终止。\n报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}\n请进入试音匹配并确认陪玩。`
   };
 }
 

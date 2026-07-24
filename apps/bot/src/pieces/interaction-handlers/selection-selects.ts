@@ -76,7 +76,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     if (route.action === 'finalize') {
       const selectedCandidates = interaction.values.map((value) => ({
         id: decodeSelectionId(value),
-        playerDisplayName: interaction.component.options.find((option) => option.value === value)?.label ?? '候选陪玩'
+        playerDisplayName: interaction.component.options.find((option) => option.value === value)?.label ?? '报名陪玩'
       }));
       await interaction.editReply(
         toDiscordUpdate(
@@ -105,7 +105,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     });
     const actor = buildBotActorContext(interaction);
     if (!actor) {
-      const content = '请在服务器内进行候选池操作。request_id: local-guild-required';
+      const content = '请在服务器内进行报名与试音匹配操作。request_id: local-guild-required';
       if (updatesOrderPanel) await interaction.followUp({ content, ephemeral: true });
       else await interaction.editReply({ content });
       return;
@@ -220,7 +220,7 @@ export async function executeSelectionStart(input: {
           content:
             current.pool.status === 'COLLECTING'
               ? '本轮招募已经开始。你可以在订单主卡查看实时报名名单，或手动终止招募。'
-              : '候选状态已刷新，请在最新面板中重新开始招募。',
+              : '报名状态已刷新，请在最新面板中重新开始招募。',
           ephemeral: true
         });
         return;
@@ -280,6 +280,6 @@ function isConflict(error: unknown): boolean {
 
 function selectionOperation(action: 'start' | 'repeat' | 'finalize' | 'apply-menu'): string {
   if (action === 'start' || action === 'repeat') return '开始新一轮招募';
-  if (action === 'finalize') return '确认候选名单';
+  if (action === 'finalize') return '确认试音匹配结果';
   return '打开报名项目菜单';
 }

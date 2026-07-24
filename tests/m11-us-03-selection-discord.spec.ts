@@ -338,7 +338,7 @@ describe("M11-US-03 Discord selection flow", () => {
       "222222222222222222",
       "333333333333333333",
     ]);
-    expect(selection.staffNotice).toContain("客服可以加入语音频道");
+    expect(selection.staffNotice).toContain("客服可以加入试音房");
     const finalized = buildSelectionVoicePlan({
       ...selection.projection,
       phase: "FINALIZED",
@@ -380,9 +380,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as Record<string, unknown>
-        : null;
+      const body = requestPayload(init?.body);
       calls.push({ url, method: init?.method ?? "GET", body });
       if (url.endsWith("/guilds/999999999999999999/channels")) {
         return Response.json([
@@ -431,9 +429,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const body = typeof init?.body === "string"
-        ? JSON.parse(init.body) as Record<string, unknown>
-        : null;
+      const body = requestPayload(init?.body);
       calls.push({ url, method: init?.method ?? "GET", body });
       if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
         return Response.json([
@@ -583,7 +579,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const posted: Array<{ id: string; nonce: string; timestamp: string }> = [];
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
+      const body = requestPayload(init?.body);
       calls.push({ url, method: init?.method ?? "GET", body });
       if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
         return Response.json([
@@ -640,7 +636,9 @@ describe("M11-US-03 Discord selection flow", () => {
       "2026-08-04T12:01:00Z"
     );
 
-    const patch = calls.find((call) => call.method === "PATCH" && call.url.includes("/messages/"));
+    const patch = calls.find(
+      (call) => call.method === "PATCH" && JSON.stringify(call.body).includes("订单已取消")
+    );
     expect(JSON.stringify(patch?.body)).toContain("订单已取消");
     expect(patch?.body?.components).toEqual([]);
     expect(calls.some((call) => call.url.includes("/guilds/999999999999999999/channels"))).toBe(false);
@@ -694,7 +692,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const calls: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null;
+      const body = requestPayload(init?.body);
       calls.push({ url, method: init?.method ?? "GET", body });
       if (url.endsWith("/guilds/999999999999999999/channels") && init?.method === "GET")
         return Response.json([
@@ -750,8 +748,8 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(JSON.stringify(posts[1]?.body)).toContain("<@222222222222222222>");
     expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:s:");
     expect(JSON.stringify(posts[1]?.body)).toContain("bc:sp:r:");
-    expect(JSON.stringify(posts[1]?.body)).toContain("候选不合适，重新开始招募");
-    expect(JSON.stringify(posts[2]?.body)).toContain("已开始陪玩选拔");
+    expect(JSON.stringify(posts[1]?.body)).toContain("本轮暂无合适陪玩，重新招募");
+    expect(JSON.stringify(posts[2]?.body)).toContain("已进入试音匹配");
   });
 
   test("creates one recovery task only on the terminal Discord sync attempt", async () => {
@@ -802,10 +800,7 @@ describe("M11-US-03 Discord selection flow", () => {
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        const body =
-          typeof init?.body === "string"
-            ? (JSON.parse(init.body) as Record<string, unknown>)
-            : null;
+        const body = requestPayload(init?.body);
         calls.push({ url, method: init?.method ?? "GET", body });
         if (
           url.endsWith("/guilds/999999999999999999/channels") &&
@@ -879,7 +874,7 @@ describe("M11-US-03 Discord selection flow", () => {
             ? applicationId
             : `00000000-0000-0000-0000-${String(11060 + index).padStart(12, "0")}`,
         discordUserId: String(222222222222222222n + BigInt(index)),
-        displayName: `候选${index + 1}`,
+        displayName: `陪玩${index + 1}`,
         status: "APPLIED",
         applicationVersion: 1,
         requirementId,
@@ -909,7 +904,7 @@ describe("M11-US-03 Discord selection flow", () => {
       (call) =>
         call.url.endsWith(
           "/channels/222222222222222220/messages/999999999999999998",
-        ) && call.method === "PATCH",
+        ) && call.method === "PATCH" && JSON.stringify(call.body).includes("报名已结束"),
     )!;
     expect(JSON.stringify(closedOffer.body)).toContain("报名已结束");
     expect(closedOffer.body?.components).toEqual([]);
@@ -1018,14 +1013,14 @@ describe("M11-US-03 Discord selection flow", () => {
       "777777777777777777",
       "777777777777777777",
     ]);
-    expect(JSON.stringify(calls)).toContain("入选陪玩：候选1、候选2、候选3");
+    expect(JSON.stringify(calls)).toContain("已确认陪玩：陪玩1、陪玩2、陪玩3");
     const finalizedCustomerPanel = calls.find(
       (call) =>
         call.url.endsWith(
           "/channels/111111111111111110/messages/999999999999999998",
         ) &&
         call.method === "PATCH" &&
-        String(call.body?.content).includes("本轮选拔已完成"),
+        String(call.body?.content).includes("本轮试音匹配已完成"),
     );
     expect(finalizedCustomerPanel?.body).toMatchObject({
       components: [
@@ -1037,7 +1032,7 @@ describe("M11-US-03 Discord selection flow", () => {
       ],
     });
     expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
-      "候选1、候选2、候选3",
+      "陪玩1、陪玩2、陪玩3",
     );
     expect(JSON.stringify(finalizedCustomerPanel?.body)).toContain(
       "/777777777777777777",
@@ -1048,10 +1043,10 @@ describe("M11-US-03 Discord selection flow", () => {
           "/channels/555555555555555555/messages/999999999999999998",
         ) &&
         call.method === "PATCH" &&
-        String(call.body?.content).includes("选拔已完成"),
+        String(call.body?.content).includes("试音匹配已完成"),
     );
     expect(JSON.stringify(finalizedStaffNotice?.body)).toContain(
-      "候选1、候选2、候选3",
+      "陪玩1、陪玩2、陪玩3",
     );
   });
 
@@ -1073,6 +1068,13 @@ describe("M11-US-03 Discord selection flow", () => {
     expect(worker).toContain("createSelectionPoolSyncHandler");
   });
 });
+
+function requestPayload(body: BodyInit | null | undefined): Record<string, unknown> | null {
+  if (typeof body === "string") return JSON.parse(body) as Record<string, unknown>;
+  if (body instanceof FormData)
+    return JSON.parse(String(body.get("payload_json"))) as Record<string, unknown>;
+  return null;
+}
 
 function selectionActor() {
   return {

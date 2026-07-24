@@ -22,7 +22,7 @@ const exactExplanations: ReadonlyArray<[RegExp, ErrorExplanation]> = [
     /Only the order owner can manage the selection pool\./iu,
     {
       reason: '当前 Discord 账号不是该订单的客户所有者。',
-      nextStep: '请使用创建该订单的客户账号操作；工作人员和其他频道成员不能代替客户管理候选池。'
+      nextStep: '请使用创建该订单的客户账号操作；工作人员和其他频道成员不能代替客户管理报名轮次。'
     }
   ],
   [
@@ -42,15 +42,15 @@ const exactExplanations: ReadonlyArray<[RegExp, ErrorExplanation]> = [
   [
     /Order or selection pool version is stale\./iu,
     {
-      reason: '页面中的订单或候选池版本已经过期，当前状态已被其他操作更新。',
+      reason: '页面中的订单或报名轮次已经过期，当前状态已被其他操作更新。',
       nextStep: '请重新打开订单面板，核对最新状态后再决定是否继续。'
     }
   ],
   [
     /Selection pool or application is stale\./iu,
     {
-      reason: '页面中的候选池或报名记录版本已经过期，当前状态已被其他操作更新。',
-      nextStep: '请从最新候选池消息重新查看报名状态；不要继续使用旧消息中的撤回或报名组件。'
+      reason: '页面中的报名轮次或报名记录版本已经过期，当前状态已被其他操作更新。',
+      nextStep: '请从最新报名卡重新查看状态；不要继续使用旧消息中的撤回或报名组件。'
     }
   ],
   [
@@ -70,8 +70,8 @@ const exactExplanations: ReadonlyArray<[RegExp, ErrorExplanation]> = [
   [
     /Selection pool was not found\./iu,
     {
-      reason: '候选池不存在、已结束，或当前账号无权查看。',
-      nextStep: '请从最新订单面板重新进入候选池；不要继续使用旧消息中的组件。'
+      reason: '报名轮次不存在、已结束，或当前账号无权查看。',
+      nextStep: '请从最新订单面板重新进入报名流程；不要继续使用旧消息中的组件。'
     }
   ],
   [

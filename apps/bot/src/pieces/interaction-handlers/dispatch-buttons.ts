@@ -45,7 +45,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
     });
     const actor = buildBotActorContext(interaction);
     if (!actor) {
-      await interaction.editReply({ content: '请在服务器内进行候选池操作。request_id: local-guild-required' });
+      await interaction.editReply({ content: '请在服务器内进行报名与试音匹配操作。request_id: local-guild-required' });
       return;
     }
     try {
@@ -67,7 +67,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
             (confirmationRoute.orderId !== route.orderId || confirmationRoute.poolId !== route.poolId))
         ) {
           await interaction.editReply({
-            content: '确认信息已经失效，请刷新候选名单后再试。',
+            content: '确认信息已经失效，请刷新报名名单后再试。',
             embeds: [],
             components: []
           });
@@ -85,7 +85,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
         const applicationIds = selectionIdsFromConfirmationComponents(interaction.message.components);
         if (!applicationIds.length) {
           await interaction.editReply({
-            content: '确认信息已经失效，请返回候选名单重新选择。',
+            content: '确认信息已经失效，请返回报名名单重新选择。',
             embeds: [],
             components: []
           });
@@ -211,12 +211,12 @@ export class DispatchButtonsHandler extends InteractionHandler {
 function dispatchOperation(
   action: 'start' | 'apply' | 'apply-menu' | 'withdraw' | 'close' | 'finalize' | 'reselect' | 'page'
 ): string {
-  if (action === 'start') return '开始候选池招募';
-  if (action === 'apply') return '报名候选池';
-  if (action === 'withdraw') return '撤回候选池报名';
-  if (action === 'close') return '终止候选池招募';
-  if (action === 'finalize') return '确认候选名单';
-  if (action === 'reselect') return '返回候选名单';
+  if (action === 'start') return '开始新一轮招募';
+  if (action === 'apply') return '报名陪玩项目';
+  if (action === 'withdraw') return '取消陪玩报名';
+  if (action === 'close') return '终止本轮招募';
+  if (action === 'finalize') return '确认试音匹配结果';
+  if (action === 'reselect') return '返回报名名单';
   if (action === 'apply-menu') return '打开报名项目菜单';
-  return '查看候选名单下一页';
+  return '查看报名名单下一页';
 }

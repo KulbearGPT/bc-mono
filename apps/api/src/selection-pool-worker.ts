@@ -112,6 +112,7 @@ interface SelectionWorkerProjection {
     remainingSlots: number;
     expectedEarningMinor: number;
     currency: string;
+    customerNote?: string | null;
   }>;
 }
 
@@ -156,7 +157,7 @@ export class PostgresSelectionPoolWorkerStore {
     selectionPoolId: string,
   ): Promise<SelectionWorkerProjection | null> {
     const result = await this.pool.query<Record<string, unknown>>(
-      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.selection_voice_channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
+      `SELECT pool.id pool_id,pool.row_version pool_version,pool.status::text pool_status,pool.recruitment_channel_id,pool.recruitment_message_id,pool.reaction_bindings,orders.id order_id,orders.public_id,orders.status::text order_status,orders.row_version order_version,orders.guild_id,orders.channel_id,orders.selection_voice_channel_id,orders.voice_channel_id,orders.customer_id,customer.discord_user_id customer_discord_user_id,config.config_json,ARRAY(SELECT jsonb_build_object('applicationId',application.id,'discordUserId',account.discord_user_id,'displayName',users.display_name,'status',application.status::text,'applicationVersion',application.row_version,'requirementId',application.order_requirement_id) FROM selection_applications application JOIN users ON users.id=application.player_user_id JOIN discord_accounts account ON account.user_id=users.id AND account.guild_id=orders.guild_id WHERE application.selection_pool_id=pool.id ORDER BY application.applied_at,application.id) applicants,ARRAY(SELECT jsonb_build_object('discordUserId',account.discord_user_id,'displayName',users.display_name) FROM order_participants participant JOIN users ON users.id=participant.player_id JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_players,ARRAY(SELECT account.discord_user_id FROM order_participants participant JOIN discord_accounts account ON account.user_id=participant.player_id AND account.guild_id=orders.guild_id WHERE participant.order_id=orders.id AND participant.status='ACTIVE' ORDER BY participant.created_at,participant.id) selected_ids,ARRAY(SELECT jsonb_build_object('id',requirement.id,'label',requirement.game_display_name_snapshot||' · '||requirement.service_display_name_snapshot,'remainingSlots',GREATEST(requirement.requested_player_count-(SELECT count(*) FROM order_participants participant WHERE participant.order_requirement_id=requirement.id AND participant.status='ACTIVE'),0),'expectedEarningMinor',FLOOR((requirement.customer_unit_price_minor_snapshot*requirement.unit_count)*version.default_player_payout_bps/10000),'currency',orders.currency,'customerNote',requirement.customer_note) FROM order_requirements requirement JOIN service_catalog_versions version ON version.id=requirement.service_catalog_version_id WHERE requirement.order_id=orders.id AND requirement.status='ACTIVE' ORDER BY requirement.created_at,requirement.id) requirements FROM selection_pools pool JOIN orders ON orders.id=pool.order_id JOIN discord_accounts customer ON customer.user_id=orders.customer_id AND customer.guild_id=orders.guild_id LEFT JOIN guild_bot_configs config ON config.guild_id=orders.guild_id WHERE pool.id=$1`,
       [selectionPoolId],
     );
     const row = result.rows[0];
@@ -426,7 +427,7 @@ export class DiscordSelectionPoolAdapter {
         projection.staffTaskChannelId,
         `selection-staff:${projection.poolId}`,
         {
-          content: `订单 ${projection.orderPublicId} 已开始陪玩选拔，客服可以加入语音频道 ${link}。客户：<@${projection.customerDiscordUserId}>；候选人数：${projection.applicants.filter((item) => item.status === "APPLIED").length}`,
+          content: `订单 ${projection.orderPublicId} 已进入试音匹配，客服可以加入试音房 ${link}。客户：<@${projection.customerDiscordUserId}>；报名人数：${projection.applicants.filter((item) => item.status === "APPLIED").length}`,
           allowed_mentions: { parse: [] },
         },
         notBefore,
@@ -536,6 +537,7 @@ export class DiscordSelectionPoolAdapter {
       requirements: projection.requirements,
       bindings,
     });
+    const banner = resolveSelectionGameBanner(projection.requirements.map((item) => item.label));
     const messages = await this.request<DiscordRecruitmentMessage[]>(
       `/channels/${projection.dispatchChannelId}/messages?limit=100`,
       { method: "GET" },
@@ -560,19 +562,21 @@ export class DiscordSelectionPoolAdapter {
         .update(`selection-offer:${projection.poolId}`)
         .digest("hex")
         .slice(0, 24);
-      const sent = await this.request<{ id: string }>(
+      const sent = await this.sendRecruitmentCard<{ id: string }>(
         `/channels/${projection.dispatchChannelId}/messages`,
-        {
-          method: "POST",
-          body: JSON.stringify({ ...payload, nonce, enforce_nonce: true }),
-        },
+        "POST",
+        payload,
+        banner,
+        { nonce, enforce_nonce: true },
       );
       messageId = text(sent.id);
     } else {
-      await this.request(`/channels/${projection.dispatchChannelId}/messages/${messageId}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      await this.sendRecruitmentCard(
+        `/channels/${projection.dispatchChannelId}/messages/${messageId}`,
+        "PATCH",
+        payload,
+        banner,
+      );
     }
     for (const duplicate of matchingMessages) {
       if (!duplicate.id || duplicate.id === messageId) continue;
@@ -655,7 +659,7 @@ export class DiscordSelectionPoolAdapter {
       );
       await this.direct(
         applicant.discordUserId,
-        `订单 ${projection.orderPublicId} 本轮选拔已结束，你本轮未入选。入选陪玩：${projection.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+        `订单 ${projection.orderPublicId} 本轮试音匹配已结束，你本轮暂未匹配成功。已确认陪玩：${projection.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
         notBefore,
         projection.poolId,
       );
@@ -771,6 +775,26 @@ export class DiscordSelectionPoolAdapter {
       method: "POST",
       body: form,
     });
+  }
+  private async sendRecruitmentCard<T = void>(
+    path: string,
+    method: "POST" | "PATCH",
+    payload: Record<string, unknown>,
+    banner: SelectionGameBanner,
+    delivery: Record<string, unknown> = {},
+  ): Promise<T> {
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({
+      ...payload,
+      ...delivery,
+      attachments: [{ id: 0, filename: banner.attachmentName, description: banner.description }],
+    }));
+    form.append(
+      "files[0]",
+      new Blob([await readFile(banner.asset)], { type: "image/png" }),
+      banner.attachmentName,
+    );
+    return this.request<T>(path, { method, body: form });
   }
   private async request<T = void>(
     path: string,
@@ -956,6 +980,40 @@ const ORDER_CANCELLED_BANNER = new URL(
   import.meta.url,
 );
 
+interface SelectionGameBanner {
+  fileName: string;
+  attachmentName: string;
+  asset: URL;
+  description: string;
+}
+const GAME_BANNER_RULES = [
+  { fileName: "league-of-legends.png", aliases: /英雄联盟|league of legends|\blol(?:na)?\b/iu },
+  { fileName: "valorant.png", aliases: /无畏契约|瓦洛兰特|valorant/iu },
+  { fileName: "delta-force.png", aliases: /三角洲|delta force|\bdelta\b/iu },
+  { fileName: "apex-legends.png", aliases: /apex/iu },
+  { fileName: "pubg.png", aliases: /绝地求生|pubg/iu },
+  { fileName: "cs2-csgo.png", aliases: /cs2|csgo|counter.?strike/iu },
+  { fileName: "overwatch.png", aliases: /守望先锋|overwatch/iu },
+  { fileName: "naraka-bladepoint.png", aliases: /永劫无间|naraka/iu },
+  { fileName: "dota2.png", aliases: /dota\s*2?/iu },
+  { fileName: "tft.png", aliases: /金铲铲|云顶|teamfight|\btft\b/iu },
+  { fileName: "chat-minigames.png", aliases: /聊天|小游戏|chat|minigame/iu },
+  { fileName: "singing-voice.png", aliases: /唱歌|声优|singing|voice/iu },
+] as const;
+
+export function resolveSelectionGameBanner(labels: string[]): SelectionGameBanner {
+  const matches = new Set(
+    labels.map((label) => GAME_BANNER_RULES.find((rule) => rule.aliases.test(label))?.fileName ?? "other.png"),
+  );
+  const fileName = matches.size === 1 ? [...matches][0]! : "other.png";
+  return {
+    fileName,
+    attachmentName: `blackcat-game-${fileName}`,
+    asset: new URL(`../assets/game-banners/${fileName}`, import.meta.url),
+    description: "黑猫陪玩游戏主题横幅",
+  };
+}
+
 export function buildSelectionReactionBindings(
   requirements: Array<{ id: string; label: string; remainingSlots: number }>,
 ): SelectionReactionBinding[] {
@@ -972,7 +1030,14 @@ export function buildSelectionReactionBindings(
 export function buildSelectionReactionOfferPayload(input: {
   poolId: string;
   orderPublicId: string;
-  requirements: Array<{ id: string; label: string; remainingSlots: number }>;
+  requirements: Array<{
+    id: string;
+    label: string;
+    remainingSlots: number;
+    expectedEarningMinor: number;
+    currency: string;
+    customerNote?: string | null;
+  }>;
   bindings?: SelectionReactionBinding[];
 }) {
   const bindings = input.bindings
@@ -984,21 +1049,37 @@ export function buildSelectionReactionOfferPayload(input: {
       throw new Error("Persisted selection reaction requirement is unavailable.");
     return requirement;
   });
+  const banner = resolveSelectionGameBanner(requirements.map((item) => item.label));
   return {
     embeds: [
       {
-        title: `候选池 #${input.orderPublicId}`,
-        description: "点击项目对应的数字 Reaction 报名；移除 Reaction 即撤回。可同时报名多个项目或订单，报名不会占用正式订单名额。",
+        title: `🐾 新单报名 #${input.orderPublicId}`,
+        color: 0x6d5dfc,
+        description: [
+          "黑猫来新委托啦～合适就留个爪印。",
+          "🟢 添加对应数字 = 报名",
+          "⚪ 移除对应数字 = 取消报名",
+          "可同时报名多个项目或订单；报名不占用正式订单名额。",
+        ].join("\n"),
         fields: requirements.map((item, index) => ({
           name: `${bindings[index]!.emoji} ${item.label}`,
-          value: `缺 ${item.remainingSlots} 位`,
+          value: [
+            `缺 ${item.remainingSlots} 位 · 预计收益：${formatPlayerEarning(item.expectedEarningMinor, item.currency)}`,
+            `需求：${item.customerNote?.trim() || "老板暂未留言"}`,
+          ].join("\n"),
         })),
+        image: { url: `attachment://${banner.attachmentName}` },
         footer: { text: `selection-pool:${input.poolId}` },
       },
     ],
     components: [],
     allowed_mentions: { parse: [] },
   };
+}
+
+function formatPlayerEarning(amountMinor: number, currency: string) {
+  const divisor = currency === "CAT" ? 10 : 100;
+  return `${(amountMinor / divisor).toFixed(currency === "CAT" ? 1 : 2)} ${currency}`;
 }
 
 function isRecruitmentMessageForPool(
@@ -1033,7 +1114,7 @@ function oldestDiscordMessageId(messages: DiscordRecruitmentMessage[]) {
 function supersededRecruitmentPayload(projection: SelectionWorkerProjection) {
   return {
     embeds: [{
-      title: `候选池 #${projection.orderPublicId}（旧报名卡）`,
+      title: `新单报名 #${projection.orderPublicId}（旧报名卡）`,
       description: "此重复报名卡已停用，请使用本频道最新的数字 Reaction 报名卡。",
       footer: { text: `selection-pool-superseded:${projection.poolId}` },
     }],
@@ -1057,8 +1138,8 @@ function closedOfferPayload(p: SelectionWorkerProjection) {
   return {
     embeds: [
       {
-        title: `候选池 #${p.orderPublicId} · 报名已结束`,
-        description: `本轮报名已结束，共 ${applicationCount} 位候选。此卡片已停止接受报名。`,
+        title: `🎧 试音匹配 #${p.orderPublicId} · 报名已结束`,
+        description: `本轮报名已结束，共 ${applicationCount} 位陪玩报名。此卡片已停止接受 Reaction。`,
       },
     ],
     components: [],
@@ -1069,7 +1150,7 @@ function cancelledOfferPayload(p: SelectionWorkerProjection) {
   return {
     embeds: [
       {
-        title: `候选池 #${p.orderPublicId} · 订单已取消`,
+        title: `🌧️ 新单报名 #${p.orderPublicId} · 订单已取消`,
         description: "订单已取消，本轮报名已经关闭，此卡片不再接受报名。",
       },
     ],
@@ -1086,7 +1167,7 @@ function cancelledCustomerPayload(p: SelectionWorkerProjection) {
 }
 function cancelledStaffPayload(p: SelectionWorkerProjection) {
   return {
-    content: `订单已取消：${p.orderPublicId}。本轮陪玩选拔已关闭。`,
+    content: `订单已取消：${p.orderPublicId}。本轮报名与试音匹配已关闭。`,
     components: [],
     allowed_mentions: { parse: [] },
   };
@@ -1096,7 +1177,7 @@ function finalizedCustomerPayload(
   serviceLink: string,
 ) {
   return {
-    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}\n正式服务语音房已经准备好，系统会先将您移入，再邀请入选陪玩加入。`,
+    content: `<@${p.customerDiscordUserId}> 本轮试音匹配已完成。已确认陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}\n正式服务语音房已经准备好，系统会先将您移入，再邀请已确认陪玩加入。`,
     components: [
       {
         type: 1,
@@ -1110,14 +1191,14 @@ function finalizedCustomerPayload(
 }
 function partialFinalizedCustomerPayload(p: SelectionWorkerProjection) {
   return {
-    content: `<@${p.customerDiscordUserId}> 本轮选拔已完成。已入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}。订单仍有空缺，可继续开启下一轮报名。`,
+    content: `<@${p.customerDiscordUserId}> 本轮试音匹配已完成。已确认陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}。订单仍有空缺，可继续开启下一轮报名。`,
     components: [],
     allowed_mentions: { parse: [], users: [p.customerDiscordUserId] },
   };
 }
 function partialFinalizedStaffPayload(p: SelectionWorkerProjection) {
   return {
-    content: `订单 ${p.orderPublicId} 本轮选拔已完成但仍有空缺。已入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+    content: `订单 ${p.orderPublicId} 本轮试音匹配已完成但仍有空缺。已确认陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
     components: [],
     allowed_mentions: { parse: [] },
   };
@@ -1134,7 +1215,7 @@ function finalizedStaffPayload(
     { type: 2, style: 5, label: "进入服务房间", url: serviceLink },
   ].filter(Boolean);
   return {
-    content: `订单 ${p.orderPublicId} 选拔已完成。入选陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
+    content: `订单 ${p.orderPublicId} 试音匹配已完成。已确认陪玩：${p.selectedPlayers.map((item) => item.displayName).join("、") || "无"}`,
     components: [{ type: 1, components: links }],
     allowed_mentions: { parse: [] },
   };
@@ -1156,7 +1237,7 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
               options: applicants.map((item) => ({
                 label: item.displayName.slice(0, 100),
                 value: short(item.applicationId),
-                description: "公开候选资料",
+                description: "公开陪玩资料",
               })),
             },
           ],
@@ -1178,7 +1259,7 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
           : []),
         selectionStartRow(
           `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
-          "候选不合适，重新开始招募",
+          "本轮暂无合适陪玩，重新招募",
         ),
       ]
     : [

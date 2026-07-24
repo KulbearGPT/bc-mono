@@ -84,9 +84,7 @@ describe('M11-US-06 numeric reaction signup', () => {
     const legacyCustomId = `bc:sp:m:${shortId(orderId)}:${shortId(poolId)}:v1`;
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const body = typeof init?.body === 'string'
-        ? JSON.parse(init.body) as Record<string, unknown>
-        : null;
+      const body = requestPayload(init?.body);
       calls.push({ url, method: init?.method ?? 'GET', body });
       if (url.includes('/messages?limit=100')) return Response.json([
         legacyDropdownMessage(duplicateMessageId, legacyCustomId),
@@ -194,11 +192,18 @@ describe('M11-US-06 numeric reaction signup', () => {
       enforce_nonce: true,
       attachments: [{ id: 0, filename: 'blackcat-dispatching.png' }]
     });
-    expect(typeof posts[1]?.body).toBe('string');
-    const embedPayload = JSON.parse(String(posts[1]?.body));
+    expect(posts[1]?.body).toBeInstanceOf(FormData);
+    const recruitmentForm = posts[1]!.body as FormData;
+    const embedPayload = JSON.parse(String(recruitmentForm.get('payload_json')));
     expect(embedPayload.components).toEqual([]);
-    expect(embedPayload.embeds[0]).toMatchObject({ title: '候选池 #P-REACTION' });
-    expect(posts.filter((request) => request.body instanceof FormData)).toHaveLength(1);
+    expect(embedPayload.embeds[0]).toMatchObject({ title: '🐾 新单报名 #P-REACTION' });
+    expect(embedPayload.embeds[0].image).toEqual({ url: 'attachment://blackcat-game-other.png' });
+    expect((recruitmentForm.get('files[0]') as File).name).toBe('blackcat-game-other.png');
+    expect(posts.filter((request) => request.body instanceof FormData)).toHaveLength(3);
+    expect(posts.filter((request) => {
+      if (!(request.body instanceof FormData)) return false;
+      return (request.body.get('files[0]') as File).name === 'blackcat-dispatching.png';
+    })).toHaveLength(1);
   });
 
   test('posts the sad image only for a truly cancelled order', async () => {
@@ -404,6 +409,12 @@ function requirement(index: number) {
     expectedEarningMinor: 100,
     currency: 'CAT'
   };
+}
+
+function requestPayload(body: BodyInit | null | undefined): Record<string, unknown> | null {
+  if (typeof body === 'string') return JSON.parse(body) as Record<string, unknown>;
+  if (body instanceof FormData) return JSON.parse(String(body.get('payload_json'))) as Record<string, unknown>;
+  return null;
 }
 
 function reactionProjection(recruitmentMessageId: string | null) {
