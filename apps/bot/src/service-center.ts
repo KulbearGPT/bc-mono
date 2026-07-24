@@ -834,17 +834,29 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
 
 export function buildCancellationPreviewMessage(preview: CancellationPreviewSummary): MessageSpec {
   const handling = preview.staffTaskRequired
-    ? '处理方式：提交客服核对，不会自动退款或扣款'
-    : '处理方式：确认后立即处理';
-  return {
-    title: '⚠️ 取消影响确认',
-    body: [
-      `释放预留：${formatCustomerMoney(preview.releaseAmountMinor, preview.currency)}`,
-      `退款：${formatCustomerMoney(preview.refundAmountMinor, preview.currency)}`,
-      handling,
-      `预览有效期：${preview.validUntil}`
-    ].join('\n'),
+    ? '提交客服核对；不会自动退款、扣款或释放预留'
+    : '确认后由业务 API 立即处理';
+  return buildExperienceMessage({
+    title: '取消订单前请确认',
+    icon: '⚠️',
+    introduction: '这是高风险操作，请先核对资金影响；当前页面只是一份预览。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'HIGH_RISK',
+    tone: preview.staffTaskRequired ? 'WAITING' : 'DANGER',
+    coreFacts: [
+      {
+        name: '🐟 资金影响',
+        value: [
+          `释放预留：${formatCustomerMoney(preview.releaseAmountMinor, preview.currency)}`,
+          `退款：${formatCustomerMoney(preview.refundAmountMinor, preview.currency)}`
+        ].join('\n')
+      },
+      { name: '🛎️ 处理方式', value: `${handling}\n预览有效期：${preview.validUntil}` }
+    ],
+    progress: '本次预览没有取消订单，也没有改变任何资金状态。',
+    nextStep: preview.staffTaskRequired
+      ? '核对后提交客服处理；如不确定，请返回订单保持现状。'
+      : '确定取消时点击危险色按钮；否则返回订单，不会产生写入。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -864,7 +876,7 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
         ]
       }
     ]
-  };
+  });
 }
 
 export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): MessageSpec {
@@ -1135,15 +1147,24 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
 }
 
 export function buildCancellationResultMessage(input: CancellationResultSummary): MessageSpec {
-  if (input.staffTaskId && input.status !== 'CANCELLED') {
-    return {
-      title: '🛎️ 取消申请已转客服',
-      body: [
-        `客服任务已创建：${input.staffTaskId}`,
-        `订单仍保持：${input.status}`,
-        '客服会核对订单、语音频道、服务进度和资金状态；不会自动退款或释放预留。'
-      ].join('\n'),
+  if (input.status !== 'CANCELLED') {
+    return buildExperienceMessage({
+      title: input.staffTaskId ? '取消申请已转客服' : '取消结果待核对',
+      icon: input.staffTaskId ? '🛎️' : '⚠️',
+      introduction: input.staffTaskId
+        ? '猫舍前台已经接手，会核对订单、服务进度和资金状态。'
+        : '业务 API 没有返回已取消状态，当前卡不会把订单描述为已取消。',
       visibility: 'PRIVATE_CHANNEL',
+      density: 'HIGH_RISK',
+      tone: 'WAITING',
+      coreFacts: [
+        { name: '📋 当前订单状态', value: input.status },
+        ...(input.staffTaskId ? [{ name: '🛎️ 客服任务', value: input.staffTaskId }] : [])
+      ],
+      progress: '写入结果仍以最新订单状态为准；当前不会自动退款或释放预留。',
+      nextStep: input.staffTaskId
+        ? '等待猫舍前台同步结果；期间不要连续提交取消。'
+        : '刷新订单核对最新状态；如仍无法判断，请联系猫舍前台。',
       components: [
         {
           type: 'ACTION_ROW',
@@ -1158,22 +1179,28 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
           ]
         }
       ]
-    };
+    });
   }
-  return {
-    title: '✅ 订单已取消',
-    body: [
-      `订单状态：${input.status}`,
-      `资金处理：${input.fundAction}`,
-      input.releasedReservation
-        ? `释放金额：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}`
-        : null
-    ]
-      .filter(Boolean)
-      .join('\n'),
+  return buildExperienceMessage({
+    title: '订单已取消',
+    icon: '🥀',
+    introduction: '这次委托没能继续走下去。订单已结束，资金结果请按下方事实核对。',
     visibility: 'PRIVATE_CHANNEL',
+    density: 'HIGH_RISK',
+    tone: 'DANGER',
+    coreFacts: [
+      { name: '📋 订单结果', value: 'CANCELLED · 已取消' },
+      {
+        name: '🐟 资金结果',
+        value: input.releasedReservation
+          ? `已释放预留：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}\n处理类型：${input.fundAction}`
+          : `处理类型：${input.fundAction}\n没有返回可展示的预留释放金额`
+      }
+    ],
+    progress: '业务 API 已确认订单进入 CANCELLED；本卡只展示返回的资金事实。',
+    nextStep: '如对取消或资金结果有疑问，请从订单入口联系猫舍前台。',
     components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(input.orderId)] }]
-  };
+  });
 }
 
 export async function handleOpenOrderConfirmation(input: {
@@ -1910,10 +1937,15 @@ export async function handleRequirementNoteSubmit(input: {
 }
 
 export function buildSupportRatingMessage(orderId: string): MessageSpec {
-  return {
-    title: '⭐ 评价客服体验',
-    body: '请评价本次订单中实际为你回复的客服。评价不会影响订单扣款或陪玩收益。',
+  return buildExperienceMessage({
+    title: '这次猫舍前台照顾得怎么样？',
+    icon: '⭐',
+    introduction: '谢谢老板愿意留一点真实感受，这会帮助我们把下一次服务做得更贴心。',
     visibility: 'EPHEMERAL',
+    density: 'EPHEMERAL_FEEDBACK',
+    tone: 'BRAND',
+    coreFacts: [{ name: '🛎️ 评价对象', value: '本次订单中实际为你回复的客服' }],
+    nextStep: '请选择 1–5 分；评价不会影响订单扣款或任何陪玩收益。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -1925,7 +1957,7 @@ export function buildSupportRatingMessage(orderId: string): MessageSpec {
         }))
       }
     ]
-  };
+  });
 }
 
 export function buildLowRatingReasonMessage(orderId: string, score: number): MessageSpec {
@@ -1936,10 +1968,15 @@ export function buildLowRatingReasonMessage(orderId: string, score: number): Mes
     ['PRESSURING_CUSTOMER', '催促或施压'],
     ['OTHER', '其他']
   ] as const;
-  return {
-    title: '⭐ 请选择主要原因',
-    body: '低分需要选择一个固定原因，仅用于事实记录。',
+  return buildExperienceMessage({
+    title: '请告诉我们最需要改进的地方',
+    icon: '📝',
+    introduction: '你的低分反馈会被认真记录，不需要在这里写很长的说明。',
     visibility: 'EPHEMERAL',
+    density: 'EPHEMERAL_FEEDBACK',
+    tone: 'INFO',
+    coreFacts: [{ name: '🧭 记录说明', value: `${score} 分 · 请选择一个最主要原因` }],
+    nextStep: '选择“其他”时会再打开一个简短文字框。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -1951,7 +1988,7 @@ export function buildLowRatingReasonMessage(orderId: string, score: number): Mes
         }))
       }
     ]
-  };
+  });
 }
 
 export async function handleSupportRatingAction(input: {
@@ -2000,7 +2037,7 @@ export async function handleSupportRatingAction(input: {
       input.actor,
       input.idempotencyKey
     );
-    return { kind: 'EPHEMERAL_MESSAGE', message: '感谢评价，已记录。' };
+    return { kind: 'EPHEMERAL_MESSAGE', message: '✨ 谢谢老板认真告诉我们，评价已经记录。' };
   } catch (error) {
     return {
       kind: 'EPHEMERAL_MESSAGE',

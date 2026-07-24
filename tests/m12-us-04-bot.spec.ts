@@ -103,7 +103,7 @@ describe("M12-US-04 Discord support rating flow", () => {
 
     expect(result).toEqual({
       kind: "EPHEMERAL_MESSAGE",
-      message: "感谢评价，已记录。",
+      message: "✨ 谢谢老板认真告诉我们，评价已经记录。",
     });
     expect(submitSupportRating).toHaveBeenCalledOnce();
   });

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { BOT_COPY, botCopy } from './bot-copy.js';
+import { buildExperienceMessage } from './discord-experience.js';
 import type { BotActorContext, MessageSpec } from './service-center.js';
 import { DEFAULT_WALLET_DISPLAY_CONFIG, customerWalletLabel, formatCustomerWalletAmount } from './wallet-display.js';
 
@@ -119,22 +119,30 @@ export function buildGiftAffordabilityMessage(
           }
         ]
       : [];
-  return {
-    title:
-      data.canAfford && !data.stale
-        ? '🎁 确认礼物'
-        : data.stale
-          ? `🐟 ${walletLabel}需要刷新`
-          : `🐟 ${walletLabel}余额不足`,
-    body:
-      data.canAfford && !data.stale
-        ? botCopy.gifts.affordable(
-            `${data.recipientCount} 位猫猫 · ${formatGiftAmount(data.totalPriceMinor, data.currency)}`
-          )
-        : data.stale
-          ? BOT_COPY.gifts.staleBalance
-          : botCopy.gifts.shortfall(formatGiftAmount(data.shortfallMinor, data.currency), data.topUpInstructions),
+  const ready = data.canAfford && !data.stale;
+  const funds = ready
+    ? `确认后将预留：${formatGiftAmount(data.totalPriceMinor, data.currency)}\n赠送对象：${data.recipientCount} 位陪玩`
+    : data.stale
+      ? `${walletLabel}快照已经过期，需要重新读取后才能确认。`
+      : `还差：${formatGiftAmount(data.shortfallMinor, data.currency)}\n这里只显示本次缺口，不展示无关钱包明细。`;
+  return buildExperienceMessage({
+    title: ready ? '确认这份礼物心意' : data.stale ? `${walletLabel}需要刷新` : `${walletLabel}余额不足`,
+    icon: ready ? '🎁' : '🐟',
+    introduction: ready
+      ? '礼物、对象和金额都准备好了，请在最终确认前再核对一次。'
+      : data.stale
+        ? '为了避免使用旧余额提交礼物，请先刷新这份资金快照。'
+        : '这次可用猫条还差一点，礼物请求尚未提交。',
     visibility: 'EPHEMERAL',
+    density: 'HIGH_RISK',
+    tone: ready ? 'INFO' : data.stale ? 'WAITING' : 'DANGER',
+    coreFacts: [{ name: '🐟 资金确认', value: funds }],
+    progress: ready ? '尚未预留或扣除，等待你的最终确认。' : '礼物请求尚未创建，资金状态没有改变。',
+    nextStep: ready
+      ? '核对无误后点击“确认赠送”；系统会先建立预留并交由猫舍前台审核。'
+      : data.stale
+        ? '点击“刷新余额”取得最新快照，再重新确认。'
+        : `${data.topUpInstructions} 完成后刷新余额，再继续送礼。`,
     components: [
       ...chunk(recipients, 25)
         .slice(0, 3)
@@ -148,7 +156,7 @@ export function buildGiftAffordabilityMessage(
         ]
       }
     ]
-  };
+  });
 }
 
 export function buildGiftCatalogMessage(
@@ -275,17 +283,29 @@ export function buildGiftRecipientPickerMessage(
 
 export function buildGiftRequestMessage(data: GiftRequestResult): MessageSpec {
   const first = data.items[0];
-  return {
-    title: '✅ 送礼请求已提交',
-    body: first
-      ? botCopy.gifts.requestSubmitted(
-          `${first.gift.name} × ${data.recipientCount}`,
-          formatGiftAmount(data.totalAmountMinor, first.gift.currency)
-        )
-      : '礼物请求已提交。',
+  return buildExperienceMessage({
+    title: '送礼心意已送达猫舍前台',
+    icon: '🎁',
+    introduction: '这份心意已经登记好啦～猫舍前台会先核对礼物与订单信息。',
     visibility: 'EPHEMERAL',
+    density: 'EPHEMERAL_FEEDBACK',
+    tone: 'WAITING',
+    coreFacts: [
+      {
+        name: '🎁 礼物心意',
+        value: first ? `${first.gift.name} × ${data.recipientCount} 位陪玩` : `${data.recipientCount} 位陪玩`
+      },
+      {
+        name: '🐟 资金状态',
+        value: first
+          ? `已预留：${formatGiftAmount(data.totalAmountMinor, first.gift.currency)}\n尚未正式扣除`
+          : '已建立礼物预留；尚未正式扣除'
+      }
+    ],
+    progress: '等待猫舍前台核对；通过并完成捕获后才会正式送达。',
+    nextStep: '无需重复提交。处理结果会通过既有订单与礼物通知同步。',
     components: []
-  };
+  });
 }
 
 function recipientSelectionRow(

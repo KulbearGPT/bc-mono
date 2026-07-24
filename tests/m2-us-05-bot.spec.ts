@@ -19,9 +19,11 @@ describe('M2-US-05 Bot cancellation support states', () => {
     const message = buildCancellationResultMessage(result);
 
     expect(message.title).toBe('🛎️ 取消申请已转客服');
-    expect(message.body).toContain('客服任务已创建');
-    expect(message.body).toContain('订单仍保持：ACCEPTED');
-    expect(message.body).toContain('不会自动退款或释放预留');
+    expect(message.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({name:'📋 当前订单状态',value:'ACCEPTED'}),
+      expect.objectContaining({name:'🛎️ 客服任务',value:result.staffTaskId})
+    ]));
+    expect(JSON.stringify(message)).toContain('不会自动退款或释放预留');
     expect(JSON.stringify(message)).not.toContain('订单已取消');
   });
 });

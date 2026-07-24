@@ -161,10 +161,12 @@ export function formatUserFacingError(error: unknown, options: UserFacingErrorOp
         ? `未分类的 Bot 内部异常：${cleanServerReason(error.message)}`
         : 'Bot 收到了非标准异常值，无法读取进一步原因。';
     return [
-      `无法${options.operation}：${detail}`,
-      '无法从当前响应确认是否曾向业务 API 发起请求；请先查看最新状态，不要连续操作，并将下方编号提供给管理员。',
+      `⚠️ 无法${options.operation}`,
+      `**原因**\n${detail}`,
+      '**下一步**\n请先查看最新状态，不要连续操作，并将下方编号提供给管理员。',
+      '**写入结果**\n无法从当前响应确认是否曾向业务 API 发起请求。',
       `request_id: ${requestId}`
-    ].join('\n');
+    ].join('\n\n');
   }
 
   const explanation = explainApiError(error);
@@ -173,11 +175,12 @@ export function formatUserFacingError(error: unknown, options: UserFacingErrorOp
     ? '由于没有收到可信的业务结果，写入结果暂时无法确认。'
     : '业务 API 已拒绝本次请求，本次操作未生效。';
   return [
-    `无法${options.operation}：${explanation.reason}`,
-    explanation.nextStep,
-    outcome,
+    `⚠️ 无法${options.operation}`,
+    `**原因**\n${explanation.reason}`,
+    `**下一步**\n${explanation.nextStep}`,
+    `**写入结果**\n${outcome}`,
     `request_id: ${cleanRequestId(error.requestId)}`
-  ].join('\n');
+  ].join('\n\n');
 }
 
 export function formatDiscordError(error: unknown, operation: string, interactionId: string): string {
@@ -189,10 +192,12 @@ export function formatDiscordError(error: unknown, operation: string, interactio
 
 export function formatUnexpectedBotResult(operation: string, requestId: string): string {
   return [
-    `无法${operation}：Bot 收到了无法识别的流程结果。`,
-    '当前页面无法确认最新业务状态；请重新打开对应面板，并将下方编号提供给管理员排查流程协议。',
+    `⚠️ 无法${operation}`,
+    '**原因**\nBot 收到了无法识别的流程结果。',
+    '**下一步**\n请重新打开对应面板，并将下方编号提供给管理员排查流程协议。',
+    '**写入结果**\n当前页面无法确认最新业务状态。',
     `request_id: ${cleanRequestId(requestId)}`
-  ].join('\n');
+  ].join('\n\n');
 }
 
 function explainApiError(error: ApiErrorShape): ErrorExplanation {

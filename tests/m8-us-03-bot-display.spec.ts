@@ -42,7 +42,7 @@ describe('M8-US-03 selective customer token rendering', () => {
     expect(wallet.title).toBe('🐟 我的猫条钱包');
     expect(wallet.body).toContain('2,000.0 CAT');
     expect(confirmation.body).toContain('1,200.0 CAT');
-    expect(gift.body).toContain('500.0 CAT');
+    expect(JSON.stringify(gift.fields)).toContain('500.0 CAT');
     expect(consumptions.body).toContain('880.0 CAT');
     expect(JSON.stringify([wallet, confirmation, gift, consumptions])).not.toMatch(/USD|\$/u);
   });

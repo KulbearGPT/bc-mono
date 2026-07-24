@@ -24,9 +24,11 @@ const preview: CancellationPreviewSummary = {
 describe('M2-US-10 Bot cancellation preview flow', () => {
   test('renders API-provided impact and requires a second explicit confirmation', () => {
     const message = buildCancellationPreviewMessage(preview);
-    expect(message.title).toContain('取消影响确认');
-    expect(message.body).toContain('释放预留：1,200.0 CAT');
-    expect(message.body).toContain('退款：0.0 CAT');
+    expect(message.title).toContain('取消订单前请确认');
+    expect(message.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({name:'🐟 资金影响',value:expect.stringContaining('释放预留：1,200.0 CAT')}),
+      expect.objectContaining({name:'🐟 资金影响',value:expect.stringContaining('退款：0.0 CAT')})
+    ]));
     const controls = message.components.flatMap((row) => row.components);
     expect(controls.map((component) => component.customId)).toEqual([
       `bc:cancel:${orderId}:${previewId}:confirm:v3`,
