@@ -65,9 +65,9 @@ export const botCopy = {
   },
   dispatch: {
     accepted: (channelId: string) =>
-      `**✅ 委托接取成功**\n\n请进入订单频道 <#${channelId}>，等待双方完成准备确认。双方确认前不会开始服务。`,
+      `**✅ 委托接取成功**\n\n请进入订单频道 <#${channelId}> 确认本人已就绪。本单全部有效陪玩确认前不会开始服务。`,
     alreadyAccepted: (channelId: string) =>
-      `**🐾 这张委托已经接取**\n\n无需重复接单。请直接进入订单频道 <#${channelId}>，等待双方完成准备确认。`,
+      `**🐾 这张委托已经接取**\n\n无需重复接单。请直接进入订单频道 <#${channelId}> 查看陪玩全员就绪进度。`,
     alreadyTaken: '这张委托已经被处理过了，当前席位可能已由其他陪玩接取。可以继续等待下一轮通知。',
     declined: '已记录本轮暂不接单，我们不会再用这轮委托打扰你。',
     ineligible: (reasons: string[], requestId: string) =>
@@ -81,7 +81,7 @@ export const botCopy = {
     completionRequestRestricted: (requestId: string) =>
       `这个「申请完成」按钮需要由本单陪玩操作。客人无需代为申请，请等待陪玩提交；如需协助可以点击「我要申诉」。request_id: ${requestId}`,
     readinessRestricted: (requestId: string) =>
-      `只有本订单的客人和已接单陪玩可以确认就绪。如果你认为这是权限异常，请联系猫舍前台。request_id: ${requestId}`,
+      `只有本订单当前有效的陪玩可以确认本人就绪；老板无需提交就绪。如果你认为这是权限异常，请联系猫舍前台。request_id: ${requestId}`,
     supportRestricted: (requestId: string) =>
       `只有本订单的参与者可以从这里发起申诉。如需其他协助，请直接联系猫舍前台。request_id: ${requestId}`,
     appealSubmitted: (taskPublicId: string) =>

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type {
   OrderPanelDiscordAdapter,
+  OrderPanelParticipant,
   OrderPanelProjection,
   OrderPanelProjectionStore
 } from './worker-runtime.js';
@@ -52,6 +53,20 @@ SELECT orders.id AS order_id,
            AND participant.status = 'ACTIVE'
          ORDER BY participant.created_at, participant.id
        ) AS player_discord_user_ids,
+       (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                 'discordUserId', participant_discord.discord_user_id,
+                 'displayName', participant.player_display_name_snapshot,
+                 'readiness', CASE WHEN participant.ready_at IS NULL THEN 'NOT_READY' ELSE 'READY' END,
+                 'linePriceMinor', participant.line_price_minor,
+                 'expectedEarningMinor', participant.expected_earning_minor,
+                 'compensationSource', participant.compensation_source::text
+               ) ORDER BY participant.created_at, participant.id), '[]'::jsonb)
+          FROM order_participants participant
+          LEFT JOIN discord_accounts participant_discord
+            ON participant_discord.user_id = participant.player_id
+           AND participant_discord.guild_id = orders.guild_id
+         WHERE participant.order_id = orders.id
+           AND participant.status = 'ACTIVE') AS lifecycle_participants,
        (SELECT COALESCE(SUM(requirement.requested_player_count), 0)::int
           FROM order_requirements requirement
          WHERE requirement.order_id = orders.id AND requirement.status = 'ACTIVE') AS requested_player_count,
@@ -76,6 +91,8 @@ SELECT orders.id AS order_id,
        orders.customer_note AS legacy_customer_note,
        orders.submitted_at,
        orders.accepted_at,
+       orders.readiness_due_at,
+       orders.service_started_at,
        orders.amount_minor,
        orders.currency,
        (SELECT jsonb_build_object(
@@ -366,6 +383,7 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     ...participantDiscordUserIds,
     ...(legacyPlayerDiscordUserId ? [legacyPlayerDiscordUserId] : [])
   ])];
+  const participants = lifecycleParticipants(row.lifecycle_participants);
   return {
     orderId: text(row.order_id, 'order_id'),
     publicId: text(row.public_id, 'public_id'),
@@ -376,6 +394,10 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     customerDiscordUserId: text(row.customer_discord_user_id, 'customer_discord_user_id'),
     playerDiscordUserId: legacyPlayerDiscordUserId,
     playerDiscordUserIds,
+    participants,
+    allActivePlayersReady: participants.length > 0 && participants.every((participant) => participant.readiness === 'READY'),
+    readyDeadlineAt: nullableDateText(row.readiness_due_at, 'readiness_due_at'),
+    startedAt: nullableDateText(row.service_started_at, 'service_started_at'),
     requestedPlayerCount: optionalInteger(row.requested_player_count, playerDiscordUserIds.length),
     filledPlayerCount: optionalInteger(row.filled_player_count, playerDiscordUserIds.length),
     coordinationRequirements: coordinationRequirements(row),
@@ -496,7 +518,7 @@ function truncate(value: string, limit: number): string {
 }
 
 function coordinationStatusLabel(status: string): string {
-  return status === 'ACCEPTED' ? '等待双方准备' : orderStatusLabel(status);
+  return status === 'ACCEPTED' ? '等待陪玩全员准备' : orderStatusLabel(status);
 }
 
 function coordinationRequirements(row: Record<string, unknown>): NonNullable<OrderPanelProjection['coordinationRequirements']> {
@@ -551,11 +573,43 @@ function nullableDateText(value: unknown, field: string): string | null {
   return date.toISOString();
 }
 
+function lifecycleParticipants(value: unknown): OrderPanelParticipant[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw invalidRow('lifecycle_participants');
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw invalidRow('lifecycle_participants');
+    const participant = entry as Record<string, unknown>;
+    const readiness = text(participant.readiness, 'lifecycle_participants.readiness');
+    const compensationSource = text(
+      participant.compensationSource,
+      'lifecycle_participants.compensationSource'
+    );
+    if (readiness !== 'READY' && readiness !== 'NOT_READY') throw invalidRow('lifecycle_participants.readiness');
+    if (
+      compensationSource !== 'PLAYER_OVERRIDE' &&
+      compensationSource !== 'CATALOG_DEFAULT' &&
+      compensationSource !== 'LEGACY_ORDER_SNAPSHOT'
+    )
+      throw invalidRow('lifecycle_participants.compensationSource');
+    return {
+      discordUserId: nullableText(participant.discordUserId, 'lifecycle_participants.discordUserId'),
+      displayName: text(participant.displayName, 'lifecycle_participants.displayName'),
+      readiness,
+      linePriceMinor: integer(participant.linePriceMinor, 'lifecycle_participants.linePriceMinor'),
+      expectedEarningMinor: integer(
+        participant.expectedEarningMinor,
+        'lifecycle_participants.expectedEarningMinor'
+      ),
+      compensationSource
+    };
+  });
+}
+
 function renderOrderPanel(projection: OrderPanelProjection) {
   const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
   const requestedPlayerCount = projection.requestedPlayerCount ?? Math.max(playerDiscordUserIds.length, 1);
   const filledPlayerCount = projection.filledPlayerCount ?? playerDiscordUserIds.length;
-  const participants = playerDiscordUserIds.length > 0
+  const participantMentions = playerDiscordUserIds.length > 0
     ? `已到位陪玩：${playerDiscordUserIds.map((id) => `<@${id}>`).join('、')}`
     : '陪玩：待接单';
   const assembly = projection.status === 'PENDING_DISPATCH' && !projection.selectionPool && requestedPlayerCount > 0
@@ -567,9 +621,10 @@ function renderOrderPanel(projection: OrderPanelProjection) {
     `## 当前订单状态：${projection.status}`,
     `金额：${projection.currency} ${(projection.amountMinor / (projection.currency === 'CAT' ? 10 : 100)).toFixed(projection.currency === 'CAT' ? 1 : 2)}`,
     `客户：<@${projection.customerDiscordUserId}>`,
-    participants,
+    participantMentions,
     assembly,
-    selection?.body
+    selection?.body,
+    lifecyclePanelSummary(projection)
   ].filter(Boolean).join('\n');
   const interactionRows = selectionPanelRows(projection);
   return {
@@ -586,6 +641,94 @@ function renderOrderPanel(projection: OrderPanelProjection) {
       ]
     }]
   };
+}
+
+function lifecyclePanelSummary(projection: OrderPanelProjection): string | null {
+  const participants = projection.participants ?? [];
+  if (projection.status === 'ACCEPTED') {
+    const readinessLines = participants.length
+      ? participants.map(
+          (participant) =>
+            `${participant.displayName}：${participant.readiness === 'READY' ? '✅ 已就绪' : '⏳ 未就绪'}`
+        )
+      : ['陪玩名单：等待 API 返回'];
+    return [
+      '',
+      '### 🤝 等待陪玩全员就绪',
+      '**👥 就绪名单**',
+      ...readinessLines,
+      projection.readyDeadlineAt ? `**⏰ 确认时限**：${discordTimestamp(projection.readyDeadlineAt)}` : null,
+      '',
+      '**⏳ 当前进度**',
+      projection.allActivePlayersReady
+        ? '全部有效陪玩都已就绪，等待业务 API 确认进入服务中。'
+        : '仍有陪玩尚未就绪；全部有效陪玩 READY 后才会开始服务。',
+      '',
+      '**👉 下一步**',
+      '陪玩使用“陪玩确认就绪”；老板无需提交就绪，需要协助时可联系猫舍前台。'
+    ]
+      .filter((line): line is string => line !== null)
+      .join('\n');
+  }
+  if (projection.status === 'IN_SERVICE') {
+    return [
+      '',
+      '### 🎮 陪玩服务已开始',
+      projection.startedAt ? `**⏱️ 开始时间**：${discordTimestamp(projection.startedAt)}` : '**⏱️ 开始时间**：已开始',
+      '',
+      '**⏳ 当前进度**',
+      '服务进行中；尚未提交完成申请。',
+      '',
+      '**👉 下一步**',
+      '服务结束后由陪玩申请完成，老板随后核对并确认。'
+    ].join('\n');
+  }
+  if (projection.status === 'PENDING_CONFIRMATION') {
+    const detailLines = participants.length
+      ? participants.map(
+          (participant) =>
+            `${participant.displayName}：本项价格 ${formatPanelMoney(participant.linePriceMinor, projection.currency)} · 预计收益 ${formatPanelMoney(participant.expectedEarningMinor, projection.currency)} · ${compensationSourceLabel(participant.compensationSource)}`
+        )
+      : ['逐人价格与收益：等待 API 返回'];
+    return [
+      '',
+      '### 📨 等待老板确认完成',
+      '**🐾 逐人结算预览**',
+      ...detailLines,
+      `订单总价：${formatPanelMoney(projection.amountMinor, projection.currency)}`,
+      '',
+      '**⏳ 当前进度**',
+      '陪玩已经提交完成申请；确认前尚未完成最终结算。',
+      '',
+      '**👉 下一步**',
+      '老板核对最新逐人价格、预计收益和分成来源后，再使用“老板确认完成”。'
+    ].join('\n');
+  }
+  if (projection.status === 'COMPLETED') {
+    return [
+      '',
+      '### ✨ 服务圆满完成',
+      '谢谢老板与陪玩今天的相伴，这次服务已经顺利收尾。',
+      '',
+      '**⏳ 当前进度**',
+      '订单、资金捕获和逐人收益事实均以业务 API 的完成结果为准。',
+      '',
+      '**👉 下一步**',
+      '如需查看明细、评价客服或申诉，请使用下方入口。'
+    ].join('\n');
+  }
+  return null;
+}
+
+function formatPanelMoney(amountMinor: number, currency: string): string {
+  const divisor = currency === 'CAT' ? 10 : 100;
+  return `${(amountMinor / divisor).toFixed(currency === 'CAT' ? 1 : 2)} ${currency}`;
+}
+
+function compensationSourceLabel(source: OrderPanelParticipant['compensationSource']): string {
+  if (source === 'PLAYER_OVERRIDE') return '陪玩个性分成';
+  if (source === 'CATALOG_DEFAULT') return '项目默认分成';
+  return '历史订单快照';
 }
 
 function selectionPanelSummary(projection: OrderPanelProjection): { label: string; body: string } | null {
@@ -654,13 +797,16 @@ function shortSelectionId(uuid: string): string {
 function activePlayerDiscordUserIds(projection: OrderPanelProjection): string[] {
   return [...new Set([
     ...(projection.playerDiscordUserIds ?? []),
+    ...(projection.participants ?? []).flatMap((participant) =>
+      participant.discordUserId ? [participant.discordUserId] : []
+    ),
     ...(projection.playerDiscordUserId ? [projection.playerDiscordUserId] : [])
   ])];
 }
 
 function orderStatusLabel(status: string): string {
   if (status === 'PENDING_DISPATCH') return '队伍正在集合';
-  if (status === 'ACCEPTED') return '等待准备确认';
+  if (status === 'ACCEPTED') return '等待陪玩全员就绪';
   if (status === 'IN_SERVICE') return '服务进行中';
   if (status === 'PENDING_CONFIRMATION') return '等待客户确认完成';
   if (status === 'COMPLETED') return '订单已完成';
@@ -680,13 +826,13 @@ function panelActions(projection: OrderPanelProjection): Array<{ type: 2; style:
     ];
   }
   if (projection.status === 'ACCEPTED') {
-    return [{ type: 2, style: 1, label: '我已就绪', custom_id: route('ready') }, support, refresh];
+    return [{ type: 2, style: 1, label: '陪玩确认就绪', custom_id: route('ready') }, support, refresh];
   }
   if (projection.status === 'IN_SERVICE') {
-    return [{ type: 2, style: 1, label: '申请完成', custom_id: route('request-completion') }, support, refresh];
+    return [{ type: 2, style: 1, label: '陪玩申请完成', custom_id: route('request-completion') }, support, refresh];
   }
   if (projection.status === 'PENDING_CONFIRMATION') {
-    return [{ type: 2, style: 1, label: '确认完成', custom_id: route('confirm') }, support, refresh];
+    return [{ type: 2, style: 1, label: '老板确认完成', custom_id: route('confirm') }, support, refresh];
   }
   if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
     return [

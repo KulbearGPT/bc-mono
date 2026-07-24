@@ -117,6 +117,10 @@ export interface OrderPanelProjection {
   customerDiscordUserId: string;
   playerDiscordUserId: string | null;
   playerDiscordUserIds?: string[];
+  participants?: OrderPanelParticipant[];
+  allActivePlayersReady?: boolean;
+  readyDeadlineAt?: string | null;
+  startedAt?: string | null;
   requestedPlayerCount?: number;
   filledPlayerCount?: number;
   coordinationRequirements?: OrderCoordinationRequirement[];
@@ -140,6 +144,15 @@ export interface OrderPanelProjection {
     applicantDiscordUserIds?: string[];
     closesAt: string | null;
   } | null;
+}
+
+export interface OrderPanelParticipant {
+  discordUserId: string | null;
+  displayName: string;
+  readiness: 'READY' | 'NOT_READY';
+  linePriceMinor: number;
+  expectedEarningMinor: number;
+  compensationSource: 'PLAYER_OVERRIDE' | 'CATALOG_DEFAULT' | 'LEGACY_ORDER_SNAPSHOT';
 }
 
 export interface OrderCoordinationRequirement {

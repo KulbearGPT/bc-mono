@@ -11,7 +11,6 @@ import {
   type DispatchOfferSummary,
   type OrderEstimateSummary,
   type OrderChannelSpec,
-  type OrderLifecyclePanelSummary,
   type OrderRequirementMutationSummary,
   type OrderRequirementPageSummary,
   type OrderRequirementSummary,
@@ -42,6 +41,7 @@ import { buildExperienceMessage } from './discord-experience.js';
 import { resolveGameBanner } from './game-banners.js';
 import { orderStatusDisplay } from './order-display.js';
 import { buildSubmittedOrderMessage } from './submitted-order-message.js';
+import { buildServiceLifecyclePanelMessage } from './service-lifecycle-message.js';
 
 export * from './service-center-api.js';
 export * from './service-center-components.js';
@@ -50,6 +50,7 @@ export * from './service-center-routes.js';
 export * from './service-center-order-notes.js';
 export * from './service-center-entry.js';
 export { buildSubmittedOrderMessage } from './submitted-order-message.js';
+export { buildServiceLifecyclePanelMessage } from './service-lifecycle-message.js';
 
 export function buildRequirementNoteModal(input: {
   orderId: string;
@@ -987,142 +988,6 @@ export function buildAcceptedDispatchMessage(input: {
   };
 }
 
-export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSummary): MessageSpec {
-  const giftsEnabled = Array.isArray(order.enabledFeatures) && order.enabledFeatures.includes('GIFTS');
-  if (order.status === 'ACCEPTED') {
-    return {
-      title: `⏳ 订单 #${order.publicId} · 等待双方就绪`,
-      body: [
-        '**准备状态**',
-        `用户：${readinessLabel(order.readiness.customer)}`,
-        `陪玩：${readinessLabel(order.readiness.player)}`,
-        order.readiness.readyDeadlineAt ? `就绪截止：${order.readiness.readyDeadlineAt}` : null
-      ]
-        .filter(Boolean)
-        .join('\n'),
-      visibility: 'PRIVATE_CHANNEL',
-      components: [
-        {
-          type: 'ACTION_ROW',
-          components: [
-            {
-              type: 'BUTTON',
-              style: 'PRIMARY',
-              customId: `bc:service:ready:${order.orderId}:v${order.version}`,
-              label: '我已就绪'
-            },
-            {
-              type: 'BUTTON',
-              style: 'DANGER',
-              customId: `bc:order:${order.orderId}:cancel:v${order.version}`,
-              label: '取消订单'
-            },
-            {
-              type: 'BUTTON',
-              style: 'SECONDARY',
-              customId: `bc:service:support:${order.orderId}:v${order.version}`,
-              label: '我要申诉'
-            },
-            ...(order.actorRole === 'CUSTOMER' && giftsEnabled
-              ? [
-                  {
-                    type: 'BUTTON' as const,
-                    style: 'SECONDARY' as const,
-                    customId: `bc:gift:open:${order.orderId}:v${order.version}`,
-                    label: '赠送礼物'
-                  }
-                ]
-              : []),
-            refreshOrderControl(order.orderId)
-          ]
-        }
-      ]
-    };
-  }
-  if (order.status === 'IN_SERVICE') {
-    const components: ComponentSpec[] = orderMenuControls(order.orderId, order.version);
-    if (order.actorRole === 'PLAYER') {
-      components.unshift({
-        type: 'BUTTON',
-        style: 'PRIMARY',
-        customId: `bc:service:request-completion:${order.orderId}:v${order.version}`,
-        label: '申请完成'
-      });
-    }
-    if (order.actorRole === 'CUSTOMER' && giftsEnabled)
-      components.unshift({
-        type: 'BUTTON',
-        style: 'SECONDARY',
-        customId: `bc:gift:open:${order.orderId}:v${order.version}`,
-        label: '赠送礼物'
-      });
-    return {
-      title: `🎮 订单 #${order.publicId} · 服务中`,
-      body: order.readiness.startedAt
-        ? `**服务已经开始**\n\n开始时间：${order.readiness.startedAt}`
-        : '**服务已经开始**',
-      visibility: 'PRIVATE_CHANNEL',
-      components: [{ type: 'ACTION_ROW', components }]
-    };
-  }
-  if (order.status === 'PENDING_CONFIRMATION') {
-    const components: ComponentSpec[] = orderMenuControls(order.orderId, order.version);
-    if (order.actorRole === 'CUSTOMER') {
-      components.unshift({
-        type: 'BUTTON',
-        style: 'PRIMARY',
-        customId: `bc:service:confirm:${order.orderId}:v${order.version}`,
-        label: '确认完成'
-      });
-      if (giftsEnabled)
-        components.push({
-          type: 'BUTTON',
-          style: 'SECONDARY',
-          customId: `bc:gift:open:${order.orderId}:v${order.version}`,
-          label: '赠送礼物'
-        });
-    }
-    return {
-      title: `✨ 订单 #${order.publicId} · 等待用户确认`,
-      body: BOT_COPY.orders.completionPending,
-      visibility: 'PRIVATE_CHANNEL',
-      components: [{ type: 'ACTION_ROW', components }]
-    };
-  }
-  if (order.status === 'EXCEPTION' || order.readiness.staffTaskId) {
-    return {
-      title: `🛎️ 订单 #${order.publicId} · 客服处理中`,
-      body: [
-        order.readiness.staffTaskId
-          ? `客服任务已创建：${order.readiness.staffTaskId}`
-          : '客服任务已创建，等待客服核对。',
-        BOT_COPY.orders.staffReviewScope
-      ].join('\n'),
-      visibility: 'PRIVATE_CHANNEL',
-      components: [
-        {
-          type: 'ACTION_ROW',
-          components: [
-            {
-              type: 'BUTTON',
-              style: 'SECONDARY',
-              customId: `bc:service:support:${order.orderId}:v${order.version}`,
-              label: '联系客服'
-            },
-            refreshOrderControl(order.orderId)
-          ]
-        }
-      ]
-    };
-  }
-  return {
-    title: `📋 订单 #${order.publicId}`,
-    body: `当前状态：${order.status}`,
-    visibility: 'PRIVATE_CHANNEL',
-    components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(order.orderId)] }]
-  };
-}
-
 export function buildOrderConfirmationMessage(input: {
   order: OrderSummary;
   estimate: OrderEstimateSummary;
@@ -1267,10 +1132,6 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
       { name: '✅ 提交状态', value: submissionStatus }
     ]
   });
-}
-
-function readinessLabel(value: 'READY' | 'NOT_READY'): string {
-  return value === 'READY' ? '已就绪' : '未就绪';
 }
 
 export function buildCancellationResultMessage(input: CancellationResultSummary): MessageSpec {

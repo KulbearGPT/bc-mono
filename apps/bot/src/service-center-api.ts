@@ -432,9 +432,19 @@ export interface OrderLifecyclePanelSummary {
   actorRole: 'CUSTOMER' | 'PLAYER';
   enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
   readiness: {
-    customer: 'READY' | 'NOT_READY';
-    player: 'READY' | 'NOT_READY';
-    bothReady: boolean;
+    participants: Array<{
+      participantId: string;
+      playerId: string;
+      displayName: string;
+      readiness: 'READY' | 'NOT_READY';
+    }>;
+    allActivePlayersReady: boolean;
+    /** Legacy single-player projection. New flows use participants. */
+    player?: 'READY' | 'NOT_READY';
+    /** Legacy two-sided projection. Customers no longer submit readiness. */
+    customer?: 'READY' | 'NOT_READY';
+    /** Legacy two-sided projection. New flows use allActivePlayersReady. */
+    bothReady?: boolean;
     readyDeadlineAt: string | null;
     startedAt: string | null;
     staffTaskId: string | null;
