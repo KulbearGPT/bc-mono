@@ -41,7 +41,7 @@ describe('M10-US-04 participant lifecycle and earnings', () => {
     const third = await ready(store, 2, 6, new Date(now.getTime() + 2_000));
     expect(third).toMatchObject({
       status: 'IN_SERVICE',
-      readiness: { allActivePlayersReady: true, bothReady: true }
+      readiness: { allActivePlayersReady: true }
     });
     expect(third.readiness.participants.map((participant) => participant.readiness)).toEqual([
       'READY', 'READY', 'READY'

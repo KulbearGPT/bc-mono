@@ -62,7 +62,9 @@ describe('M4-US-02 L1 support workbench API', () => {
 
     const orderResponse = await server.inject({ method: 'GET', url: `/api/v1/admin/orders/${orderId}`, headers: headers() });
     expect(orderResponse.statusCode).toBe(200);
-    expect(orderResponse.json()).toMatchObject({ data: { order: { status: 'ACCEPTED' }, matching: { stage: 'ACCEPTED' }, readiness: { bothReady: false }, automation: { state: 'RUNNING' } } });
+    expect(orderResponse.json()).toMatchObject({ data: { order: { status: 'ACCEPTED' }, matching: { stage: 'ACCEPTED' }, readiness: {
+      participants: [], allActivePlayersReady: false, staffTaskId: null
+    }, automation: { state: 'RUNNING' } } });
   });
 
   test('rejects a nonstaff admin order detail request before calling the store', async () => {

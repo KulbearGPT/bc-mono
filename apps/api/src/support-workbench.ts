@@ -29,6 +29,13 @@ export interface SupportTaskLinks {
   voiceChannel: string | null;
 }
 
+interface SupportReadinessParticipant {
+  participantId: string;
+  playerId: string;
+  displayName: string;
+  readiness: 'READY' | 'NOT_READY';
+}
+
 export interface SupportTaskView extends StaffTaskRecord {
   triage: SupportTaskTriageSummary;
   links: SupportTaskLinks;
@@ -98,7 +105,7 @@ export class InMemorySupportWorkbenchStore implements SupportWorkbenchStore {
     requireOrderScope(this.input.tasks.tasks, input);
     const order = this.input.orders.orders.find((candidate) => candidate.id === input.orderId);
     if (!order) throw new SupportWorkbenchError('NOT_FOUND', 'Order was not found.');
-    return buildOrderView(order);
+    return buildOrderView(order, inMemoryReadinessParticipants(order));
   }
 
   private findTask(taskId: string): StaffTaskRecord {
@@ -197,7 +204,21 @@ export class PostgresSupportWorkbenchStore implements SupportWorkbenchStore {
     }
     const order = await this.orders.findById(input.orderId);
     if (!order) throw new SupportWorkbenchError('NOT_FOUND', 'Order was not found.');
-    return buildOrderView(order);
+    const participants = await this.pool.query<{
+      id: string;
+      player_id: string;
+      player_display_name_snapshot: string;
+      ready_at: Date | string | null;
+    }>(`SELECT id, player_id, player_display_name_snapshot, ready_at
+        FROM order_participants
+        WHERE order_id = $1 AND status = 'ACTIVE'
+        ORDER BY created_at, id`, [input.orderId]);
+    return buildOrderView(order, participants.rows.map((participant) => ({
+      participantId: participant.id,
+      playerId: participant.player_id,
+      displayName: participant.player_display_name_snapshot,
+      readiness: participant.ready_at ? 'READY' : 'NOT_READY'
+    })));
   }
 }
 
@@ -233,16 +254,33 @@ export function registerSupportWorkbenchRoutes(server: FastifyInstance, options:
   }
 }
 
-function buildOrderView(order: OrderRecord) {
-  const lifecycle = order as OrderRecord & { customerReadyAt?: string | null; playerReadyAt?: string | null; readyDeadlineAt?: string | null; startedAt?: string | null };
-  const readiness = { customer: lifecycle.customerReadyAt ? 'READY' : 'NOT_READY', player: lifecycle.playerReadyAt ? 'READY' : 'NOT_READY',
-    bothReady: Boolean(lifecycle.customerReadyAt && lifecycle.playerReadyAt), readyDeadlineAt: lifecycle.readyDeadlineAt ?? null, startedAt: lifecycle.startedAt ?? null };
+function buildOrderView(order: OrderRecord, participants: SupportReadinessParticipant[]) {
+  const lifecycle = order as OrderRecord & { readyDeadlineAt?: string | null; startedAt?: string | null };
+  const readiness = {
+    participants,
+    allActivePlayersReady: participants.length > 0 && participants.every((participant) => participant.readiness === 'READY'),
+    readyDeadlineAt: lifecycle.readyDeadlineAt ?? null,
+    startedAt: lifecycle.startedAt ?? null,
+    staffTaskId: null
+  };
   const automation = { state: order.automationState, version: order.automationVersion, scope: order.automationScope, reasonCode: order.automationReasonCode,
     pausedAt: order.automationPausedAt, resumedAt: order.automationResumedAt, expiresAt: order.automationExpiresAt };
   const matching = order.status === 'PENDING_DISPATCH'
     ? { stage: 'SEARCHING', nextStep: 'WAIT_FOR_PLAYER' }
     : order.status === 'ACCEPTED' ? { stage: 'ACCEPTED', nextStep: 'CONFIRM_READINESS' } : null;
   return { order: clone(order), matching, readiness, automation, transactions: [], resolutions: [], events: [] };
+}
+
+function inMemoryReadinessParticipants(order: OrderRecord): SupportReadinessParticipant[] {
+  const participants = (order as OrderRecord & {
+    participants?: Array<{ id: string; playerId: string; displayName: string; readyAt: string | null }>;
+  }).participants ?? [];
+  return participants.map((participant) => ({
+    participantId: participant.id,
+    playerId: participant.playerId,
+    displayName: participant.displayName,
+    readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+  }));
 }
 
 function canViewTask(task: StaffTaskRecord, actor: ActorContext, order: TaskOrderContext | OrderRecord | null): boolean {

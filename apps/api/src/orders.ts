@@ -528,9 +528,8 @@ export interface OrderApiRecord {
   matching: OrderMatchingProgress | null;
   fundReservation: FundReservationSummary | null;
   readiness: {
-    customer: "NOT_READY";
-    player: "NOT_READY";
-    bothReady: false;
+    participants: [];
+    allActivePlayersReady: false;
     readyDeadlineAt: null;
     startedAt: null;
     staffTaskId: null;
@@ -3232,9 +3231,8 @@ function toApiOrder(
     matching,
     fundReservation: reservation ? toApiReservationSummary(reservation) : null,
     readiness: {
-      customer: "NOT_READY",
-      player: "NOT_READY",
-      bothReady: false,
+      participants: [],
+      allActivePlayersReady: false,
       readyDeadlineAt: null,
       startedAt: null,
       staffTaskId: null,

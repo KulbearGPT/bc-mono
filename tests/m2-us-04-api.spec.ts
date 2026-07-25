@@ -29,36 +29,18 @@ const env = {
 };
 
 describe('M2-US-04 service lifecycle API', () => {
-  test('setOrderReadiness requires a current participant and starts service only after both sides are ready', async () => {
+  test('setOrderReadiness rejects customers and lets the assigned player start a legacy order', async () => {
     const store = buildStore();
 
-    const customerReady = await setOrderReadiness({
-      store,
-      orderId,
-      expectedVersion: 4,
-      readiness: 'READY',
-      actor: { guildId, discordUserId: '111111111111111111' },
-      now
-    });
-
-    expect(customerReady).toMatchObject({
-      orderId,
-      status: 'ACCEPTED',
-      version: 5,
-      actorRole: 'CUSTOMER',
-      readiness: {
-        customer: 'READY',
-        player: 'NOT_READY',
-        bothReady: false,
-        startedAt: null
-      }
-    });
+    await expect(setOrderReadiness({ store, orderId, expectedVersion: 4, readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111111' }, now
+    })).rejects.toThrowError(expect.objectContaining({ code: 'PERMISSION_DENIED' }));
 
     await expect(
       setOrderReadiness({
         store,
         orderId,
-        expectedVersion: 5,
+        expectedVersion: 4,
         readiness: 'READY',
         actor: { guildId, discordUserId: '222222222222222299' },
         now
@@ -68,7 +50,7 @@ describe('M2-US-04 service lifecycle API', () => {
     const playerReady = await setOrderReadiness({
       store,
       orderId,
-      expectedVersion: 5,
+      expectedVersion: 4,
       readiness: 'READY',
       actor: { guildId, discordUserId: '222222222222222222' },
       now: new Date(now.getTime() + 60_000)
@@ -77,19 +59,18 @@ describe('M2-US-04 service lifecycle API', () => {
     expect(playerReady).toMatchObject({
       orderId,
       status: 'IN_SERVICE',
-      version: 6,
+      version: 5,
       actorRole: 'PLAYER',
       readiness: {
-        customer: 'READY',
-        player: 'READY',
-        bothReady: true,
+        participants: [],
+        allActivePlayersReady: true,
         startedAt: new Date(now.getTime() + 60_000).toISOString()
       }
     });
     expect(store.orders[0]).toMatchObject({
       status: 'IN_SERVICE',
-      version: 6,
-      customerReadyAt: now.toISOString(),
+      version: 5,
+      customerReadyAt: new Date(now.getTime() + 60_000).toISOString(),
       playerReadyAt: new Date(now.getTime() + 60_000).toISOString(),
       serviceStartedAt: new Date(now.getTime() + 60_000).toISOString()
     });
@@ -114,23 +95,31 @@ describe('M2-US-04 service lifecycle API', () => {
       headers: botHeaders('222222222222222299', 'discord:order:ready:denied'),
       payload: { expectedVersion: 4, readiness: 'READY' }
     });
-    const accepted = await server.inject({
+    const customerDenied = await server.inject({
       method: 'PUT',
       url: `/api/v1/orders/${orderId}/readiness`,
       headers: botHeaders('111111111111111111', 'discord:order:ready:customer'),
       payload: { expectedVersion: 4, readiness: 'READY' }
     });
+    const accepted = await server.inject({
+      method: 'PUT',
+      url: `/api/v1/orders/${orderId}/readiness`,
+      headers: botHeaders('222222222222222222', 'discord:order:ready:player'),
+      payload: { expectedVersion: 4, readiness: 'READY' }
+    });
 
     expect(denied.statusCode).toBe(403);
     expect(denied.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
+    expect(customerDenied.statusCode).toBe(403);
+    expect(customerDenied.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
     expect(accepted.statusCode).toBe(200);
     expect(accepted.json()).toMatchObject({
       data: {
         orderId,
-        status: 'ACCEPTED',
-        actorRole: 'CUSTOMER',
+        status: 'IN_SERVICE',
+        actorRole: 'PLAYER',
         enabledFeatures: ['CORE_ORDER'],
-        readiness: { customer: 'READY', player: 'NOT_READY', bothReady: false }
+        readiness: { participants: [], allActivePlayersReady: true }
       }
     });
     expect(auditSink.records).toEqual(
@@ -159,12 +148,12 @@ describe('M2-US-04 service lifecycle API', () => {
     const response = await server.inject({
       method: 'PUT',
       url: `/api/v1/orders/${orderId}/readiness`,
-      headers: botHeaders('111111111111111111', 'discord:order:ready:runtime'),
+      headers: botHeaders('222222222222222222', 'discord:order:ready:runtime'),
       payload: { expectedVersion: 4, readiness: 'READY' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ data: { orderId, actorRole: 'CUSTOMER' } });
+    expect(response.json()).toMatchObject({ data: { orderId, actorRole: 'PLAYER' } });
   });
 
   test('assigned player can request completion only after service has started', async () => {

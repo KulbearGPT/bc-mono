@@ -65,12 +65,15 @@ describe('M12-US-03 PostgreSQL first response concurrency',()=>{
       VALUES($1,'P-M12-READY',$2,$2,'ACCEPTED',1,$3,'777777777777777779','2026-08-05T16:00:00Z','2026-08-05T16:10:00Z','2026-08-05T16:00:00Z')`,[readinessOrderId,staffIds[0],guildId]);
     await pool.query(`INSERT INTO staff_tasks(id,public_id,type,reason_code,status,row_version,order_id,context_snapshot,created_at,updated_at)
       VALUES($1,'TASK-P-M12-READY','ORDER_ASSIST','READINESS_TIMEOUT','OPEN',1,$2,$3::jsonb,'2026-08-05T16:10:00Z','2026-08-05T16:10:00Z')`,[
-        readinessTaskId,readinessOrderId,JSON.stringify({readinessDueAt:'2026-08-05T16:10:00.000Z',customerReady:false,playerReady:true})
+        readinessTaskId,readinessOrderId,JSON.stringify({readinessDueAt:'2026-08-05T16:10:00.000Z',readinessParticipants:[
+          {participantId:'participant-ready',displayName:'陪玩 A',readiness:'READY'},
+          {participantId:'participant-pending',displayName:'陪玩 B',readiness:'NOT_READY'}
+        ]})
       ]);
     const reminder=await new PostgresSupportResponseJobStore(pool).getReminder(readinessTaskId,new Date('2026-08-05T16:14:00Z'));
     expect(reminder).toMatchObject({
       publicId:'TASK-P-M12-READY',reasonCode:'READINESS_TIMEOUT',state:'WAITING',
-      readiness:{waitMinutes:10,customerReady:false,playerReady:true}
+      readiness:{waitMinutes:10,pendingPlayers:['陪玩 B'],activePlayerCount:2}
     });
   });
 });

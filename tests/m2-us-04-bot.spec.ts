@@ -19,9 +19,6 @@ const acceptedOrder: OrderLifecyclePanelSummary = {
   readiness: {
     participants: [],
     allActivePlayersReady: false,
-    customer: 'NOT_READY',
-    player: 'NOT_READY',
-    bothReady: false,
     readyDeadlineAt: '2026-07-18T04:10:00.000Z',
     startedAt: null,
     staffTaskId: null
@@ -45,7 +42,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
 
     expect(message.title).toBe('🤝 订单 #P-4401 · 等待陪玩全员就绪');
     expect(message.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({name:'👥 就绪名单',value:expect.stringContaining('陪玩名单：⏳ 未就绪')})
+      expect.objectContaining({name:'👥 就绪名单',value:expect.stringContaining('陪玩名单：等待 API 返回')})
     ]));
     expect(JSON.stringify(message.components)).not.toContain('开始服务');
     expect(message.components[0]?.components).not.toEqual(expect.arrayContaining([

@@ -10,7 +10,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     const participants = order.readiness.participants;
     const playerLines = participants.length
       ? participants.map((participant) => `${participant.displayName}：${readinessMilestone(participant.readiness)}`)
-      : [`陪玩名单：${order.readiness.player ? readinessMilestone(order.readiness.player) : '等待 API 返回'}`];
+      : ['陪玩名单：等待 API 返回'];
     const allPlayersReady = order.readiness.allActivePlayersReady;
     const controls: ComponentSpec[] = [
       {

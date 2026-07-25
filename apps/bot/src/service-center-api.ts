@@ -439,12 +439,6 @@ export interface OrderLifecyclePanelSummary {
       readiness: 'READY' | 'NOT_READY';
     }>;
     allActivePlayersReady: boolean;
-    /** Legacy single-player projection. New flows use participants. */
-    player?: 'READY' | 'NOT_READY';
-    /** Legacy two-sided projection. Customers no longer submit readiness. */
-    customer?: 'READY' | 'NOT_READY';
-    /** Legacy two-sided projection. New flows use allActivePlayersReady. */
-    bothReady?: boolean;
     readyDeadlineAt: string | null;
     startedAt: string | null;
     staffTaskId: string | null;

@@ -16,7 +16,13 @@ interface GiftVerificationDraft { method: GiftVerificationMethod; notes: string 
 
 interface OrderContext {
   order: { id: string; publicId: string; version: number; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
-  readiness?: { customer: string; player: string; bothReady: boolean };
+  readiness?: {
+    participants: Array<{ participantId: string; playerId?: string; displayName: string; readiness: 'READY' | 'NOT_READY' }>;
+    allActivePlayersReady: boolean;
+    readyDeadlineAt?: string | null;
+    startedAt?: string | null;
+    staffTaskId?: string | null;
+  };
   automation?: { state: 'RUNNING' | 'PAUSED'; version: number; reasonCode: string | null; expiresAt: string | null };
   matching?: { stage: string; nextStep: string } | null;
   timeline?: { items: unknown[]; nextCursor: string | null };
@@ -386,7 +392,9 @@ export function SupportOrderContextPreview({ context }: { context: OrderContext 
   const { order } = context;
   const service = [order.gameDisplayName ?? order.game, order.serviceDisplayName ?? order.service].filter(Boolean).join(' · ') || '项目资料待补充';
   const amount = typeof order.amountMinor === 'number' && order.currency ? formatMinorCurrency(order.amountMinor, order.currency) : '金额待补充';
-  const readiness = context.readiness ? `用户 ${context.readiness.customer} / 陪玩 ${context.readiness.player}` : '待补充';
+  const readiness = context.readiness?.participants.length
+    ? context.readiness.participants.map((participant) => `${participant.displayName}：${participant.readiness === 'READY' ? '已就绪' : '未就绪'}`).join('；')
+    : order.status === 'ACCEPTED' ? '等待 API 返回有效陪玩名单' : '当前无待确认陪玩';
   return <aside className="action-panel order-preview" aria-label="订单处理概览">
     <div className="panel-heading"><div><span className="page-eyebrow">订单处理概览</span><h2>订单 {order.publicId}</h2></div></div>
     <dl className="definition-list">

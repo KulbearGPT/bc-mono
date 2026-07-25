@@ -285,7 +285,7 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
     }
     const voiceLink = `https://discord.com/channels/${projection.guildId}/${voiceChannelId}`;
     await this.sendOnce(projection.channelId, `accepted-customer:${projection.orderId}`, `<@${projection.customerDiscordUserId}> 你的陪玩已匹配成功，正式服务语音房已创建：${voiceLink}`, notBefore, [projection.customerDiscordUserId]);
-    await this.sendOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`,
+    await this.upsertOnce(projection.staffTaskChannelId, `accepted-staff:${projection.orderId}`,
       buildStaffCoordinationNotice(projection, voiceChannelId, projection.selectionVoiceChannelId), notBefore);
     return voiceChannelId;
   }
@@ -323,6 +323,29 @@ export class DiscordRestWorkerAdapter implements OrderPanelDiscordAdapter {
       nonce,
       enforce_nonce: true,
       allowed_mentions: 'allowed_mentions' in payload ? payload.allowed_mentions : { parse: [], users }
+    }) });
+  }
+
+  private async upsertOnce(
+    channelId: string,
+    key: string,
+    message: Record<string, unknown>,
+    notBefore: string
+  ): Promise<void> {
+    const nonce = createHash('sha256').update(key).digest('hex').slice(0, 24);
+    const messageId = await this.findMessageByNonce(channelId, nonce, notBefore);
+    if (messageId) {
+      await this.request(
+        `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`,
+        { method: 'PATCH', body: JSON.stringify(message) }
+      );
+      return;
+    }
+    await this.request(`/channels/${channelId}/messages`, { method: 'POST', body: JSON.stringify({
+      ...message,
+      nonce,
+      enforce_nonce: true,
+      allowed_mentions: 'allowed_mentions' in message ? message.allowed_mentions : { parse: [] }
     }) });
   }
 
@@ -457,6 +480,12 @@ function buildStaffCoordinationNotice(
     ? `https://discord.com/channels/${guildId}/${selectionVoiceChannelId}`
     : null;
   const requirements = projection.coordinationRequirements ?? [];
+  const participants = projection.participants ?? [];
+  const readinessSummary = participants.length > 0
+    ? participants.map((participant) =>
+      `${participant.displayName}：${participant.readiness === 'READY' ? '✅ 已就绪' : '⏳ 未就绪'}`
+    ).join('\n')
+    : '等待 API 返回有效陪玩名单。';
   const requirementSummary = requirements.length > 0
     ? requirements.map((requirement, index) => {
       const location = requirement.regionDisplayName ? ` · ${requirement.regionDisplayName}` : '';
@@ -467,7 +496,11 @@ function buildStaffCoordinationNotice(
     : '暂无结构化需求，请进入订单频道确认。';
   const timeLines = [
     projection.submittedAt ? `下单：${discordTimestamp(projection.submittedAt)}` : null,
-    projection.acceptedAt ? `匹配：${discordTimestamp(projection.acceptedAt)}` : null
+    projection.acceptedAt ? `匹配：${discordTimestamp(projection.acceptedAt)}` : null,
+    projection.readyDeadlineAt && projection.status === 'ACCEPTED'
+      ? `就绪截止：${discordTimestamp(projection.readyDeadlineAt)}`
+      : null,
+    projection.startedAt ? `服务开始：${discordTimestamp(projection.startedAt)}` : null
   ].filter(Boolean).join('\n') || '暂无时间记录';
   return {
     content: null,
@@ -479,6 +512,7 @@ function buildStaffCoordinationNotice(
         embedField('当前状态', `${coordinationStatusLabel(projection.status)}（${projection.status}）`, true),
         embedField('客户', `<@${projection.customerDiscordUserId}>`, true),
         embedField('已匹配陪玩', playerIds.map((id) => `<@${id}>`).join('、') || '待确认', false),
+        embedField('陪玩准备状态', readinessSummary, false),
         embedField('项目需求', requirementSummary, false),
         embedField('关键时间', timeLines, false),
         embedField('协调入口', [

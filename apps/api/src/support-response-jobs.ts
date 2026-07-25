@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { OutboxHandler } from './worker-runtime.js';
 
-export interface SupportResponseReminder { taskId:string;channelId:string;publicId:string;createdAt:string;state:'WAITING'|'RESPONDED';reasonCode?:string;readiness?:{waitMinutes:number;customerReady:boolean;playerReady:boolean} }
+export interface SupportResponseReminder { taskId:string;channelId:string;publicId:string;createdAt:string;state:'WAITING'|'RESPONDED';reasonCode?:string;readiness?:{waitMinutes:number;pendingPlayers:string[];activePlayerCount:number} }
 export interface SupportResponseJobStore {
   getReminder(taskId:string,now:Date):Promise<SupportResponseReminder|null>|SupportResponseReminder|null;
   markOverdue(taskId:string,now:Date):Promise<boolean>|boolean;
@@ -52,9 +52,9 @@ export function createSupportResponseOverdueHandler(input:{store:SupportResponse
 function reminderContent(reminder:SupportResponseReminder){
   if(reminder.reasonCode==='READINESS_TIMEOUT'&&reminder.readiness){
     if(reminder.state==='RESPONDED')return `客服已开始处理订单未按时确认开始的问题。任务编号：${reminder.publicId}。`;
-    const pending=!reminder.readiness.customerReady&&!reminder.readiness.playerReady?'您和陪玩均未确认开始'
-      :!reminder.readiness.customerReady?'您尚未确认开始'
-        :!reminder.readiness.playerReady?'陪玩尚未确认开始':'双方尚未完成全部开始确认';
+    const pending=reminder.readiness.pendingPlayers.length > 0
+      ? `仍有陪玩未确认开始：${reminder.readiness.pendingPlayers.join('、')}`
+      : '仍有陪玩尚未完成开始确认';
     return `订单匹配成功后已超过 ${reminder.readiness.waitMinutes} 分钟，${pending}。系统已自动请求客服介入，请留意后续处理消息。任务编号：${reminder.publicId}。`;
   }
   return reminder.state==='RESPONDED'?`你的请求（${reminder.publicId}）已由客服响应，排队提醒已结束。`:`你的请求（${reminder.publicId}）已进入客服队列，正在等待处理。`;
@@ -64,7 +64,14 @@ function readinessReminder(context:unknown,acceptedAt:Date|string|null){
   const dueAt=typeof snapshot.readinessDueAt==='string'?Date.parse(snapshot.readinessDueAt):Number.NaN;
   const accepted=acceptedAt?new Date(acceptedAt).getTime():Number.NaN;
   const measured=Number.isFinite(dueAt)&&Number.isFinite(accepted)?Math.round((dueAt-accepted)/60_000):10;
-  return {waitMinutes:measured>0?measured:10,customerReady:snapshot.customerReady===true,playerReady:snapshot.playerReady===true};
+  const participants=Array.isArray(snapshot.readinessParticipants)
+    ? snapshot.readinessParticipants.filter((value):value is Record<string,unknown>=>Boolean(value)&&typeof value==='object'&&!Array.isArray(value))
+    : [];
+  const pendingPlayers=participants
+    .filter((participant)=>participant.readiness!=='READY')
+    .map((participant)=>typeof participant.displayName==='string'&&participant.displayName.trim()?participant.displayName.trim():'未命名陪玩');
+  if(participants.length===0&&snapshot.playerReady!==true)pendingPlayers.push('陪玩');
+  return {waitMinutes:measured>0?measured:10,pendingPlayers,activePlayerCount:participants.length||1};
 }
 function taskIdFrom(payload:unknown,aggregateId:string){
   const taskId=(payload as {staffTaskId?:unknown}|null)?.staffTaskId;

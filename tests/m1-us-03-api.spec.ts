@@ -167,9 +167,8 @@ describe('M1-US-03 immediate order draft and estimate API contract', () => {
         playerEarningMinor: 0,
         fundReservation: null,
         readiness: {
-          customer: 'NOT_READY',
-          player: 'NOT_READY',
-          bothReady: false,
+          participants: [],
+          allActivePlayersReady: false,
           readyDeadlineAt: null,
           startedAt: null,
           staffTaskId: null

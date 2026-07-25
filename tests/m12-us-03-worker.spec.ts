@@ -52,7 +52,7 @@ describe('M12-US-03 response jobs and transcript projection', () => {
       getReminder:()=>({
         taskId,channelId:'777777777777777777',publicId:'TASK-P-C1E8E835-READY',
         createdAt:'2026-08-05T16:10:00.000Z',state,reasonCode:'READINESS_TIMEOUT',
-        readiness:{waitMinutes:10,customerReady:false,playerReady:false}
+        readiness:{waitMinutes:10,pendingPlayers:['陪玩 B'],activePlayerCount:2}
       }),
       markOverdue:()=>false
     };
@@ -60,7 +60,7 @@ describe('M12-US-03 response jobs and transcript projection', () => {
       store,send:async(message)=>{sent.push(message.content);},now:()=>new Date('2026-08-05T16:14:00.000Z')
     })(job('SUPPORT_RESPONSE_REMINDER'));
     expect(sent).toEqual([
-      '订单匹配成功后已超过 10 分钟，您和陪玩均未确认开始。系统已自动请求客服介入，请留意后续处理消息。任务编号：TASK-P-C1E8E835-READY。'
+      '订单匹配成功后已超过 10 分钟，仍有陪玩未确认开始：陪玩 B。系统已自动请求客服介入，请留意后续处理消息。任务编号：TASK-P-C1E8E835-READY。'
     ]);
     state='RESPONDED';
     await createSupportResponseReminderHandler({

@@ -60,9 +60,6 @@ export interface OrderReadinessResult {
   version: number;
   actorRole: OrderParticipantRole;
   readiness: {
-    customer: ReadinessValue;
-    player: ReadinessValue;
-    bothReady: boolean;
     participants: Array<{ participantId: string; playerId: string; displayName: string; readiness: ReadinessValue }>;
     allActivePlayersReady: boolean;
     readyDeadlineAt: string | null;
@@ -114,7 +111,12 @@ export type ReadinessTimeoutResult =
     orderId: string;
     status: 'ACCEPTED';
     version: number;
-    readiness: { customer: ReadinessValue; player: ReadinessValue };
+    readiness: {
+      customer: ReadinessValue;
+      player: ReadinessValue;
+      participants: Array<{ participantId: string; displayName: string; readiness: ReadinessValue }>;
+      allActivePlayersReady: boolean;
+    };
     staffTask: ServiceLifecycleStaffTask;
   }
   | {
@@ -252,6 +254,9 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
     }
     const actorRole = requireParticipantRole(order, input.actorUserId);
+    if (actorRole !== 'PLAYER') {
+      throw new ServiceLifecycleError('PERMISSION_DENIED', 'Customers do not submit readiness.');
+    }
     const readyAt = input.readiness === 'READY' ? input.now.toISOString() : null;
     const participant = order.participants?.find((item) => item.playerId === input.actorUserId);
     if (order.participants?.length && !participant) {
@@ -266,10 +271,10 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       version: order.version + 1,
       customerReadyAt: participants?.length
         ? (allPlayersReady ? order.customerReadyAt ?? input.now.toISOString() : order.customerReadyAt)
-        : actorRole === 'CUSTOMER' ? readyAt : order.customerReadyAt,
+        : readyAt,
       playerReadyAt: participants?.length
         ? (allPlayersReady ? input.now.toISOString() : null)
-        : actorRole === 'PLAYER' ? readyAt : order.playerReadyAt,
+        : readyAt,
       participants,
       updatedAt: input.now.toISOString()
     };
@@ -459,7 +464,11 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     if (!order.readinessDueAt || Date.parse(order.readinessDueAt) > input.now.getTime()) {
       throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
     }
-    if (order.customerReadyAt && order.playerReadyAt) {
+    const participants = order.participants ?? [];
+    const allActivePlayersReady = participants.length > 0
+      ? participants.every((participant) => Boolean(participant.readyAt))
+      : Boolean(order.customerReadyAt && order.playerReadyAt);
+    if (allActivePlayersReady) {
       return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
     }
     const taskId = `staff-task:${order.id}:readiness-timeout`;
@@ -483,7 +492,13 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       version: current.version,
       readiness: {
         customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
-        player: current.playerReadyAt ? 'READY' : 'NOT_READY'
+        player: current.playerReadyAt ? 'READY' : 'NOT_READY',
+        participants: participants.map((participant) => ({
+          participantId: participant.id,
+          displayName: participant.displayName,
+          readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+        })),
+        allActivePlayersReady
       },
       staffTask
     };
@@ -633,10 +648,13 @@ LIMIT 1
         return toReadinessResult({ ...mapOrderRow(row), participants }, 'PLAYER', participants);
       }
       const actorRole = requireParticipantRole(current, input.actorUserId);
-      const nextCustomerReadyAt = actorRole === 'CUSTOMER' ? readinessTimestamp(input.readiness, input.now) : current.customerReadyAt;
-      const nextPlayerReadyAt = actorRole === 'PLAYER' ? readinessTimestamp(input.readiness, input.now) : current.playerReadyAt;
-      const shouldStart = Boolean(nextCustomerReadyAt && nextPlayerReadyAt);
-      const readyEventType = actorRole === 'CUSTOMER' ? 'CUSTOMER_READY_CONFIRMED' : 'PLAYER_READY_CONFIRMED';
+      if (actorRole !== 'PLAYER') {
+        throw new ServiceLifecycleError('PERMISSION_DENIED', 'Customers do not submit readiness.');
+      }
+      const nextPlayerReadyAt = readinessTimestamp(input.readiness, input.now);
+      const nextCustomerReadyAt = nextPlayerReadyAt;
+      const shouldStart = Boolean(nextPlayerReadyAt);
+      const readyEventType = 'PLAYER_READY_CONFIRMED';
       const readySequence = await nextOrderEventSequence(transactionClient, input.orderId);
       await insertOrderEvent(transactionClient, {
         orderId: input.orderId,
@@ -984,7 +1002,11 @@ RETURNING *
       if (!current.readinessDueAt || Date.parse(current.readinessDueAt) > input.now.getTime()) {
         throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
       }
-      if (current.customerReadyAt && current.playerReadyAt) {
+      const participants = await loadActiveLifecycleParticipants(transactionClient, current.id, true);
+      const allActivePlayersReady = participants.length > 0
+        ? participants.every((participant) => Boolean(participant.readyAt))
+        : Boolean(current.customerReadyAt && current.playerReadyAt);
+      if (allActivePlayersReady) {
         await transactionClient.query('COMMIT');
         return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
       }
@@ -992,7 +1014,7 @@ RETURNING *
         `SELECT id FROM order_events WHERE order_id = $1 AND event_type = 'READINESS_TIMED_OUT' LIMIT 1`,
         [current.id]
       );
-      const staffTask = await insertOrGetReadinessTask(transactionClient, { order: current, now: input.now });
+      const staffTask = await insertOrGetReadinessTask(transactionClient, { order: current, participants, now: input.now });
       let version = current.version;
       if (!existingEvent.rows[0]) {
         await insertOrderEvent(transactionClient, {
@@ -1008,6 +1030,11 @@ RETURNING *
             readinessDueAt: current.readinessDueAt,
             customerReady: Boolean(current.customerReadyAt),
             playerReady: Boolean(current.playerReadyAt),
+            readinessParticipants: participants.map((participant) => ({
+              participantId: participant.id,
+              displayName: participant.displayName,
+              readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+            })),
             staffTaskId: staffTask.id
           }
         });
@@ -1028,7 +1055,13 @@ RETURNING *
         version,
         readiness: {
           customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
-          player: current.playerReadyAt ? 'READY' : 'NOT_READY'
+          player: current.playerReadyAt ? 'READY' : 'NOT_READY',
+          participants: participants.map((participant) => ({
+            participantId: participant.id,
+            displayName: participant.displayName,
+            readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+          })),
+          allActivePlayersReady
         },
         staffTask
       };
@@ -1296,9 +1329,6 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
     version: order.version,
     actorRole,
     readiness: {
-      customer: order.customerReadyAt ? 'READY' : 'NOT_READY',
-      player: order.playerReadyAt ? 'READY' : 'NOT_READY',
-      bothReady: Boolean(order.customerReadyAt && order.playerReadyAt),
       participants:participants.map((participant)=>({participantId:participant.id,playerId:participant.playerId,displayName:participant.displayName,readiness:participant.readyAt?'READY':'NOT_READY'})),
       allActivePlayersReady:participants.length>0?participants.every((participant)=>Boolean(participant.readyAt)):Boolean(order.customerReadyAt&&order.playerReadyAt),
       readyDeadlineAt: order.readinessDueAt,
@@ -1822,7 +1852,7 @@ LIMIT 1
 
 async function insertOrGetReadinessTask(
   client: ServiceLifecycleQueryClient,
-  input: { order: ServiceLifecycleOrderRecord; now: Date }
+  input: { order: ServiceLifecycleOrderRecord; participants: ServiceLifecycleParticipant[]; now: Date }
 ): Promise<ServiceLifecycleStaffTask> {
   const publicId = `TASK-${input.order.publicId}-READY`;
   const contextSnapshot = {
@@ -1833,7 +1863,12 @@ async function insertOrGetReadinessTask(
     voiceChannelId: input.order.voiceChannelId,
     readinessDueAt: input.order.readinessDueAt,
     customerReady: Boolean(input.order.customerReadyAt),
-    playerReady: Boolean(input.order.playerReadyAt)
+    playerReady: Boolean(input.order.playerReadyAt),
+    readinessParticipants: input.participants.map((participant) => ({
+      participantId: participant.id,
+      displayName: participant.displayName,
+      readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+    }))
   };
   const inserted = await client.query<ServiceLifecycleStaffTaskRow>(
     `
