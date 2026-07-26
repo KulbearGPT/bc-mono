@@ -102,9 +102,9 @@ const worker = new OutboxWorker({
   workerId: `${hostname()}:${process.pid}`,
   heartbeatMs,
   logger: (entry) => console.log(JSON.stringify({ level: "info", ...entry })),
-  metric: (name, tags) =>
+  metric: (name, tags, value) =>
     console.log(
-      JSON.stringify({ level: "info", event: "worker.metric", name, tags }),
+      JSON.stringify({ level: "info", event: "worker.metric", name, tags, value }),
     ),
 });
 const runtime = new ProductionOutboxRuntime({

@@ -93,7 +93,7 @@ export interface OutboxWorkerOptions {
   backoffMs?: number[];
   heartbeatMs?: number;
   logger?: (entry: Record<string, unknown>) => void;
-  metric?: (name: string, tags: Record<string, string>) => void;
+  metric?: (name: string, tags: Record<string, string>, value?: number) => void;
   auditSink?: AuditSink;
 }
 
@@ -561,7 +561,7 @@ export class OutboxWorker {
   private readonly backoffMs: number[];
   private readonly heartbeatMs: number;
   private readonly logger: (entry: Record<string, unknown>) => void;
-  private readonly metric: (name: string, tags: Record<string, string>) => void;
+  private readonly metric: (name: string, tags: Record<string, string>, value?: number) => void;
   private readonly auditSink: AuditSink;
 
   constructor(options: OutboxWorkerOptions) {
@@ -626,6 +626,7 @@ export class OutboxWorker {
           jobType: job.type,
           workerId: this.workerId,
         });
+        this.observeProjection(job, completed, requestId);
         results.push(completed);
       } catch (error) {
         const failedAt = this.now();
@@ -654,6 +655,7 @@ export class OutboxWorker {
           type: job.type,
           status: failed.status,
         });
+        this.observeProjection(job, failed, requestId);
         this.logger({
           event: "outbox.job_failed",
           request_id: requestId,
@@ -765,12 +767,78 @@ export class OutboxWorker {
     });
   }
 
+  private observeProjection(before: OutboxJob, after: OutboxJob, requestId: string): void {
+    const consumer = projectionConsumer(before.type);
+    if (!consumer) return;
+    const dueAt = Date.parse(before.runAfter);
+    const observedAt = Date.parse(after.updatedAt);
+    const convergenceMs = Math.max(0, Number.isFinite(observedAt - dueAt) ? observedAt - dueAt : 0);
+    const target = convergenceMs <= 5_000 ? "MET" : "MISSED";
+    this.metric("outbox_projection_convergence_seconds", {
+      type: before.type,
+      consumer,
+      target,
+    }, convergenceMs / 1_000);
+    this.logger({
+      event: "outbox.projection_convergence",
+      request_id: requestId,
+      jobId: before.id,
+      jobType: before.type,
+      aggregateType: before.aggregateType,
+      aggregateId: before.aggregateId,
+      consumer,
+      status: after.status,
+      convergence_ms: convergenceMs,
+      target,
+    });
+    const reason = after.status === "FAILED"
+      ? "MAX_ATTEMPTS"
+      : convergenceMs > 30_000
+        ? "CONVERGENCE_DELAY"
+        : null;
+    if (!reason) return;
+    this.metric("outbox_projection_alert_total", {
+      type: before.type,
+      consumer,
+      reason,
+    });
+    this.logger({
+      level: "error",
+      event: "outbox.projection_alert",
+      reason,
+      request_id: requestId,
+      jobId: before.id,
+      jobType: before.type,
+      aggregateType: before.aggregateType,
+      aggregateId: before.aggregateId,
+      consumer,
+      status: after.status,
+      attempt: after.attempts,
+      convergence_ms: convergenceMs,
+    });
+  }
+
   private backoffForAttempt(attempt: number): number {
     return (
       this.backoffMs[
         Math.min(Math.max(attempt - 1, 0), this.backoffMs.length - 1)
       ] ?? 1_000
     );
+  }
+}
+
+function projectionConsumer(type: JobType): string | null {
+  switch (type) {
+    case "PANEL_SYNC": return "DISCORD_ORDER_PROJECTION";
+    case "SELECTION_POOL_SYNC": return "DISCORD_RECRUITMENT_PROJECTION";
+    case "DISPATCH_START":
+    case "DISPATCH_MESSAGE": return "DISCORD_DISPATCH_PROJECTION";
+    case "GIFT_ANNOUNCEMENT": return "DISCORD_GIFT_PROJECTION";
+    case "CHANNEL_ARCHIVE": return "DISCORD_CHANNEL_PROJECTION";
+    case "ROLE_RECONCILIATION": return "DISCORD_ROLE_PROJECTION";
+    case "WEEKLY_REPORT_NOTIFY": return "DISCORD_REPORT_PROJECTION";
+    case "SUPPORT_RESPONSE_REMINDER": return "DISCORD_SUPPORT_PROJECTION";
+    default: return null;
   }
 }
 
