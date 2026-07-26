@@ -21,6 +21,9 @@ import {
   type AdminSortDirection
 } from './admin-business.js';
 import { groupEnabledBusinessTags, type BusinessTagRecord, type BusinessTagGroups } from './business-tags.js';
+import { createLatestRequestSequence } from './live-query-refresh.js';
+
+export { createLatestRequestSequence } from './live-query-refresh.js';
 
 export function createRetriableDashboardWrite<T>(input: {
   send: (idempotencyKey: string) => Promise<T>;
@@ -29,8 +32,6 @@ export function createRetriableDashboardWrite<T>(input: {
   const idempotencyKey = (input.createKey ?? (() => `dashboard:${crypto.randomUUID()}`))();
   return () => input.send(idempotencyKey);
 }
-export function createLatestRequestSequence(){let current=0;return{begin(){current+=1;return current;},invalidate(){current+=1;},isCurrent(sequence:number){return sequence===current;}};}
-
 function initialCollectionState(page:AdminBusinessPageId):AdminCollectionState|null{if(!isAdminCollectionPage(page))return null;return readAdminCollectionState(page,typeof window==='undefined'?'':window.location.search);}
 
 export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilities: DashboardCapabilities }) {

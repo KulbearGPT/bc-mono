@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 import { buildSupportWorkbench, type SupportTaskCardInput } from './support-workbench.js';
 import { formatMinorCurrency } from './admin-business.js';
 import { buildAutomationControlView, type DashboardResumeAction, type DashboardStaffLevel } from './automation-control.js';
+import { createLatestRequestSequence, createVisibleRefreshLoop } from './live-query-refresh.js';
+
+const SUPPORT_REFRESH_INTERVAL_MS = 5_000;
 
 interface StaffTaskPayload extends SupportTaskCardInput {
   version: number;
@@ -40,16 +43,18 @@ interface DashboardMetrics {
 }
 
 interface DashboardSummaryData { windowStart:string;windowEnd:string;timeZone:string;currency:string;metrics:DashboardMetrics }
-export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:string|null;data:DashboardSummaryData|null};
+export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:string|null;data:DashboardSummaryData|null;stale?:boolean};
 interface SupportShift { id:string;staffId:string;clockedInAt:string;clockedOutAt:string|null }
 interface SupportSummaryItem { staffId:string;displayName:string;clockedIn:boolean;shiftSeconds:number;handledTaskCount:number;overdueTaskCount:number;ratingCount:number;averageRating:number|null }
 
 export function DashboardMetricSummaryLoader(){
   const [state,setState]=useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
   const client=useMemo(()=>createDashboardApiClient(),[]);
-  useEffect(()=>{void client.get('/api/v1/admin/dashboard/summary').then(async(response)=>{const payload=await response.json().catch(()=>null) as {requestId?:string;data?:DashboardSummaryData}|null;
-    setState(response.ok&&payload?.data?{kind:'READY',requestId:payload.requestId??null,data:payload.data}:{kind:'ERROR',requestId:payload?.requestId??null,data:null});
-  }).catch(()=>setState({kind:'ERROR',requestId:null,data:null}));},[client]);
+  const requestSequence=useRef(createLatestRequestSequence()).current;
+  const load=useCallback(async()=>{const sequence=requestSequence.begin();try{const response=await client.get('/api/v1/admin/dashboard/summary');const payload=await response.json().catch(()=>null) as {requestId?:string;data?:DashboardSummaryData}|null;if(!requestSequence.isCurrent(sequence))return;
+    setState(current=>response.ok&&payload?.data?{kind:'READY',requestId:payload.requestId??null,data:payload.data,stale:false}:current.data?{...current,kind:'READY',requestId:payload?.requestId??null,stale:true}:{kind:'ERROR',requestId:payload?.requestId??null,data:null,stale:false});
+  }catch{if(requestSequence.isCurrent(sequence))setState(current=>current.data?{...current,kind:'READY',stale:true}:{kind:'ERROR',requestId:null,data:null,stale:false});}},[client,requestSequence]);
+  useEffect(()=>createVisibleRefreshLoop({refresh:load,intervalMs:SUPPORT_REFRESH_INTERVAL_MS}),[load]);
   return <DashboardMetricSummary state={state}/>;
 }
 
@@ -66,30 +71,87 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
   const [shift, setShift] = useState<SupportShift | null>(null);
   const [supportSummary, setSupportSummary] = useState<SupportSummaryItem[]>([]);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const client = useMemo(() => createDashboardApiClient(), []);
-  const load = useCallback(async () => {
+  const taskRequestSequence = useRef(createLatestRequestSequence()).current;
+  const orderRequestSequence = useRef(createLatestRequestSequence()).current;
+  const selectedTaskRef = useRef<StaffTaskPayload | null>(null);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
+  const load = useCallback(async (): Promise<boolean> => {
+    const sequence = taskRequestSequence.begin();
     const response = await client.get('/api/v1/admin/staff-tasks');
+    if (!taskRequestSequence.isCurrent(sequence)) return true;
     if (!response.ok) {
-      setError('任务列表暂时无法载入。');
-      return;
+      return false;
     }
     const payload = await response.json() as { data: { items: StaffTaskPayload[] } };
+    if (!taskRequestSequence.isCurrent(sequence)) return true;
     setTasks(payload.data.items);
-    setError(null);
-  }, [client]);
+    setSelectedTask((current) => {
+      if (!current) return null;
+      const next = payload.data.items.find((item) => item.id === current.id) ?? current;
+      selectedTaskRef.current = next;
+      return next;
+    });
+    return true;
+  }, [client, taskRequestSequence]);
 
-  useEffect(() => { void load(); }, [load]);
-
-  const loadSupportOperations = useCallback(async () => {
+  const loadSupportOperations = useCallback(async (): Promise<boolean> => {
     const [shiftResponse, summaryResponse] = await Promise.all([
       client.get('/api/v1/admin/support-shifts/me'),
       client.get('/api/v1/admin/support/summary')
     ]);
     if (shiftResponse.ok) setShift((await shiftResponse.json() as { data: SupportShift | null }).data);
     if (summaryResponse.ok) setSupportSummary((await summaryResponse.json() as { data: { items: SupportSummaryItem[] } }).data.items);
+    return shiftResponse.ok && summaryResponse.ok;
   }, [client]);
 
-  useEffect(() => { void loadSupportOperations(); }, [loadSupportOperations]);
+  const loadOrderContext = useCallback(async (task: StaffTaskPayload, surfaceError = false): Promise<boolean> => {
+    if (!task.orderId) return true;
+    const sequence = orderRequestSequence.begin();
+    const response = await client.get(`/api/v1/admin/orders/${task.orderId}?taskId=${task.id}`);
+    const payload = await response.json().catch(() => null) as { data?: OrderContext } | null;
+    if (!orderRequestSequence.isCurrent(sequence)) return true;
+    if (!response.ok || !payload?.data?.order) {
+      if (surfaceError) setError(response.status === 403 ? '请先认领任务，再查看完整订单。' : '订单详情暂时无法载入。');
+      return false;
+    }
+    setSelectedOrder(payload.data);
+    return true;
+  }, [client, orderRequestSequence]);
+
+  const refreshSupportState = useCallback((): Promise<void> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    setRefreshing(true);
+    const work = (async () => {
+      const selected = selectedTaskRef.current;
+      const results = await Promise.all([
+        load(),
+        loadSupportOperations(),
+        selected ? loadOrderContext(selected) : Promise.resolve(true)
+      ]);
+      if (results.every(Boolean)) {
+        setLastRefreshedAt(new Date());
+        setRefreshWarning(null);
+      } else {
+        setRefreshWarning('部分信息刷新失败，已保留上次可信内容；可立即重试。');
+      }
+    })().catch(() => {
+      setRefreshWarning('实时刷新请求未送达，已保留上次可信内容；可立即重试。');
+    }).finally(() => {
+      setRefreshing(false);
+      refreshInFlight.current = null;
+    });
+    refreshInFlight.current = work;
+    return work;
+  }, [load, loadOrderContext, loadSupportOperations]);
+
+  useEffect(() => createVisibleRefreshLoop({
+    refresh: refreshSupportState,
+    intervalMs: SUPPORT_REFRESH_INTERVAL_MS
+  }), [refreshSupportState]);
 
   const view = buildSupportWorkbench({
     guildId: '',
@@ -101,16 +163,19 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
 
   async function claim(task: StaffTaskPayload) {
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/claim`, { expectedVersion: task.version });
-    await load();
-    if (!response.ok) setError('任务已被认领或状态已变化，请刷新后重试。');
+    const failure = response.ok ? null : await supportActionError(response, '任务已被认领或状态已变化。');
+    await refreshSupportState();
+    setError(failure);
   }
 
   async function addNote(task: StaffTaskPayload) {
     const body = drafts[task.id]?.trim();
     if (!body) return;
     const response = await client.post(`/api/v1/admin/staff-tasks/${task.id}/notes`, { body });
-    if (!response.ok) setError('备注未保存，请刷新后重试。');
-    else setDrafts((current) => ({ ...current, [task.id]: '' }));
+    const failure = response.ok ? null : await supportActionError(response, '备注未保存。');
+    if (response.ok) setDrafts((current) => ({ ...current, [task.id]: '' }));
+    await refreshSupportState();
+    setError(failure);
   }
 
   async function escalate(task: StaffTaskPayload) {
@@ -121,8 +186,9 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       reasonCode: 'SUPERVISOR_REVIEW',
       note
     });
-    if (!response.ok) setError('升级请求未提交，请刷新后重试。');
-    await load();
+    const failure = response.ok ? null : await supportActionError(response, '升级请求未提交。');
+    await refreshSupportState();
+    setError(failure);
   }
 
   async function resolve(task: StaffTaskPayload) {
@@ -134,13 +200,14 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       notes
     });
     if (!response.ok) {
-      setError('任务状态已变化或底层业务处理尚未完成，请刷新后重试。');
-      await load();
+      const failure = await supportActionError(response, '任务状态已变化或底层业务处理尚未完成。');
+      await refreshSupportState();
+      setError(failure);
       return;
     }
     setError(null);
     setResolutionDrafts((current) => ({ ...current, [task.id]: '' }));
-    await load();
+    await refreshSupportState();
   }
 
   async function verifyGift(task: StaffTaskPayload) {
@@ -152,13 +219,14 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       notes: draft.notes.trim()
     });
     if (!response.ok) {
-      setError('礼物核验失败；请确认任务仍由你认领并刷新最新状态。');
-      await load();
+      const failure = await supportActionError(response, '礼物核验失败；请确认任务仍由你认领。');
+      await refreshSupportState();
+      setError(failure);
       return;
     }
     setError(null);
     setGiftVerificationDrafts((current) => ({ ...current, [task.id]: { method: draft.method, notes: '' } }));
-    await load();
+    await refreshSupportState();
   }
 
   async function decideGift(task: StaffTaskPayload, decision: 'approve' | 'reject') {
@@ -168,7 +236,9 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     const detailResponse = await client.get(`/api/v1/admin/gift-requests/${encodeURIComponent(giftRequestId)}`);
     const detailPayload = await detailResponse.json().catch(() => null) as { data?: { rowVersion?: unknown } } | null;
     if (!detailResponse.ok || !Number.isInteger(detailPayload?.data?.rowVersion)) {
-      setError('礼物请求最新版本无法载入，未执行批准或拒绝。');
+      const suffix = (detailPayload as { requestId?: string } | null)?.requestId ? ` request_id: ${(detailPayload as { requestId: string }).requestId}` : '';
+      setError(`礼物请求最新版本无法载入，未执行批准或拒绝。${suffix}`);
+      await refreshSupportState();
       return;
     }
     const response = await client.post(`/api/v1/admin/gift-requests/${encodeURIComponent(giftRequestId)}/${decision}`, {
@@ -176,31 +246,23 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       reason
     });
     if (!response.ok) {
-      const payload = await response.json().catch(() => null) as { error?: { code?: string } } | null;
-      setError(payload?.error?.code === 'STEP_UP_REQUIRED' ? '该金额需要先完成账户安全 step-up，再重新提交。' : '礼物请求状态已变化或资金处理失败，未执行决定。');
-      await load();
+      const payload = await response.json().catch(() => null) as { requestId?: string; error?: { code?: string } } | null;
+      const message = payload?.error?.code === 'STEP_UP_REQUIRED' ? '该金额需要先完成账户安全 step-up，再重新提交。' : '礼物请求状态已变化或资金处理失败，未执行决定。';
+      await refreshSupportState();
+      setError(`${message}${payload?.requestId ? ` request_id: ${payload.requestId}` : ''}`);
       return;
     }
     setError(null);
     setGiftDecisionDrafts((current) => ({ ...current, [task.id]: '' }));
-    await load();
+    await refreshSupportState();
   }
 
   async function openOrder(task: StaffTaskPayload) {
     if (!task.orderId) return;
-    const response = await client.get(`/api/v1/admin/orders/${task.orderId}?taskId=${task.id}`);
-    if (!response.ok) {
-      setError('请先认领任务，再查看完整订单。');
-      return;
-    }
-    const payload = await response.json().catch(() => null) as { data?: OrderContext } | null;
-    if (!payload?.data?.order) {
-      setError('订单详情暂时无法载入。');
-      return;
-    }
-    setError(null);
-    setSelectedOrder(payload.data);
     setSelectedTask(task);
+    selectedTaskRef.current = task;
+    const loaded = await loadOrderContext(task, true);
+    if (loaded) setError(null);
   }
 
   async function toggleShift() {
@@ -209,20 +271,23 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       {}
     );
     if (!response.ok) {
-      const payload = await response.json().catch(() => null) as { error?: { code?: string } } | null;
-      setError(payload?.error?.code === 'ACTIVE_CLAIMED_TASKS'
+      const payload = await response.json().catch(() => null) as { requestId?: string; error?: { code?: string } } | null;
+      const message = payload?.error?.code === 'ACTIVE_CLAIMED_TASKS'
         ? '你还有已认领、未处理完的任务，暂时不能下班。'
-        : '打卡操作失败，请重试。');
+        : '打卡操作失败，请重试。';
+      await refreshSupportState();
+      setError(`${message}${payload?.requestId ? ` request_id: ${payload.requestId}` : ''}`);
       return;
     }
     setError(null);
-    await loadSupportOperations();
+    await refreshSupportState();
   }
 
   return (
     <section className="dashboard-page" aria-labelledby="support-title">
-      <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div></header>
+      <header className="page-heading"><div><span className="page-eyebrow">SUPPORT DESK</span><h1 id="support-title">客服工作台</h1><p>处理待认领任务，并跟进已由你接手的服务请求。</p></div><div className="page-actions"><span className="context-note">{lastRefreshedAt ? `上次更新 ${lastRefreshedAt.toLocaleTimeString('zh-CN')}` : '正在同步最新业务事实'}</span><button type="button" disabled={refreshing} onClick={() => void refreshSupportState()}>{refreshing ? '刷新中…' : '立即刷新'}</button></div></header>
       {error && <p className="form-message form-message--error" role="alert">{error}</p>}
+      {refreshWarning && <p className="form-message form-message--warning" role="status">{refreshWarning}</p>}
       <section className="support-shift-bar" aria-label="客服打卡">
         <div><strong>{shift ? '当前上班中' : '当前未上班'}</strong><span>{shift ? ` · ${new Date(shift.clockedInAt).toLocaleString()} 开始` : ' · 打卡只记录班次，不影响任务权限'}</span></div>
           {['L1_SUPPORT','L2_SUPERVISOR'].includes(capabilities.level ?? '') && <button className="button-primary" type="button" onClick={() => void toggleShift()}>{shift ? '下班打卡' : '上班打卡'}</button>}
@@ -315,7 +380,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       <DashboardMetricSummaryLoader/>
       {selectedOrder && selectedTask && <>
         <SupportOrderContextPreview context={selectedOrder} />
-        <SupportAutomationControl context={selectedOrder} task={selectedTask} capabilities={capabilities} onUpdated={() => openOrder(selectedTask)} />
+        <SupportAutomationControl context={selectedOrder} task={selectedTask} capabilities={capabilities} onUpdated={refreshSupportState} />
       </>}
     </section>
   );
@@ -428,6 +493,7 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   const moneyMax=Math.max(1,...money.map(([,value])=>value??0));
   const dispatchPercent=metrics.dispatchSuccessRateBps/100;
   return <section className="operations-dashboard" aria-label="运营指标"><div className="metric-heading"><div><span className="page-eyebrow">TODAY OVERVIEW</span><h2>今日运营数据</h2></div><small>{timeZone} · 当前业务日</small></div>
+    {state.stale&&<p className="form-message form-message--warning" role="status">指标刷新失败，当前保留上次结果。</p>}
     <div className="operations-kpi-grid">{values.map(([label,value,caption,href])=>href?<a className="operations-kpi operations-kpi--link" href={href} key={label}><small>{label}</small><strong>{value}</strong><span>{caption} · 查看</span></a>:<article className="operations-kpi" key={label}><small>{label}</small><strong>{value}</strong><span>{caption}</span></article>)}</div>
     <div className="operations-chart-grid">
       <article className="operations-chart-card operations-money-chart"><div className="chart-card-heading"><div><small>资金健康</small><h3>资金构成</h3></div><span>{currency}</span></div>
@@ -443,6 +509,7 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
 }
 
 function moneyOrHidden(value:number|null,currency:string){return value===null?'无权限':formatMinorCurrency(value,currency);}
+async function supportActionError(response:Response,fallback:string){const payload=await response.json().catch(()=>null) as {requestId?:string}|null;return `${fallback} 已刷新最新状态，请核对后再操作。${payload?.requestId?` request_id: ${payload.requestId}`:''}`;}
 function supportResponseLabel(task:StaffTaskPayload){
   if(task.responseStatus==='PENDING'&&task.responseDueAt)return `等待首响（截止 ${new Date(task.responseDueAt).toLocaleTimeString()}）`;
   if(task.responseStatus==='OVERDUE')return '首响已超时';
