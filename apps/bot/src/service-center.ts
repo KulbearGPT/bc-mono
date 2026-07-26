@@ -934,7 +934,6 @@ export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageS
       `**${input.game} · ${input.service}**`,
       `区服：${input.region}`,
       `时长：${input.durationLabel}`,
-      `预计收益：${formatPlatformMoney(input.playerEarningMinor, input.currency)}`,
       input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
       input.notes ? `备注：${input.notes}` : '备注：未填写',
       `接单截止：${input.expiresAt}`

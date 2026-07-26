@@ -1064,7 +1064,7 @@ export function buildSelectionReactionOfferPayload(input: {
         fields: requirements.map((item, index) => ({
           name: `${bindings[index]!.emoji} ${item.label}`,
           value: [
-            `缺 ${item.remainingSlots} 位 · 预计收益：${formatPlayerEarning(item.expectedEarningMinor, item.currency)}`,
+            `缺 ${item.remainingSlots} 位`,
             `需求：${item.customerNote?.trim() || "老板暂未留言"}`,
           ].join("\n"),
         })),
@@ -1075,11 +1075,6 @@ export function buildSelectionReactionOfferPayload(input: {
     components: [],
     allowed_mentions: { parse: [] },
   };
-}
-
-function formatPlayerEarning(amountMinor: number, currency: string) {
-  const divisor = currency === "CAT" ? 10 : 100;
-  return `${(amountMinor / divisor).toFixed(currency === "CAT" ? 1 : 2)} ${currency}`;
 }
 
 function isRecruitmentMessageForPool(

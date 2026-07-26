@@ -51,7 +51,8 @@ describe("M2-US-02 Bot dispatch card", () => {
     expect(message.title).toBe("🔔 新订单 #P-2001");
     expect(message.body).toContain("瓦洛兰特 · 娱乐陪玩");
     expect(message.body).not.toContain("VALORANT · ENTERTAINMENT");
-    expect(message.body).toContain("预计收益：840.0 CAT");
+    expect(message.body).not.toContain("预计收益");
+    expect(message.body).not.toContain("840.0 CAT");
     expect(message.body).toContain("语音频道：666666666666666666");
     expect(message.body).not.toMatch(/余额|用户账户|内部定价/);
     expect(message.components[0]?.components).toEqual(

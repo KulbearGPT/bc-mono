@@ -41,7 +41,8 @@ describe('M18-US-05 dispatch and trial-matching experience', () => {
     expect(embed.color).toBe(0x6d5dfc);
     expect(embed.description).toContain('添加对应数字 = 报名');
     expect(embed.description).toContain('移除对应数字 = 取消报名');
-    expect(embed.fields[0]?.value).toContain('预计收益：18.8 CAT');
+    expect(rendered).not.toContain('预计收益');
+    expect(rendered).not.toContain('18.8 CAT');
     expect(embed.fields[0]?.value).toContain('需求：声音温柔');
     expect(embed.image).toEqual({ url: 'attachment://blackcat-game-valorant.png' });
     expect(embed.footer).toEqual({ text: `selection-pool:${poolId}` });

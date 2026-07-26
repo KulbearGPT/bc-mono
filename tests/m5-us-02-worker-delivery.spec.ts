@@ -123,12 +123,12 @@ describe('M5-US-02 Worker delivery adapters', () => {
         { name: '服务类型', value: '娱乐陪玩', inline: true },
         { name: '区服', value: '北美', inline: true },
         { name: '服务时长', value: '2 小时', inline: true },
-        { name: '预计收益', value: '840.0 CAT', inline: true },
         { name: '语音频道', value: '<#voice-1>', inline: true },
         { name: '客户备注', value: '中文交流，主要娱乐', inline: false },
         { name: '接单截止', value: '<t:1784419200:F>\n<t:1784419200:R>', inline: false }
       ])
     })]);
+    expect(JSON.stringify(requests[1]!.body)).not.toContain('预计收益');
     expect(requests[1]!.body.components).toEqual([{
       type: 1,
       components: [{

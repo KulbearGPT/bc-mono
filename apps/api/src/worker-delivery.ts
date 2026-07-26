@@ -284,7 +284,6 @@ function buildDispatchOfferEmbed(payload: Record<string, unknown>): Record<strin
       embedField('服务类型', displayValue(payload.service), true),
       embedField('区服', displayValue(payload.region), true),
       embedField('服务时长', displayValue(payload.durationLabel), true),
-      embedField('预计收益', formatDispatchMoney(payload.playerEarningMinor, payload.currency), true),
       embedField('语音频道', voiceChannelId ? `<#${voiceChannelId}>` : '接单后创建', true),
       embedField('客户备注', notes ?? '未填写', false),
       embedField('接单截止', formatDiscordDeadline(payload.expiresAt), false)
@@ -318,13 +317,6 @@ function displayValue(value: unknown): string {
 
 function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
-
-function formatDispatchMoney(amountMinor: unknown, currency: unknown): string {
-  if (!Number.isSafeInteger(amountMinor) || Number(amountMinor) < 0) return '待确认';
-  const code = optionalString(currency) ?? 'USD';
-  if (code === 'CAT') return `${(Number(amountMinor) / 10).toFixed(1)} CAT`;
-  return `${code} ${(Number(amountMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatDiscordDeadline(value: unknown): string {
