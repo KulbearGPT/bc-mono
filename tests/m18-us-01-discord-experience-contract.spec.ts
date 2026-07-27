@@ -11,10 +11,11 @@ describe('M18-US-01 Discord emotional experience contract', () => {
     for (const phrase of [
       'M18：Discord 情绪化体验与信息层级',
       '试音匹配',
-      '公共欢迎与导航：75',
-      '派单与关键里程碑：70',
-      '订单私密主面板：55–60',
-      '短暂私密反馈：30–40',
+      '参考店铺的 80–90%',
+      '公共欢迎与导航：90',
+      '派单与关键里程碑：85',
+      '订单私密主面板：70–80',
+      '短暂私密反馈：45–55',
       '资金、权限与错误：20–35',
       '标题 → 情绪化引导 → 核心事实 → 老板需求 → 当前进度 → 下一步 → 页脚',
       '禁止使用“选秀”'
@@ -30,6 +31,7 @@ describe('M18-US-01 Discord emotional experience contract', () => {
       expect(backlog).toContain(`"M18-US-${String(story).padStart(2, '0')}"`);
     }
     expect(backlog).toContain('不改变订单状态机、资金语义、权限矩阵、Actor Context 或统一 API 业务规则');
+    expect(backlog).toContain('80–90% 目标体验');
   });
 
   test('adds traceable Discord experience interactions and acceptance gates', async () => {
