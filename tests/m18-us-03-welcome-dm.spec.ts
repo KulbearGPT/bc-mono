@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { describe, expect, test, vi } from 'vitest';
 import { discoverSapphirePieces } from '@blackcat/bot/piece-manifest';
 import { executeWelcomeCommand } from '@blackcat/bot/welcome-command';
@@ -9,7 +9,7 @@ const playerId = '111111111111111111';
 const entryChannelId = '222222222222222222';
 
 describe('M18-US-03 newcomer welcome DM', () => {
-  test('renders one branded private welcome with safe server navigation and no unsupported claims', () => {
+  test('renders a 90-density branded welcome with an original banner and safe server navigation', async () => {
     const payload = buildWelcomeDmMessage({
       guildId,
       guildName: '黑猫陪玩店',
@@ -22,15 +22,21 @@ describe('M18-US-03 newcomer welcome DM', () => {
     const rendered = JSON.stringify(payload);
 
     expect(json.title).toBe('🐈‍⬛ 欢迎来到黑猫陪玩店');
+    expect(json.author).toEqual({ name: '黑猫陪玩 · 新朋友接待处' });
     expect(json.description).toContain(`<@${playerId}>`);
     expect(json.fields.map((field: { name: string }) => field.name)).toEqual([
+      '🌙 今晚想怎么玩',
       '🎮 老板找陪玩',
       '🎧 想加入猫舍',
-      '🛎️ 需要真人帮助',
-      '🐾 第一次来怎么走'
+      '🛎️ 真人客服在这里',
+      '💎 黑猫陪伴承诺',
+      '🐾 三步开启今晚'
     ]);
     expect(json.thumbnail).toEqual({ url: 'https://cdn.example.test/blackcat.png' });
+    expect(json.image).toEqual({ url: 'attachment://blackcat-welcome.png' });
     expect(json.footer.text).toContain('不会在私信中索要密码');
+    expect(payload.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
+    await expect(access('apps/api/assets/onboarding/welcome.png')).resolves.toBeUndefined();
     expect(rendered).toContain(`https://discord.com/channels/${guildId}/${entryChannelId}`);
     expect(rendered).not.toMatch(/5000\+|最大华人|秒回不是AI|单价加成/u);
     expect(payload.allowedMentions).toEqual({ parse: [], users: [playerId] });

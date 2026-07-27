@@ -11,11 +11,14 @@ export const BOT_COPY = {
     customerPath: '第一次来请先注册玩家，我们会准备账户和猫条钱包；完成后就能开始下单。',
     companionPath: '先注册玩家，再提交陪玩申请；猫舍前台审核通过后即可参与报名。',
     supportPath: '充值、订单或申请遇到问题时，请在服务中心联系猫舍前台。',
-    privateWelcomeIntroduction: '很高兴遇见你。今晚想找一位合拍的游戏搭子，就从下面的服务入口开始吧。',
+    privateWelcomeIntroduction:
+      '新朋友，黑猫已经为你点亮今晚的入口。🌙\n无论想认真上分、轻松娱乐，还是找个人聊聊天，都希望你能在这里遇见合拍的陪伴。',
+    privatePlayStyles: '上分冲刺、娱乐开黑、聊天小游戏、唱歌声优……今晚由你定义，我们负责把需求送到合适的人面前。',
     privateCustomerPath: '前往「服务入口」，先注册玩家，再点击「开始找陪玩」提交你的需求。',
     privateCompanionPath: '想成为陪玩时，也可以在服务入口先注册玩家，再提交陪玩申请。',
     privateSupportPath: '充值、订单或申请遇到问题，可从服务入口联系猫舍前台处理。',
-    privateFirstSteps: '1. 打开服务入口\n2. 注册或确认玩家账户\n3. 点击「开始找陪玩」创建私密订单',
+    privatePromise: '需求会先确认，订单进度随时可查；遇到问题可以找到真人客服。我们不在私信中索要密码或完整付款信息。',
+    privateFirstSteps: '① 打开黑猫服务入口\n② 注册或确认玩家账户\n③ 点击「开始找陪玩」，创建属于你的私密订单',
     invalidEntryChannel: '新人入口目前不可用，请联系管理员检查 Bot 的频道读写权限。'
   },
   gifts: {

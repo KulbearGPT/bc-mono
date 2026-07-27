@@ -1,6 +1,10 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type MessageCreateOptions } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import type { BotConfigActorContext } from './bot-config.js';
 import { BOT_COPY } from './bot-copy.js';
+
+const WELCOME_BANNER_NAME = 'blackcat-welcome.png';
+const WELCOME_BANNER_PATH = fileURLToPath(new URL('../../api/assets/onboarding/welcome.png', import.meta.url));
 
 export interface WelcomeDmRecipient {
   id: string;
@@ -38,14 +42,18 @@ export function buildWelcomeDmMessage(input: {
   const entryUrl = input.publicEntryChannelId ? `${serverUrl}/${input.publicEntryChannelId}` : serverUrl;
   const embed = new EmbedBuilder()
     .setColor(0x6d5dfc)
+    .setAuthor({ name: '黑猫陪玩 · 新朋友接待处' })
     .setTitle(`🐈‍⬛ 欢迎来到${input.guildName}`.slice(0, 256))
     .setDescription(`<@${input.recipientUserId}>，${BOT_COPY.onboarding.privateWelcomeIntroduction}`)
     .addFields(
+      { name: '🌙 今晚想怎么玩', value: BOT_COPY.onboarding.privatePlayStyles },
       { name: '🎮 老板找陪玩', value: BOT_COPY.onboarding.privateCustomerPath },
       { name: '🎧 想加入猫舍', value: BOT_COPY.onboarding.privateCompanionPath },
-      { name: '🛎️ 需要真人帮助', value: BOT_COPY.onboarding.privateSupportPath },
-      { name: '🐾 第一次来怎么走', value: BOT_COPY.onboarding.privateFirstSteps }
+      { name: '🛎️ 真人客服在这里', value: BOT_COPY.onboarding.privateSupportPath },
+      { name: '💎 黑猫陪伴承诺', value: BOT_COPY.onboarding.privatePromise },
+      { name: '🐾 三步开启今晚', value: BOT_COPY.onboarding.privateFirstSteps }
     )
+    .setImage(`attachment://${WELCOME_BANNER_NAME}`)
     .setFooter({ text: '不会在私信中索要密码或完整付款信息 · Blackcat Companion' });
   if (input.guildIconUrl) embed.setThumbnail(input.guildIconUrl);
 
@@ -56,6 +64,7 @@ export function buildWelcomeDmMessage(input: {
   return {
     embeds: [embed],
     components: [actions],
+    files: [{ attachment: WELCOME_BANNER_PATH, name: WELCOME_BANNER_NAME }],
     allowedMentions: { parse: [], users: [input.recipientUserId] }
   };
 }
