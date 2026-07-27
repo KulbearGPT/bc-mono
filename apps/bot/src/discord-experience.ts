@@ -8,10 +8,10 @@ import type {
 
 export const DISCORD_EXPERIENCE = {
   density: {
-    PUBLIC_WELCOME: 75,
-    PUBLIC_MILESTONE: 70,
-    PRIVATE_ORDER: 58,
-    EPHEMERAL_FEEDBACK: 35,
+    PUBLIC_WELCOME: 90,
+    PUBLIC_MILESTONE: 85,
+    PRIVATE_ORDER: 75,
+    EPHEMERAL_FEEDBACK: 50,
     HIGH_RISK: 25
   },
   color: {

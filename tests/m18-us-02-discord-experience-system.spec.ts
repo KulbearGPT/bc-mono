@@ -10,10 +10,10 @@ import {
 describe('M18-US-02 Discord visual and copy system', () => {
   test('defines stable density, color, footer, and hierarchy tokens', () => {
     expect(DISCORD_EXPERIENCE.density).toEqual({
-      PUBLIC_WELCOME: 75,
-      PUBLIC_MILESTONE: 70,
-      PRIVATE_ORDER: 58,
-      EPHEMERAL_FEEDBACK: 35,
+      PUBLIC_WELCOME: 90,
+      PUBLIC_MILESTONE: 85,
+      PRIVATE_ORDER: 75,
+      EPHEMERAL_FEEDBACK: 50,
       HIGH_RISK: 25
     });
     expect(DISCORD_EXPERIENCE.color).toMatchObject({
