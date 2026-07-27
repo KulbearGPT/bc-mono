@@ -23,12 +23,14 @@
     "./selection-discord": "./src/selection-discord.ts",
     "./selection-channel-cleanup": "./src/selection-channel-cleanup.ts",
     "./wallet-display": "./src/wallet-display.ts",
+    "./welcome-command": "./src/welcome-command.ts",
     "./onboarding": "./src/onboarding.ts",
     "./private-order-channel": "./src/private-order-channel.ts",
     "./runtime": "./src/runtime.ts",
     "./actor-context": "./src/actor-context.ts",
     "./api-transport": "./src/api-transport.ts",
-    "./user-facing-error": "./src/user-facing-error.ts"
+    "./user-facing-error": "./src/user-facing-error.ts",
+    "./welcome-dm": "./src/welcome-dm.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
