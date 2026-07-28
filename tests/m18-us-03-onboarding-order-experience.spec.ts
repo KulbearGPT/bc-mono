@@ -51,6 +51,15 @@ describe('M18-US-03 onboarding and order composer experience', () => {
         expect.objectContaining({ name: '👉 下一步' })
       ])
     );
+    expect(picker.components[0]).toMatchObject({
+      type: 'V2_MEDIA',
+      url: 'attachment://blackcat-welcome.png'
+    });
+    expect(picker.attachments).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
+    const pickerReply = toDiscordReply(picker);
+    const pickerContainer = pickerReply.components?.[0] as { toJSON?: () => unknown };
+    expect(JSON.stringify(pickerContainer.toJSON?.())).toContain('attachment://blackcat-welcome.png');
+    expect(pickerReply.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
 
     const menu = buildGameOrderingMenuMessage(order({ notes: '希望声音温柔，主玩辅助。' }), 'LOLNA', [service()], {
       items: [],

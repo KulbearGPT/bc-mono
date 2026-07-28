@@ -1,10 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type MessageCreateOptions } from 'discord.js';
-import { fileURLToPath } from 'node:url';
 import type { BotConfigActorContext } from './bot-config.js';
 import { BOT_COPY } from './bot-copy.js';
-
-const WELCOME_BANNER_NAME = 'blackcat-welcome.png';
-const WELCOME_BANNER_PATH = fileURLToPath(new URL('../../api/assets/onboarding/welcome.png', import.meta.url));
+import { resolveBlackcatWelcomeBanner } from './brand-banners.js';
 
 export interface WelcomeDmRecipient {
   id: string;
@@ -40,6 +37,7 @@ export function buildWelcomeDmMessage(input: {
 }): MessageCreateOptions {
   const serverUrl = `https://discord.com/channels/${input.guildId}`;
   const entryUrl = input.publicEntryChannelId ? `${serverUrl}/${input.publicEntryChannelId}` : serverUrl;
+  const banner = resolveBlackcatWelcomeBanner();
   const embed = new EmbedBuilder()
     .setColor(0x6d5dfc)
     .setAuthor({ name: '黑猫陪玩 · 新朋友接待处' })
@@ -53,7 +51,7 @@ export function buildWelcomeDmMessage(input: {
       { name: '💎 黑猫陪伴承诺', value: BOT_COPY.onboarding.privatePromise },
       { name: '🐾 三步开启今晚', value: BOT_COPY.onboarding.privateFirstSteps }
     )
-    .setImage(`attachment://${WELCOME_BANNER_NAME}`)
+    .setImage(banner.url)
     .setFooter({ text: '不会在私信中索要密码或完整付款信息 · Blackcat Companion' });
   if (input.guildIconUrl) embed.setThumbnail(input.guildIconUrl);
 
@@ -64,7 +62,7 @@ export function buildWelcomeDmMessage(input: {
   return {
     embeds: [embed],
     components: [actions],
-    files: [{ attachment: WELCOME_BANNER_PATH, name: WELCOME_BANNER_NAME }],
+    files: [{ attachment: banner.path, name: banner.attachmentName }],
     allowedMentions: { parse: [], users: [input.recipientUserId] }
   };
 }

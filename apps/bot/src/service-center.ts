@@ -42,6 +42,7 @@ import { resolveGameBanner } from './game-banners.js';
 import { orderStatusDisplay } from './order-display.js';
 import { buildSubmittedOrderMessage } from './submitted-order-message.js';
 import { buildServiceLifecyclePanelMessage } from './service-lifecycle-message.js';
+import { resolveBlackcatWelcomeBanner } from './brand-banners.js';
 
 export * from './service-center-api.js';
 export * from './service-center-components.js';
@@ -444,20 +445,28 @@ export function buildGamePickerMessage(
   services: PublicServiceSummary[],
   packages: ServicePackageSummary[] = []
 ): MessageSpec {
+  const banner = resolveBlackcatWelcomeBanner();
   const games = [...new Map(services.map((item) => [item.game, item.gameDisplayName ?? item.game])).entries()].slice(
     0,
     20
   );
-  const components: MessageComponentSpec[] = games.map(([game, name]) => ({
-    type: 'V2_SECTION',
-    content: `### ${name}  \`${game}\`\n${services.filter((item) => item.game === game).length} 个单点 · ${packages.filter((item) => item.game === game).length} 个套餐；进入后只显示本游戏目录。`,
-    accessory: {
-      type: 'BUTTON',
-      style: 'PRIMARY',
-      customId: `bc:game:${order.id}:${game}:open:v${order.version}`,
-      label: '进入'
-    }
-  }));
+  const components: MessageComponentSpec[] = [
+    {
+      type: 'V2_MEDIA',
+      url: banner.url,
+      description: '黑猫陪玩 · 今晚想去哪个游戏世界'
+    },
+    ...games.map(([game, name]): MessageComponentSpec => ({
+      type: 'V2_SECTION',
+      content: `### ${name}  \`${game}\`\n${services.filter((item) => item.game === game).length} 个单点 · ${packages.filter((item) => item.game === game).length} 个套餐；进入后只显示本游戏目录。`,
+      accessory: {
+        type: 'BUTTON',
+        style: 'PRIMARY',
+        customId: `bc:game:${order.id}:${game}:open:v${order.version}`,
+        label: '进入'
+      }
+    }))
+  ];
   if (order.amountMinor > 0)
     components.push({
       type: 'ACTION_ROW',
@@ -486,7 +495,8 @@ export function buildGamePickerMessage(
       ? '点击游戏右侧的“进入”；下一页只显示该游戏的套餐和单点。'
       : '请稍后刷新，或联系猫舍前台了解开放时间。',
     components,
-    layout: 'COMPONENTS_V2'
+    layout: 'COMPONENTS_V2',
+    attachments: [{ name: banner.attachmentName, path: banner.path }]
   });
 }
 
