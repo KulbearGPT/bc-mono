@@ -28,6 +28,28 @@ export class WorkerAdapterError extends Error {
 export class PostgresOrderPanelProjectionStore implements OrderPanelProjectionStore {
   constructor(private readonly client: WorkerAdapterQueryClient) {}
 
+  async enqueuePanelExperienceNormalization(now: Date): Promise<number> {
+    const queued = await this.client.query(
+      `INSERT INTO outbox_events(
+         id,event_type,aggregate_type,aggregate_id,order_id,selection_pool_id,
+         dedupe_key,payload,status,row_version,attempt_count,max_attempts,
+         available_at,created_at,updated_at
+       )
+       SELECT gen_random_uuid(),'PANEL_SYNC','order',orders.id,orders.id,NULL,
+         'order-panel-experience-v2:'||orders.id,
+         jsonb_build_object('orderId',orders.id,'kind','EXPERIENCE_NORMALIZATION'),
+         'PENDING',1,0,8,$1,$1,$1
+       FROM orders
+       WHERE orders.status IN ('PENDING_DISPATCH','ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION')
+         AND orders.channel_id IS NOT NULL
+         AND orders.panel_message_id IS NOT NULL
+       ON CONFLICT(dedupe_key) DO NOTHING
+       RETURNING id`,
+      [now]
+    );
+    return queued.rows.length;
+  }
+
   async getOrderPanelProjection(orderId: string): Promise<OrderPanelProjection | null> {
     const result = await this.client.query(
       `
@@ -557,6 +579,7 @@ function coordinationStatusLabel(status: string): string {
 
 function coordinationRequirements(row: Record<string, unknown>): NonNullable<OrderPanelProjection['coordinationRequirements']> {
   const raw = row.coordination_requirements;
+  const wholeOrderNote = nullablePlainText(row.legacy_customer_note);
   if (Array.isArray(raw) && raw.length > 0) {
     const requirements = raw.map((value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidRow('coordination_requirements');
@@ -570,7 +593,7 @@ function coordinationRequirements(row: Record<string, unknown>): NonNullable<Ord
         regionDisplayName: nullablePlainText(item.regionDisplayName),
         durationMinutes: nullablePositiveInteger(item.durationMinutes),
         requestedPlayerCount: optionalInteger(item.requestedPlayerCount, 1),
-        customerNote: nullablePlainText(item.customerNote)
+        customerNote: nullablePlainText(item.customerNote) ?? wholeOrderNote
       };
     });
     return requirements;
@@ -641,25 +664,35 @@ function lifecycleParticipants(value: unknown): OrderPanelParticipant[] {
 
 function renderOrderPanel(projection: OrderPanelProjection) {
   const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
-  const requestedPlayerCount = projection.requestedPlayerCount ?? Math.max(playerDiscordUserIds.length, 1);
-  const filledPlayerCount = projection.filledPlayerCount ?? playerDiscordUserIds.length;
-  const participantMentions = playerDiscordUserIds.length > 0
-    ? `已到位陪玩：${playerDiscordUserIds.map((id) => `<@${id}>`).join('、')}`
-    : '陪玩：待接单';
-  const assembly = projection.status === 'PENDING_DISPATCH' && !projection.selectionPool && requestedPlayerCount > 0
-    ? `陪玩到位：${filledPlayerCount}/${requestedPlayerCount}\n${filledPlayerCount < requestedPlayerCount ? `还差 ${requestedPlayerCount - filledPlayerCount} 位，全部到齐后开放准备确认。` : '队伍已到齐，正在进入准备确认。'}`
-    : null;
   const selection = selectionPanelSummary(projection);
+  const lifecycle = lifecyclePanelSummary(projection);
   const body = [
-    `-# 订单 #${projection.publicId} · ${selection?.label ?? orderStatusLabel(projection.status)}`,
-    `## 当前订单状态：${projection.status}`,
-    `金额：${projection.currency} ${(projection.amountMinor / (projection.currency === 'CAT' ? 10 : 100)).toFixed(projection.currency === 'CAT' ? 1 : 2)}`,
-    `客户：<@${projection.customerDiscordUserId}>`,
-    participantMentions,
-    assembly,
-    selection?.body,
-    lifecyclePanelSummary(projection)
-  ].filter(Boolean).join('\n');
+    `-# 🐈‍⬛ 订单 #${projection.publicId} · ${selection?.label ?? orderStatusLabel(projection.status)}`,
+    `## ${orderPanelHeading(projection.status)}`,
+    orderPanelIntro(projection.status),
+    '',
+    '### 🎮 服务内容',
+    orderServiceSummary(projection),
+    '',
+    '### 🐟 订单金额',
+    `**${formatPanelMoney(projection.amountMinor, projection.currency)}**`,
+    '',
+    '### 💬 老板需求',
+    orderBossRequestSummary(projection),
+    playerDiscordUserIds.length > 0 ? '' : null,
+    playerDiscordUserIds.length > 0 ? '### 🐾 已确认阵容' : null,
+    playerDiscordUserIds.length > 0
+      ? playerDiscordUserIds.map((id) => `<@${id}>`).join('、')
+      : null,
+    selection ? '' : null,
+    selection ? '### 🐾 报名进度' : null,
+    selection ? `**${selection.label}**\n${selection.body}` : null,
+    selection ? '' : null,
+    selection ? '### 👉 下一步' : null,
+    selection?.nextStep,
+    lifecycle,
+    !selection && !lifecycle ? fallbackPanelSummary(projection.status) : null
+  ].filter((line): line is string => line !== null && line !== undefined).join('\n');
   const interactionRows = selectionPanelRows(projection);
   return {
     flags: 1 << 15,
@@ -675,6 +708,61 @@ function renderOrderPanel(projection: OrderPanelProjection) {
       ]
     }]
   };
+}
+
+function orderPanelHeading(status: string): string {
+  if (status === 'PENDING_DISPATCH') return '正在为你集合合适的陪玩';
+  if (status === 'ACCEPTED') return '队伍已集合，等待陪玩就绪';
+  if (status === 'IN_SERVICE') return '陪玩服务进行中';
+  if (status === 'PENDING_CONFIRMATION') return '请老板核对本次服务';
+  if (status === 'COMPLETED') return '这次陪伴已圆满完成';
+  if (status === 'CANCELLED') return '本次订单已取消';
+  return '订单进度已更新';
+}
+
+function orderPanelIntro(status: string): string {
+  if (status === 'PENDING_DISPATCH')
+    return '黑猫正在为这份委托寻找合适的伙伴，报名和阵容变化会在这里原位更新。';
+  if (status === 'COMPLETED') return '谢谢老板今天来到黑猫陪玩，希望这次相伴让你玩得开心。';
+  if (status === 'CANCELLED') return '这次没有顺利同行也没关系，黑猫会一直在这里等你。';
+  return '重要事实与下一步都整理在这张卡里，状态变化会自动刷新。';
+}
+
+function orderServiceSummary(projection: OrderPanelProjection): string {
+  const requirements = projection.coordinationRequirements ?? [];
+  if (requirements.length === 0) return '服务项目正在同步，请稍后刷新订单。';
+  return requirements.map((requirement, index) => {
+    const detail = [
+      requirement.regionDisplayName,
+      requirement.durationMinutes ? formatMinutes(requirement.durationMinutes) : null,
+      `${requirement.requestedPlayerCount} 位陪玩`
+    ].filter(Boolean).join(' · ');
+    const prefix = requirements.length > 1 ? `${index + 1}. ` : '';
+    return `${prefix}**${requirement.gameDisplayName} · ${requirement.serviceDisplayName}**\n${detail}`;
+  }).join('\n');
+}
+
+function orderBossRequestSummary(projection: OrderPanelProjection): string {
+  const requirements = projection.coordinationRequirements ?? [];
+  const noted = requirements.filter(
+    (requirement): requirement is typeof requirement & { customerNote: string } => Boolean(requirement.customerNote)
+  );
+  if (noted.length === 0) return '> 暂未填写；需要补充时可联系猫舍前台。';
+  const uniqueNotes = [...new Set(noted.map((requirement) => requirement.customerNote.trim()))];
+  if (uniqueNotes.length === 1) return `> ${uniqueNotes[0]}`;
+  return noted.map((requirement) =>
+    `**${requirement.gameDisplayName} · ${requirement.serviceDisplayName}**\n> ${requirement.customerNote.trim()}`
+  ).join('\n');
+}
+
+function fallbackPanelSummary(status: string): string {
+  const progress = status === 'CANCELLED'
+    ? '订单已经取消，后续资金处理以业务 API 返回的事实为准。'
+    : `订单当前处于“${orderStatusLabel(status)}”。`;
+  const next = status === 'CANCELLED'
+    ? '想再找一位伙伴时，可以重新发起一张新订单。'
+    : '如状态长时间没有变化，请先刷新订单；仍有疑问可联系猫舍前台。';
+  return `\n### ⏳ 当前进度\n${progress}\n\n### 👉 下一步\n${next}`;
 }
 
 function lifecyclePanelSummary(projection: OrderPanelProjection): string | null {
@@ -765,26 +853,43 @@ function compensationSourceLabel(source: OrderPanelParticipant['compensationSour
   return '历史订单快照';
 }
 
-function selectionPanelSummary(projection: OrderPanelProjection): { label: string; body: string } | null {
+function selectionPanelSummary(projection: OrderPanelProjection): {
+  label: string;
+  body: string;
+  nextStep: string;
+} | null {
   if (projection.status !== 'PENDING_DISPATCH') return null;
   const pool = projection.selectionPool;
-  if (!pool) return { label: '尚未开始招募', body: '点击“开始招募”后，符合条件的陪玩即可报名。' };
+  const playerDiscordUserIds = activePlayerDiscordUserIds(projection);
+  const requestedPlayerCount = projection.requestedPlayerCount ?? Math.max(playerDiscordUserIds.length, 1);
+  const filledPlayerCount = projection.filledPlayerCount ?? playerDiscordUserIds.length;
+  const assembly = `陪玩到位：${filledPlayerCount}/${requestedPlayerCount}`;
+  if (!pool) return {
+    label: filledPlayerCount > 0 ? '等待继续招募' : '尚未开始招募',
+    body: `${assembly}\n${filledPlayerCount < requestedPlayerCount ? `还差 ${requestedPlayerCount - filledPlayerCount} 位；全部到齐后开放准备确认。` : '队伍已经到齐'}`,
+    nextStep: filledPlayerCount < requestedPlayerCount
+      ? '点击“开始招募”，黑猫会把这份委托发布到派单频道。'
+      : '队伍已经到齐，请等待系统进入陪玩就绪确认。'
+  };
   if (pool.status === 'COLLECTING') {
     const applicants = selectionApplicantMentions(pool.applicantDiscordUserIds ?? []);
     return {
       label: '招募进行中',
-      body: `第 ${pool.round} 轮\n当前报名陪玩：${applicants}`
+      body: `第 ${pool.round} 轮 · ${assembly}\n当前报名陪玩：${applicants}`,
+      nextStep: '报名会实时更新；想进入试音匹配时，点击“终止招募”。'
     };
   }
   if (pool.applicationCount === 0) {
     return {
       label: '本轮无人报名',
-      body: `第 ${pool.round} 轮招募已终止。\n当前报名：暂无\n可以重新开始招募或取消订单。`
+      body: `第 ${pool.round} 轮招募已终止。\n当前报名：暂无\n${assembly}`,
+      nextStep: '可以重新开始招募；暂时不需要服务时，也可以取消订单。'
     };
   }
   return {
-    label: '等待选择陪玩',
-    body: `第 ${pool.round} 轮招募已终止。\n报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}\n请进入试音匹配并确认陪玩。`
+    label: '试音匹配中',
+    body: `第 ${pool.round} 轮招募已终止。\n报名陪玩：${selectionApplicantMentions(pool.applicantDiscordUserIds ?? [])}\n${assembly}`,
+    nextStep: '请在试音匹配面板中确认合适的陪玩；未选满的席位之后仍可继续招募。'
   };
 }
 

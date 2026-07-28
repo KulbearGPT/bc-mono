@@ -154,6 +154,18 @@ describe('M11-US-06 numeric reaction signup', () => {
     expect(query.mock.calls[0]?.[0]).toContain('selection-reaction-card-normalize-v2:');
   });
 
+  test('uses the whole-order boss note when a project has no more specific note', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const store = new PostgresSelectionPoolWorkerStore({ query } as never);
+
+    await expect(store.projection(poolId)).resolves.toBeNull();
+
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain(
+      "COALESCE(NULLIF(BTRIM(requirement.customer_note),''),NULLIF(BTRIM(orders.customer_note),''))"
+    );
+  });
+
   test('posts the dispatching image before the unchanged recruitment embed and deduplicates by order', async () => {
     const requests: Array<{ method: string; url: string; body: BodyInit | null | undefined }> = [];
     const statusNonce = createHash('sha256')

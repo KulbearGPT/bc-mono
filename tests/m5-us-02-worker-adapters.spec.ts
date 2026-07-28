@@ -60,7 +60,11 @@ describe('M5-US-02 Worker production adapters', () => {
           service_started_at: projection.startedAt,
       requested_player_count: projection.requestedPlayerCount,
       filled_player_count: projection.filledPlayerCount,
-      coordination_requirements: projection.coordinationRequirements,
+      coordination_requirements: projection.coordinationRequirements?.map((requirement) => ({
+        ...requirement,
+        customerNote: null
+      })),
+      legacy_customer_note: '中文交流，希望轻松一点',
       submitted_at: projection.submittedAt,
       accepted_at: projection.acceptedAt,
       amount_minor: '12000',
@@ -88,6 +92,20 @@ describe('M5-US-02 Worker production adapters', () => {
   test('returns null when the order projection does not exist', async () => {
     const store = new PostgresOrderPanelProjectionStore({ query: vi.fn().mockResolvedValue({ rows: [] }) });
     await expect(store.getOrderPanelProjection(projection.orderId)).resolves.toBeNull();
+  });
+
+  test('queues one idempotent rollout refresh for every active customer order panel', async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [{ id: projection.orderId }] });
+    const store = new PostgresOrderPanelProjectionStore({ query });
+
+    await expect(store.enqueuePanelExperienceNormalization(
+      new Date('2026-08-10T08:00:00.000Z')
+    )).resolves.toBe(1);
+
+    const [sql] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("orders.status IN ('PENDING_DISPATCH','ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION')");
+    expect(sql).toContain('order-panel-experience-v2:');
+    expect(sql).toContain('ON CONFLICT(dedupe_key) DO NOTHING');
   });
 
   test('replaces panel message id with an optimistic expected-id condition', async () => {
@@ -155,8 +173,19 @@ describe('M5-US-02 Worker production adapters', () => {
     const panelBody = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string);
     expect(panelBody.flags).toBe(32768);
     expect(JSON.stringify(panelBody.components)).toContain('P-5301');
-    expect(JSON.stringify(panelBody.components)).toContain('IN_SERVICE');
-    expect(JSON.stringify(panelBody.components)).toContain('CAT 1200.0');
+    const renderedPanel = JSON.stringify(panelBody.components);
+    expect(renderedPanel).toContain('🎮 服务内容');
+    expect(renderedPanel).toContain('🐟 订单金额');
+    expect(renderedPanel).toContain('💬 老板需求');
+    expect(renderedPanel).toContain('中文交流，希望轻松一点');
+    expect(renderedPanel).toContain('⏳ 当前进度');
+    expect(renderedPanel).toContain('👉 下一步');
+    expect(renderedPanel).toContain('1200.0 CAT');
+    expect(renderedPanel).not.toContain('IN_SERVICE');
+    const panelText = panelBody.components[0].components[0].content as string;
+    expect(panelText).toContain('服务内容\n');
+    expect(panelText).toContain('\n\n### 🐟 订单金额');
+    expect(panelText).toContain('\n\n### 💬 老板需求');
     expect(panelBody).not.toHaveProperty('content');
     expect(panelBody).not.toHaveProperty('embeds');
     expect(panelBody.allowed_mentions).toEqual({ parse: [] });
@@ -204,6 +233,14 @@ describe('M5-US-02 Worker production adapters', () => {
     await adapter.upsertOrderPanel(pending, notBefore);
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string);
+    const renderedPanel = JSON.stringify(body.components);
+    expect(renderedPanel).toContain('🎮 服务内容');
+    expect(renderedPanel).toContain('🐟 订单金额');
+    expect(renderedPanel).toContain('💬 老板需求');
+    expect(renderedPanel).toContain('中文交流，希望轻松一点');
+    expect(renderedPanel).toContain('🐾 报名进度');
+    expect(renderedPanel).toContain('👉 下一步');
+    expect(renderedPanel).not.toContain('PENDING_DISPATCH');
     const buttons = body.components[0].components
       .filter((component: { type: number }) => component.type === 1)
       .flatMap((component: { components?: unknown[] }) => component.components ?? []);

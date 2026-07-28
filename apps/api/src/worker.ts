@@ -180,6 +180,8 @@ try {
   const recovered = await runtime.initialize();
   const queuedSelectionReactionCards =
     await selectionWorkerStore.enqueueRecruitmentCardNormalization(new Date());
+  const queuedOrderPanelExperienceRefreshes =
+    await panelStore.enqueuePanelExperienceNormalization(new Date());
   const queuedTerminalChannelCleanups =
     await terminalChannelCleanupStore.enqueueDueTerminalOrders(new Date());
   await writeFile(READY_FILE, new Date().toISOString(), "utf8");
@@ -189,6 +191,7 @@ try {
       event: "worker.started",
       recoveredJobs: recovered.length,
       queuedSelectionReactionCards,
+      queuedOrderPanelExperienceRefreshes,
       queuedTerminalChannelCleanups,
     }),
   );
