@@ -197,8 +197,8 @@ describe('M11-US-06 numeric reaction signup', () => {
     const embedPayload = JSON.parse(String(recruitmentForm.get('payload_json')));
     expect(embedPayload.components).toEqual([]);
     expect(embedPayload.embeds[0]).toMatchObject({ title: '🐾 新单报名 #P-REACTION' });
-    expect(embedPayload.embeds[0].image).toEqual({ url: 'attachment://blackcat-game-other.png' });
-    expect((recruitmentForm.get('files[0]') as File).name).toBe('blackcat-game-other.png');
+    expect(embedPayload.embeds[0].image).toEqual({ url: 'attachment://blackcat-game-other.webp' });
+    expect((recruitmentForm.get('files[0]') as File).name).toBe('blackcat-game-other.webp');
     expect(posts.filter((request) => request.body instanceof FormData)).toHaveLength(3);
     expect(posts.filter((request) => {
       if (!(request.body instanceof FormData)) return false;

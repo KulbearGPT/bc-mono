@@ -1,22 +1,19 @@
 import { describe, expect, test } from 'vitest';
-import {
-  buildSelectionReactionOfferPayload,
-  resolveSelectionGameBanner
-} from '@blackcat/api/selection-pool-worker';
+import { buildSelectionReactionOfferPayload, resolveSelectionGameBanner } from '@blackcat/api/selection-pool-worker';
 
 const poolId = '00000000-0000-0000-0000-000000180501';
 
 describe('M18-US-05 dispatch and trial-matching experience', () => {
   test('maps a single game to its original Blackcat banner and mixed games to the safe fallback', () => {
     expect(resolveSelectionGameBanner(['无畏契约 · 娱乐陪玩'])).toMatchObject({
-      fileName: 'valorant.png',
-      attachmentName: 'blackcat-game-valorant.png'
+      fileName: 'valorant.webp',
+      attachmentName: 'blackcat-game-valorant.webp'
     });
     expect(resolveSelectionGameBanner(['英雄联盟 · 上分陪玩', '无畏契约 · 娱乐陪玩'])).toMatchObject({
-      fileName: 'other.png',
-      attachmentName: 'blackcat-game-other.png'
+      fileName: 'other.webp',
+      attachmentName: 'blackcat-game-other.webp'
     });
-    expect(resolveSelectionGameBanner(['../../private/token'])).toMatchObject({ fileName: 'other.png' });
+    expect(resolveSelectionGameBanner(['../../private/token'])).toMatchObject({ fileName: 'other.webp' });
   });
 
   test('renders a branded reaction-only recruitment card with clear add/remove semantics', () => {
@@ -44,7 +41,7 @@ describe('M18-US-05 dispatch and trial-matching experience', () => {
     expect(rendered).not.toContain('预计收益');
     expect(rendered).not.toContain('18.8 CAT');
     expect(embed.fields[0]?.value).toContain('需求：声音温柔');
-    expect(embed.image).toEqual({ url: 'attachment://blackcat-game-valorant.png' });
+    expect(embed.image).toEqual({ url: 'attachment://blackcat-game-valorant.webp' });
     expect(embed.footer).toEqual({ text: `selection-pool:${poolId}` });
     expect(payload.components).toEqual([]);
     expect(payload.allowed_mentions).toEqual({ parse: [] });
@@ -61,7 +58,15 @@ describe('M18-US-05 dispatch and trial-matching experience', () => {
     }));
     const payload = buildSelectionReactionOfferPayload({ poolId, orderPublicId: 'P-NINE', requirements });
     expect(payload.embeds[0]?.fields.map((field) => field.name.slice(0, 3))).toEqual([
-      '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'
+      '1️⃣',
+      '2️⃣',
+      '3️⃣',
+      '4️⃣',
+      '5️⃣',
+      '6️⃣',
+      '7️⃣',
+      '8️⃣',
+      '9️⃣'
     ]);
     expect(() =>
       buildSelectionReactionOfferPayload({

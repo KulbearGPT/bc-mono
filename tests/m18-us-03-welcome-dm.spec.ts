@@ -33,10 +33,10 @@ describe('M18-US-03 newcomer welcome DM', () => {
       '🐾 三步开启今晚'
     ]);
     expect(json.thumbnail).toEqual({ url: 'https://cdn.example.test/blackcat.png' });
-    expect(json.image).toEqual({ url: 'attachment://blackcat-welcome.png' });
+    expect(json.image).toEqual({ url: 'attachment://blackcat-welcome.webp' });
     expect(json.footer.text).toContain('不会在私信中索要密码');
-    expect(payload.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
-    await expect(access('apps/api/assets/onboarding/welcome.png')).resolves.toBeUndefined();
+    expect(payload.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.webp' })]);
+    await expect(access('apps/api/assets/onboarding/welcome.webp')).resolves.toBeUndefined();
     expect(rendered).toContain(`https://discord.com/channels/${guildId}/${entryChannelId}`);
     expect(rendered).not.toMatch(/5000\+|最大华人|秒回不是AI|单价加成/u);
     expect(payload.allowedMentions).toEqual({ parse: [], users: [playerId] });

@@ -53,13 +53,13 @@ describe('M18-US-03 onboarding and order composer experience', () => {
     );
     expect(picker.components[0]).toMatchObject({
       type: 'V2_MEDIA',
-      url: 'attachment://blackcat-welcome.png'
+      url: 'attachment://blackcat-welcome.webp'
     });
-    expect(picker.attachments).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
+    expect(picker.attachments).toEqual([expect.objectContaining({ name: 'blackcat-welcome.webp' })]);
     const pickerReply = toDiscordReply(picker);
     const pickerContainer = pickerReply.components?.[0] as { toJSON?: () => unknown };
-    expect(JSON.stringify(pickerContainer.toJSON?.())).toContain('attachment://blackcat-welcome.png');
-    expect(pickerReply.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.png' })]);
+    expect(JSON.stringify(pickerContainer.toJSON?.())).toContain('attachment://blackcat-welcome.webp');
+    expect(pickerReply.files).toEqual([expect.objectContaining({ name: 'blackcat-welcome.webp' })]);
 
     const menu = buildGameOrderingMenuMessage(order({ notes: '希望声音温柔，主玩辅助。' }), 'LOLNA', [service()], {
       items: [],
@@ -69,28 +69,28 @@ describe('M18-US-03 onboarding and order composer experience', () => {
     expect(menu.fields?.find((field) => field.name === '💬 老板需求')?.value).toBe('> 希望声音温柔，主玩辅助。');
     expect(menu.body).not.toContain('希望声音温柔');
     expect(menu.components[0]).toMatchObject({ type: 'V2_MEDIA' });
-    expect(menu.attachments?.[0]?.name).toBe('blackcat-game-league-of-legends.png');
+    expect(menu.attachments?.[0]?.name).toBe('blackcat-game-league-of-legends.webp');
     const reply = toDiscordReply(menu);
     const container = reply.components?.[0] as { toJSON?: () => unknown };
-    expect(JSON.stringify(container.toJSON?.())).toContain('attachment://blackcat-game-league-of-legends.png');
-    expect(reply.files).toEqual([expect.objectContaining({ name: 'blackcat-game-league-of-legends.png' })]);
+    expect(JSON.stringify(container.toJSON?.())).toContain('attachment://blackcat-game-league-of-legends.webp');
+    expect(reply.files).toEqual([expect.objectContaining({ name: 'blackcat-game-league-of-legends.webp' })]);
   });
 
   test('uses every generated category banner through a deterministic safe resolver', async () => {
     for (const [label, expected] of [
-      ['英雄联盟美服', 'league-of-legends.png'],
-      ['无畏契约', 'valorant.png'],
-      ['三角洲行动', 'delta-force.png'],
-      ['Apex 英雄', 'apex-legends.png'],
-      ['绝地求生', 'pubg.png'],
-      ['CS2 / CSGO', 'cs2-csgo.png'],
-      ['守望先锋', 'overwatch.png'],
-      ['永劫无间', 'naraka-bladepoint.png'],
-      ['DOTA2', 'dota2.png'],
-      ['金铲铲 / 云顶', 'tft.png'],
-      ['聊天 / 小游戏', 'chat-minigames.png'],
-      ['唱歌 / 声优', 'singing-voice.png'],
-      ['未知游戏', 'other.png']
+      ['英雄联盟美服', 'league-of-legends.webp'],
+      ['无畏契约', 'valorant.webp'],
+      ['三角洲行动', 'delta-force.webp'],
+      ['Apex 英雄', 'apex-legends.webp'],
+      ['绝地求生', 'pubg.webp'],
+      ['CS2 / CSGO', 'cs2-csgo.webp'],
+      ['守望先锋', 'overwatch.webp'],
+      ['永劫无间', 'naraka-bladepoint.webp'],
+      ['DOTA2', 'dota2.webp'],
+      ['金铲铲 / 云顶', 'tft.webp'],
+      ['聊天 / 小游戏', 'chat-minigames.webp'],
+      ['唱歌 / 声优', 'singing-voice.webp'],
+      ['未知游戏', 'other.webp']
     ] as const) {
       const banner = resolveGameBanner(label, label);
       expect(banner.fileName).toBe(expected);

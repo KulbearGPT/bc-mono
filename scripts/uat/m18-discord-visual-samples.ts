@@ -116,7 +116,7 @@ try {
     await offerMessage.react('1️⃣');
     messageIds.push(offerMessage.id);
 
-    const fileNames = (await readdir(GAME_BANNER_DIRECTORY)).filter((name) => name.endsWith('.png')).sort();
+    const fileNames = (await readdir(GAME_BANNER_DIRECTORY)).filter((name) => name.endsWith('.webp')).sort();
     const groups = [fileNames.slice(0, 8), fileNames.slice(8)];
     for (let index = 0; index < groups.length; index += 1) {
       const names = groups[index]!;

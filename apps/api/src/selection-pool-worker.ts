@@ -987,25 +987,25 @@ interface SelectionGameBanner {
   description: string;
 }
 const GAME_BANNER_RULES = [
-  { fileName: "league-of-legends.png", aliases: /英雄联盟|league of legends|\blol(?:na)?\b/iu },
-  { fileName: "valorant.png", aliases: /无畏契约|瓦洛兰特|valorant/iu },
-  { fileName: "delta-force.png", aliases: /三角洲|delta force|\bdelta\b/iu },
-  { fileName: "apex-legends.png", aliases: /apex/iu },
-  { fileName: "pubg.png", aliases: /绝地求生|pubg/iu },
-  { fileName: "cs2-csgo.png", aliases: /cs2|csgo|counter.?strike/iu },
-  { fileName: "overwatch.png", aliases: /守望先锋|overwatch/iu },
-  { fileName: "naraka-bladepoint.png", aliases: /永劫无间|naraka/iu },
-  { fileName: "dota2.png", aliases: /dota\s*2?/iu },
-  { fileName: "tft.png", aliases: /金铲铲|云顶|teamfight|\btft\b/iu },
-  { fileName: "chat-minigames.png", aliases: /聊天|小游戏|chat|minigame/iu },
-  { fileName: "singing-voice.png", aliases: /唱歌|声优|singing|voice/iu },
+  { fileName: "league-of-legends.webp", aliases: /英雄联盟|league of legends|\blol(?:na)?\b/iu },
+  { fileName: "valorant.webp", aliases: /无畏契约|瓦洛兰特|valorant/iu },
+  { fileName: "delta-force.webp", aliases: /三角洲|delta force|\bdelta\b/iu },
+  { fileName: "apex-legends.webp", aliases: /apex/iu },
+  { fileName: "pubg.webp", aliases: /绝地求生|pubg/iu },
+  { fileName: "cs2-csgo.webp", aliases: /cs2|csgo|counter.?strike/iu },
+  { fileName: "overwatch.webp", aliases: /守望先锋|overwatch/iu },
+  { fileName: "naraka-bladepoint.webp", aliases: /永劫无间|naraka/iu },
+  { fileName: "dota2.webp", aliases: /dota\s*2?/iu },
+  { fileName: "tft.webp", aliases: /金铲铲|云顶|teamfight|\btft\b/iu },
+  { fileName: "chat-minigames.webp", aliases: /聊天|小游戏|chat|minigame/iu },
+  { fileName: "singing-voice.webp", aliases: /唱歌|声优|singing|voice/iu },
 ] as const;
 
 export function resolveSelectionGameBanner(labels: string[]): SelectionGameBanner {
   const matches = new Set(
-    labels.map((label) => GAME_BANNER_RULES.find((rule) => rule.aliases.test(label))?.fileName ?? "other.png"),
+    labels.map((label) => GAME_BANNER_RULES.find((rule) => rule.aliases.test(label))?.fileName ?? "other.webp"),
   );
-  const fileName = matches.size === 1 ? [...matches][0]! : "other.png";
+  const fileName = matches.size === 1 ? [...matches][0]! : "other.webp";
   return {
     fileName,
     attachmentName: `blackcat-game-${fileName}`,
