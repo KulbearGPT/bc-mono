@@ -21,7 +21,11 @@ export interface WelcomeDmResolvableGuild extends WelcomeDmGuild {
 }
 
 export interface WelcomeDmAuthorizationApi {
-  getBotConfig(guildId: string, actor: BotConfigActorContext): Promise<{ values: Partial<Record<string, unknown>> }>;
+  getWelcomeDmContext(
+    guildId: string,
+    targetDiscordUserId: string,
+    actor: BotConfigActorContext
+  ): Promise<{ guildId: string; publicEntryChannelId: string | null }>;
 }
 
 export function isWelcomeDmBlocked(error: unknown): boolean {
@@ -91,12 +95,11 @@ export async function resendWelcomeDm(input: {
   targetUserId: string;
   api: WelcomeDmAuthorizationApi;
 }): Promise<{ sent: true; messageId: string } | { sent: false; reason: 'BOT' }> {
-  const snapshot = await input.api.getBotConfig(input.guild.id, input.actor);
-  const configuredEntryChannelId = snapshot.values.public_entry_channel_id;
-  const publicEntryChannelId =
-    typeof configuredEntryChannelId === 'string' && configuredEntryChannelId.length > 0
-      ? configuredEntryChannelId
-      : null;
+  const context = await input.api.getWelcomeDmContext(input.guild.id, input.targetUserId, input.actor);
   const recipient = await input.guild.members.fetch(input.targetUserId);
-  return sendWelcomeDm({ recipient, guild: input.guild, publicEntryChannelId });
+  return sendWelcomeDm({
+    recipient,
+    guild: input.guild,
+    publicEntryChannelId: context.publicEntryChannelId
+  });
 }

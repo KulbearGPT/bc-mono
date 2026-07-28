@@ -1,6 +1,7 @@
 import { access, readFile } from 'node:fs/promises';
 import { describe, expect, test, vi } from 'vitest';
 import { discoverSapphirePieces } from '@blackcat/bot/piece-manifest';
+import { HttpBotConfigApiClient } from '@blackcat/bot/bot-config';
 import { executeWelcomeCommand } from '@blackcat/bot/welcome-command';
 import { buildWelcomeDmMessage, isWelcomeDmBlocked, resendWelcomeDm, sendWelcomeDm } from '@blackcat/bot/welcome-dm';
 
@@ -85,9 +86,9 @@ describe('M18-US-03 newcomer welcome DM', () => {
       }
     };
     const api = {
-      getBotConfig: vi.fn(async () => {
+      getWelcomeDmContext: vi.fn(async () => {
         calls.push('authorize');
-        return { guildId, version: 1, values: { public_entry_channel_id: entryChannelId } };
+        return { guildId, publicEntryChannelId: entryChannelId };
       })
     };
     const actor = {
@@ -102,7 +103,47 @@ describe('M18-US-03 newcomer welcome DM', () => {
       messageId: 'dm-message-2'
     });
     expect(calls).toEqual(['authorize', 'fetch-member', 'send']);
-    expect(api.getBotConfig).toHaveBeenCalledWith(guildId, actor);
+    expect(api.getWelcomeDmContext).toHaveBeenCalledWith(guildId, playerId, actor);
+  });
+
+  test('uses the dedicated welcome endpoint with the complete trusted actor context', async () => {
+    const actor = {
+      guildId,
+      discordUserId: '333333333333333333',
+      interactionId: '444444444444444444',
+      clientSource: 'DISCORD_BOT' as const
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ requestId: 'req-welcome', data: { guildId, publicEntryChannelId: entryChannelId } }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      );
+    const client = new HttpBotConfigApiClient({
+      apiBaseUrl: 'https://api.example.test',
+      botServiceToken: 'bot-token',
+      fetch: fetchMock
+    });
+
+    await expect(client.getWelcomeDmContext(guildId, playerId, actor)).resolves.toEqual({
+      guildId,
+      publicEntryChannelId: entryChannelId
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `https://api.example.test/api/v1/bot/welcome-dm/context?guildId=${guildId}&targetDiscordUserId=${playerId}`,
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          authorization: 'Bearer bot-token',
+          'x-client-source': 'DISCORD_BOT',
+          'x-actor-guild-id': guildId,
+          'x-actor-discord-user-id': actor.discordUserId,
+          'x-discord-interaction-id': actor.interactionId
+        })
+      })
+    );
   });
 
   test('registers automatic join and privileged /welcome re-send pieces', async () => {
@@ -157,9 +198,9 @@ describe('M18-US-03 newcomer welcome DM', () => {
       client: { logger: { error: vi.fn() } }
     };
     const api = {
-      getBotConfig: vi.fn(async () => {
+      getWelcomeDmContext: vi.fn(async () => {
         events.push('authorize');
-        return { values: { public_entry_channel_id: entryChannelId } };
+        return { guildId, publicEntryChannelId: entryChannelId };
       })
     };
 

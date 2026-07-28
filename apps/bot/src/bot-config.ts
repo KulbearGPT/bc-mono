@@ -119,8 +119,18 @@ export interface BotConfigDeliveryTestResult {
   testedAt: string;
 }
 
+export interface WelcomeDmContext {
+  guildId: string;
+  publicEntryChannelId: string | null;
+}
+
 export interface BotConfigApiClient {
   getBotConfig(guildId: string, actor: BotConfigActorContext): Promise<BotConfigSnapshot>;
+  getWelcomeDmContext(
+    guildId: string,
+    targetDiscordUserId: string,
+    actor: BotConfigActorContext
+  ): Promise<WelcomeDmContext>;
   validateBotConfigChange(
     input: BotConfigChangeRequest,
     actor: BotConfigActorContext,
@@ -175,6 +185,18 @@ export class HttpBotConfigApiClient implements BotConfigApiClient {
     return this.request(`/api/v1/admin/bot-config?guildId=${encodeURIComponent(guildId)}`, {
       method: 'GET',
       actor: actor.discordUserId ? actor : undefined
+    });
+  }
+
+  public getWelcomeDmContext(
+    guildId: string,
+    targetDiscordUserId: string,
+    actor: BotConfigActorContext
+  ): Promise<WelcomeDmContext> {
+    const query = new URLSearchParams({ guildId, targetDiscordUserId });
+    return this.request(`/api/v1/bot/welcome-dm/context?${query.toString()}`, {
+      method: 'GET',
+      actor
     });
   }
 

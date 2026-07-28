@@ -506,6 +506,36 @@ export function registerBotConfigRoutes(
 
   registerSecureReadRoute(server, security, {
     method: "GET",
+    url: "/api/v1/bot/welcome-dm/context",
+    permission: "welcome_dm.send",
+    action: "AUTHORIZE_WELCOME_DM_SEND",
+    targetType: "discord_user",
+    acceptedSources: ["DISCORD_BOT"],
+    mapError,
+    targetId: (request) => queryTargetDiscordUserId(request),
+    handler: async (request, actor) => {
+      const guildId = queryGuildId(request);
+      assertGuildActor(actor, guildId);
+      const snapshot = await options.store.get(guildId);
+      if (!snapshot)
+        throw new BotConfigError(
+          "NOT_FOUND",
+          "Bot configuration was not found.",
+        );
+      const configuredEntryChannelId = snapshot.values.public_entry_channel_id;
+      return {
+        guildId,
+        publicEntryChannelId:
+          typeof configuredEntryChannelId === "string" &&
+          configuredEntryChannelId.length > 0
+            ? configuredEntryChannelId
+            : null,
+      };
+    },
+  });
+
+  registerSecureReadRoute(server, security, {
+    method: "GET",
     url: "/api/v1/admin/bot-config",
     permission: "bot_config.read",
     action: "GET_BOT_CONFIG",
@@ -1007,6 +1037,12 @@ function queryGuildId(request: FastifyRequest) {
 function rawQueryGuildId(request: FastifyRequest) {
   const value = (request.query as Record<string, unknown>).guildId;
   return typeof value === "string" ? value.slice(0, 100) : "unknown";
+}
+function queryTargetDiscordUserId(request: FastifyRequest) {
+  return snowflake(
+    (request.query as Record<string, unknown>).targetDiscordUserId,
+    "targetDiscordUserId",
+  );
 }
 function rawBodyGuildId(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value))
