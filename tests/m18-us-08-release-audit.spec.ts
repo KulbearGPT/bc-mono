@@ -28,6 +28,19 @@ describe('M18-US-08 release audit', () => {
     ]);
     expect(games.some((name) => name.endsWith('.png'))).toBe(false);
 
+    const mascotPath = 'apps/api/assets/brand/mascot-character-reference.png';
+    const mascot = await readFile(mascotPath);
+    expect(pngDimensions(mascot)).toEqual({ width: 1280, height: 720 });
+    const mascotRules = await readFile('apps/api/assets/brand/README.md', 'utf8');
+    expect(mascotRules).toContain('尾巴从后腰连接');
+    expect(mascotRules).toContain('禁止头顶毛束');
+
+    for (const fileName of dispatch) {
+      const path = `apps/api/assets/dispatch/${fileName}`;
+      expect(pngDimensions(await readFile(path))).toEqual({ width: 1774, height: 887 });
+      expect((await stat(path)).size).toBeLessThanOrEqual(2_500_000);
+    }
+
     const welcomePath = 'apps/api/assets/onboarding/welcome.webp';
     const welcome = await readFile(welcomePath);
     expect(webpDimensions(welcome)).toEqual({ width: 1600, height: 535 });
@@ -66,6 +79,13 @@ describe('M18-US-08 release audit', () => {
     ]);
   });
 });
+
+function pngDimensions(buffer: Buffer): { width: number; height: number } {
+  if (buffer.toString('ascii', 1, 4) !== 'PNG') {
+    throw new Error('Expected a PNG container.');
+  }
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
 
 function webpDimensions(buffer: Buffer): { width: number; height: number } {
   if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') {
