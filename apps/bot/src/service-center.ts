@@ -8,7 +8,6 @@ import {
   type BotApiClient,
   type CancellationPreviewSummary,
   type CancellationResultSummary,
-  type DispatchOfferSummary,
   type OrderEstimateSummary,
   type OrderChannelSpec,
   type OrderRequirementMutationSummary,
@@ -936,78 +935,6 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
       .join('\n'),
     visibility: 'EPHEMERAL',
     components
-  };
-}
-
-export function buildDispatchOfferMessage(input: DispatchOfferSummary): MessageSpec {
-  return {
-    title: `🔔 新订单 #${input.orderPublicId}`,
-    body: [
-      `**${input.game} · ${input.service}**`,
-      `区服：${input.region}`,
-      `时长：${input.durationLabel}`,
-      input.voiceChannelId ? `语音频道：${input.voiceChannelId}` : '语音频道：待创建',
-      input.notes ? `备注：${input.notes}` : '备注：未填写',
-      `接单截止：${input.expiresAt}`
-    ].join('\n'),
-    visibility: 'PRIVATE_CHANNEL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: `bc:dispatch:${input.dispatchAttemptId}:accept:${input.orderId}:v${input.orderVersion}`,
-            label: '确认接单'
-          },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:dispatch:${input.dispatchAttemptId}:decline:${input.orderId}:v${input.orderVersion}`,
-            label: '暂不接单'
-          }
-        ]
-      }
-    ]
-  };
-}
-
-export function buildAcceptedDispatchMessage(input: {
-  offer: DispatchOfferSummary;
-  acceptedPlayerDisplayName: string;
-}): MessageSpec {
-  return {
-    title: `✅ 订单 #${input.offer.orderPublicId} 已被接取`,
-    body: [
-      `接单陪玩：${input.acceptedPlayerDisplayName}`,
-      `${input.offer.game} · ${input.offer.service}`,
-      `区服：${input.offer.region}`,
-      `时长：${input.offer.durationLabel}`,
-      '本轮派单已结束，其他接单按钮已失效。'
-    ].join('\n'),
-    visibility: 'PRIVATE_CHANNEL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:dispatch:${input.offer.dispatchAttemptId}:accepted:${input.offer.orderId}:v${input.offer.orderVersion}`,
-            label: '已接单',
-            disabled: true
-          },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:dispatch:${input.offer.dispatchAttemptId}:closed:${input.offer.orderId}:v${input.offer.orderVersion}`,
-            label: '本轮已结束',
-            disabled: true
-          }
-        ]
-      }
-    ]
   };
 }
 

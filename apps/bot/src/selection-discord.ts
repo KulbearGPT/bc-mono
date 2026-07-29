@@ -2,13 +2,6 @@ import { buildExperienceMessage } from './discord-experience.js';
 import type { MessageSpec } from './service-center-components.js';
 import type { OrderSummary, SelectionPoolSummary } from './service-center-api.js';
 
-export interface SelectionRequirementOffer {
-  id: string;
-  label: string;
-  remainingSlots: number;
-  expectedEarningMinor: number;
-  currency: string;
-}
 export interface SelectionCandidate {
   id: string;
   playerDisplayName: string;
@@ -74,55 +67,6 @@ export type SelectionRoute =
       cursor: string;
     }
   | { action: 'unknown' };
-
-export function buildSelectionPoolOfferMessage(input: {
-  orderId: string;
-  poolId: string;
-  poolVersion: number;
-  orderPublicId: string;
-  requirements: SelectionRequirementOffer[];
-}): MessageSpec {
-  const requirements = input.requirements.filter((item) => item.remainingSlots > 0).slice(0, 25);
-  return buildExperienceMessage({
-    title: `新单报名 #${input.orderPublicId}`,
-    icon: '🐾',
-    introduction: '猫舍有新委托啦～报名不占用正式订单名额，合适就来留个爪印。',
-    visibility: 'PUBLIC',
-    density: 'PUBLIC_MILESTONE',
-    tone: 'BRAND',
-    coreFacts: [
-      {
-        name: '🎮 可报名项目',
-        value:
-          requirements.map((item, index) => `${index + 1}️⃣ ${item.label} · 缺 ${item.remainingSlots} 位`).join('\n') ||
-          '暂无可报名项目'
-      }
-    ],
-    progress: '持续招募中，直到老板手动终止',
-    nextStep: '选择你想报名的项目；取消报名后会自动退出本轮。',
-    components: requirements.length
-      ? [
-          {
-            type: 'ACTION_ROW',
-            components: [
-              {
-                type: 'STRING_SELECT',
-                customId: `bc:sp:m:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}`,
-                placeholder: '选择要报名的项目',
-                options: requirements.map((item) => ({
-                  label: item.label.slice(0, 100),
-                  value: short(item.id),
-                  description: `缺 ${item.remainingSlots} 位`
-                })),
-                minValues: 1,
-                maxValues: 1
-              }
-            ]
-          }
-        ]
-      : []
-  });
-}
 
 export function buildSelectionCandidatePanel(input: {
   orderId: string;

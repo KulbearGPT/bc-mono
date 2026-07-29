@@ -132,7 +132,7 @@ describe('M5-US-06 PilotFeaturePolicy', () => {
     const openapi = readFileSync('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8');
     expect(openapi).toContain('required: [staffId, level, scope, permissions, thresholds, mfa, stepUp, enabledFeatures, businessEnvironment, displayRole, permissionsVersion]');
     expect(openapi).toContain('required: [user, activeOrderId, consumptionSummary, commissionSummary, enabledFeatures]');
-    expect(openapi).toContain('required: [orderId, status, version, actorRole, enabledFeatures, readiness]');
+    expect(openapi).toContain('required: [orderId, status, version, actorRole, enabledFeatures, availableActions, readiness]');
     expect(openapi).toContain('items: {type: string, enum: [CORE_ORDER, GIFTS, REFERRALS, M6]}');
     expect(openapi).toContain('businessEnvironment: {type: string, enum: [SANDBOX, PRODUCTION]}');
   });

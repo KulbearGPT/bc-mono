@@ -4,7 +4,6 @@ import { buildSubmittedOrderMessage } from '@blackcat/bot/service-center';
 import {
   buildSelectionCandidateConfirmation,
   buildSelectionCandidatePanel,
-  buildSelectionPoolOfferMessage,
   buildSelectionVoicePlan,
   parseSelectionCustomId,
   selectionFinalizeRouteFromConfirmationComponents,
@@ -159,32 +158,7 @@ describe('M11-US-03 Discord selection flow', () => {
     expect(JSON.stringify(message)).not.toContain('等待 3 分钟');
   });
 
-  test('renders nine-project apply and private customer selection controls under Discord custom-id limits', () => {
-    const requirements = Array.from({ length: 9 }, (_, index) => ({
-      id: `00000000-0000-0000-0000-${String(11050 + index).padStart(12, '0')}`,
-      label: `项目 ${index + 1}`,
-      remainingSlots: 2,
-      expectedEarningMinor: 120,
-      currency: 'CAT'
-    }));
-    const offer = buildSelectionPoolOfferMessage({
-      orderId,
-      poolId,
-      poolVersion: 2,
-      orderPublicId: 'P-M11',
-      closesAt: '2026-08-04T12:03:00Z',
-      requirements
-    });
-    const apply = offer.components[0]!.components[0]!;
-    expect(apply.type).toBe('STRING_SELECT');
-    expect(apply.options).toHaveLength(9);
-    expect(apply.customId.length).toBeLessThanOrEqual(100);
-    expect(parseSelectionCustomId(apply.customId)).toMatchObject({
-      action: 'apply-menu',
-      orderId,
-      poolId,
-      expectedPoolVersion: 2
-    });
+  test('renders private customer selection controls under Discord custom-id limits', () => {
     const panel = buildSelectionCandidatePanel({
       orderId,
       poolId,
