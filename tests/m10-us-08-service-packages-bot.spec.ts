@@ -86,10 +86,9 @@ describe('M10-US-08 Discord package composer', () => {
     const message = buildMultiProjectOrderPanelMessage(botOrder(), page(), []);
     const rendered = JSON.stringify(message);
     expect(message.title).toContain('第 3/4 步');
-    expect(rendered).toContain('＋ 添加其他游戏或单点');
-    expect(rendered).toContain('下一步 · 确认订单');
-    for (const legacy of ['按游戏点单', '优先陪玩', '补充备注', '取消订单', '我要申诉'])
-      expect(rendered).not.toContain(legacy);
+    expect(rendered).toContain('继续添加游戏或服务');
+    expect(rendered).toContain('核对订单与总价');
+    for (const legacy of ['按游戏点单', '优先陪玩', '补充备注', '我要申诉']) expect(rendered).not.toContain(legacy);
     expect(rendered).toContain('目录小计：20.0 CAT');
     expect(rendered).toContain('套餐调整：-2.0 CAT');
     expect(rendered).toContain('合计：18.0 CAT');
@@ -120,7 +119,7 @@ describe('M10-US-08 Discord package composer', () => {
     expect(message.components).toHaveLength(5);
     expect(JSON.stringify(message.components)).toContain(service.id);
     expect(JSON.stringify(message.components)).not.toContain(other.id);
-    expect(JSON.stringify(message.components)).toContain('席位偏好');
+    expect(JSON.stringify(message.components)).toContain('填写这个席位的需求');
     const modal = buildRequirementNoteModal({
       orderId,
       requirementId: requirement.id,
@@ -207,7 +206,7 @@ describe('M10-US-08 Discord package composer', () => {
       { items: [preview()], nextCursor: null },
       single
     );
-    expect(JSON.stringify(menu)).toContain('单点加入');
+    expect(JSON.stringify(menu)).toContain('加入这个单点服务');
     expect(parseServiceCenterCustomId(`bc:req:${orderId}:${single.id}:add:v1`)).toMatchObject({
       area: 'order-requirement-add-action',
       serviceCatalogVersionId: single.id
@@ -227,8 +226,8 @@ describe('M10-US-08 Discord package composer', () => {
     expect(confirmation.title).toContain('第 4/4 步');
     expect(confirmation.title).toContain('最后确认');
     expect(rendered).toContain('返回编辑');
-    expect(rendered).toContain('确认提交订单');
-    expect(rendered).not.toContain('取消订单');
+    expect(rendered).toContain('提交订单并预留猫条');
+    expect(rendered).toContain('取消订单');
   });
   test('serializes the game picker as a real Discord Components V2 container', () => {
     const service = {
@@ -282,7 +281,13 @@ function botOrder(): OrderSummary {
     },
     matching: null,
     compositionMode: 'PACKAGE_DEFAULT',
-    sourcePackageVersionId: packageId
+    sourcePackageVersionId: packageId,
+    availableActions: [
+      { key: 'CUSTOMER_CONTINUE_ORDER', role: 'CUSTOMER', enabled: true, risk: 'PRIMARY', reasonCode: null },
+      { key: 'CUSTOMER_CANCEL_ORDER', role: 'CUSTOMER', enabled: true, risk: 'DANGER', reasonCode: null },
+      { key: 'CUSTOMER_REFRESH_ORDER', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null },
+      { key: 'CUSTOMER_CONTACT_SUPPORT', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null }
+    ]
   };
 }
 function preview(): ServicePackagePreviewSummary {
@@ -354,17 +359,15 @@ function stub() {
     getOrder: vi.fn().mockResolvedValue(updated),
     listServicePackages: vi.fn().mockResolvedValue({ items: [preview()], nextCursor: null }),
     previewServicePackage: vi.fn().mockResolvedValue(preview()),
-    applyServicePackage: vi
-      .fn()
-      .mockResolvedValue({
-        orderId,
-        orderVersion: 2,
-        sourcePackageVersionId: packageId,
-        compositionMode: 'PACKAGE_DEFAULT',
-        derivedTotalMinor: 180,
-        currency: 'CAT',
-        requirements: page().items
-      }),
+    applyServicePackage: vi.fn().mockResolvedValue({
+      orderId,
+      orderVersion: 2,
+      sourcePackageVersionId: packageId,
+      compositionMode: 'PACKAGE_DEFAULT',
+      derivedTotalMinor: 180,
+      currency: 'CAT',
+      requirements: page().items
+    }),
     listOrderRequirements: vi.fn().mockResolvedValue(page()),
     listServices: vi.fn().mockResolvedValue({ items: [] })
   } as unknown as BotApiClient & { applyServicePackage: ReturnType<typeof vi.fn> };

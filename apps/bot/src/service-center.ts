@@ -183,13 +183,8 @@ export function buildOrderPanelMessage(
     progress: orderStatusDisplay(order.status),
     nextStep: terminal
       ? '本单无需继续操作；如需核对资金或服务记录，请联系猫舍前台。'
-      : '使用下方当前可用按钮继续；状态有变化时点击“刷新订单”。',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: orderStatusControls(order.id, order.version, order.status)
-      }
-    ]
+      : '使用下方当前可用按钮继续；状态有变化时点击“刷新最新状态”。',
+    components: customerOrderActionRows(order)
   });
 }
 
@@ -224,19 +219,7 @@ export function buildMultiProjectOrderPanelMessage(
         .join('\n\n')
     : '清单还是空的。请先选择游戏，再从对应菜单加入套餐或单点项目。';
   const components: ActionRowSpec[] = selected
-    ? [
-        {
-          type: 'ACTION_ROW',
-          components: [
-            select(
-              `bc:req:${order.id}:edit:${cursor ?? 'first'}:v${page.orderVersion}`,
-              '选择要修改的项目',
-              requirementOptions(requirements),
-              requirements.length === 0
-            )
-          ]
-        }
-      ]
+    ? []
     : [
         {
           type: 'ACTION_ROW',
@@ -321,45 +304,57 @@ export function buildMultiProjectOrderPanelMessage(
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:rno:${order.id}:${selected.id}:v${page.orderVersion}:r${selected.version}`,
-            label: '席位偏好'
-          },
-          {
-            type: 'BUTTON',
-            style: 'DANGER',
-            customId: `bc:req:${order.id}:${selected.id}:remove:v${page.orderVersion}:r${selected.version}`,
-            label: '删除此项目'
+            label: '填写这个席位的需求'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:req:${order.id}:back:v${page.orderVersion}`,
-            label: '返回清单'
+            label: '返回已选服务'
           },
           {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:order:${order.id}:submit:v${page.orderVersion}`,
-            label: '下一步 · 确认订单'
-          },
-          refreshOrderControl(order.id)
+            label: '核对订单与总价'
+          }
         ]
       : [
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:package:${order.id}:open:v${page.orderVersion}`,
-            label: '＋ 添加其他游戏或单点'
+            label: '继续添加游戏或服务'
           },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: `bc:order:${order.id}:submit:v${page.orderVersion}`,
-            label: '下一步 · 确认订单',
-            disabled: requirements.length === 0
-          },
-          refreshOrderControl(order.id)
+          ...(requirements.length
+            ? [
+                {
+                  type: 'BUTTON' as const,
+                  style: 'PRIMARY' as const,
+                  customId: `bc:order:${order.id}:submit:v${page.orderVersion}`,
+                  label: '核对订单与总价'
+                }
+              ]
+            : [])
         ]
   });
+  if (selected)
+    components.push({
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'DANGER',
+          customId: `bc:req:${order.id}:${selected.id}:remove:v${page.orderVersion}:r${selected.version}`,
+          label: '删除这个服务项目'
+        },
+        {
+          ...cancelOrderControl(order),
+          label: '取消整张订单'
+        }
+      ]
+    });
+  if (!selected) components.push(...customerOrderUtilityRows(order));
 
   const composition =
     order.compositionMode === 'PACKAGE_DEFAULT'
@@ -390,7 +385,7 @@ export function buildMultiProjectOrderPanelMessage(
     ],
     bossRequest: order.notes || null,
     nextStep: requirements.length
-      ? '可继续调整席位；确认无误后点击“下一步 · 确认订单”。'
+      ? '可继续调整席位；确认无误后点击“核对订单与总价”。'
       : '先添加至少一个游戏或单点项目。',
     components,
     layout: 'COMPONENTS_V2'
@@ -432,10 +427,10 @@ export function buildServicePackagePickerMessage(order: OrderSummary, page: Serv
             style: 'SECONDARY',
             customId: `bc:package:${order.id}:back:v${order.version}`,
             label: '返回自由搭配'
-          },
-          refreshOrderControl(order.id)
+          }
         ]
-      }
+      },
+      ...customerOrderUtilityRows(order)
     ]
   };
 }
@@ -461,9 +456,9 @@ export function buildGamePickerMessage(
       content: `### ${name}  \`${game}\`\n${services.filter((item) => item.game === game).length} 个单点 · ${packages.filter((item) => item.game === game).length} 个套餐；进入后只显示本游戏目录。`,
       accessory: {
         type: 'BUTTON',
-        style: 'PRIMARY',
+        style: 'SECONDARY',
         customId: `bc:game:${order.id}:${game}:open:v${order.version}`,
-        label: '进入'
+        label: '查看这个游戏'
       }
     }))
   ];
@@ -475,14 +470,11 @@ export function buildGamePickerMessage(
           type: 'BUTTON',
           style: 'SECONDARY',
           customId: `bc:package:${order.id}:back:v${order.version}`,
-          label: '查看已点清单'
+          label: '查看已选服务'
         }
       ]
     });
-  components.push({
-    type: 'ACTION_ROW',
-    components: [refreshOrderControl(order.id)]
-  });
+  components.push(...customerOrderUtilityRows(order));
   return buildExperienceMessage({
     title: `订单 ${order.publicId} · 第 1/4 步 · 选择游戏`,
     icon: '🎮',
@@ -492,7 +484,7 @@ export function buildGamePickerMessage(
     tone: games.length ? 'BRAND' : 'MUTED',
     coreFacts: [{ name: '🧭 下单进度', value: '第 1/4 步 · 选择游戏' }],
     nextStep: games.length
-      ? '点击游戏右侧的“进入”；下一页只显示该游戏的套餐和单点。'
+      ? '点击游戏右侧的“查看这个游戏”；下一页只显示该游戏的套餐和单点。'
       : '请稍后刷新，或联系猫舍前台了解开放时间。',
     components,
     layout: 'COMPONENTS_V2',
@@ -520,9 +512,9 @@ export function buildGameOrderingMenuMessage(
       content: `### ${item.displayName}\n${item.description}\n**${item.defaultCustomerPriceMinor === null ? '由目录实时计价' : formatCustomerMoney(item.defaultCustomerPriceMinor, item.currency)}** · ${item.slots.length} 个席位`,
       accessory: {
         type: 'BUTTON',
-        style: 'PRIMARY',
+        style: 'SECONDARY',
         customId: `bc:package:${order.id}:${item.id}:preview:v${order.version}`,
-        label: '查看'
+        label: '查看套餐内容'
       }
     }))
   ];
@@ -546,7 +538,7 @@ export function buildGameOrderingMenuMessage(
           type: 'BUTTON',
           style: 'PRIMARY',
           customId: `bc:req:${order.id}:${selectedService.id}:add:v${order.version}`,
-          label: '单点加入'
+          label: '加入这个单点服务'
         }
       ]
     });
@@ -569,15 +561,15 @@ export function buildGameOrderingMenuMessage(
         ? [
             {
               type: 'BUTTON' as const,
-              style: 'PRIMARY' as const,
+              style: 'SECONDARY' as const,
               customId: `bc:package:${order.id}:back:v${order.version}`,
-              label: '查看清单'
+              label: '查看已选服务'
             }
           ]
-        : []),
-      refreshOrderControl(order.id)
+        : [])
     ]
   });
+  components.push(...customerOrderUtilityRows(order));
   return buildExperienceMessage({
     title: `订单 ${order.publicId} · 第 2/4 步 · ${gameName} 菜单`,
     icon: '🐾',
@@ -590,7 +582,7 @@ export function buildGameOrderingMenuMessage(
       { name: '📚 当前目录', value: `${gameName} · ${packages.items.length} 个套餐 · ${services.length} 个单点` }
     ],
     bossRequest: order.notes || null,
-    nextStep: '套餐点“查看”确认阵容；单点先在菜单选择预览，再点“单点加入”。',
+    nextStep: '套餐点“查看套餐内容”确认阵容；单点先在菜单选择预览，再点“加入这个单点服务”。',
     components,
     layout: 'COMPONENTS_V2',
     attachments: [{ name: banner.attachmentName, path: banner.path }]
@@ -628,7 +620,7 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:package:${order.id}:${pkg.id}:apply:v${order.version}`,
-            label: '采用套餐'
+            label: '把此套餐加入订单'
           },
           {
             type: 'BUTTON',
@@ -642,13 +634,13 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
                   type: 'BUTTON' as const,
                   style: 'SECONDARY' as const,
                   customId: `bc:package:${order.id}:back:v${order.version}`,
-                  label: '查看清单'
+                  label: '查看已选服务'
                 }
               ]
-            : []),
-          refreshOrderControl(order.id)
+            : [])
         ]
-      }
+      },
+      ...customerOrderUtilityRows(order)
     ],
     layout: 'COMPONENTS_V2',
     attachments: [{ name: banner.attachmentName, path: banner.path }]
@@ -765,26 +757,7 @@ function buildPausedAutomationMessage(order: OrderSummary): MessageSpec {
       .filter(Boolean)
       .join('\n'),
     visibility: 'PRIVATE_CHANNEL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:service:support:${order.id}:v${order.version}`,
-            label: '我要申诉'
-          },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: `bc:order:${order.id}:cancel:v${order.version}`,
-            label: '查看取消影响'
-          },
-          refreshOrderControl(order.id)
-        ]
-      }
-    ]
+    components: customerOrderActionRows(order)
   };
 }
 
@@ -795,7 +768,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
       title: `📋 订单 #${order.publicId}`,
       body: BOT_COPY.orders.matchingUnavailable,
       visibility: 'PRIVATE_CHANNEL',
-      components: [{ type: 'ACTION_ROW', components: orderStatusControls(order.id, order.version, order.status) }]
+      components: customerOrderActionRows(order)
     };
   }
   if (matching.stage === 'ACCEPTED') {
@@ -805,7 +778,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
         '\n'
       ),
       visibility: 'PRIVATE_CHANNEL',
-      components: [{ type: 'ACTION_ROW', components: orderStatusControls(order.id, order.version, order.status) }]
+      components: customerOrderActionRows(order)
     };
   }
   const nextStep =
@@ -833,12 +806,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
       .filter(Boolean)
       .join('\n'),
     visibility: 'PRIVATE_CHANNEL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: orderMenuControls(order.id, order.version)
-      }
-    ]
+    components: customerOrderActionRows(order)
   };
 }
 
@@ -876,7 +844,12 @@ export function buildCancellationPreviewMessage(preview: CancellationPreviewSumm
             style: preview.staffTaskRequired ? 'SECONDARY' : 'DANGER',
             customId: `bc:cancel:${preview.orderId}:${preview.previewId}:confirm:v${preview.orderVersion}`,
             label: preview.staffTaskRequired ? '提交客服处理' : '确认取消'
-          },
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
           {
             type: 'BUTTON',
             style: 'SECONDARY',
@@ -895,24 +868,53 @@ export function buildPlayerWorkbenchMessage(workbench: PlayerWorkbenchSummary): 
     : '当前订单：暂无';
   const matchingLines = '可报名新单：请查看派单频道；报名不会占用正式订单名额。';
   const failedChecks = workbench.eligibility.checks.filter((check) => !check.passed);
-  const components: ActionRowSpec[] = [
+  const actions = (workbench.availableActions ?? []).filter((action) => action.enabled && action.role === 'PLAYER');
+  const primary: ComponentSpec[] = [];
+  if (workbench.currentOrder && actions.some((action) => action.key === 'PLAYER_OPEN_CURRENT_ORDER'))
+    primary.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:order:${workbench.currentOrder.id}:open`,
+      label: '打开当前订单'
+    });
+  if (workbench.currentOrder && actions.some((action) => action.key === 'PLAYER_SET_READINESS'))
+    primary.push({
+      type: 'BUTTON',
+      style: 'PRIMARY',
+      customId: `bc:service:ready:${workbench.currentOrder.id}:v${workbench.currentOrder.version}`,
+      label: '陪玩：我已准备好'
+    });
+  if (workbench.currentOrder && actions.some((action) => action.key === 'PLAYER_REQUEST_COMPLETION'))
+    primary.push({
+      type: 'BUTTON',
+      style: 'PRIMARY',
+      customId: `bc:service:request-completion:${workbench.currentOrder.id}:v${workbench.currentOrder.version}`,
+      label: '陪玩：提交服务完成'
+    });
+  const utility: ComponentSpec[] = [
     {
-      type: 'ACTION_ROW',
-      components: [
-        {
-          type: 'BUTTON',
-          style: 'SECONDARY',
-          customId: 'bc:entry:player-workbench',
-          label: '刷新'
-        },
-        {
-          type: 'BUTTON',
-          style: 'SECONDARY',
-          customId: 'bc:reports:list:first',
-          label: '我的周报'
-        }
-      ]
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: 'bc:entry:player-workbench',
+      label: '刷新陪玩工作台'
+    },
+    {
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: 'bc:reports:list:first',
+      label: '查看我的周报'
     }
+  ];
+  if (workbench.currentOrder && actions.some((action) => action.key === 'PLAYER_CONTACT_SUPPORT'))
+    utility.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:service:support:${workbench.currentOrder.id}:v${workbench.currentOrder.version}`,
+      label: '联系猫舍前台'
+    });
+  const components: ActionRowSpec[] = [
+    ...(primary.length ? [{ type: 'ACTION_ROW' as const, components: primary }] : []),
+    { type: 'ACTION_ROW', components: utility }
   ];
   return {
     title: '🎧 陪玩工作台',
@@ -1056,35 +1058,41 @@ export function buildOrderConfirmationMessage(input: {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:order:${input.order.id}:submit-final:v${input.order.version}`,
-            label: '确认提交并预留',
+            label: '提交订单并预留猫条',
             disabled: !canSubmit
-          },
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:order:${input.order.id}:refresh`,
-            label: '刷新确认'
-          },
-          {
-            type: 'BUTTON',
-            style: 'DANGER',
-            customId: `bc:order:${input.order.id}:cancel:v${input.order.version}`,
-            label: '取消订单'
+            label: '刷新最新状态'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:service:support:${input.order.id}:v${input.order.version}`,
-            label: '我要申诉'
+            label: '联系猫舍前台'
           },
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: 'bc:service-center:recharge',
-            label: '联系客服充值',
-            disabled: deficitMinor === 0
-          }
+          ...(deficitMinor > 0
+            ? [
+                {
+                  type: 'BUTTON' as const,
+                  style: 'SECONDARY' as const,
+                  customId: 'bc:service-center:recharge',
+                  label: '联系前台充值'
+                }
+              ]
+            : [])
         ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [cancelOrderControl(input.order)]
       }
     ]
   };
@@ -1120,7 +1128,9 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
     density: 'PRIVATE_ORDER',
     tone: canSubmit ? 'SUCCESS' : 'WAITING',
     bossRequest: input.order.notes || null,
-    nextStep: canSubmit ? '点击“确认提交订单”；系统会预留猫条，但此时不会正式扣款。' : '返回编辑或补足钱包后刷新本页。',
+    nextStep: canSubmit
+      ? '点击“提交订单并预留猫条”；系统只会创建预留，此时不会正式扣款。'
+      : '返回编辑或补足钱包后刷新本页。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -1135,12 +1145,12 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:order:${input.order.id}:submit-final:v${input.requirements.orderVersion}`,
-            label: '确认提交订单',
+            label: '提交订单并预留猫条',
             disabled: !canSubmit
-          },
-          refreshOrderControl(input.order.id)
+          }
         ]
-      }
+      },
+      ...customerOrderUtilityRows(input.order)
     ],
     layout: 'COMPONENTS_V2',
     coreFacts: [
@@ -1182,7 +1192,7 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
               type: 'BUTTON',
               style: 'SECONDARY',
               customId: `bc:service:support:${input.orderId}:v${input.version}`,
-              label: '联系客服'
+              label: '联系猫舍前台'
             },
             refreshOrderControl(input.orderId)
           ]
@@ -2120,50 +2130,43 @@ function requirePackageApi(api: BotApiClient) {
   };
 }
 
-function orderMenuControls(orderId: string, version: number): ComponentSpec[] {
-  return [
-    refreshOrderControl(orderId),
-    {
+function customerOrderActionRows(order: OrderSummary): ActionRowSpec[] {
+  const actions = (order.availableActions ?? []).filter((action) => action.enabled && action.role === 'CUSTOMER');
+  const primary: ComponentSpec[] = [];
+  const utility: ComponentSpec[] = [];
+  if (actions.some((action) => action.key === 'CUSTOMER_CONFIRM_COMPLETION'))
+    primary.push({
       type: 'BUTTON',
-      style: 'DANGER',
-      customId: `bc:order:${orderId}:cancel:v${version}`,
-      label: '取消订单'
-    },
-    {
+      style: 'PRIMARY',
+      customId: `bc:service:confirm:${order.id}:v${order.version}`,
+      label: '老板：确认服务完成'
+    });
+  if (actions.some((action) => action.key === 'CUSTOMER_SEND_GIFT'))
+    utility.push({
       type: 'BUTTON',
       style: 'SECONDARY',
-      customId: `bc:service:support:${orderId}:v${version}`,
-      label: '我要申诉'
-    }
+      customId: `bc:gift:open:${order.id}:v${order.version}`,
+      label: '赠送礼物'
+    });
+  if (actions.some((action) => action.key === 'CUSTOMER_REFRESH_ORDER')) utility.push(refreshOrderControl(order.id));
+  if (actions.some((action) => action.key === 'CUSTOMER_CONTACT_SUPPORT'))
+    utility.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:service:support:${order.id}:v${order.version}`,
+      label: '联系猫舍前台'
+    });
+  const rows: ActionRowSpec[] = [
+    ...(primary.length ? [{ type: 'ACTION_ROW' as const, components: primary }] : []),
+    ...(utility.length ? [{ type: 'ACTION_ROW' as const, components: utility.slice(0, 3) }] : [])
   ];
-}
-
-function orderStatusControls(orderId: string, version: number, status: string): ComponentSpec[] {
-  const controls = orderMenuControls(orderId, version);
-  if (status === 'ACCEPTED')
-    controls.unshift({
-      type: 'BUTTON',
-      style: 'PRIMARY',
-      customId: `bc:service:ready:${orderId}:v${version}`,
-      label: '我已就绪'
-    });
-  if (status === 'IN_SERVICE')
-    controls.unshift({
-      type: 'BUTTON',
-      style: 'PRIMARY',
-      customId: `bc:service:request-completion:${orderId}:v${version}`,
-      label: '申请完成'
-    });
-  if (status === 'PENDING_CONFIRMATION')
-    controls.unshift({
-      type: 'BUTTON',
-      style: 'PRIMARY',
-      customId: `bc:service:confirm:${orderId}:v${version}`,
-      label: '确认完成'
-    });
-  if (status === 'COMPLETED' || status === 'CANCELLED')
-    return controls.filter((control) => control.type !== 'BUTTON' || control.label !== '取消订单');
-  return controls;
+  const cancel = customerOrderUtilityRows(order).find((row) =>
+    row.components.some(
+      (component) => component.type === 'BUTTON' && component.customId.includes(`bc:order:${order.id}:cancel:`)
+    )
+  );
+  if (cancel) rows.push(cancel);
+  return rows;
 }
 
 function refreshOrderControl(orderId: string): ComponentSpec {
@@ -2171,7 +2174,52 @@ function refreshOrderControl(orderId: string): ComponentSpec {
     type: 'BUTTON',
     style: 'SECONDARY',
     customId: `bc:order:${orderId}:refresh`,
-    label: '刷新订单'
+    label: '刷新最新状态'
+  };
+}
+
+function customerOrderUtilityRows(order: OrderSummary): ActionRowSpec[] {
+  const actions = (order.availableActions ?? []).filter((action) => action.enabled && action.role === 'CUSTOMER');
+  const utility: ComponentSpec[] = [];
+  if (actions.some((action) => action.key === 'CUSTOMER_REFRESH_ORDER')) utility.push(refreshOrderControl(order.id));
+  if (actions.some((action) => action.key === 'CUSTOMER_CONTACT_SUPPORT'))
+    utility.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:service:support:${order.id}:v${order.version}`,
+      label: '联系猫舍前台'
+    });
+  const rows: ActionRowSpec[] = utility.length ? [{ type: 'ACTION_ROW', components: utility }] : [];
+  if (
+    actions.some((action) =>
+      ['CUSTOMER_CANCEL_ORDER', 'CUSTOMER_REQUEST_CANCELLATION', 'CUSTOMER_VIEW_CANCELLATION_STATUS'].includes(
+        action.key
+      )
+    )
+  )
+    rows.push({ type: 'ACTION_ROW', components: [cancelOrderControl(order)] });
+  return rows;
+}
+
+function cancelOrderControl(order: OrderSummary): Extract<ComponentSpec, { type: 'BUTTON' }> {
+  const action = (order.availableActions ?? []).find(
+    (candidate) =>
+      candidate.enabled &&
+      candidate.role === 'CUSTOMER' &&
+      ['CUSTOMER_CANCEL_ORDER', 'CUSTOMER_REQUEST_CANCELLATION', 'CUSTOMER_VIEW_CANCELLATION_STATUS'].includes(
+        candidate.key
+      )
+  );
+  return {
+    type: 'BUTTON',
+    style: action?.key === 'CUSTOMER_VIEW_CANCELLATION_STATUS' ? 'SECONDARY' : 'DANGER',
+    customId: `bc:order:${order.id}:cancel:v${order.version}`,
+    label:
+      action?.key === 'CUSTOMER_REQUEST_CANCELLATION'
+        ? '申请取消订单'
+        : action?.key === 'CUSTOMER_VIEW_CANCELLATION_STATUS'
+          ? '查看取消处理进度'
+          : '取消订单'
   };
 }
 
@@ -2330,17 +2378,18 @@ function buildIncompleteConfirmationMessage(order: OrderSummary): MessageSpec {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:order:${order.id}:submit-final:v${order.version}`,
-            label: '确认提交并预留',
+            label: '提交订单并预留猫条',
             disabled: true
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:order:${order.id}:refresh`,
-            label: '返回修改'
+            label: '返回补全订单'
           }
         ]
-      }
+      },
+      ...customerOrderUtilityRows(order)
     ]
   };
 }

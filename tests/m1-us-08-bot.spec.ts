@@ -76,8 +76,8 @@ describe('M1-US-08 final submit Bot flow', () => {
     expect(rendered).toContain('本单预留：1,200.0 CAT');
     expect(rendered).toContain('提交后可用：98,800.0 CAT');
     expect(rendered).toContain('目前只是预留本单所需猫条，还没有产生正式消费。');
-    expect(rendered).toContain('点击“开始招募”发布报名卡');
-    expect(rendered).toContain('招募不会自动结束');
+    expect(rendered).toContain('点击“开始招募陪玩”发布报名卡');
+    expect(rendered).toContain('报名不会自动结束');
     expect(rendered).not.toContain('正在匹配陪玩');
     expect(JSON.stringify(message.components)).toContain(`bc:order:${orderId}:refresh`);
     expect(JSON.stringify(message.components)).not.toContain(`bc:order:${orderId}:submit:v`);

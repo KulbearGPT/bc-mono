@@ -16,16 +16,15 @@ const playerDiscordUserId = '222222222222222222';
 
 describe('M11-US-05 manual recruitment', () => {
   test('keeps the current contracts mirrored and removes duration-driven recruitment', async () => {
-    const [spec, outputApi, docsApi, outputBacklog, docsBacklog, outputAcceptance, docsAcceptance] =
-      await Promise.all([
-        readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
-        readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
-        readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
-        readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
-        readFile('docs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
-        readFile('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
-        readFile('docs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8')
-      ]);
+    const [spec, outputApi, docsApi, outputBacklog, docsBacklog, outputAcceptance, docsAcceptance] = await Promise.all([
+      readFile('outputs/Discord陪玩业务Bot最小原型设计开发文档.html', 'utf8'),
+      readFile('outputs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('docs/P0开发交付包/02-API/openapi.yaml', 'utf8'),
+      readFile('outputs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
+      readFile('docs/P0开发交付包/06-开发计划/backlog.csv', 'utf8'),
+      readFile('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8'),
+      readFile('docs/P0开发交付包/07-验收测试/acceptance-cases.csv', 'utf8')
+    ]);
 
     expect(outputApi).toBe(docsApi);
     expect(outputBacklog).toBe(docsBacklog);
@@ -69,8 +68,9 @@ describe('M11-US-05 manual recruitment', () => {
       })
     );
     expect(applied.application.status).toBe('APPLIED');
-    expect(store.getCurrentPool({ orderId, actorGuildId: guildId, actorDiscordUserId: customerDiscordUserId }).pool)
-      .toMatchObject({ applicantDiscordUserIds: [playerDiscordUserId] });
+    expect(
+      store.getCurrentPool({ orderId, actorGuildId: guildId, actorDiscordUserId: customerDiscordUserId }).pool
+    ).toMatchObject({ applicantDiscordUserIds: [playerDiscordUserId] });
 
     const closed = await commit(
       store.closePool({
@@ -113,7 +113,7 @@ describe('M11-US-05 manual recruitment', () => {
     const rendered = JSON.stringify(message);
     expect(rendered).toContain('<@' + playerDiscordUserId + '>');
     expect(rendered).toContain('<@333333333333333333>');
-    expect(rendered).toContain('终止招募');
+    expect(rendered).toContain('结束报名，进入试音');
     expect(rendered).not.toContain('报名截止');
     expect(rendered).not.toContain('选择等待时间');
   });
@@ -141,43 +141,49 @@ describe('M11-US-05 manual recruitment', () => {
 
 function fixtureStore() {
   return new InMemorySelectionPoolStore({
-    orders: [{
-      id: orderId,
-      guildId,
-      customerDiscordUserId,
-      status: 'PENDING_DISPATCH',
-      version: 1,
-      reservationId: 'reservation-manual'
-    }],
-    requirements: [{
-      id: requirementId,
-      orderId,
-      status: 'ACTIVE',
-      serviceCatalogVersionId: '00000000-0000-0000-0000-000000115201',
-      requestedPlayerCount: 1,
-      filledPlayerCount: 0,
-      game: 'valorant',
-      gameDisplayName: '瓦洛兰特',
-      service: 'duo',
-      serviceDisplayName: '娱乐陪玩',
-      region: null,
-      regionDisplayName: null,
-      billingUnitMinutes: 60,
-      unitCount: 1,
-      customerUnitPriceMinor: 200,
-      linePriceMinor: 200
-    }],
-    players: [{
-      id: '00000000-0000-0000-0000-000000115301',
-      guildId,
-      discordUserId: playerDiscordUserId,
-      displayName: 'Player One',
-      reviewStatus: 'ACTIVE',
-      matchingCatalogIds: ['00000000-0000-0000-0000-000000115201'],
-      activeOrderId: null,
-      compensationType: 'PERCENT_BPS',
-      compensationValue: 5000
-    }]
+    orders: [
+      {
+        id: orderId,
+        guildId,
+        customerDiscordUserId,
+        status: 'PENDING_DISPATCH',
+        version: 1,
+        reservationId: 'reservation-manual'
+      }
+    ],
+    requirements: [
+      {
+        id: requirementId,
+        orderId,
+        status: 'ACTIVE',
+        serviceCatalogVersionId: '00000000-0000-0000-0000-000000115201',
+        requestedPlayerCount: 1,
+        filledPlayerCount: 0,
+        game: 'valorant',
+        gameDisplayName: '瓦洛兰特',
+        service: 'duo',
+        serviceDisplayName: '娱乐陪玩',
+        region: null,
+        regionDisplayName: null,
+        billingUnitMinutes: 60,
+        unitCount: 1,
+        customerUnitPriceMinor: 200,
+        linePriceMinor: 200
+      }
+    ],
+    players: [
+      {
+        id: '00000000-0000-0000-0000-000000115301',
+        guildId,
+        discordUserId: playerDiscordUserId,
+        displayName: 'Player One',
+        reviewStatus: 'ACTIVE',
+        matchingCatalogIds: ['00000000-0000-0000-0000-000000115201'],
+        activeOrderId: null,
+        compensationType: 'PERCENT_BPS',
+        compensationValue: 5000
+      }
+    ]
   });
 }
 

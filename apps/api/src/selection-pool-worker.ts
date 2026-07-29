@@ -1218,7 +1218,7 @@ function finalizedStaffPayload(
 function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
   const all = p.applicants.filter((item) => item.status === "APPLIED");
   const applicants = all.slice(0, 25);
-  const components = applicants.length
+  const components: Array<Record<string, unknown>> = applicants.length
     ? [
         {
           type: 1,
@@ -1254,26 +1254,45 @@ function candidatePayload(p: SelectionWorkerProjection, voiceLink: string) {
           : []),
         selectionStartRow(
           `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
-          "本轮暂无合适陪玩，重新招募",
+          "本轮暂无合适陪玩，再发起一轮报名",
         ),
       ]
     : [
         selectionStartRow(
           `bc:sp:r:${short(p.orderId)}:${short(p.poolId)}:v${p.poolVersion}:o${p.orderVersion}`,
-          "重新开始招募",
+          "再发起一轮报名",
         ),
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 4,
-              label: "取消订单",
-              custom_id: `bc:order:${p.orderId}:cancel:v${p.orderVersion}`,
-            },
-          ],
-        },
       ];
+  components.push(
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 2,
+          label: "刷新最新状态",
+          custom_id: `bc:order:${p.orderId}:refresh`,
+        },
+        {
+          type: 2,
+          style: 2,
+          label: "联系猫舍前台",
+          custom_id: `bc:service:support:${p.orderId}:v${p.orderVersion}`,
+        },
+      ],
+    },
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 4,
+          label: "取消订单",
+          custom_id: `bc:order:${p.orderId}:cancel:v${p.orderVersion}`,
+        },
+      ],
+    },
+  );
   return {
     content: `<@${p.customerDiscordUserId}> 招募已终止。当前报名：${all.map((item) => `<@${item.discordUserId}>`).join("、") || "暂无"}。试音房：${voiceLink}`,
     components,

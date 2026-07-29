@@ -259,15 +259,13 @@ describe('M10-US-07 multi-project order requirement contract', () => {
         .mockResolvedValue(botOrder({ version: 8 })),
       listServices: vi.fn().mockResolvedValue({ items: botServices() }),
       listOrderRequirements: vi.fn().mockResolvedValueOnce(firstPage).mockResolvedValue(addedPage),
-      addOrderRequirement: vi
-        .fn()
-        .mockResolvedValue({
-          orderId: order.id,
-          orderVersion: 8,
-          derivedTotalMinor: 900,
-          currency: 'CAT',
-          requirement: addedPage.items[0]
-        }),
+      addOrderRequirement: vi.fn().mockResolvedValue({
+        orderId: order.id,
+        orderVersion: 8,
+        derivedTotalMinor: 900,
+        currency: 'CAT',
+        requirement: addedPage.items[0]
+      }),
       updateOrderRequirement: vi.fn()
     } as unknown as BotApiClient;
 
@@ -303,15 +301,13 @@ describe('M10-US-07 multi-project order requirement contract', () => {
       getOrder: vi.fn().mockResolvedValue(botOrder({ version: 8 })),
       listServices: vi.fn().mockResolvedValue({ items: botServices() }),
       listOrderRequirements: vi.fn().mockResolvedValue(remaining),
-      updateOrderRequirement: vi
-        .fn()
-        .mockResolvedValue({
-          orderId: order.id,
-          orderVersion: 8,
-          derivedTotalMinor: 600,
-          currency: 'CAT',
-          requirement: { ...page.items[0]!, status: 'REMOVED', version: 2 }
-        }),
+      updateOrderRequirement: vi.fn().mockResolvedValue({
+        orderId: order.id,
+        orderVersion: 8,
+        derivedTotalMinor: 600,
+        currency: 'CAT',
+        requirement: { ...page.items[0]!, status: 'REMOVED', version: 2 }
+      }),
       addOrderRequirement: vi.fn()
     } as unknown as BotApiClient;
     const result = await handleOrderRequirementAction({
@@ -341,16 +337,14 @@ describe('M10-US-07 multi-project order requirement contract', () => {
     const api = {
       getOrder: vi.fn().mockResolvedValue(order),
       listOrderRequirements: vi.fn().mockResolvedValue(page),
-      getCurrentBalance: vi
-        .fn()
-        .mockResolvedValue({
-          ledgerBalanceMinor: 2000,
-          reservedMinor: 0,
-          availableMinor: 2000,
-          currency: 'CAT',
-          calculatedAt: '2026-08-04T10:00:00Z',
-          version: 1
-        }),
+      getCurrentBalance: vi.fn().mockResolvedValue({
+        ledgerBalanceMinor: 2000,
+        reservedMinor: 0,
+        availableMinor: 2000,
+        currency: 'CAT',
+        calculatedAt: '2026-08-04T10:00:00Z',
+        version: 1
+      }),
       estimateOrder: vi.fn()
     } as unknown as BotApiClient;
     const result = await handleOpenOrderConfirmation({
@@ -419,6 +413,12 @@ function botOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
     preferredPlayerDiscordUserIds: [],
     channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: null },
     matching: null,
+    availableActions: [
+      { key: 'CUSTOMER_CONTINUE_ORDER', role: 'CUSTOMER', enabled: true, risk: 'PRIMARY', reasonCode: null },
+      { key: 'CUSTOMER_CANCEL_ORDER', role: 'CUSTOMER', enabled: true, risk: 'DANGER', reasonCode: null },
+      { key: 'CUSTOMER_REFRESH_ORDER', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null },
+      { key: 'CUSTOMER_CONTACT_SUPPORT', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null }
+    ],
     ...overrides
   };
 }

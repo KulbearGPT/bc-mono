@@ -171,9 +171,39 @@ export function buildSelectionCandidatePanel(input: {
     components.push(
       selectionActionButton(
         `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-        '本轮暂无合适陪玩，重新招募'
+        '再发起一轮报名'
       )
     );
+  components.push(
+    {
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'SECONDARY',
+          customId: `bc:order:${input.orderId}:refresh`,
+          label: '刷新最新状态'
+        },
+        {
+          type: 'BUTTON',
+          style: 'SECONDARY',
+          customId: `bc:service:support:${input.orderId}:v${input.orderVersion}`,
+          label: '联系猫舍前台'
+        }
+      ]
+    },
+    {
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'DANGER',
+          customId: `bc:order:${input.orderId}:cancel:v${input.orderVersion}`,
+          label: '取消订单'
+        }
+      ]
+    }
+  );
   return buildExperienceMessage({
     title: '试音匹配·选择陪玩',
     icon: '🎧',
@@ -225,7 +255,7 @@ export function buildSelectionCandidateConfirmation(input: {
         value: input.selectedCandidates.map((candidate) => `• **${candidate.playerDisplayName}**`).join('\n')
       }
     ],
-    nextStep: '名单无误就点击“确认选择”；如需调整，返回报名名单重新选择。',
+    nextStep: '名单无误就点击“确认这些陪玩”；如需调整，返回报名名单重新选择。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -252,13 +282,41 @@ export function buildSelectionCandidateConfirmation(input: {
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:sp:f:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-            label: '确认选择'
+            label: '确认这些陪玩'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:sp:b:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-            label: '返回重选'
+            label: '修改陪玩名单'
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:order:${input.orderId}:refresh`,
+            label: '刷新最新状态'
+          },
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:service:support:${input.orderId}:v${input.orderVersion}`,
+            label: '联系猫舍前台'
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'DANGER',
+            customId: `bc:order:${input.orderId}:cancel:v${input.orderVersion}`,
+            label: '取消订单'
           }
         ]
       }
@@ -319,10 +377,10 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
       tone: 'BRAND',
       coreFacts: [{ name: '📋 订单状态', value: '已提交 · 资金预留中' }],
       progress: '尚未开始招募',
-      nextStep: '点击“开始招募”，系统会在派单频道发布报名卡。',
+      nextStep: '点击“开始招募陪玩”，系统会在派单频道发布报名卡。',
       components: [
-        selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募'),
-        selectionOrderControls(order)
+        selectionActionButton(`bc:sp:new:${order.id}:o${order.version}`, '开始招募陪玩'),
+        ...selectionOrderControls(order)
       ]
     });
   const collecting = pool.status === 'COLLECTING';
@@ -336,7 +394,7 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
           type: 'BUTTON',
           style: 'PRIMARY',
           customId: closeCustomId({ orderId: order.id, poolId: pool.id, poolVersion: pool.version }),
-          label: '终止招募'
+          label: '结束报名，进入试音'
         }
       ]
     });
@@ -344,10 +402,10 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
     components.push(
       selectionActionButton(
         `bc:sp:r:${short(order.id)}:${short(pool.id)}:v${pool.version}:o${order.version}`,
-        '重新开始招募'
+        '再发起一轮报名'
       )
     );
-  components.push(selectionOrderControls(order));
+  components.push(...selectionOrderControls(order));
   return buildExperienceMessage({
     title: collecting
       ? `订单 #${order.publicId} · 报名进行中`
@@ -369,10 +427,10 @@ export function buildSelectionPoolRefreshMessage(order: OrderSummary, pool: Sele
     ],
     progress: collecting ? '报名进行中' : emptySelection ? '本轮无人报名' : '试音匹配进行中',
     nextStep: collecting
-      ? '名单合适时点击“终止招募”，再进入试音匹配。'
+      ? '名单合适时点击“结束报名，进入试音”。'
       : emptySelection
-        ? '点击“重新开始招募”，或取消订单。'
-        : '刷新报名名单后选择想试音的陪玩；如状态不一致，请联系客服。',
+        ? '点击“再发起一轮报名”，或取消订单。'
+        : '刷新报名名单后选择想试音的陪玩；如状态不一致，请联系猫舍前台。',
     components
   });
 }
@@ -421,30 +479,37 @@ function selectionApplicantMentions(discordUserIds: string[]): string {
   return discordUserIds.length ? discordUserIds.map((id) => `<@${id}>`).join('、') : '暂无陪玩报名';
 }
 
-function selectionOrderControls(order: OrderSummary): NonNullable<MessageSpec['components']>[number] {
-  return {
-    type: 'ACTION_ROW',
-    components: [
-      {
-        type: 'BUTTON',
-        style: 'SECONDARY',
-        customId: `bc:order:${order.id}:refresh`,
-        label: '刷新订单'
-      },
-      {
-        type: 'BUTTON',
-        style: 'DANGER',
-        customId: `bc:order:${order.id}:cancel:v${order.version}`,
-        label: '取消订单'
-      },
-      {
-        type: 'BUTTON',
-        style: 'SECONDARY',
-        customId: `bc:service:support:${order.id}:v${order.version}`,
-        label: '我要申诉'
-      }
-    ]
-  };
+function selectionOrderControls(order: OrderSummary): NonNullable<MessageSpec['components']> {
+  return [
+    {
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'SECONDARY',
+          customId: `bc:order:${order.id}:refresh`,
+          label: '刷新最新状态'
+        },
+        {
+          type: 'BUTTON',
+          style: 'SECONDARY',
+          customId: `bc:service:support:${order.id}:v${order.version}`,
+          label: '联系猫舍前台'
+        }
+      ]
+    },
+    {
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'BUTTON',
+          style: 'DANGER',
+          customId: `bc:order:${order.id}:cancel:v${order.version}`,
+          label: '取消订单'
+        }
+      ]
+    }
+  ];
 }
 
 export function withdrawCustomId(input: {

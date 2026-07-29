@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { buildOrderAvailableActions } from './order-actions.js';
 import type {
   OrderPanelDiscordAdapter,
   OrderPanelParticipant,
@@ -156,7 +157,13 @@ SELECT orders.id AS order_id,
         AND NOT EXISTS (
           SELECT 1 FROM order_support_ratings support_rating
            WHERE support_rating.order_id=orders.id
-        )) AS support_rating_eligible
+        )) AS support_rating_eligible,
+       EXISTS (
+         SELECT 1 FROM staff_tasks cancellation_task
+          WHERE cancellation_task.order_id=orders.id
+            AND cancellation_task.type='CANCELLATION_ASSIST'
+            AND cancellation_task.status NOT IN ('RESOLVED','CANCELLED','REJECTED')
+       ) AS has_open_cancellation_assist
 FROM orders AS orders
 JOIN users AS customer ON customer.id = orders.customer_id
 JOIN discord_accounts AS customer_discord
@@ -453,6 +460,9 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     ,...(typeof row.support_rating_eligible === 'boolean'
       ? { supportRatingEligible: row.support_rating_eligible }
       : {})
+    ,...(typeof row.has_open_cancellation_assist === 'boolean'
+      ? { hasOpenCancellationAssist: row.has_open_cancellation_assist }
+      : {})
     ,guildId: text(row.guild_id, 'guild_id')
     ,...(nullableText(row.selection_voice_channel_id, 'selection_voice_channel_id')
       ? { selectionVoiceChannelId: nullableText(row.selection_voice_channel_id, 'selection_voice_channel_id') }
@@ -703,7 +713,7 @@ function renderOrderPanel(projection: OrderPanelProjection) {
       components: [
         { type: 10, content: body },
         ...interactionRows,
-        { type: 1, components: panelActions(projection) },
+        ...panelActionRows(projection),
         { type: 10, content: '-# Blackcat Companion' }
       ]
     }]
@@ -876,14 +886,14 @@ function selectionPanelSummary(projection: OrderPanelProjection): {
     return {
       label: '招募进行中',
       body: `第 ${pool.round} 轮 · ${assembly}\n当前报名陪玩：${applicants}`,
-      nextStep: '报名会实时更新；想进入试音匹配时，点击“终止招募”。'
+      nextStep: '报名会实时更新；名单合适时，点击“结束报名，进入试音”。'
     };
   }
   if (pool.applicationCount === 0) {
     return {
       label: '本轮无人报名',
       body: `第 ${pool.round} 轮招募已终止。\n当前报名：暂无\n${assembly}`,
-      nextStep: '可以重新开始招募；暂时不需要服务时，也可以取消订单。'
+      nextStep: '可以再发起一轮报名；暂时不需要服务时，也可以取消订单。'
     };
   }
   return {
@@ -897,19 +907,19 @@ function selectionPanelRows(projection: OrderPanelProjection): Array<Record<stri
   if (projection.status !== 'PENDING_DISPATCH') return [];
   const pool = projection.selectionPool;
   if (!pool)
-    return [selectionActionRow(`bc:sp:new:${projection.orderId}:o${projection.version}`, '开始招募', 1)];
+    return [selectionActionRow(`bc:sp:new:${projection.orderId}:o${projection.version}`, '开始招募陪玩', 1)];
   if (pool.status === 'COLLECTING')
     return [{
       type: 1,
       components: [{
         type: 2,
         style: 1,
-        label: '终止招募',
+        label: '结束报名，进入试音',
         custom_id: `bc:sp:c:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}`
       }]
     }];
   if (pool.applicationCount === 0)
-    return [selectionActionRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}:o${projection.version}`, '重新开始招募', 1)];
+    return [selectionActionRow(`bc:sp:r:${shortSelectionId(projection.orderId)}:${shortSelectionId(pool.id)}:v${pool.version}:o${projection.version}`, '再发起一轮报名', 1)];
   return [];
 }
 
@@ -953,34 +963,38 @@ function orderStatusLabel(status: string): string {
   return status;
 }
 
-function panelActions(projection: OrderPanelProjection): Array<{ type: 2; style: number; label: string; custom_id: string }> {
+function panelActionRows(projection: OrderPanelProjection): Array<Record<string, unknown>> {
   const route = (action: string) => `bc:service:${action}:${projection.orderId}:v${projection.version}`;
-  const support = { type: 2 as const, style: 2, label: '联系客服', custom_id: route('support') };
-  const refresh = { type: 2 as const, style: 2, label: '刷新订单', custom_id: `bc:order:${projection.orderId}:refresh` };
-  if (projection.status === 'PENDING_DISPATCH') {
-    return [
-      { type: 2, style: 4, label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` },
-      support,
-      refresh
-    ];
-  }
-  if (projection.status === 'ACCEPTED') {
-    return [{ type: 2, style: 1, label: '陪玩确认就绪', custom_id: route('ready') }, support, refresh];
-  }
-  if (projection.status === 'IN_SERVICE') {
-    return [{ type: 2, style: 1, label: '陪玩申请完成', custom_id: route('request-completion') }, support, refresh];
-  }
-  if (projection.status === 'PENDING_CONFIRMATION') {
-    return [{ type: 2, style: 1, label: '老板确认完成', custom_id: route('confirm') }, support, refresh];
-  }
+  const actions = buildOrderAvailableActions({
+    status: projection.status,
+    role: 'CUSTOMER',
+    hasOpenCancellationAssist: projection.hasOpenCancellationAssist
+  }).filter((action) => action.enabled);
+  const primary: Array<Record<string, unknown>> = [];
+  const utility: Array<Record<string, unknown>> = [];
+  const danger: Array<Record<string, unknown>> = [];
+  if (actions.some((action) => action.key === 'CUSTOMER_CONFIRM_COMPLETION'))
+    primary.push({ type: 2, style: 1, label: '老板：确认服务完成', custom_id: route('confirm') });
+  if (actions.some((action) => action.key === 'CUSTOMER_SEND_GIFT'))
+    utility.push({ type: 2, style: 2, label: '赠送礼物', custom_id: `bc:gift:open:${projection.orderId}:v${projection.version}` });
+  if (actions.some((action) => action.key === 'CUSTOMER_REFRESH_ORDER'))
+    utility.push({ type: 2, style: 2, label: '刷新最新状态', custom_id: `bc:order:${projection.orderId}:refresh` });
+  if (actions.some((action) => action.key === 'CUSTOMER_CONTACT_SUPPORT'))
+    utility.push({ type: 2, style: 2, label: '联系猫舍前台', custom_id: route('support') });
+  if (actions.some((action) => action.key === 'CUSTOMER_VIEW_CANCELLATION_STATUS'))
+    utility.push({ type: 2, style: 2, label: '查看取消处理进度', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` });
+  if (actions.some((action) => action.key === 'CUSTOMER_CANCEL_ORDER'))
+    danger.push({ type: 2, style: 4, label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` });
+  if (actions.some((action) => action.key === 'CUSTOMER_REQUEST_CANCELLATION'))
+    danger.push({ type: 2, style: 4, label: '申请取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` });
   if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
-    return [
-      { type: 2, style: 1, label: '评价客服', custom_id: `bc:support-rating:${projection.orderId}:start` },
-      support,
-      refresh
-    ];
+    primary.push({ type: 2, style: 1, label: '评价本次客服', custom_id: `bc:support-rating:${projection.orderId}:start` });
   }
-  return [support, refresh];
+  return [
+    ...(primary.length ? [{ type: 1, components: primary.slice(0, 1) }] : []),
+    ...(utility.length ? [{ type: 1, components: utility.slice(0, 3) }] : []),
+    ...(danger.length ? [{ type: 1, components: danger }] : [])
+  ];
 }
 
 async function readMessage(response: Response, fallbackId: string): Promise<{ id: string }> {

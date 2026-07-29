@@ -27,7 +27,7 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
       }
     ],
     progress: '等待老板开始招募',
-    nextStep: '点击“开始招募”发布报名卡；招募不会自动结束，请在合适时手动点击“终止招募”。',
+    nextStep: '点击“开始招募陪玩”发布报名卡；报名不会自动结束，名单合适时再进入试音。',
     components: [
       {
         type: 'ACTION_ROW',
@@ -36,7 +36,7 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
             type: 'BUTTON',
             style: 'PRIMARY',
             customId: `bc:sp:new:${input.orderId}:o${input.version}`,
-            label: '开始招募'
+            label: '开始招募陪玩'
           }
         ]
       },
@@ -47,19 +47,24 @@ export function buildSubmittedOrderMessage(input: OrderReservationSummaryResult)
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:order:${input.orderId}:refresh`,
-            label: '刷新订单'
-          },
-          {
-            type: 'BUTTON',
-            style: 'DANGER',
-            customId: `bc:order:${input.orderId}:cancel:v${input.version}`,
-            label: '取消订单'
+            label: '刷新最新状态'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: `bc:service:support:${input.orderId}:v${input.version}`,
-            label: '我要申诉'
+            label: '联系猫舍前台'
+          }
+        ]
+      },
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'DANGER',
+            customId: `bc:order:${input.orderId}:cancel:v${input.version}`,
+            label: '取消订单'
           }
         ]
       }

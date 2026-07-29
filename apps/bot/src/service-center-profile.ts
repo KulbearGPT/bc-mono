@@ -50,6 +50,39 @@ export function buildServiceCenterMessage(input: {
     ].join('\n'),
     visibility: 'EPHEMERAL',
     components: [
+      ...(input.activeOrder
+        ? [
+            {
+              type: 'ACTION_ROW' as const,
+              components: [
+                {
+                  type: 'BUTTON' as const,
+                  style: 'PRIMARY' as const,
+                  customId: `bc:order:${input.activeOrder.id}:open`,
+                  label: '打开当前订单'
+                },
+                {
+                  type: 'BUTTON' as const,
+                  style: 'SECONDARY' as const,
+                  customId: 'bc:profile:open',
+                  label: '打开个人中心'
+                }
+              ]
+            }
+          ]
+        : [
+            {
+              type: 'ACTION_ROW' as const,
+              components: [
+                {
+                  type: 'BUTTON' as const,
+                  style: 'PRIMARY' as const,
+                  customId: 'bc:profile:open',
+                  label: '打开个人中心'
+                }
+              ]
+            }
+          ]),
       {
         type: 'ACTION_ROW',
         components: [
@@ -57,32 +90,19 @@ export function buildServiceCenterMessage(input: {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:entry:service-center',
-            label: '🔄 刷新'
-          },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: input.activeOrder ? `bc:order:${input.activeOrder.id}:open` : 'bc:service-center:no-active-order',
-            label: '📋 当前订单',
-            disabled: !input.activeOrder
-          },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: 'bc:profile:open',
-            label: '👤 个人中心'
+            label: '刷新服务中心'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:profile:consumptions:first',
-            label: '🧾 消费记录'
+            label: '查看消费记录'
           },
           {
             type: 'BUTTON',
             style: 'SECONDARY',
             customId: 'bc:service-center:commissions',
-            label: '✨ 我的收益'
+            label: '查看我的收益'
           }
         ]
       }
@@ -194,7 +214,14 @@ export function buildCurrentUserProfileMessage(input: CurrentUserProfileSummary)
   };
 }
 
-export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): MessageSpec {
+export interface PaginationNavigation {
+  previousCursor: string | null;
+}
+
+export function buildCurrentUserOrdersMessage(
+  page: CurrentUserOrderPage,
+  navigation: PaginationNavigation = { previousCursor: null }
+): MessageSpec {
   return {
     title: '📋 我的订单',
     body: page.items.length
@@ -206,32 +233,14 @@ export function buildCurrentUserOrdersMessage(page: CurrentUserOrderPage): Messa
           .join('\n\n')
       : '暂无订单。',
     visibility: 'EPHEMERAL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: 'bc:profile:open',
-            label: '👤 返回个人中心'
-          },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: page.nextCursor
-              ? paginationCustomId('bc:profile:orders', page.nextCursor)
-              : 'bc:profile:orders:end',
-            label: '下一页 →',
-            disabled: !page.nextCursor
-          }
-        ]
-      }
-    ]
+    components: paginationRows('bc:profile:orders', page.nextCursor, navigation, 'bc:profile:open', '👤 返回个人中心')
   };
 }
 
-export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): MessageSpec {
+export function buildCurrentUserConsumptionsMessage(
+  page: ConsumptionPage,
+  navigation: PaginationNavigation = { previousCursor: null }
+): MessageSpec {
   return {
     title: '🧾 消费记录',
     body: page.items.length
@@ -243,32 +252,20 @@ export function buildCurrentUserConsumptionsMessage(page: ConsumptionPage): Mess
           .join('\n\n')
       : '暂无消费记录。',
     visibility: 'EPHEMERAL',
-    components: [
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: 'bc:profile:open',
-            label: '👤 返回个人中心'
-          },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: page.nextCursor
-              ? paginationCustomId('bc:profile:consumptions', page.nextCursor)
-              : 'bc:profile:consumptions:end',
-            label: '下一页 →',
-            disabled: !page.nextCursor
-          }
-        ]
-      }
-    ]
+    components: paginationRows(
+      'bc:profile:consumptions',
+      page.nextCursor,
+      navigation,
+      'bc:profile:open',
+      '👤 返回个人中心'
+    )
   };
 }
 
-export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWeeklyReportPage): MessageSpec {
+export function buildCurrentPlayerWeeklyReportListMessage(
+  page: CurrentPlayerWeeklyReportPage,
+  navigation: PaginationNavigation = { previousCursor: null }
+): MessageSpec {
   return {
     title: '📊 我的周报',
     body: page.items.length
@@ -287,26 +284,41 @@ export function buildCurrentPlayerWeeklyReportListMessage(page: CurrentPlayerWee
           }
         ]
       })),
-      {
-        type: 'ACTION_ROW',
-        components: [
-          {
-            type: 'BUTTON',
-            style: 'SECONDARY',
-            customId: 'bc:entry:player-workbench',
-            label: '🎧 返回工作台'
-          },
-          {
-            type: 'BUTTON',
-            style: 'PRIMARY',
-            customId: page.nextCursor ? paginationCustomId('bc:reports:list', page.nextCursor) : 'bc:reports:list:end',
-            label: '下一页 →',
-            disabled: !page.nextCursor
-          }
-        ]
-      }
+      ...paginationRows('bc:reports:list', page.nextCursor, navigation, 'bc:entry:player-workbench', '🎧 返回工作台')
     ]
   };
+}
+
+function paginationRows(
+  prefix: string,
+  nextCursor: string | null,
+  navigation: PaginationNavigation,
+  returnCustomId: string,
+  returnLabel: string
+): ActionRowSpec[] {
+  const components: ActionRowSpec['components'] = [
+    { type: 'BUTTON', style: 'SECONDARY', customId: returnCustomId, label: returnLabel }
+  ];
+  if (navigation.previousCursor !== null) {
+    components.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId:
+        navigation.previousCursor === 'first'
+          ? `${prefix}:first`
+          : paginationCustomId(prefix, navigation.previousCursor),
+      label: '← 上一页'
+    });
+  }
+  if (nextCursor) {
+    components.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: paginationCustomId(prefix, nextCursor),
+      label: '下一页 →'
+    });
+  }
+  return [{ type: 'ACTION_ROW', components }];
 }
 
 export function buildCurrentPlayerWeeklyReportDetailMessage(report: CurrentPlayerWeeklyReport): MessageSpec {

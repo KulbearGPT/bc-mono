@@ -1,9 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import {
-  buildOrderPanelMessage,
-  buildSubmittedOrderMessage,
-  type OrderSummary
-} from '@blackcat/bot/service-center';
+import { buildOrderPanelMessage, buildSubmittedOrderMessage, type OrderSummary } from '@blackcat/bot/service-center';
 import { buildSelectionPoolRefreshMessage } from '../apps/bot/src/selection-discord.js';
 
 const orderId = '00000000-0000-0000-0000-000000180401';
@@ -19,9 +15,7 @@ describe('M18-US-04 order panel hierarchy', () => {
       '⏳ 当前进度',
       '👉 下一步'
     ]);
-    expect(message.fields?.find((field) => field.name === '💬 老板需求')?.value).toBe(
-      '> 轻松聊天，不急着上分。'
-    );
+    expect(message.fields?.find((field) => field.name === '💬 老板需求')?.value).toBe('> 轻松聊天，不急着上分。');
     expect(message.body).not.toContain('轻松聊天');
     expect(JSON.stringify(message.components)).not.toContain('取消订单');
   });
@@ -63,23 +57,20 @@ describe('M18-US-04 order panel hierarchy', () => {
   });
 
   test('shows collecting applicants as a quiet mention list with one primary stop action', () => {
-    const message = buildSelectionPoolRefreshMessage(
-      order(),
-      {
-        id: '00000000-0000-0000-0000-000000180403',
-        orderId,
-        round: 2,
-        status: 'COLLECTING',
-        version: 4,
-        waitMinutes: null,
-        openedAt: '2026-08-08T12:00:00.000Z',
-        closesAt: null,
-        closedAt: null,
-        closeReason: null,
-        applicationCount: 2,
-        applicantDiscordUserIds: ['111111111111111111', '222222222222222222']
-      }
-    );
+    const message = buildSelectionPoolRefreshMessage(order(), {
+      id: '00000000-0000-0000-0000-000000180403',
+      orderId,
+      round: 2,
+      status: 'COLLECTING',
+      version: 4,
+      waitMinutes: null,
+      openedAt: '2026-08-08T12:00:00.000Z',
+      closesAt: null,
+      closedAt: null,
+      closeReason: null,
+      applicationCount: 2,
+      applicantDiscordUserIds: ['111111111111111111', '222222222222222222']
+    });
     expect(message.title).toContain('报名进行中');
     expect(message.fields?.map((field) => field.name)).toEqual([
       '📋 本轮招募',
@@ -87,34 +78,29 @@ describe('M18-US-04 order panel hierarchy', () => {
       '⏳ 当前进度',
       '👉 下一步'
     ]);
-    expect(message.fields?.find((field) => field.name === '🐾 当前报名')?.value).toContain(
-      '<@111111111111111111>'
-    );
+    expect(message.fields?.find((field) => field.name === '🐾 当前报名')?.value).toContain('<@111111111111111111>');
     expect(JSON.stringify(message)).not.toContain('当前候选');
     const primary = message.components
       .flatMap((row) => (row.type === 'ACTION_ROW' ? row.components : []))
       .filter((component) => component.type === 'BUTTON' && component.style === 'PRIMARY');
-    expect(primary).toEqual([expect.objectContaining({ label: '终止招募' })]);
+    expect(primary).toEqual([expect.objectContaining({ label: '结束报名，进入试音' })]);
   });
 
   test('renders the stopped round as trial matching rather than draft terminology', () => {
-    const message = buildSelectionPoolRefreshMessage(
-      order(),
-      {
-        id: '00000000-0000-0000-0000-000000180404',
-        orderId,
-        round: 2,
-        status: 'SELECTION',
-        version: 5,
-        waitMinutes: null,
-        openedAt: '2026-08-08T12:00:00.000Z',
-        closesAt: null,
-        closedAt: '2026-08-08T12:10:00.000Z',
-        closeReason: 'CUSTOMER_STOPPED',
-        applicationCount: 1,
-        applicantDiscordUserIds: ['111111111111111111']
-      }
-    );
+    const message = buildSelectionPoolRefreshMessage(order(), {
+      id: '00000000-0000-0000-0000-000000180404',
+      orderId,
+      round: 2,
+      status: 'SELECTION',
+      version: 5,
+      waitMinutes: null,
+      openedAt: '2026-08-08T12:00:00.000Z',
+      closesAt: null,
+      closedAt: '2026-08-08T12:10:00.000Z',
+      closeReason: 'CUSTOMER_STOPPED',
+      applicationCount: 1,
+      applicantDiscordUserIds: ['111111111111111111']
+    });
     expect(message.title).toContain('试音匹配');
     expect(JSON.stringify(message)).toContain('报名陪玩');
     expect(JSON.stringify(message)).not.toContain('候选');

@@ -9,6 +9,36 @@ import {
   type OrderLifecyclePanelSummary
 } from '@blackcat/bot/service-center';
 
+function lifecycleActions(status: string, role: 'CUSTOMER' | 'PLAYER'): OrderLifecyclePanelSummary['availableActions'] {
+  const action = (
+    key: OrderLifecyclePanelSummary['availableActions'][number]['key'],
+    risk: 'PRIMARY' | 'SECONDARY' | 'DANGER'
+  ) => ({ key, role, enabled: true, risk, reasonCode: null });
+  if (role === 'PLAYER')
+    return [
+      ...(status === 'ACCEPTED' ? [action('PLAYER_SET_READINESS', 'PRIMARY')] : []),
+      ...(status === 'IN_SERVICE' ? [action('PLAYER_REQUEST_COMPLETION', 'PRIMARY')] : []),
+      action('PLAYER_REFRESH_WORKBENCH', 'SECONDARY'),
+      action('PLAYER_CONTACT_SUPPORT', 'SECONDARY')
+    ];
+  return [
+    ...(status === 'PENDING_CONFIRMATION' ? [action('CUSTOMER_CONFIRM_COMPLETION', 'PRIMARY')] : []),
+    ...(status === 'IN_SERVICE' ? [action('CUSTOMER_SEND_GIFT', 'SECONDARY')] : []),
+    ...(!['COMPLETED', 'CANCELLED'].includes(status)
+      ? [
+          action(
+            status === 'DRAFT' || status === 'PENDING_DISPATCH'
+              ? 'CUSTOMER_CANCEL_ORDER'
+              : 'CUSTOMER_REQUEST_CANCELLATION',
+            'DANGER'
+          ),
+          action('CUSTOMER_REFRESH_ORDER', 'SECONDARY')
+        ]
+      : []),
+    action('CUSTOMER_CONTACT_SUPPORT', 'SECONDARY')
+  ];
+}
+
 const acceptedOrder: OrderLifecyclePanelSummary = {
   orderId: '00000000-0000-0000-0000-00000000b401',
   publicId: 'P-4401',
@@ -16,6 +46,7 @@ const acceptedOrder: OrderLifecyclePanelSummary = {
   version: 4,
   actorRole: 'CUSTOMER',
   enabledFeatures: ['CORE_ORDER', 'GIFTS'],
+  availableActions: lifecycleActions('ACCEPTED', 'CUSTOMER'),
   readiness: {
     participants: [],
     allActivePlayersReady: false,
@@ -41,24 +72,33 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     const message = buildServiceLifecyclePanelMessage(acceptedOrder);
 
     expect(message.title).toBe('🤝 订单 #P-4401 · 等待陪玩全员就绪');
-    expect(message.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({name:'👥 就绪名单',value:expect.stringContaining('陪玩名单：等待 API 返回')})
-    ]));
+    expect(message.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: '👥 就绪名单', value: expect.stringContaining('陪玩名单：等待 API 返回') })
+      ])
+    );
     expect(JSON.stringify(message.components)).not.toContain('开始服务');
-    expect(message.components[0]?.components).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({label:'我已就绪'})
-    ]));
-    expect(message.components[0]?.components).toEqual(expect.arrayContaining([
-      expect.objectContaining({label:'取消订单'}),expect.objectContaining({label:'我要申诉'})
-    ]));
+    expect(message.components[0]?.components).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: '我已就绪' })])
+    );
+    expect(message.components.flatMap((row) => row.components)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: '申请取消订单' }),
+        expect.objectContaining({ label: '联系猫舍前台' })
+      ])
+    );
   });
 
   test('offers readiness only on the assigned player view', () => {
-    const message = buildServiceLifecyclePanelMessage({...acceptedOrder,actorRole:'PLAYER'});
+    const message = buildServiceLifecyclePanelMessage({
+      ...acceptedOrder,
+      actorRole: 'PLAYER',
+      availableActions: lifecycleActions('ACCEPTED', 'PLAYER')
+    });
     expect(message.components[0]?.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: '我已就绪',
+          label: '陪玩：我已准备好',
           customId: 'bc:service:ready:00000000-0000-0000-0000-00000000b401:v4'
         })
       ])
@@ -68,9 +108,15 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
   test('hides gift actions unless the lifecycle response authoritatively enables GIFTS', () => {
     const coreOnly = buildServiceLifecyclePanelMessage({
       ...acceptedOrder,
+      status: 'IN_SERVICE',
+      availableActions: lifecycleActions('IN_SERVICE', 'CUSTOMER'),
       enabledFeatures: ['CORE_ORDER']
     });
-    const giftsEnabled = buildServiceLifecyclePanelMessage(acceptedOrder);
+    const giftsEnabled = buildServiceLifecyclePanelMessage({
+      ...acceptedOrder,
+      status: 'IN_SERVICE',
+      availableActions: lifecycleActions('IN_SERVICE', 'CUSTOMER')
+    });
 
     expect(JSON.stringify(coreOnly)).not.toContain('赠送礼物');
     expect(JSON.stringify(giftsEnabled)).toContain('赠送礼物');
@@ -78,14 +124,20 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
 
   test('fails closed without throwing when readiness capabilities are missing or malformed', () => {
     for (const enabledFeatures of [undefined, 'GIFTS', null]) {
-      expect(() => buildServiceLifecyclePanelMessage({
-        ...acceptedOrder,
-        enabledFeatures: enabledFeatures as never
-      })).not.toThrow();
-      expect(JSON.stringify(buildServiceLifecyclePanelMessage({
-        ...acceptedOrder,
-        enabledFeatures: enabledFeatures as never
-      }))).not.toContain('赠送礼物');
+      expect(() =>
+        buildServiceLifecyclePanelMessage({
+          ...acceptedOrder,
+          enabledFeatures: enabledFeatures as never
+        })
+      ).not.toThrow();
+      expect(
+        JSON.stringify(
+          buildServiceLifecyclePanelMessage({
+            ...acceptedOrder,
+            enabledFeatures: enabledFeatures as never
+          })
+        )
+      ).not.toContain('赠送礼物');
     }
   });
 
@@ -95,6 +147,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       status: 'IN_SERVICE',
       version: 6,
       actorRole: 'PLAYER',
+      availableActions: lifecycleActions('IN_SERVICE', 'PLAYER'),
       readiness: {
         ...acceptedOrder.readiness,
         customer: 'READY',
@@ -108,7 +161,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(message.components[0]?.components).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: '申请完成',
+          label: '陪玩：提交服务完成',
           customId: 'bc:service:request-completion:00000000-0000-0000-0000-00000000b401:v6'
         })
       ])
@@ -121,6 +174,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       status: 'PENDING_CONFIRMATION',
       version: 7,
       actorRole: 'CUSTOMER',
+      availableActions: lifecycleActions('PENDING_CONFIRMATION', 'CUSTOMER'),
       readiness: {
         ...acceptedOrder.readiness,
         customer: 'READY',
@@ -131,14 +185,14 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     });
 
     expect(message.title).toBe('📨 订单 #P-4401 · 等待老板确认完成');
-    expect(message.components[0]?.components).toEqual(
+    expect(message.components.flatMap((row) => row.components)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: '确认完成',
+          label: '老板：确认服务完成',
           customId: 'bc:service:confirm:00000000-0000-0000-0000-00000000b401:v7'
         }),
-        expect.objectContaining({ label: '取消订单' }),
-        expect.objectContaining({ label: '我要申诉' })
+        expect.objectContaining({ label: '申请取消订单' }),
+        expect.objectContaining({ label: '联系猫舍前台' })
       ])
     );
   });
@@ -146,14 +200,26 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
   test('keeps cancellation and appeal controls on the customer in-service panel without unilateral completion', () => {
     const message = buildServiceLifecyclePanelMessage({
       ...acceptedOrder,
-      status: 'IN_SERVICE', version: 6, actorRole: 'CUSTOMER',
-      readiness: { ...acceptedOrder.readiness, customer: 'READY', player: 'READY', bothReady: true, startedAt: '2026-07-18T04:01:00.000Z' }
+      status: 'IN_SERVICE',
+      version: 6,
+      actorRole: 'CUSTOMER',
+      availableActions: lifecycleActions('IN_SERVICE', 'CUSTOMER'),
+      readiness: {
+        ...acceptedOrder.readiness,
+        customer: 'READY',
+        player: 'READY',
+        bothReady: true,
+        startedAt: '2026-07-18T04:01:00.000Z'
+      }
     });
-    const controls=message.components.flatMap((row)=>row.components);
-    expect(controls).toEqual(expect.arrayContaining([
-      expect.objectContaining({label:'取消订单'}),expect.objectContaining({label:'我要申诉'})
-    ]));
-    expect(controls.some((control)=>control.type==='BUTTON'&&control.label==='确认完成')).toBe(false);
+    const controls = message.components.flatMap((row) => row.components);
+    expect(controls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: '申请取消订单' }),
+        expect.objectContaining({ label: '联系猫舍前台' })
+      ])
+    );
+    expect(controls.some((control) => control.type === 'BUTTON' && control.label === '确认完成')).toBe(false);
   });
 
   test('renders staff takeover state when cancellation or incident needs support', () => {
@@ -174,13 +240,14 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(JSON.stringify(message)).not.toContain('已取消');
   });
 
-  test.each(['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'EXCEPTION'] as const)(
+  test.each(['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'] as const)(
     'keeps a version-independent refresh action on the %s lifecycle panel',
     (status) => {
       const message = buildServiceLifecyclePanelMessage({
         ...acceptedOrder,
         status,
         version: 12,
+        availableActions: lifecycleActions(status, 'CUSTOMER'),
         readiness: {
           ...acceptedOrder.readiness,
           staffTaskId: status === 'EXCEPTION' ? '00000000-0000-0000-0000-00000000f901' : null
@@ -188,18 +255,21 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       });
       const controls = message.components.flatMap((row) => row.components);
 
-      expect(controls).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          label: '刷新订单',
-          customId: `bc:order:${acceptedOrder.orderId}:refresh`
-        })
-      ]));
+      expect(controls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: '刷新最新状态',
+            customId: `bc:order:${acceptedOrder.orderId}:refresh`
+          })
+        ])
+      );
       expect(JSON.stringify(controls)).not.toContain(`bc:order:${acceptedOrder.orderId}:refresh:v`);
     }
   );
 
   test('HttpBotApiClient calls lifecycle endpoints through the unified API', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -365,9 +435,18 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       actor,
       'discord:service:confirm:888'
     );
-    expect(ready).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '🤝 订单 #P-4401 · 等待陪玩全员就绪' } });
-    expect(requested).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('**下一步**：等待客人确认') });
-    expect(confirmed).toMatchObject({ kind: 'EPHEMERAL_MESSAGE', message: expect.stringContaining('**实际扣除**：1,200.0 CAT') });
+    expect(ready).toMatchObject({
+      kind: 'EDIT_ORIGINAL_MESSAGE',
+      message: { title: '🤝 订单 #P-4401 · 等待陪玩全员就绪' }
+    });
+    expect(requested).toMatchObject({
+      kind: 'EPHEMERAL_MESSAGE',
+      message: expect.stringContaining('**下一步**：等待客人确认')
+    });
+    expect(confirmed).toMatchObject({
+      kind: 'EPHEMERAL_MESSAGE',
+      message: expect.stringContaining('**实际扣除**：1,200.0 CAT')
+    });
   });
 
   test.each([
@@ -381,51 +460,91 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       apiMethod: 'requestOrderCompletion' as const,
       expected: '这个「申请完成」按钮需要由本单陪玩操作'
     }
-  ])('explains who may use the $action action when the API denies permission', async ({ action, apiMethod, expected }) => {
-    const denied = new BotApiError({
-      code: 'PERMISSION_DENIED',
-      message: 'Actor role does not match this action.',
-      requestId: `req-${action}`,
-      statusCode: 403
-    });
+  ])(
+    'explains who may use the $action action when the API denies permission',
+    async ({ action, apiMethod, expected }) => {
+      const denied = new BotApiError({
+        code: 'PERMISSION_DENIED',
+        message: 'Actor role does not match this action.',
+        requestId: `req-${action}`,
+        statusCode: 403
+      });
+      const api = {
+        [apiMethod]: vi.fn().mockRejectedValue(denied)
+      } as Partial<BotApiClient> as BotApiClient;
+
+      const result = await handleServiceLifecycleAction({
+        api,
+        actor: { ...actor, discordUserId: '222222222222222222' },
+        orderId: acceptedOrder.orderId,
+        action,
+        expectedVersion: 7,
+        idempotencyKey: `discord:service:${action}:denied`
+      });
+
+      expect(result).toMatchObject({
+        kind: 'EPHEMERAL_MESSAGE',
+        message: expect.stringContaining(expected)
+      });
+      expect(result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '').toContain(`request_id: req-${action}`);
+    }
+  );
+
+  test('refreshes and retries readiness once when a timeout advanced the order version', async () => {
+    const setOrderReadiness = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new BotApiError({
+          code: 'CONFLICT',
+          message: 'Order version is stale.',
+          requestId: 'req-stale-ready',
+          statusCode: 409
+        })
+      )
+      .mockResolvedValueOnce({
+        ...acceptedOrder,
+        version: 8,
+        readiness: { ...acceptedOrder.readiness, customer: 'READY' }
+      });
     const api = {
-      [apiMethod]: vi.fn().mockRejectedValue(denied)
+      setOrderReadiness,
+      getOrder: vi.fn().mockResolvedValue({
+        id: acceptedOrder.orderId,
+        publicId: acceptedOrder.publicId,
+        status: 'ACCEPTED',
+        version: 7,
+        game: 'VALORANT',
+        service: 'FUN',
+        region: null,
+        billingUnitMinutes: 60,
+        unitCount: 2,
+        amountMinor: 400,
+        currency: 'CAT',
+        notes: null,
+        channelSpec: { channelId: 'channel', panelMessageId: 'panel', voiceChannelId: 'voice' },
+        matching: null
+      })
     } as Partial<BotApiClient> as BotApiClient;
 
     const result = await handleServiceLifecycleAction({
       api,
-      actor: { ...actor, discordUserId: '222222222222222222' },
+      actor,
       orderId: acceptedOrder.orderId,
-      action,
-      expectedVersion: 7,
-      idempotencyKey: `discord:service:${action}:denied`
+      action: 'ready',
+      expectedVersion: 6,
+      idempotencyKey: 'discord:service:ready:stale'
     });
 
+    expect(setOrderReadiness).toHaveBeenNthCalledWith(
+      2,
+      acceptedOrder.orderId,
+      { expectedVersion: 7, readiness: 'READY' },
+      actor,
+      'discord:service:ready:stale:retry-v7'
+    );
     expect(result).toMatchObject({
-      kind: 'EPHEMERAL_MESSAGE',
-      message: expect.stringContaining(expected)
+      kind: 'EDIT_ORIGINAL_MESSAGE',
+      message: { title: '🤝 订单 #P-4401 · 等待陪玩全员就绪' }
     });
-    expect(result.kind === 'EPHEMERAL_MESSAGE' ? result.message : '').toContain(`request_id: req-${action}`);
-  });
-
-  test('refreshes and retries readiness once when a timeout advanced the order version', async () => {
-    const setOrderReadiness = vi.fn()
-      .mockRejectedValueOnce(new BotApiError({ code: 'CONFLICT', message: 'Order version is stale.', requestId: 'req-stale-ready', statusCode: 409 }))
-      .mockResolvedValueOnce({ ...acceptedOrder, version: 8, readiness: { ...acceptedOrder.readiness, customer: 'READY' } });
-    const api = {
-      setOrderReadiness,
-      getOrder: vi.fn().mockResolvedValue({
-        id: acceptedOrder.orderId, publicId: acceptedOrder.publicId, status: 'ACCEPTED', version: 7,
-        game: 'VALORANT', service: 'FUN', region: null, billingUnitMinutes: 60, unitCount: 2,
-        amountMinor: 400, currency: 'CAT', notes: null, channelSpec: { channelId: 'channel', panelMessageId: 'panel', voiceChannelId: 'voice' }, matching: null
-      })
-    } as Partial<BotApiClient> as BotApiClient;
-
-    const result = await handleServiceLifecycleAction({ api, actor, orderId: acceptedOrder.orderId, action: 'ready', expectedVersion: 6,
-      idempotencyKey: 'discord:service:ready:stale' });
-
-    expect(setOrderReadiness).toHaveBeenNthCalledWith(2, acceptedOrder.orderId, { expectedVersion: 7, readiness: 'READY' }, actor,
-      'discord:service:ready:stale:retry-v7');
-    expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '🤝 订单 #P-4401 · 等待陪玩全员就绪' } });
   });
 });

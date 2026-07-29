@@ -3,17 +3,19 @@ import { buildMatchingProgressMessage, buildOrderPanelMessage, type OrderSummary
 
 describe('M2-US-07 Discord matching progress rendering', () => {
   test('renders notified count, timeout and next step without candidate identities', () => {
-    const message = buildMatchingProgressMessage(order({
-      matching: {
-        stage: 'WAITING_FOR_ACCEPTANCE',
-        notifiedCandidateCount: 3,
-        requestedPlayerCount: 3,
-        filledPlayerCount: 1,
-        timeoutAt: '2026-07-18T08:05:00.000Z',
-        nextStep: 'WAIT_FOR_PLAYER',
-        playerSummary: null
-      }
-    }));
+    const message = buildMatchingProgressMessage(
+      order({
+        matching: {
+          stage: 'WAITING_FOR_ACCEPTANCE',
+          notifiedCandidateCount: 3,
+          requestedPlayerCount: 3,
+          filledPlayerCount: 1,
+          timeoutAt: '2026-07-18T08:05:00.000Z',
+          nextStep: 'WAIT_FOR_PLAYER',
+          playerSummary: null
+        }
+      })
+    );
 
     expect(message.title).toContain('正在匹配陪玩');
     expect(message.body).toContain('已通知符合条件的陪玩：3 人');
@@ -24,39 +26,48 @@ describe('M2-US-07 Discord matching progress rendering', () => {
   });
 
   test('renders the accepted player and readiness action', () => {
-    const message = buildMatchingProgressMessage(order({
-      status: 'ACCEPTED',
-      matching: {
-        stage: 'ACCEPTED',
-        notifiedCandidateCount: 3,
-        timeoutAt: null,
-        nextStep: 'CONFIRM_READINESS',
-        playerSummary: {
-          playerId: '00000000-0000-0000-0000-00000000a702',
-          displayName: '陪玩小陈'
+    const message = buildMatchingProgressMessage(
+      order({
+        status: 'ACCEPTED',
+        matching: {
+          stage: 'ACCEPTED',
+          notifiedCandidateCount: 3,
+          timeoutAt: null,
+          nextStep: 'CONFIRM_READINESS',
+          playerSummary: {
+            playerId: '00000000-0000-0000-0000-00000000a702',
+            displayName: '陪玩小陈'
+          }
         }
-      }
-    }));
+      })
+    );
 
     expect(message.body).toContain('接单陪玩：陪玩小陈');
     expect(message.body).toContain('下一步：请确认已准备好开始服务');
   });
 
   test('the normal order panel routes matching states to the progress view', () => {
-    const message = buildOrderPanelMessage(order({
-      matching: {
-        stage: 'SEARCHING',
-        notifiedCandidateCount: 0,
-        timeoutAt: null,
-        nextStep: 'WAIT_FOR_PLAYER',
-        playerSummary: null
-      }
-    }));
+    const message = buildOrderPanelMessage(
+      order({
+        matching: {
+          stage: 'SEARCHING',
+          notifiedCandidateCount: 0,
+          timeoutAt: null,
+          nextStep: 'WAIT_FOR_PLAYER',
+          playerSummary: null
+        }
+      })
+    );
     expect(message.title).toContain('正在匹配陪玩');
-    expect(message.components.flatMap((row) => row.components).some((component) => component.type === 'SELECT')).toBe(false);
-    expect(message.components.flatMap((row) => row.components)).toEqual(expect.arrayContaining([
-      expect.objectContaining({label:'取消订单'}), expect.objectContaining({label:'我要申诉'})
-    ]));
+    expect(message.components.flatMap((row) => row.components).some((component) => component.type === 'SELECT')).toBe(
+      false
+    );
+    expect(message.components.flatMap((row) => row.components)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: '取消订单' }),
+        expect.objectContaining({ label: '联系猫舍前台' })
+      ])
+    );
   });
 });
 
@@ -76,6 +87,12 @@ function order(overrides: Partial<OrderSummary> = {}): OrderSummary {
     notes: null,
     channelSpec: { channelId: '120000000000000001', panelMessageId: '120000000000000002', voiceChannelId: null },
     matching: null,
+    availableActions: [
+      { key: 'CUSTOMER_STOP_RECRUITMENT', role: 'CUSTOMER', enabled: true, risk: 'PRIMARY', reasonCode: null },
+      { key: 'CUSTOMER_CANCEL_ORDER', role: 'CUSTOMER', enabled: true, risk: 'DANGER', reasonCode: null },
+      { key: 'CUSTOMER_REFRESH_ORDER', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null },
+      { key: 'CUSTOMER_CONTACT_SUPPORT', role: 'CUSTOMER', enabled: true, risk: 'SECONDARY', reasonCode: null }
+    ],
     ...overrides
   };
 }

@@ -27,7 +27,7 @@ describe('M18-US-06 service lifecycle experience', () => {
   test('offers the readiness action to an active player view', () => {
     const message = buildServiceLifecyclePanelMessage(lifecycle({ status: 'ACCEPTED', actorRole: 'PLAYER' }));
 
-    expect(JSON.stringify(message.components)).toContain('我已就绪');
+    expect(JSON.stringify(message.components)).toContain('陪玩：我已准备好');
     expect(JSON.stringify(message)).not.toContain('老板无需提交就绪');
   });
 
@@ -48,7 +48,7 @@ describe('M18-US-06 service lifecycle experience', () => {
       '⏳ 当前进度',
       '👉 下一步'
     ]);
-    expect(JSON.stringify(message.components)).toContain('申请完成');
+    expect(JSON.stringify(message.components)).toContain('陪玩：提交服务完成');
     expect(JSON.stringify(message)).not.toContain('已完成订单');
   });
 
@@ -60,7 +60,7 @@ describe('M18-US-06 service lifecycle experience', () => {
     expect(message.title).toContain('等待老板确认完成');
     expect(message.fields?.map((field) => field.name)).toEqual(['📨 完成申请', '⏳ 当前进度', '👉 下一步']);
     expect(JSON.stringify(message)).toContain('确认后才会完成订单结算');
-    expect(JSON.stringify(message.components)).toContain('确认完成');
+    expect(JSON.stringify(message.components)).toContain('老板：确认服务完成');
   });
 
   test('renders completed service as a quiet success without inventing payout facts', () => {
@@ -134,6 +134,46 @@ function lifecycle(
     readiness?: Partial<OrderLifecyclePanelSummary['readiness']>;
   } = {}
 ): OrderLifecyclePanelSummary {
+  const status = overrides.status ?? 'ACCEPTED';
+  const actorRole = overrides.actorRole ?? 'CUSTOMER';
+  const availableActions =
+    overrides.availableActions ??
+    (actorRole === 'PLAYER'
+      ? [
+          ...(status === 'ACCEPTED'
+            ? [
+                {
+                  key: 'PLAYER_SET_READINESS' as const,
+                  role: 'PLAYER' as const,
+                  enabled: true,
+                  risk: 'PRIMARY' as const,
+                  reasonCode: null
+                }
+              ]
+            : []),
+          ...(status === 'IN_SERVICE'
+            ? [
+                {
+                  key: 'PLAYER_REQUEST_COMPLETION' as const,
+                  role: 'PLAYER' as const,
+                  enabled: true,
+                  risk: 'PRIMARY' as const,
+                  reasonCode: null
+                }
+              ]
+            : [])
+        ]
+      : status === 'PENDING_CONFIRMATION'
+        ? [
+            {
+              key: 'CUSTOMER_CONFIRM_COMPLETION' as const,
+              role: 'CUSTOMER' as const,
+              enabled: true,
+              risk: 'PRIMARY' as const,
+              reasonCode: null
+            }
+          ]
+        : []);
   return {
     orderId: '00000000-0000-0000-0000-000000180601',
     publicId: 'P-M18-SERVICE',
@@ -142,6 +182,7 @@ function lifecycle(
     actorRole: 'CUSTOMER',
     enabledFeatures: ['CORE_ORDER', 'GIFTS'],
     ...overrides,
+    availableActions,
     readiness: {
       participants: [
         {

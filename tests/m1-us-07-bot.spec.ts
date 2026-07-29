@@ -28,6 +28,7 @@ function actor(): BotActorContext {
 }
 
 function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
+  const status = overrides.status ?? 'DRAFT';
   return {
     id: orderId,
     publicId: 'P-1042',
@@ -46,8 +47,36 @@ function draftOrder(overrides: Partial<OrderSummary> = {}): OrderSummary {
       panelMessageId: '120000000000000002',
       voiceChannelId: null
     },
-    ...overrides
+    ...overrides,
+    availableActions: overrides.availableActions ?? customerActions(status)
   };
+}
+
+function customerActions(status: string): OrderSummary['availableActions'] {
+  const action = (key: OrderSummary['availableActions'][number]['key'], risk: 'PRIMARY' | 'SECONDARY' | 'DANGER') => ({
+    key,
+    role: 'CUSTOMER' as const,
+    enabled: true,
+    risk,
+    reasonCode: null
+  });
+  return [
+    ...(status === 'DRAFT' ? [action('CUSTOMER_CONTINUE_ORDER', 'PRIMARY')] : []),
+    ...(status === 'PENDING_CONFIRMATION' ? [action('CUSTOMER_CONFIRM_COMPLETION', 'PRIMARY')] : []),
+    ...(status === 'IN_SERVICE' ? [action('CUSTOMER_SEND_GIFT', 'SECONDARY')] : []),
+    ...(!['COMPLETED', 'CANCELLED'].includes(status)
+      ? [
+          action(
+            status === 'DRAFT' || status === 'PENDING_DISPATCH'
+              ? 'CUSTOMER_CANCEL_ORDER'
+              : 'CUSTOMER_REQUEST_CANCELLATION',
+            'DANGER'
+          ),
+          action('CUSTOMER_REFRESH_ORDER', 'SECONDARY')
+        ]
+      : []),
+    action('CUSTOMER_CONTACT_SUPPORT', 'SECONDARY')
+  ];
 }
 
 function estimate(overrides: Record<string, unknown> = {}) {
@@ -114,7 +143,7 @@ describe('M1-US-07 order confirmation panel', () => {
         expect.objectContaining({
           type: 'BUTTON',
           customId: `bc:order:${orderId}:submit-final:v5`,
-          label: '确认提交并预留',
+          label: '提交订单并预留猫条',
           disabled: false
         })
       ])
@@ -138,18 +167,25 @@ describe('M1-US-07 order confirmation panel', () => {
         }),
         expect.objectContaining({
           customId: 'bc:service-center:recharge',
-          label: '联系客服充值',
-          disabled: false
+          label: '联系前台充值'
         })
       ])
     );
   });
 
-  test('allows final submit when the selected service does not define an optional region',()=>{
-    const message=buildOrderConfirmationMessage({order:draftOrder({region:null}),estimate:estimate(),balance:balance()});
+  test('allows final submit when the selected service does not define an optional region', () => {
+    const message = buildOrderConfirmationMessage({
+      order: draftOrder({ region: null }),
+      estimate: estimate(),
+      balance: balance()
+    });
     expect(message.body).toContain('区服：无指定区服');
     expect(message.body).not.toContain('请补齐区服');
-    expect(message.components.flatMap((row)=>row.components)).toEqual(expect.arrayContaining([expect.objectContaining({customId:`bc:order:${orderId}:submit-final:v5`,disabled:false})]));
+    expect(message.components.flatMap((row) => row.components)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ customId: `bc:order:${orderId}:submit-final:v5`, disabled: false })
+      ])
+    );
   });
 
   test('opens confirmation by calling getOrder, estimateOrder and getCurrentBalance through unified API client', async () => {
@@ -190,7 +226,9 @@ describe('M1-US-07 order confirmation panel', () => {
     });
     expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE', message: { title: '📋 订单 #P-1042' } });
     expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && result.message.title).not.toContain('最后确认');
-    expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && JSON.stringify(result.message.components)).not.toContain('submit-final');
+    expect(result.kind === 'EDIT_ORIGINAL_MESSAGE' && JSON.stringify(result.message.components)).not.toContain(
+      'submit-final'
+    );
     expect(client.estimateOrder).not.toHaveBeenCalled();
     expect(client.getCurrentBalance).not.toHaveBeenCalled();
   });
@@ -243,8 +281,9 @@ describe('M1-US-07 order confirmation panel', () => {
 
     expect(client.getOrder).toHaveBeenCalledWith(orderId, actor());
     expect(result).toMatchObject({ kind: 'EDIT_ORIGINAL_MESSAGE' });
-    expect(JSON.stringify(result.kind === 'EDIT_ORIGINAL_MESSAGE' ? result.message : null))
-      .toContain(`bc:order:${orderId}:refresh`);
+    expect(JSON.stringify(result.kind === 'EDIT_ORIGINAL_MESSAGE' ? result.message : null)).toContain(
+      `bc:order:${orderId}:refresh`
+    );
     expect(JSON.stringify(result)).not.toContain(`bc:order:${orderId}:refresh:v`);
   });
 
@@ -303,7 +342,7 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(rendered).toContain('报名进行中');
     expect(rendered).toContain('<@222222222222222222>');
     expect(rendered).toContain('<@444444444444444444>');
-    expect(rendered).toContain('终止招募');
+    expect(rendered).toContain('结束报名，进入试音');
     expect(rendered).not.toContain(`bc:sp:new:${orderId}`);
   });
 
@@ -333,17 +372,17 @@ describe('M1-US-07 order confirmation panel', () => {
     const rendered = JSON.stringify(result);
 
     expect(rendered).toContain('本轮无人报名');
-    expect(rendered).toContain('重新开始招募');
+    expect(rendered).toContain('再发起一轮报名');
     expect(rendered).not.toContain('选择等待时间');
     expect(rendered).toContain('bc:sp:r:');
     expect(rendered).not.toContain('请刷新报名名单或联系客服');
   });
 
   test.each([
-    ['ACCEPTED', 'bc:service:ready:'],
-    ['IN_SERVICE', 'bc:service:request-completion:'],
-    ['PENDING_CONFIRMATION', 'bc:service:confirm:']
-  ])('rebuilds the latest %s status with its valid primary action', async (status, expectedAction) => {
+    ['ACCEPTED', '申请取消订单'],
+    ['IN_SERVICE', '赠送礼物'],
+    ['PENDING_CONFIRMATION', '老板：确认服务完成']
+  ])('rebuilds the latest %s status with its valid owner action', async (status, expectedLabel) => {
     const latest = draftOrder({ status, version: 11, matching: null });
     const result = await handleOrderRefresh({
       api: api({ getOrder: vi.fn().mockResolvedValue(latest) }),
@@ -351,10 +390,12 @@ describe('M1-US-07 order confirmation panel', () => {
       orderId
     });
 
-    expect(JSON.stringify(result)).toContain(`${expectedAction}${orderId}:v11`);
+    expect(JSON.stringify(result)).toContain(expectedLabel);
+    expect(JSON.stringify(result)).not.toContain(`bc:service:ready:${orderId}:v11`);
+    expect(JSON.stringify(result)).not.toContain(`bc:service:request-completion:${orderId}:v11`);
   });
 
-  test('preserves participant status actions when owner-only requirement details are not visible', async () => {
+  test('preserves owner-safe actions when requirement details are not visible', async () => {
     const latest = draftOrder({
       status: 'ACCEPTED',
       version: 11,
@@ -379,7 +420,8 @@ describe('M1-US-07 order confirmation panel', () => {
     const result = await handleOrderRefresh({ api: client, actor: actor(), orderId });
 
     expect(result.kind).toBe('EDIT_ORIGINAL_MESSAGE');
-    expect(JSON.stringify(result)).toContain(`bc:service:ready:${orderId}:v11`);
+    expect(JSON.stringify(result)).toContain('申请取消订单');
+    expect(JSON.stringify(result)).not.toContain(`bc:service:ready:${orderId}:v11`);
   });
 
   test('keeps authoritative requirement details when a cancelled multi-project order is refreshed repeatedly', async () => {
@@ -462,12 +504,7 @@ describe('M1-US-07 Bot HTTP estimate client', () => {
       botServiceToken: 'bot-token'
     });
 
-    await client.estimateOrder(
-      orderId,
-      { expectedVersion: 5 },
-      actor(),
-      'discord:order:estimate:777777777777777777'
-    );
+    await client.estimateOrder(orderId, { expectedVersion: 5 }, actor(), 'discord:order:estimate:777777777777777777');
 
     expect(fetchMock).toHaveBeenCalledWith(
       `https://api.example.test/api/v1/orders/${orderId}/estimate`,
