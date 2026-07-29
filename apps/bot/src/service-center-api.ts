@@ -17,6 +17,14 @@ export interface OrderChannelSpec {
   voiceChannelId: string | null;
 }
 
+export interface OrderAvailableActionSummary {
+  key: string;
+  role: 'CUSTOMER' | 'PLAYER' | 'STAFF';
+  enabled: boolean;
+  risk: 'PRIMARY' | 'SECONDARY' | 'DANGER';
+  reasonCode: string | null;
+}
+
 export interface OrderSummary {
   id: string;
   publicId: string;
@@ -52,6 +60,7 @@ export interface OrderSummary {
     reasonCode: string | null;
     expiresAt: string | null;
   };
+  availableActions: OrderAvailableActionSummary[];
 }
 
 export interface PublicServiceSummary {
@@ -379,6 +388,7 @@ export interface PlayerWorkbenchSummary {
     currency: string;
     calculatedAt: string;
   };
+  availableActions: OrderAvailableActionSummary[];
   nextActions: Array<
     | 'SET_AVAILABLE'
     | 'REVIEW_MATCH'
@@ -430,6 +440,7 @@ export interface OrderLifecyclePanelSummary {
   status: 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
   version: number;
   actorRole: 'CUSTOMER' | 'PLAYER';
+  availableActions: OrderAvailableActionSummary[];
   enabledFeatures?: Array<'CORE_ORDER' | 'GIFTS' | 'REFERRALS' | 'M6'>;
   readiness: {
     participants: Array<{

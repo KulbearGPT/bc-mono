@@ -29,6 +29,10 @@ import {
   type StaffTaskRecord,
   type StaffTaskStore,
 } from "./staff-tasks.js";
+import {
+  buildOrderAvailableActions,
+  type OrderAvailableAction,
+} from "./order-actions.js";
 
 export type OrderStatus =
   | "DRAFT"
@@ -545,6 +549,7 @@ export interface OrderApiRecord {
     resumedAt: string | null;
     expiresAt: string | null;
   };
+  availableActions: OrderAvailableAction[];
   playerId: string | null;
   region: string | null;
   regionDisplayName: string | null;
@@ -1632,6 +1637,7 @@ export async function prepareCreateOrder(input: {
 export async function getOrder(input: {
   accountStore: AccountStore;
   orderStore: OrderStore;
+  staffTaskStore?: StaffTaskStore;
   actor: ActorContext;
   orderId: string;
 }): Promise<OrderApiRecord> {
@@ -1643,7 +1649,16 @@ export async function getOrder(input: {
   );
   const matching =
     (await input.orderStore.getMatchingProgress?.(order.id)) ?? null;
-  return toApiOrder(order, null, matching);
+  const tasks = input.staffTaskStore
+    ? await input.staffTaskStore.listCurrentUserTasks(binding.userId)
+    : [];
+  const hasOpenCancellationAssist = tasks.some(
+    (task) =>
+      task.orderId === order.id &&
+      task.type === "CANCELLATION_ASSIST" &&
+      !["RESOLVED", "CANCELLED", "REJECTED"].includes(task.status),
+  );
+  return toApiOrder(order, null, matching, hasOpenCancellationAssist);
 }
 
 export async function prepareUpdateOrder(input: {
@@ -2002,7 +2017,9 @@ export async function prepareCancelOrder(input: {
       type: "CANCELLATION_ASSIST",
       reasonCode: isOrderAutomationPausedFor(order, "CANCELLATION")
         ? "AUTOMATION_PAUSED"
-        : "CUSTOMER_CANCEL_AFTER_ACCEPT",
+        : order.status === "EXCEPTION"
+          ? "CUSTOMER_CANCEL_EXCEPTION"
+          : "CUSTOMER_CANCEL_AFTER_ACCEPT",
       note: input.input.note ?? null,
       voiceChannelId: order.channelSpec.voiceChannelId,
       actor: input.actor,
@@ -2196,7 +2213,9 @@ export async function previewOrderCancellation(input: {
       : 0;
   const staffTaskRequired =
     automationPaused ||
-    ["ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION"].includes(order.status);
+    ["ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION", "EXCEPTION"].includes(
+      order.status,
+    );
   if (!automaticallyProcessable && !staffTaskRequired) {
     throw new OrderError(
       "CONFLICT",
@@ -2794,6 +2813,7 @@ export function registerOrderRoutes(
       getOrder({
         accountStore: options.accountStore,
         orderStore: options.orderStore,
+        staffTaskStore: options.staffTaskStore,
         actor,
         orderId: readParams(request).orderId ?? "",
       }),
@@ -3208,6 +3228,7 @@ function toApiOrder(
   order: OrderRecord,
   reservation: FundReservationRecord | null = null,
   matching: OrderMatchingProgress | null = null,
+  hasOpenCancellationAssist = false,
 ): OrderApiRecord {
   return {
     id: order.id,
@@ -3248,6 +3269,11 @@ function toApiOrder(
       resumedAt: order.automationResumedAt ?? null,
       expiresAt: order.automationExpiresAt ?? null,
     },
+    availableActions: buildOrderAvailableActions({
+      status: order.status,
+      role: "CUSTOMER",
+      hasOpenCancellationAssist,
+    }),
     playerId: order.playerId,
     region: order.region,
     regionDisplayName: order.regionDisplayName ?? order.region,

@@ -4,6 +4,7 @@ import type { OutboxJob } from './outbox.js';
 import { enqueueTerminalChannelArchive } from './order-channel-cleanup.js';
 import { registerSecureWriteRoute } from './security.js';
 import { calculateReferralCommissionMinor, createEligibleReferralCommission } from './referrals.js';
+import { buildOrderAvailableActions, type OrderAvailableAction } from './order-actions.js';
 
 export type LifecycleOrderStatus = 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
 export type ReadinessValue = 'READY' | 'NOT_READY';
@@ -59,6 +60,7 @@ export interface OrderReadinessResult {
   status: LifecycleOrderStatus;
   version: number;
   actorRole: OrderParticipantRole;
+  availableActions: OrderAvailableAction[];
   readiness: {
     participants: Array<{ participantId: string; playerId: string; displayName: string; readiness: ReadinessValue }>;
     allActivePlayersReady: boolean;
@@ -1328,6 +1330,7 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
     status: order.status,
     version: order.version,
     actorRole,
+    availableActions: buildOrderAvailableActions({ status: order.status, role: actorRole }),
     readiness: {
       participants:participants.map((participant)=>({participantId:participant.id,playerId:participant.playerId,displayName:participant.displayName,readiness:participant.readyAt?'READY':'NOT_READY'})),
       allActivePlayersReady:participants.length>0?participants.every((participant)=>Boolean(participant.readyAt)):Boolean(order.customerReadyAt&&order.playerReadyAt),

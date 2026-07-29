@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { PostgresOrderStore, type InMemoryOrderStore, type OrderRecord } from './orders.js';
 import type { InMemoryStaffTaskStore, StaffTaskRecord, StaffTaskStatus, StaffTaskType, SupportResponseStatus } from './staff-tasks.js';
 import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type StaffLevel } from './security.js';
+import { buildOrderAvailableActions } from './order-actions.js';
 
 export interface SupportTaskNote {
   id: string;
@@ -268,7 +269,8 @@ function buildOrderView(order: OrderRecord, participants: SupportReadinessPartic
   const matching = order.status === 'PENDING_DISPATCH'
     ? { stage: 'SEARCHING', nextStep: 'WAIT_FOR_PLAYER' }
     : order.status === 'ACCEPTED' ? { stage: 'ACCEPTED', nextStep: 'CONFIRM_READINESS' } : null;
-  return { order: clone(order), matching, readiness, automation, transactions: [], resolutions: [], events: [] };
+  return { order: clone(order), matching, readiness, automation,
+    availableActions: buildOrderAvailableActions({ status: order.status, role: 'STAFF' }), transactions: [], resolutions: [], events: [] };
 }
 
 function inMemoryReadinessParticipants(order: OrderRecord): SupportReadinessParticipant[] {

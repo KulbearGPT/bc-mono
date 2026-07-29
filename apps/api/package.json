@@ -37,6 +37,7 @@
     "./admin-order-actions": "./src/admin-order-actions.ts",
     "./admin-directory": "./src/admin-directory.ts",
     "./orders": "./src/orders.ts",
+    "./order-actions": "./src/order-actions.ts",
     "./order-participants": "./src/order-participants.ts",
     "./order-requirements": "./src/order-requirements.ts",
     "./selection-pools": "./src/selection-pools.ts",

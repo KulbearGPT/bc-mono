@@ -7,6 +7,7 @@ import {
   type ActorContext,
 } from "./security.js";
 import type { BusinessTagStore } from "./business-tags.js";
+import { buildOrderAvailableActions } from "./order-actions.js";
 
 export type PlayerReviewStatus =
   "PENDING_REVIEW" | "ACTIVE" | "REJECTED" | "PAUSED" | "SUSPENDED";
@@ -827,6 +828,9 @@ export function registerPlayerRoutes(
           nextAction: "ACCEPT_OR_DECLINE" as const,
         })),
         earningsSummary: workbench.earningsSummary,
+        availableActions: workbench.currentOrder
+          ? buildOrderAvailableActions({ status: workbench.currentOrder.status, role: "PLAYER" })
+          : [],
         nextActions: buildWorkbenchActions(
           profile,
           workbench.currentOrder,
