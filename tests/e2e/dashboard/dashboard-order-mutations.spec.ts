@@ -152,4 +152,25 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     expect(state.orderParticipants).toHaveLength(2);expect(state.orderParticipants[0]).toMatchObject({id:'participant-e2e-1',playerId:'player-e2e-3',service:'ESCORT',linePriceMinor:1001,readiness:'NOT_READY',version:2});expect(state.orderParticipants[1]).toMatchObject({id:'participant-e2e-2',playerId:'player-e2e-2',service:'CHAT',linePriceMinor:1002,version:1});
     expect(state.order).toMatchObject({amountMinor:2003,version:6});expect(state.reservationAmountMinor).toBe(2003);
   });
+
+  test('DE2E-ORD-020 support edits order notes and clears requirement notes without a recruitment prerequisite or amount change',async({page,request})=>{
+    await loginAndOpenDetail(page);
+    await page.getByText('编辑订单备注').click();
+    const orderEditor=page.getByText('编辑订单备注').locator('..');
+    await orderEditor.getByLabel('当前订单备注（留空即清除）').fill('客服修正后的订单阻塞信息');
+    await orderEditor.getByRole('button',{name:'保存订单备注'}).click();
+    await expect(page.getByText('客户备注：客服修正后的订单阻塞信息',{exact:true})).toBeVisible();
+
+    await page.getByText('编辑席位备注').click();
+    const requirementEditor=page.getByText('编辑席位备注').locator('..');
+    await requirementEditor.getByLabel('席位备注（留空即清除）').fill('');
+    await requirementEditor.getByRole('button',{name:'保存席位备注'}).click();
+    await expect(page.locator('.requirement-detail-card').getByText('未填写',{exact:true})).toBeVisible();
+
+    const state=await page.evaluate(async()=>await(await fetch('/__e2e/state')).json());
+    expect(state.order).toMatchObject({notes:'客服修正后的订单阻塞信息',amountMinor:4000,version:5,status:'ACCEPTED'});
+    expect(state.orderRequirement).toMatchObject({customerNote:'',version:2});
+    expect(state.reservationAmountMinor).toBe(4000);
+    expect(state.auditCount).toBeGreaterThanOrEqual(2);
+  });
 });

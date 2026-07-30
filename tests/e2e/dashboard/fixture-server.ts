@@ -98,7 +98,8 @@ function projectSupportTask(task: StaffTask) {
     firstRespondedAt: task.status === 'OPEN' ? null : '2026-08-05T00:01:00.000Z'
   };
 }
-const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', amountMinor: 4_000, currency: 'CAT', createdAt: '2026-08-05T00:00:00.000Z' };
+const orderRecord = { id: '00000000-0000-0000-0000-000000000301', publicId: 'P-E2E-001', version: 3, status: 'ACCEPTED', customerDiscordId: 'customer-e2e', notes: '老板原始订单备注', amountMinor: 4_000, currency: 'CAT', createdAt: '2026-08-05T00:00:00.000Z' };
+const orderRequirementRecord = { id: 'requirement-e2e-1', orderId: orderRecord.id, version: 1, status: 'ACTIVE', serviceCatalogVersionId: '00000000-0000-0000-0000-000000000701', game: 'VALORANT', gameDisplayName: '无畏契约', service: 'ESCORT', serviceDisplayName: '护航', region: 'NA', regionDisplayName: '北美', billingUnitMinutes: 60, unitCount: 1, requestedPlayerCount: 1, filledPlayerCount: 0, customerNote: '老板原始席位偏好', estimatedLinePriceMinor: 4_000 };
 type BulkOrder = {
   id: string; publicId: string; version: number; status: string; customerDiscordId: string; amountMinor: number; currency: 'CAT'; createdAt: string;
   guildId: string; playerEarningMinor: number; reservationStatus: 'ACTIVE' | 'CAPTURED' | 'RELEASED' | 'DISPUTED'; resolutionCount: number;
@@ -169,7 +170,8 @@ function resetState() {
   jobs.set(initialJob.id, { ...initialJob });
   jobs.set(nonRetryableJob.id, { ...nonRetryableJob });
   Object.assign(policySetting, { integerValue: 50_000, currency: 'CAT', version: 1 });
-  Object.assign(orderRecord, { version: 3, status: 'ACCEPTED', amountMinor: 4_000 });
+  Object.assign(orderRecord, { version: 3, status: 'ACCEPTED', notes: '老板原始订单备注', amountMinor: 4_000 });
+  Object.assign(orderRequirementRecord, { version: 1, customerNote: '老板原始席位偏好' });
   bulkOrders.length = 0;
   orderResolutionCount = 0;
   orderParticipants.length = 0;
@@ -816,7 +818,34 @@ registerSecureReadRoute(server, server.securityOptions!, {
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/orders/:orderId/requirements', permission: 'order.read', action: 'READ_E2E_ORDER_REQUIREMENTS', targetType: 'order', acceptedSources: ['DASHBOARD'],
-  handler: () => ({ items: [], derivedTotalMinor: orderRecord.amountMinor, nextCursor: null })
+  handler: () => ({ items: [{ ...orderRequirementRecord }], derivedTotalMinor: orderRecord.amountMinor, catalogSubtotalMinor: orderRecord.amountMinor, packageAdjustmentMinor: 0, nextCursor: null })
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/orders/:orderId', permission: 'order.participants.manage', action: 'UPDATE_E2E_ORDER_NOTE', targetType: 'order', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_ORDER_NOTE' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order version changed.' } : error instanceof Error && error.message === 'IMMUTABLE_ORDER_NOTE' ? { statusCode: 422, code: 'ORDER_IMMUTABLE', message: 'Terminal orders cannot be changed.' } : null,
+  handler: (request) => {
+    const body = request.body as { action?: unknown; note?: unknown; expectedOrderVersion?: unknown; reasonCode?: unknown };
+    if (['COMPLETED', 'CANCELLED'].includes(orderRecord.status)) throw new Error('IMMUTABLE_ORDER_NOTE');
+    if (body.expectedOrderVersion !== orderRecord.version) throw new Error('STALE_ORDER_NOTE');
+    if (body.action !== 'CHANGE_NOTE' || !(typeof body.note === 'string' || body.note === null) || typeof body.reasonCode !== 'string') throw new Error('INVALID_ORDER_NOTE');
+    orderRecord.notes = typeof body.note === 'string' && body.note.trim() ? body.note.trim() : '';
+    orderRecord.version += 1;
+    return { order: { ...orderRecord }, reservationAmountMinor };
+  }
+});
+registerSecureWriteRoute(server, server.securityOptions!, {
+  method: 'PATCH', url: '/api/v1/admin/orders/:orderId/requirements/:requirementId', permission: 'order.participants.manage', action: 'UPDATE_E2E_ORDER_REQUIREMENT_NOTE', targetType: 'order_requirement', acceptedSources: ['DASHBOARD'],
+  mapError: (error) => error instanceof Error && error.message === 'STALE_REQUIREMENT_NOTE' ? { statusCode: 409, code: 'VERSION_CONFLICT', message: 'The order or requirement version changed.' } : error instanceof Error && error.message === 'IMMUTABLE_REQUIREMENT_NOTE' ? { statusCode: 422, code: 'ORDER_IMMUTABLE', message: 'Terminal orders cannot be changed.' } : null,
+  handler: (request) => {
+    const body = request.body as { action?: unknown; customerNote?: unknown; expectedOrderVersion?: unknown; expectedRequirementVersion?: unknown; reasonCode?: unknown };
+    if (['COMPLETED', 'CANCELLED'].includes(orderRecord.status)) throw new Error('IMMUTABLE_REQUIREMENT_NOTE');
+    if ((request.params as { requirementId: string }).requirementId !== orderRequirementRecord.id || body.expectedOrderVersion !== orderRecord.version || body.expectedRequirementVersion !== orderRequirementRecord.version) throw new Error('STALE_REQUIREMENT_NOTE');
+    if (body.action !== 'CHANGE_NOTE' || !(typeof body.customerNote === 'string' || body.customerNote === null) || typeof body.reasonCode !== 'string') throw new Error('INVALID_REQUIREMENT_NOTE');
+    orderRequirementRecord.customerNote = typeof body.customerNote === 'string' && body.customerNote.trim() ? body.customerNote.trim() : '';
+    orderRequirementRecord.version += 1;
+    orderRecord.version += 1;
+    return { requirement: { ...orderRequirementRecord }, order: { ...orderRecord }, reservationAmountMinor };
+  }
 });
 registerSecureReadRoute(server, server.securityOptions!, {
   method: 'GET', url: '/api/v1/admin/orders/:orderId/participant-candidates', permission: 'order.read', action: 'READ_E2E_ORDER_PARTICIPANT_CANDIDATES', targetType: 'order', acceptedSources: ['DASHBOARD'],
@@ -1002,6 +1031,6 @@ server.get('/__e2e/totp/:actor', async (request, reply) => {
   const secret = actorTotpSecrets.get((request.params as { actor: string }).actor);
   return secret ? { proof: generateTotp(secret, fixtureNow()) } : reply.code(404).send({ error: 'unknown E2E TOTP actor' });
 });
-server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, profileNotes, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping,staffAccounts, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
+server.get('/__e2e/state', async () => ({ tasks: Array.from(tasks.values()), order: orderRecord, orderRequirement: orderRequirementRecord, bulkOrders, orderResolutionCount, orderParticipants, reservationAmountMinor, reservationCreateCount, automationControl, user: userRecord, bulkUsers, riskEvents, walletBalance, walletEntries, receiptAttachments, profileNotes, player: playerRecord, bulkPlayers, compensationRules, businessTags, catalogRecords, packageRecords, giftRecords, giftRequestRecords, giftReservationCaptureCount, giftReservationReleaseCount, earningRecord, earningPaymentWrites, roleMapping,staffAccounts, settlementBatches, weeklyReports, outboxMessages, workerRunning, workerSideEffectCount, apiRuntimeEpoch, workerRuntimeEpoch, jobs: Array.from(jobs.values()), policySetting, auditCount: auditSink.records.length, audits: auditSink.records }));
 
 await server.listen({ host, port });

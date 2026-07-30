@@ -76,6 +76,38 @@ interface RequirementScope {
   actorDiscordUserId: string;
 }
 
+interface AdminRequirementScope {
+  orderId: string;
+  actorStaffId: string;
+  actorLevel: StaffLevel;
+  guildId: string;
+  actorSource: ActorContext['actorSource'];
+}
+
+interface AdminOrderNoteInput extends AdminRequirementScope {
+  expectedOrderVersion: number;
+  note: string | null;
+  reasonCode: string;
+  idempotencyKey: string;
+  now: Date;
+}
+
+interface AdminRequirementNoteInput extends AdminRequirementScope {
+  requirementId: string;
+  expectedOrderVersion: number;
+  expectedRequirementVersion: number;
+  customerNote: string | null;
+  reasonCode: string;
+  idempotencyKey: string;
+  now: Date;
+}
+
+interface AdminOrderNoteResult {
+  orderId: string;
+  orderVersion: number;
+  note: string | null;
+}
+
 export interface AddRequirementInput extends RequirementScope {
   serviceCatalogVersionId: string;
   unitCount: number;
@@ -108,7 +140,11 @@ export interface OrderRequirementStore {
   add(input: AddRequirementInput): Promise<StagedRequirementWrite> | StagedRequirementWrite;
   update(input: UpdateRequirementInput): Promise<StagedRequirementWrite> | StagedRequirementWrite;
   listAdmin?(input: { orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number }): Promise<RequirementPage> | RequirementPage;
+  updateAdminOrderNote?(input: AdminOrderNoteInput): Promise<StagedAdminWrite<AdminOrderNoteResult>> | StagedAdminWrite<AdminOrderNoteResult>;
+  updateAdminRequirementNote?(input: AdminRequirementNoteInput): Promise<StagedAdminWrite<RequirementMutationResult>> | StagedAdminWrite<RequirementMutationResult>;
 }
+
+interface StagedAdminWrite<T> { data:T;commit(auditRecord:AuditRecord):Promise<void>|void }
 
 export class OrderRequirementError extends Error {
   constructor(readonly code: 'NOT_FOUND' | 'PERMISSION_DENIED' | 'VALIDATION_ERROR' | 'CONFLICT' | 'BUSINESS_RULE_ERROR', message: string) {
@@ -126,6 +162,8 @@ export interface RequirementOrder {
   amountMinor: number;
   sourcePackageVersionId?: string | null;
   compositionMode?: 'PACKAGE_DEFAULT' | 'CUSTOMIZED' | null;
+  notes?: string | null;
+  captured?: boolean;
 }
 
 export class InMemoryOrderRequirementStore implements OrderRequirementStore {
@@ -146,6 +184,14 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
 
   listAdmin(input:{orderId:string;actorStaffId:string;actorLevel:StaffLevel;guildId:string;cursor:string|null;limit:number}):RequirementPage{
     const order=this.orders.find((item)=>item.id===input.orderId&&item.guildId===input.guildId);if(!order)throw new OrderRequirementError('NOT_FOUND','Order was not found.');if(input.actorLevel==='L1_SUPPORT'&&!(this.claimedOrderIdsByStaffId[input.actorStaffId]??[]).includes(order.id))throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the claimed task scope.');const offset=decodeCursor(input.cursor);const all=this.requirements.filter((item)=>item.orderId===order.id&&item.status==='ACTIVE').sort(sortCreated);const catalogSubtotalMinor=deriveTotal(all);const derivedTotalMinor=order.compositionMode==='PACKAGE_DEFAULT'?order.amountMinor:catalogSubtotalMinor;return{orderId:order.id,orderVersion:order.version,catalogSubtotalMinor,packageAdjustmentMinor:derivedTotalMinor-catalogSubtotalMinor,derivedTotalMinor,currency:'CAT',items:clone(all.slice(offset,offset+input.limit)),nextCursor:offset+input.limit<all.length?encodeCursor(offset+input.limit):null};
+  }
+
+  updateAdminOrderNote(input:AdminOrderNoteInput):StagedAdminWrite<AdminOrderNoteResult>{
+    const order=this.requireAdminMutableOrder(input,input.expectedOrderVersion);const data={orderId:order.id,orderVersion:order.version+1,note:input.note};return{data,commit:async(audit)=>{const current=this.requireAdminMutableOrder(input,input.expectedOrderVersion);if(this.eventKeys.has(input.idempotencyKey))return;await this.auditSink.append(audit);current.notes=input.note;current.version+=1;this.eventKeys.add(input.idempotencyKey);}};
+  }
+
+  updateAdminRequirementNote(input:AdminRequirementNoteInput):StagedAdminWrite<RequirementMutationResult>{
+    const order=this.requireAdminMutableOrder(input,input.expectedOrderVersion);const existing=this.requirements.find((item)=>item.id===input.requirementId&&item.orderId===input.orderId);if(!existing)throw new OrderRequirementError('NOT_FOUND','Order requirement was not found.');if(existing.version!==input.expectedRequirementVersion)throw new OrderRequirementError('CONFLICT','Order requirement version is stale.');if(existing.status!=='ACTIVE')throw new OrderRequirementError('BUSINESS_RULE_ERROR','Removed requirement cannot be changed.');const next={...clone(existing),customerNote:input.customerNote,version:existing.version+1,updatedAt:input.now.toISOString()};const data={orderId:order.id,orderVersion:order.version+1,derivedTotalMinor:order.amountMinor,currency:'CAT' as const,requirement:next};return{data,commit:async(audit)=>{const current=this.requireAdminMutableOrder(input,input.expectedOrderVersion);const index=this.requirements.findIndex((item)=>item.id===input.requirementId&&item.orderId===input.orderId);if(index<0||this.requirements[index]!.version!==input.expectedRequirementVersion)throw new OrderRequirementError('CONFLICT','Order requirement version is stale.');if(this.eventKeys.has(input.idempotencyKey))return;await this.auditSink.append(audit);this.requirements[index]=clone(next);current.version+=1;this.eventKeys.add(input.idempotencyKey);}};
   }
 
   list(input: RequirementScope & { cursor: string | null; limit: number }): RequirementPage {
@@ -230,6 +276,8 @@ export class InMemoryOrderRequirementStore implements OrderRequirementStore {
     return order;
   }
 
+  private requireAdminMutableOrder(input:AdminRequirementScope,expectedVersion:number):RequirementOrder{const order=this.orders.find((item)=>item.id===input.orderId&&item.guildId===input.guildId);if(!order)throw new OrderRequirementError('NOT_FOUND','Order was not found.');if(input.actorLevel==='L1_SUPPORT'&&!(this.claimedOrderIdsByStaffId[input.actorStaffId]??[]).includes(order.id))throw new OrderRequirementError('PERMISSION_DENIED','Order is outside the claimed task scope.');if(order.status==='COMPLETED'||order.status==='CANCELLED'||order.captured)throw new OrderRequirementError('BUSINESS_RULE_ERROR','Terminal or captured orders cannot be corrected.');if(order.version!==expectedVersion)throw new OrderRequirementError('CONFLICT','Order version is stale.');return order;}
+
   private requireCatalog(id: string): RequirementCatalog {
     const catalog = this.catalogs.find((candidate) => candidate.id === id && candidate.status === 'ACTIVE');
     if (!catalog) throw new OrderRequirementError('BUSINESS_RULE_ERROR', 'Active service catalog version was not found.');
@@ -256,6 +304,8 @@ export class PostgresOrderRequirementStore implements OrderRequirementStore {
 
   add(input: AddRequirementInput): Promise<StagedRequirementWrite> { return this.prepare(input, null); }
   update(input: UpdateRequirementInput): Promise<StagedRequirementWrite> { return this.prepare(input, input.requirementId); }
+  updateAdminOrderNote(input:AdminOrderNoteInput):Promise<StagedAdminWrite<AdminOrderNoteResult>>{return this.prepareAdmin(input,(client)=>applyAdminOrderNote(client,input));}
+  updateAdminRequirementNote(input:AdminRequirementNoteInput):Promise<StagedAdminWrite<RequirementMutationResult>>{return this.prepareAdmin(input,(client)=>applyAdminRequirementNote(client,input));}
 
   private async prepare(input: AddRequirementInput | UpdateRequirementInput, requirementId: string | null): Promise<StagedRequirementWrite> {
     const preview = await this.pool.connect();
@@ -282,7 +332,35 @@ export class PostgresOrderRequirementStore implements OrderRequirementStore {
       } finally { client.release(); }
     } };
   }
+
+  private async prepareAdmin<T>(input:AdminOrderNoteInput|AdminRequirementNoteInput,apply:(client:PoolClient)=>Promise<T>):Promise<StagedAdminWrite<T>>{
+    const preview=await this.pool.connect();let data:T;try{await preview.query('BEGIN');data=await apply(preview);await preview.query('ROLLBACK');}catch(error){await preview.query('ROLLBACK').catch(()=>undefined);throw normalizeError(error);}finally{preview.release();}
+    return{data,commit:async(audit)=>{const client=await this.pool.connect();try{await client.query('BEGIN');const committed=await apply(client);await insertPostgresAuditRecord(client,audit);await client.query('COMMIT');Object.assign(data as object,committed as object);}catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw normalizeError(error);}finally{client.release();}}};
+  }
 }
+
+async function applyAdminOrderNote(client:PoolClient,input:AdminOrderNoteInput):Promise<AdminOrderNoteResult>{
+  const order=await adminMutableOrder(client,input,input.expectedOrderVersion);const updated=await client.query<{row_version:number}>(`UPDATE orders SET customer_note=$3,row_version=row_version+1,updated_at=$4 WHERE id=$1 AND row_version=$2 RETURNING row_version`,[input.orderId,input.expectedOrderVersion,input.note,input.now]);if(!updated.rows[0])throw new OrderRequirementError('CONFLICT','Order version is stale.');
+  await insertAdminOrderDetailsEvent(client,{...input,orderStatus:order.status,orderVersion:updated.rows[0].row_version,change:'ORDER_NOTE_CHANGED',snapshot:{note:input.note}});await insertAdminOrderPanelSync(client,input.orderId,updated.rows[0].row_version,input.idempotencyKey,input.now);return{orderId:input.orderId,orderVersion:updated.rows[0].row_version,note:input.note};
+}
+
+async function applyAdminRequirementNote(client:PoolClient,input:AdminRequirementNoteInput):Promise<RequirementMutationResult>{
+  const order=await adminMutableOrder(client,input,input.expectedOrderVersion);const result=await client.query<RequirementRow>(`${requirementSelect} WHERE requirement.id=$1 AND requirement.order_id=$2 FOR UPDATE`,[input.requirementId,input.orderId]);const existing=result.rows[0]?mapRequirement(result.rows[0]):null;if(!existing)throw new OrderRequirementError('NOT_FOUND','Order requirement was not found.');if(existing.version!==input.expectedRequirementVersion)throw new OrderRequirementError('CONFLICT','Order requirement version is stale.');if(existing.status!=='ACTIVE')throw new OrderRequirementError('BUSINESS_RULE_ERROR','Removed requirement cannot be changed.');const next={...existing,customerNote:input.customerNote,version:existing.version+1,updatedAt:input.now.toISOString()};
+  await client.query(`SELECT set_config('app.admin_order_note_recovery','approved',true)`);
+  const changed=await client.query(`UPDATE order_requirements SET customer_note=$3,row_version=row_version+1,updated_at=$4 WHERE id=$1 AND row_version=$2`,[input.requirementId,input.expectedRequirementVersion,input.customerNote,input.now]);if((changed.rowCount??0)!==1)throw new OrderRequirementError('CONFLICT','Order requirement version is stale.');const orderVersion=input.expectedOrderVersion+1;
+  await client.query(`INSERT INTO order_requirement_events(id,order_requirement_id,sequence,event_type,requirement_version,order_version,actor_user_id,snapshot,idempotency_key,created_at) VALUES(gen_random_uuid(),$1,(SELECT COALESCE(MAX(sequence),0)+1 FROM order_requirement_events WHERE order_requirement_id=$1),'NOTE_CHANGED',$2,$3,(SELECT user_id FROM staff_accounts WHERE id=$4),$5::jsonb,$6,$7)`,[input.requirementId,next.version,orderVersion,input.actorStaffId,JSON.stringify(next),input.idempotencyKey,input.now]);
+  const updated=await client.query<{row_version:number}>(`UPDATE orders SET row_version=row_version+1,updated_at=$3 WHERE id=$1 AND row_version=$2 RETURNING row_version`,[input.orderId,input.expectedOrderVersion,input.now]);if(!updated.rows[0])throw new OrderRequirementError('CONFLICT','Order version is stale.');await insertAdminOrderDetailsEvent(client,{...input,orderStatus:order.status,orderVersion:updated.rows[0].row_version,change:'REQUIREMENT_NOTE_CHANGED',snapshot:{requirementId:input.requirementId,customerNote:input.customerNote}});await insertAdminOrderPanelSync(client,input.orderId,updated.rows[0].row_version,input.idempotencyKey,input.now);return{orderId:input.orderId,orderVersion:updated.rows[0].row_version,derivedTotalMinor:safeMinor(order.amount_minor??0),currency:'CAT',requirement:next};
+}
+
+async function adminMutableOrder(client:PoolClient,input:AdminRequirementScope,expectedVersion:number):Promise<{status:string;amount_minor:string|number|bigint|null}>{
+  const result=await client.query<{status:string;row_version:number;amount_minor:string|number|bigint|null;captured:boolean}>(`SELECT orders.status::text,orders.row_version,orders.amount_minor,EXISTS(SELECT 1 FROM fund_reservations reservation WHERE reservation.order_id=orders.id AND reservation.status='CAPTURED') captured FROM orders WHERE orders.id=$1 AND orders.guild_id=$2 AND ($3::text<>'L1_SUPPORT' OR EXISTS(SELECT 1 FROM staff_tasks task WHERE task.order_id=orders.id AND task.claimed_by_staff_id=$4 AND task.status IN ('CLAIMED','VERIFIED','PENDING_APPROVAL'))) FOR UPDATE`,[input.orderId,input.guildId,input.actorLevel,input.actorStaffId]);const order=result.rows[0];if(!order)throw new OrderRequirementError(input.actorLevel==='L1_SUPPORT'?'PERMISSION_DENIED':'NOT_FOUND','Order was not found in the permitted scope.');if(order.status==='COMPLETED'||order.status==='CANCELLED'||order.captured)throw new OrderRequirementError('BUSINESS_RULE_ERROR','Terminal or captured orders cannot be corrected.');if(order.row_version!==expectedVersion)throw new OrderRequirementError('CONFLICT','Order version is stale.');return order;
+}
+
+async function insertAdminOrderDetailsEvent(client:PoolClient,input:AdminRequirementScope&{idempotencyKey:string;now:Date;reasonCode:string;orderStatus:string;orderVersion:number;change:string;snapshot:Record<string,unknown>}):Promise<void>{
+  await client.query(`INSERT INTO order_events(id,order_id,sequence,event_type,from_status,to_status,actor_user_id,actor_staff_id,actor_source,interaction_id,payload,created_at) VALUES(gen_random_uuid(),$1,(SELECT COALESCE(MAX(sequence),0)+1 FROM order_events WHERE order_id=$1),'DETAILS_UPDATED',$2::"OrderStatus",$2::"OrderStatus",(SELECT user_id FROM staff_accounts WHERE id=$3),$3,$4::"ActorSource",NULL,$5::jsonb,$6)`,[input.orderId,input.orderStatus,input.actorStaffId,input.actorSource,JSON.stringify({change:input.change,reasonCode:input.reasonCode,orderVersion:input.orderVersion,...input.snapshot}),input.now]);
+}
+
+async function insertAdminOrderPanelSync(client:PoolClient,orderId:string,orderVersion:number,idempotencyKey:string,now:Date):Promise<void>{await client.query(`INSERT INTO outbox_events(id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at) VALUES(gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4) ON CONFLICT DO NOTHING`,[orderId,`${idempotencyKey}:panel-sync`,JSON.stringify({kind:'ORDER_DETAILS_CORRECTED_CHANNEL_SYNC',orderId,orderVersion}),now]);}
 
 export function registerOrderRequirementRoutes(server: FastifyInstance, options: { store: OrderRequirementStore; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Order requirement routes require security options.');
@@ -292,8 +370,11 @@ export function registerOrderRequirementRoutes(server: FastifyInstance, options:
     if (!actor.guildId || !actor.discordUserId) throw new OrderRequirementError('PERMISSION_DENIED', 'Discord actor context is required.');
     return { orderId: parameter(request, 'orderId'), actorGuildId: actor.guildId, actorDiscordUserId: actor.discordUserId };
   };
+  const adminScope=(request:FastifyRequest,actor:ActorContext):AdminRequirementScope=>{if(!actor.actorStaffId||!actor.actorLevel||!actor.guildId)throw new OrderRequirementError('PERMISSION_DENIED','Active staff and Guild context are required.');return{orderId:parameter(request,'orderId'),actorStaffId:actor.actorStaffId,actorLevel:actor.actorLevel,guildId:actor.guildId,actorSource:actor.actorSource};};
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/orders/:orderId/requirements', permission: 'order.read', action: 'LIST_ORDER_REQUIREMENTS', targetType: 'order', acceptedSources: ['DISCORD_BOT', 'DASHBOARD'], handler: (request, actor) => options.store.list({ ...scope(request, actor), ...pageInput(request) }), mapError });
   if(options.store.listAdmin)registerSecureReadRoute(server,security,{method:'GET',url:'/api/v1/admin/orders/:orderId/requirements',permission:'order.participants.manage',action:'LIST_ADMIN_ORDER_REQUIREMENTS',targetType:'order',acceptedSources:['DASHBOARD','DISCORD_BOT'],handler:(request,actor)=>{if(!actor.actorStaffId||!actor.actorLevel||!actor.guildId)throw new OrderRequirementError('PERMISSION_DENIED','Active staff and Guild context are required.');return options.store.listAdmin!({orderId:parameter(request,'orderId'),actorStaffId:actor.actorStaffId,actorLevel:actor.actorLevel,guildId:actor.guildId,...pageInput(request)});},mapError});
+  if(options.store.updateAdminOrderNote)registerSecureWriteRoute(server,security,{method:'PATCH',url:'/api/v1/admin/orders/:orderId',permission:'order.participants.manage',action:'UPDATE_ADMIN_ORDER_NOTE',targetType:'order',targetId:(request)=>parameter(request,'orderId'),acceptedSources:['DASHBOARD'],handler:(request,actor)=>{const body=parseAdminOrderNote(request.body);return options.store.updateAdminOrderNote!({...adminScope(request,actor),...body,idempotencyKey:requestIdempotencyKey(request),now:now()});},successReason:(request)=>parseAdminOrderNote(request.body).reasonCode,mapError});
+  if(options.store.updateAdminRequirementNote)registerSecureWriteRoute(server,security,{method:'PATCH',url:'/api/v1/admin/orders/:orderId/requirements/:requirementId',permission:'order.participants.manage',action:'UPDATE_ADMIN_ORDER_REQUIREMENT_NOTE',targetType:'order_requirement',targetId:(request)=>parameter(request,'requirementId'),acceptedSources:['DASHBOARD'],handler:(request,actor)=>{const body=parseAdminRequirementNote(request.body);return options.store.updateAdminRequirementNote!({...adminScope(request,actor),requirementId:parameter(request,'requirementId'),...body,idempotencyKey:requestIdempotencyKey(request),now:now()});},successReason:(request)=>parseAdminRequirementNote(request.body).reasonCode,mapError});
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/orders/:orderId/requirements', permission: 'order.update', action: 'ADD_ORDER_REQUIREMENT', targetType: 'order_requirement', successStatusCode: 201, acceptedSources: ['DISCORD_BOT'], handler: (request, actor) => options.store.add({ ...scope(request, actor), ...parseAdd(request.body), idempotencyKey: requestIdempotencyKey(request), now: now() }), mapError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/orders/:orderId/requirements/:requirementId', permission: 'order.update', action: 'UPDATE_ORDER_REQUIREMENT', targetType: 'order_requirement', targetId: (request) => parameter(request, 'requirementId'), acceptedSources: ['DISCORD_BOT'], handler: (request, actor) => options.store.update({ ...scope(request, actor), requirementId: parameter(request, 'requirementId'), ...parseUpdate(request.body), idempotencyKey: requestIdempotencyKey(request), now: now() }), mapError });
 }
@@ -398,6 +479,8 @@ function deriveTotal(items: OrderRequirementRecord[]): number { const total = it
 function sortCreated(a: OrderRequirementRecord, b: OrderRequirementRecord): number { return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id); }
 function parseAdd(value: unknown): Omit<AddRequirementInput, keyof RequirementScope | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','serviceCatalogVersionId','unitCount','requestedPlayerCount']); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), serviceCatalogVersionId: uuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: positiveInteger(body.unitCount,'unitCount'), requestedPlayerCount: positiveInteger(body.requestedPlayerCount,'requestedPlayerCount') }; }
 function parseUpdate(value: unknown): Omit<UpdateRequirementInput, keyof RequirementScope | 'requirementId' | 'idempotencyKey' | 'now'> { const body = strictObject(value, ['expectedOrderVersion','expectedRequirementVersion','action','serviceCatalogVersionId','unitCount','requestedPlayerCount','customerNote']); if (body.action !== 'CHANGE_PROJECT' && body.action !== 'CHANGE_QUANTITY' && body.action !== 'CHANGE_NOTE' && body.action !== 'REMOVE') throw new OrderRequirementError('VALIDATION_ERROR','action is invalid.'); return { expectedOrderVersion: positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'), expectedRequirementVersion: positiveInteger(body.expectedRequirementVersion,'expectedRequirementVersion'), action: body.action, serviceCatalogVersionId: nullableUuid(body.serviceCatalogVersionId,'serviceCatalogVersionId'), unitCount: nullablePositiveInteger(body.unitCount,'unitCount'), requestedPlayerCount: nullablePositiveInteger(body.requestedPlayerCount,'requestedPlayerCount'),customerNote:nullableNote(body.customerNote) }; }
+function parseAdminOrderNote(value:unknown):Pick<AdminOrderNoteInput,'expectedOrderVersion'|'note'|'reasonCode'>{const body=strictObject(value,['expectedOrderVersion','action','note','reasonCode']);if(body.action!=='CHANGE_NOTE')throw new OrderRequirementError('VALIDATION_ERROR','action must be CHANGE_NOTE.');return{expectedOrderVersion:positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'),note:nullableText(body.note,1000,'note'),reasonCode:requiredReasonCode(body.reasonCode)};}
+function parseAdminRequirementNote(value:unknown):Pick<AdminRequirementNoteInput,'expectedOrderVersion'|'expectedRequirementVersion'|'customerNote'|'reasonCode'>{const body=strictObject(value,['expectedOrderVersion','expectedRequirementVersion','action','customerNote','reasonCode']);if(body.action!=='CHANGE_NOTE')throw new OrderRequirementError('VALIDATION_ERROR','action must be CHANGE_NOTE.');return{expectedOrderVersion:positiveInteger(body.expectedOrderVersion,'expectedOrderVersion'),expectedRequirementVersion:positiveInteger(body.expectedRequirementVersion,'expectedRequirementVersion'),customerNote:nullableText(body.customerNote,500,'customerNote'),reasonCode:requiredReasonCode(body.reasonCode)};}
 function strictObject(value: unknown, allowed: string[]): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OrderRequirementError('VALIDATION_ERROR','Object payload is required.'); const body=value as Record<string,unknown>; const extra=Object.keys(body).filter((key)=>!allowed.includes(key)); if(extra.length)throw new OrderRequirementError('VALIDATION_ERROR',`Unexpected fields: ${extra.join(', ')}.`); return body; }
 function pageInput(request: FastifyRequest) { const query=request.query as Record<string,unknown>; const limit=query.limit===undefined?25:positiveInteger(Number(query.limit),'limit'); if(limit>100)throw new OrderRequirementError('VALIDATION_ERROR','limit cannot exceed 100.'); return { cursor: typeof query.cursor==='string'&&query.cursor?query.cursor:null, limit }; }
 function requestIdempotencyKey(request: FastifyRequest): string { const value=request.headers['idempotency-key']; return Array.isArray(value)?value[0]??'':value??''; }
@@ -407,6 +490,8 @@ function nullablePositiveInteger(value: unknown, field: string): number | null {
 function uuid(value: unknown, field: string): string { if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value)) throw new OrderRequirementError('VALIDATION_ERROR',`${field} is invalid.`); return value; }
 function nullableUuid(value: unknown, field: string): string | null { return value === undefined || value === null ? null : uuid(value,field); }
 function nullableNote(value:unknown):string|null{if(value===undefined||value===null||value==='')return null;if(typeof value!=='string'||value.length>500)throw new OrderRequirementError('VALIDATION_ERROR','customerNote must be at most 500 characters.');return value;}
+function nullableText(value:unknown,maxLength:number,field:string):string|null{if(value===undefined||value===null||value==='')return null;if(typeof value!=='string'||value.length>maxLength)throw new OrderRequirementError('VALIDATION_ERROR',`${field} must be at most ${maxLength} characters.`);return value;}
+function requiredReasonCode(value:unknown):string{if(typeof value!=='string'||!/^[A-Z0-9_]{3,100}$/u.test(value))throw new OrderRequirementError('VALIDATION_ERROR','reasonCode is invalid.');return value;}
 function requiredString(value: string | null, field: string): string { if (!value) throw new OrderRequirementError('VALIDATION_ERROR',`${field} is required.`); return value; }
 function encodeCursor(offset: number): string { return Buffer.from(JSON.stringify({v:1,offset})).toString('base64url'); }
 function decodeCursor(cursor: string | null): number { if (!cursor) return 0; try { const parsed=JSON.parse(Buffer.from(cursor,'base64url').toString()) as {v?:unknown;offset?:unknown}; if(parsed.v!==1||!Number.isSafeInteger(parsed.offset)||Number(parsed.offset)<0)throw new Error(); return Number(parsed.offset); } catch { throw new OrderRequirementError('VALIDATION_ERROR','Cursor is invalid.'); } }

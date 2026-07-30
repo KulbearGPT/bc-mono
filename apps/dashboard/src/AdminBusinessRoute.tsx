@@ -7,6 +7,8 @@ import {
   buildAdminDetailRequest,
   buildAdminOrderTimelineRequest,
   buildAddOrderParticipantRequest,
+  buildUpdateAdminOrderNoteRequest,
+  buildUpdateAdminOrderRequirementRequest,
   buildUpdateOrderParticipantRequest,
   buildAdminResourceQuery,
   buildAdminUserConsumptionRequest,
@@ -181,6 +183,10 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     catch(error){setParticipantMutationError(error instanceof Error?error.message:'陪玩明细表单无效。');}
   }
 
+  async function mutateOrderNote(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderNoteRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderNoteRequest>[1]);const response=await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'订单备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'订单备注表单无效。');}}
+
+  async function mutateRequirement(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderRequirementRequest(order.id,String(fields.requirementId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderRequirementRequest>[2]);const response=await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'席位备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'席位备注表单无效。');}}
+
   async function loadUserConsumptions(userId: string, cursor: string | null, append: boolean) {
     try {
       const consumptionResponse = await client.get(buildAdminUserConsumptionRequest(userId, cursor));
@@ -267,5 +273,5 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
     onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
-    participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} />;
+    participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} onUpdateOrderNote={(fields)=>void mutateOrderNote(fields)} onUpdateOrderRequirement={(fields)=>void mutateRequirement(fields)} />;
 }
