@@ -57,6 +57,8 @@ export function AdminBusinessPage(props: {
 
       {collectionConfig?<AdminCollectionToolbar model={model} config={collectionConfig} view={view} sortBy={props.sortBy??collectionConfig.defaultSort.sortBy} sortDirection={props.sortDirection??collectionConfig.defaultSort.sortDirection} activeFilters={props.activeFilters??{}} onFilter={props.onFilter} onClearFilters={props.onClearFilters} onViewChange={props.onViewChange} onSortChange={props.onSortChange}/>:model.filters.length>0&&<form className="content-panel filter-bar" aria-label="列表筛选" onSubmit={(event)=>submitFilters(event,props.onFilter)}>{model.filters.map((filter)=><input key={filter.id} name={filter.id} aria-label={filter.label} placeholder={filter.label}/>) }<button className="button-primary" type="submit">筛选</button><button type="button" onClick={props.onClearFilters}>清除</button></form>}
 
+      {model.page === 'playerEarnings' && ['READY', 'EMPTY'].includes(model.kind) && <EarningOperationNotice model={model} />}
+
       {model.kind === 'LOADING' && <div className="state-card" aria-busy="true">正在载入...</div>}
       {model.kind === 'ERROR' && (
         <div className="state-card state-card--error" role="alert"><p>数据暂时无法载入。{model.requestId ? ` request_id: ${model.requestId}` : ''}</p><button type="button" onClick={props.onRetry}>重试</button></div>
@@ -113,6 +115,15 @@ function DashboardOverlay(props: { label: string; onClose?: () => void; children
     </div>
   </div>;
   return typeof document === 'undefined' ? overlay : createPortal(overlay, document.body);
+}
+
+function EarningOperationNotice({ model }: { model: AdminBusinessPageModel }) {
+  const canManage = model.actions.some((action) => action.id === 'CONFIRM' || action.id === 'MARK_PAID');
+  return <div className={`status-notice earning-operation-notice${canManage ? '' : ' earning-operation-notice--readonly'}`} role="status">
+    {canManage
+      ? <>操作规则：待确认收益可“确认收益”，已确认收益可“标记已支付”；已支付或已冲正记录只读。</>
+      : <>当前为只读视图：确认收益和标记已支付需要 L3+ 的收益管理权限；Discord Role 不会替代内部有效授权。</>}
+  </div>;
 }
 
 const adminDetailPages: ReadonlyArray<AdminBusinessPageModel['page']> = ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftCatalog', 'giftRequests'];
@@ -286,7 +297,7 @@ function AdminBusinessTable(props: {
   const columns=props.columns.length?props.columns:props.model.page==='commissions'?[{key:'id',label:'编号'},{key:'status',label:'状态'},{key:'sourceUserDisplay',label:'来源用户'},{key:'sourceType',label:'来源类型'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}]:[{key:'id',label:'编号'},{key:'playerId',label:'陪玩编号'},{key:'status',label:'状态'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}];
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
   const hasDetail = Boolean(props.onOpenDetail) && adminDetailPages.includes(props.model.page);
-  const hasOperations = itemActions.length > 0 || hasDetail;
+  const hasOperations = hasDetail || props.model.items.some((item) => itemActions.some((action) => playerActionApplies(action, item)));
   return (
     <div className="content-panel content-panel--flush collection-table-view">
       <div className="table-scroll collection-desktop-table"><table className="data-table">
@@ -305,7 +316,7 @@ function AdminBusinessTable(props: {
   );
 }
 
-function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='REFUND_ORDER')return ['COMPLETED','EXCEPTION'].includes(textValue(item.status));if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='SET_PLAYER_OPERATIONAL_STATUS')return ['APPROVED','ACTIVE','PAUSED','SUSPENDED'].includes(textValue(item.reviewStatus));if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';return true;}
+function playerActionApplies(action:AdminBusinessAction,item:Record<string,unknown>):boolean{if(action.id==='REFUND_ORDER')return ['COMPLETED','EXCEPTION'].includes(textValue(item.status));if(action.id==='CANCEL_ORDER_RESOLUTION')return ['ACCEPTED','IN_SERVICE','PENDING_CONFIRMATION','EXCEPTION'].includes(textValue(item.status));if(action.id==='APPROVE_COMPANION'||action.id==='REJECT_COMPANION')return item.reviewStatus==='PENDING_REVIEW';if(action.id==='SET_PLAYER_OPERATIONAL_STATUS')return ['APPROVED','ACTIVE','PAUSED','SUSPENDED'].includes(textValue(item.reviewStatus));if(action.id==='EDIT_COMPANION_TAGS')return item.reviewStatus!=='PENDING_REVIEW'&&item.reviewStatus!=='REJECTED';if(action.id==='UPDATE_PACKAGE_STATUS')return item.status==='DRAFT'||item.status==='ACTIVE';if(action.id==='CONFIRM')return item.status==='PENDING';if(action.id==='MARK_PAID')return item.status==='CONFIRMED';return true;}
 
 function AdminActionPanel(props: {
   active: { action: AdminBusinessAction; item?: Record<string, unknown> };

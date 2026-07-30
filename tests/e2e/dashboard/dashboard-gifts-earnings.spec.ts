@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function loginAndOpen(page: Page, label: string) {
-  await page.goto('/__e2e/login/l3');
+const apiUrl = `http://127.0.0.1:${Number(process.env.DASHBOARD_E2E_API_PORT ?? 3000)}`;
+
+async function loginAndOpen(page: Page, label: string, actor = 'l3') {
+  await page.goto(`/__e2e/login/${actor}`);
   await page.waitForURL('**/');
   await page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: label, exact: true }).click();
   await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
@@ -16,7 +18,7 @@ async function submitAction(page: Page, dialogName: string, reason: string) {
 }
 
 test.describe('Dashboard browser E2E: gifts and player earnings', () => {
-  test.beforeEach(async ({ request }) => { await request.post('http://127.0.0.1:3000/__e2e/reset'); });
+  test.beforeEach(async ({ request }) => { await request.post(`${apiUrl}/__e2e/reset`); });
 
   test('DE2E-GFT-001 create and replace preserve the old gift version while the API validates controlled category and price', async ({ page, request }) => {
     await loginAndOpen(page, '礼物目录');
@@ -34,8 +36,8 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await dialog.getByLabel('礼物名称').fill('E2E 星光礼物 v2');
     await dialog.getByLabel('价格（minor units）').fill('1500');
     await submitAction(page, '编辑礼物操作', 'GIFT_SUPERSEDE');
-    await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).giftRecords.length).toBe(3);
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    await expect.poll(async () => (await (await request.get(`${apiUrl}/__e2e/state`)).json()).giftRecords.length).toBe(3);
+    const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();
     expect(state.giftRecords[0]).toMatchObject({ name: 'E2E 星光礼物', priceMinor: 1000, status: 'RETIRED' });
     expect(state.giftRecords[2]).toMatchObject({ name: 'E2E 星光礼物 v2', priceMinor: 1500, status: 'ACTIVE', version: 2 });
   });
@@ -45,7 +47,7 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '删除' }).click();
     await submitAction(page, '删除操作', 'GIFT_ARCHIVE');
     await expect(page.getByText('E2E 星光礼物')).toHaveCount(0);
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();
     expect(state.giftRecords[0]).toMatchObject({ status: 'ARCHIVED', historicalRequestCount: 1 });
     expect(state.giftRequestRecords[0]).toMatchObject({ giftName: 'E2E 星光礼物', amountMinor: 1000 });
   });
@@ -67,7 +69,9 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await page.getByRole('button', { name: '确认收益' }).click();
     await submitAction(page, '确认收益操作', 'EARNING_CONFIRM');
     await expect(page.getByText('CONFIRMED', { exact: true }).first()).toBeVisible();
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    await expect(page.getByRole('button', { name: '确认收益' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '标记已支付' })).toBeVisible();
+    const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();
     expect(state.earningRecord).toMatchObject({ status: 'CONFIRMED', version: 2 });
     expect(state.audits.some((entry: { action: string }) => entry.action === 'UPDATE_E2E_EARNING')).toBe(true);
   });
@@ -82,8 +86,19 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
       return [await send(), await send()];
     });
     expect(result).toEqual([200, 200]);
-    const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
+    const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();
     expect(state.earningRecord).toMatchObject({ status: 'PAID', version: 3 });
     expect(state.earningPaymentWrites).toBe(1);
+  });
+
+  test('AT-EAR-002 explains the L2 read-only boundary without exposing write controls', async ({ page }) => {
+    await loginAndOpen(page, '陪玩收益', 'l2');
+
+    const permissionNotice = page.getByRole('status').filter({ hasText: '当前为只读视图' });
+    await expect(permissionNotice).toContainText('当前为只读视图');
+    await expect(permissionNotice).toContainText('需要 L3+ 的收益管理权限');
+    await expect(page.getByRole('button', { name: '确认收益' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '标记已支付' })).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
   });
 });
