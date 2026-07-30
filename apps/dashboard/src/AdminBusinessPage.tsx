@@ -115,6 +115,30 @@ function DashboardOverlay(props: { label: string; onClose?: () => void; children
   return typeof document === 'undefined' ? overlay : createPortal(overlay, document.body);
 }
 
+const adminDetailPages: ReadonlyArray<AdminBusinessPageModel['page']> = ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftCatalog', 'giftRequests'];
+
+function CollectionItemActions(props: {
+  page: AdminBusinessPageModel['page'];
+  item: Record<string, unknown>;
+  actions: AdminBusinessAction[];
+  variant: 'CARD' | 'TABLE';
+  className: string;
+  onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
+  onOpenDetail?: (item: Record<string, unknown>) => void;
+}) {
+  const hasDetail = Boolean(props.onOpenDetail) && adminDetailPages.includes(props.page);
+  const actions = props.actions.filter((action) => playerActionApplies(action, props.item));
+  if (!hasDetail && actions.length === 0) return null;
+  return <div className={`${props.className} collection-item-actions collection-item-actions--${props.variant.toLowerCase()}`} role="group" aria-label="可用操作">
+    {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(props.item)}>查看详情</button>}
+    {actions.map((action) => <button className={isDangerousAdminAction(action) ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, props.item)}>{action.label}</button>)}
+  </div>;
+}
+
+function isDangerousAdminAction(action: AdminBusinessAction): boolean {
+  return action.id === 'CANCEL_ORDER_RESOLUTION' || action.id.startsWith('ARCHIVE_');
+}
+
 function OrderDiscussionGrid(props: {
   model: AdminBusinessPageModel;
   onAction?: (action: AdminBusinessAction, item?: Record<string, unknown>) => void;
@@ -138,6 +162,7 @@ function OrderDiscussionGrid(props: {
         <div><span className="order-discussion-card__label">订单 {publicId}</span><h2>{game} · {service}{participants.length>1?` +${participants.length-1} 个项目`:''}</h2></div>
         <span className={`order-status order-status--${status.toLowerCase()}`}>{orderStatusLabel(status)}</span>
       </header>
+      <CollectionItemActions page={props.model.page} item={item} actions={itemActions} variant="CARD" className="order-discussion-card__actions" onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
       <div className="order-discussion-card__summary">
         <p>{[region, billing].filter(Boolean).join(' · ') || '项目资料待补充'}</p>
         <div className="order-discussion-card__next"><span>下一步</span><strong>{operational.nextAction}</strong></div>
@@ -150,10 +175,6 @@ function OrderDiscussionGrid(props: {
       </dl>
       <footer className="order-discussion-card__footer">
         <span title={formatOrderDate(item.updatedAt)}>更新于 {formatRelativeDate(item.updatedAt)} · {formatOrderDate(item.updatedAt)}</span>
-        <div className="order-discussion-card__actions">
-          {props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-          {itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button className={action.id === 'CANCEL_ORDER_RESOLUTION' ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
-        </div>
       </footer>
     </article>;
   })}</div>;
@@ -173,9 +194,10 @@ function BusinessDiscussionGrid(props: {
     const card = businessCardContent(props.model.page, item, index);
     return <article className="business-discussion-card" key={textValue(item.id) || `${props.model.page}-${index}`}>
       <header className="business-discussion-card__header"><div><span className="business-discussion-card__label">{card.eyebrow}</span><h2>{card.title}</h2></div><span className={`business-discussion-card__status business-discussion-card__status--${card.status.toLowerCase()}`}>{card.statusLabel}</span></header>
+      <CollectionItemActions page={props.model.page} item={item} actions={itemActions} variant="CARD" className="business-discussion-card__actions" onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
       <div className="business-discussion-card__summary"><p>{card.summary}</p></div>
       <dl className="business-discussion-card__facts">{card.facts.map((fact) => <OrderFact key={fact.label} {...fact} />)}</dl>
-      <footer className="business-discussion-card__footer"><span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span><div className="business-discussion-card__actions">{props.onOpenDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}{itemActions.filter((action) => playerActionApplies(action, item)).map((action) => <button className={action.id.startsWith('ARCHIVE_') ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}</div></footer>
+      <footer className="business-discussion-card__footer"><span title={textValue(item.id)}>内部编号 · {compactIdentifier(item.id)}</span></footer>
     </article>;
   })}</div>;
 }
@@ -263,7 +285,7 @@ function AdminBusinessTable(props: {
 }) {
   const columns=props.columns.length?props.columns:props.model.page==='commissions'?[{key:'id',label:'编号'},{key:'status',label:'状态'},{key:'sourceUserDisplay',label:'来源用户'},{key:'sourceType',label:'来源类型'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}]:[{key:'id',label:'编号'},{key:'playerId',label:'陪玩编号'},{key:'status',label:'状态'},{key:'amountMinor',label:'金额'},{key:'createdAt',label:'创建时间'}];
   const itemActions = props.onAction ? props.model.actions.filter((action) => action.scope === 'ITEM') : [];
-  const hasDetail = Boolean(props.onOpenDetail) && ['orders', 'users', 'players', 'serviceCatalog', 'servicePackages', 'giftCatalog', 'giftRequests'].includes(props.model.page);
+  const hasDetail = Boolean(props.onOpenDetail) && adminDetailPages.includes(props.model.page);
   const hasOperations = itemActions.length > 0 || hasDetail;
   return (
     <div className="content-panel content-panel--flush collection-table-view">
@@ -272,16 +294,13 @@ function AdminBusinessTable(props: {
         <tbody>{props.model.items.map((item, index) => (
           <tr key={typeof item.id === 'string' ? item.id : index}>
             {hasOperations && <td className="table-actions">
-              <div className="table-actions__group">
-                {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(item)}>查看详情</button>}
-                {itemActions.filter((action)=>playerActionApplies(action,item)).map((action) => <button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, item)}>{action.label}</button>)}
-              </div>
+              <CollectionItemActions page={props.model.page} item={item} actions={itemActions} variant="TABLE" className="table-actions__group" onAction={props.onAction} onOpenDetail={props.onOpenDetail} />
             </td>}
             {columns.map((column) => <td className={column.key.toLowerCase() === 'id' ? 'data-column--id' : undefined} key={column.key}>{displayValue(column.key, item[column.key], item.currency, props.businessTagOptions)}</td>)}
           </tr>
         ))}</tbody>
       </table></div>
-      <div className="collection-row-list">{props.model.items.map((item,index)=><article className="collection-list-row" key={typeof item.id==='string'?item.id:index} tabIndex={0}><dl>{columns.map((column)=><div key={column.key}><dt>{column.label}</dt><dd>{displayValue(column.key,item[column.key],item.currency,props.businessTagOptions)}</dd></div>)}</dl>{hasOperations&&<div className="table-actions__group">{hasDetail&&<button type="button" onClick={()=>props.onOpenDetail?.(item)}>查看详情</button>}{itemActions.filter((action)=>playerActionApplies(action,item)).map((action)=><button className={action.id.startsWith('ARCHIVE_')?'table-action--danger':undefined} key={action.id} type="button" onClick={()=>props.onAction?.(action,item)}>{action.label}</button>)}</div>}</article>)}</div>
+      <div className="collection-row-list">{props.model.items.map((item,index)=><article className="collection-list-row" key={typeof item.id==='string'?item.id:index} tabIndex={0}><dl>{columns.map((column)=><div key={column.key}><dt>{column.label}</dt><dd>{displayValue(column.key,item[column.key],item.currency,props.businessTagOptions)}</dd></div>)}</dl>{hasOperations&&<CollectionItemActions page={props.model.page} item={item} actions={itemActions} variant="TABLE" className="table-actions__group" onAction={props.onAction} onOpenDetail={props.onOpenDetail} />}</article>)}</div>
     </div>
   );
 }

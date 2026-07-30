@@ -414,7 +414,8 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(html).toContain('class="business-discussion-grid"');
     expect(html).toContain('class="business-discussion-card"');
     expect(html).toContain('内部编号 · service-1');
-    expect(html).toContain('class="business-discussion-card__actions"');
+    expect(html).toContain('business-discussion-card__actions');
+    expect(html).toContain('aria-label="可用操作"');
     expect(html).not.toContain('>操作</th>');
   });
 

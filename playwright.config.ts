@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 3000);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 5173);
+const apiUrl = `http://127.0.0.1:${apiPort}`;
+const dashboardUrl = `http://127.0.0.1:${dashboardPort}`;
+
 export default defineConfig({
   testDir: './tests/e2e/dashboard',
   timeout: 30_000,
@@ -10,7 +15,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['list'], ['junit', { outputFile: 'evidence/P0/dashboard-e2e/junit.xml' }], ['html', { outputFolder: 'evidence/P0/dashboard-e2e/html', open: 'never' }]] : [['list'], ['html', { outputFolder: 'evidence/P0/dashboard-e2e/html', open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: dashboardUrl,
     launchOptions: {
       slowMo: Number(process.env.E2E_SLOW_MO ?? 0)
     },
@@ -20,14 +25,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'tsx tests/e2e/dashboard/fixture-server.ts',
-      url: 'http://127.0.0.1:3000/health',
+      command: `DASHBOARD_E2E_API_PORT=${apiPort} DASHBOARD_E2E_PORT=${dashboardPort} tsx tests/e2e/dashboard/fixture-server.ts`,
+      url: `${apiUrl}/health`,
       reuseExistingServer: false,
       timeout: 30_000
     },
     {
-      command: 'npm run dev -w @blackcat/dashboard -- --host 127.0.0.1',
-      url: 'http://127.0.0.1:5173',
+      command: `DASHBOARD_E2E_API_URL=${apiUrl} npm run dev -w @blackcat/dashboard -- --host 127.0.0.1 --port ${dashboardPort}`,
+      url: dashboardUrl,
       reuseExistingServer: false,
       timeout: 30_000
     }

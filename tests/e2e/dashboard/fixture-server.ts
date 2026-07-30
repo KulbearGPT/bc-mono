@@ -7,8 +7,9 @@ import { InMemoryAuditSink, registerSecureReadRoute, registerSecureWriteRoute, t
 import {InMemoryBotConfigStore} from '../../../apps/api/src/bot-config.ts';
 
 const host = '127.0.0.1';
-const port = 3000;
-const dashboardUrl = 'http://127.0.0.1:5173';
+const port = Number(process.env.DASHBOARD_E2E_API_PORT ?? 3000);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 5173);
+const dashboardUrl = `http://127.0.0.1:${dashboardPort}`;
 const guildId = '999999999999999999';
 const staff = {
   staffId: '00000000-0000-0000-0000-000000000111',

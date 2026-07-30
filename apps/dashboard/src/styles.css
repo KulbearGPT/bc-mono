@@ -1350,9 +1350,28 @@ textarea:focus-visible {
 }
 
 .order-discussion-card__actions,
-.business-discussion-card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.business-discussion-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .order-discussion-card__actions button,
 .business-discussion-card__actions button { min-height: 36px; padding: 7px 12px; }
+
+.collection-item-actions--card {
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-electric) 25%, var(--border-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-electric) 6%, var(--surface-soft));
+}
+
+.collection-item-actions--card::before {
+  content: '可用操作';
+  flex: 1 0 100%;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+}
 
 .order-operational-overview { padding: 22px; border: 1px solid color-mix(in srgb,var(--accent-electric) 36%,var(--border)); border-radius: 18px; background: linear-gradient(145deg,color-mix(in srgb,var(--accent-electric) 8%,var(--surface)),var(--surface)); }
 .order-operational-overview__facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin: 20px 0 0; }
