@@ -1312,31 +1312,12 @@ export async function handleServiceLifecycleAction(input: {
 }): Promise<BotFlowResult> {
   try {
     if (input.action === 'ready') {
-      let result;
-      try {
-        result = await input.api.setOrderReadiness(
-          input.orderId,
-          { expectedVersion: input.expectedVersion, readiness: 'READY' },
-          input.actor,
-          input.idempotencyKey
-        );
-      } catch (error) {
-        if (!isApiError(error, 'CONFLICT')) throw error;
-        const refreshed = await input.api.getOrder(input.orderId, input.actor);
-        if (refreshed.status !== 'ACCEPTED') {
-          return {
-            kind: 'EDIT_ORIGINAL_MESSAGE',
-            message: buildOrderPanelMessage(refreshed),
-            notice: BOT_COPY.orders.stateRefreshed
-          };
-        }
-        result = await input.api.setOrderReadiness(
-          input.orderId,
-          { expectedVersion: refreshed.version, readiness: 'READY' },
-          input.actor,
-          `${input.idempotencyKey}:retry-v${refreshed.version}`
-        );
-      }
+      const result = await input.api.setOrderReadiness(
+        input.orderId,
+        { expectedVersion: input.expectedVersion, readiness: 'READY' },
+        input.actor,
+        input.idempotencyKey
+      );
       return {
         kind: 'EDIT_ORIGINAL_MESSAGE',
         message: buildServiceLifecyclePanelMessage(result)
@@ -1385,6 +1366,14 @@ export async function handleServiceLifecycleAction(input: {
       message: botCopy.lifecycle.appealSubmitted(task.publicId)
     };
   } catch (error) {
+    if (isApiError(error, 'CONFLICT')) {
+      const refreshed = await input.api.getOrder(input.orderId, input.actor);
+      return {
+        kind: 'EDIT_ORIGINAL_MESSAGE',
+        message: buildOrderPanelMessage(refreshed),
+        notice: botCopy.orders.conflictRefreshed(requestId(error))
+      };
+    }
     if (isApiError(error, 'PERMISSION_DENIED')) {
       return {
         kind: 'EPHEMERAL_MESSAGE',

@@ -490,22 +490,17 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     }
   );
 
-  test('refreshes and retries readiness once when a timeout advanced the order version', async () => {
+  test('refreshes without replaying readiness when the component order version is stale', async () => {
     const setOrderReadiness = vi
       .fn()
-      .mockRejectedValueOnce(
+      .mockRejectedValue(
         new BotApiError({
           code: 'CONFLICT',
           message: 'Order version is stale.',
           requestId: 'req-stale-ready',
           statusCode: 409
         })
-      )
-      .mockResolvedValueOnce({
-        ...acceptedOrder,
-        version: 8,
-        readiness: { ...acceptedOrder.readiness, customer: 'READY' }
-      });
+      );
     const api = {
       setOrderReadiness,
       getOrder: vi.fn().mockResolvedValue({
@@ -535,16 +530,17 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
       idempotencyKey: 'discord:service:ready:stale'
     });
 
-    expect(setOrderReadiness).toHaveBeenNthCalledWith(
-      2,
+    expect(setOrderReadiness).toHaveBeenCalledOnce();
+    expect(setOrderReadiness).toHaveBeenCalledWith(
       acceptedOrder.orderId,
-      { expectedVersion: 7, readiness: 'READY' },
+      { expectedVersion: 6, readiness: 'READY' },
       actor,
-      'discord:service:ready:stale:retry-v7'
+      'discord:service:ready:stale'
     );
     expect(result).toMatchObject({
       kind: 'EDIT_ORIGINAL_MESSAGE',
-      message: { title: '🤝 订单 #P-4401 · 等待陪玩全员就绪' }
+      message: { title: expect.stringContaining('#P-4401') },
+      notice: expect.stringContaining('req-stale-ready')
     });
   });
 });
