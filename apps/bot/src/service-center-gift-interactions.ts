@@ -6,6 +6,7 @@ import {
   buildGiftRequestMessage,
   createGiftContinuationToken,
   decodeGiftRecipientSelection,
+  GIFT_SELECTED_RECIPIENT_CUSTOM_ID_PREFIX,
   readGiftContinuationToken
 } from './gifts.js';
 import { buildDiscordIdempotencyKey, type BotActorContext, type BotApiClient } from './service-center-api.js';
@@ -63,8 +64,7 @@ export async function executeGiftButton(input: {
     }
     const context = readGiftContinuationToken(input.route.token, input.actor, secret);
     const selectedParticipantIds = selectedGiftParticipantIds(input.interaction);
-    if (selectedParticipantIds.length === 0)
-      throw new Error('Gift recipients are missing from the interaction message.');
+    if (selectedParticipantIds.length === 0) throw new GiftComponentContextError();
     if (input.route.action === 'back') {
       const [order, catalog] = await Promise.all([
         input.api.getOrder(context.orderId, input.actor),
@@ -127,6 +127,23 @@ export async function executeGiftButton(input: {
 }
 
 async function giftFailure(interaction: ButtonInteraction, error: unknown): Promise<void> {
+  if (error instanceof GiftComponentContextError) {
+    await interaction.followUp({
+      content: [
+        '⚠️ 无法读取这份礼物的已选陪玩。',
+        '',
+        '**下一步**',
+        '请返回订单最新面板重新选择礼物和接收陪玩。',
+        '',
+        '**写入结果**',
+        '本次未向业务 API 发起写请求。',
+        '',
+        `request_id: discord-interaction-${interaction.id}`
+      ].join('\n'),
+      ephemeral: true
+    });
+    return;
+  }
   await interaction.followUp({
     content: formatUserFacingError(error, {
       operation: '处理礼物请求',
@@ -146,11 +163,22 @@ function selectedGiftParticipantIds(interaction: ButtonInteraction): string[] {
     message.components
       ?.flatMap((row) => row.components ?? [])
       .flatMap((component) => {
-        if (!component.custom_id?.startsWith('bc:gift:recipients:') && component.custom_id !== 'bc:gift:selected')
+        if (
+          !component.custom_id?.startsWith(GIFT_SELECTED_RECIPIENT_CUSTOM_ID_PREFIX) &&
+          !component.custom_id?.startsWith('bc:gift:recipients:') &&
+          component.custom_id !== 'bc:gift:selected'
+        )
           return [];
         return (component.options ?? [])
           .filter((option) => option.default && typeof option.value === 'string')
           .map((option) => option.value!);
       }) ?? [];
   return [...new Set(values)];
+}
+
+class GiftComponentContextError extends Error {
+  public constructor() {
+    super('Gift recipients are missing from the interaction message.');
+    this.name = 'GiftComponentContextError';
+  }
 }

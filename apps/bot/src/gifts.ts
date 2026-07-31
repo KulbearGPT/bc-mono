@@ -3,6 +3,8 @@ import { buildExperienceMessage } from './discord-experience.js';
 import type { BotActorContext, MessageSpec } from './service-center.js';
 import { DEFAULT_WALLET_DISPLAY_CONFIG, customerWalletLabel, formatCustomerWalletAmount } from './wallet-display.js';
 
+export const GIFT_SELECTED_RECIPIENT_CUSTOM_ID_PREFIX = 'bc:gift:selected:';
+
 export interface GiftPanelData {
   orderId: string;
   orderPublicId: string;
@@ -146,7 +148,7 @@ export function buildGiftAffordabilityMessage(
     components: [
       ...chunk(recipients, 25)
         .slice(0, 3)
-        .map((page, index) => recipientSelectionRow(`bc:gift:selected:${index}`, page, true)),
+        .map((page, index) => recipientSelectionRow(`${GIFT_SELECTED_RECIPIENT_CUSTOM_ID_PREFIX}${index}`, page, true)),
       ...confirmationRow,
       {
         type: 'ACTION_ROW',
