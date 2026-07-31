@@ -8,7 +8,7 @@ export function AccessManagementPage(props: {
   notice?: string | null;
   onRefresh: () => void;
   onUpdateMapping: (mapping: RoleMappingRecord, discordRoleId: string, reasonCode: string) => void;
-  staffAccounts?:StaffAccountRecord[];onApproveElevation:(staff:StaffAccountRecord,reason:string)=>void;onUpdateStaff:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;
+  staffAccounts?:StaffAccountRecord[];onApproveElevation:(staff:StaffAccountRecord,reason:string)=>void;onUpdateStaff:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;onReconcileStaff:(staff:StaffAccountRecord)=>void;
 }) {
   if (props.model.kind === 'LOADING') return <AccessState title="正在读取权限配置" copy="Role 映射由统一业务 API 安全载入。" />;
   if (props.model.kind === 'FORBIDDEN') return <AccessState title="无权访问权限管理" copy="此工作区仅对具备 access.manage 的 L4 员工开放。" requestId={props.model.requestId} />;
@@ -30,7 +30,7 @@ export function AccessManagementPage(props: {
 
       {props.notice && <div className="status-notice" role="status">{props.notice}</div>}
 
-      <section className="content-panel" aria-labelledby="staff-accounts-title"><div className="section-heading"><div><span className="page-eyebrow">STAFF ACCOUNTS</span><h2 id="staff-accounts-title">员工账号</h2></div><p>内部有效级别是授权事实；所有变更撤销旧会话。</p></div><div className="access-mapping-list">{(props.staffAccounts??[]).map((staff)=><StaffAccountForm key={staff.staffId} staff={staff} submitting={props.submitting} onApprove={props.onApproveElevation} onUpdate={props.onUpdateStaff} onRevokeSessions={props.onRevokeSessions}/>)}</div>{!(props.staffAccounts??[]).length?<p>当前 Guild 没有员工账号。</p>:null}</section>
+      <section className="content-panel" aria-labelledby="staff-accounts-title"><div className="section-heading"><div><span className="page-eyebrow">STAFF ACCOUNTS</span><h2 id="staff-accounts-title">员工账号与 Role 同步状态</h2></div><p>内部有效级别是授权事实；这里同时展示 Discord 最近观察结果和持久化对账状态。</p></div><div className="access-mapping-list">{(props.staffAccounts??[]).map((staff)=><StaffAccountForm key={staff.staffId} staff={staff} mappings={props.model.mappings} submitting={props.submitting} onApprove={props.onApproveElevation} onUpdate={props.onUpdateStaff} onRevokeSessions={props.onRevokeSessions} onReconcile={props.onReconcileStaff}/>)}</div>{!(props.staffAccounts??[]).length?<p>当前 Guild 没有员工账号。</p>:null}</section>
 
       <section className="content-panel" aria-labelledby="role-mappings-title">
         <div className="section-heading"><div><span className="page-eyebrow">ROLE MAPPINGS</span><h2 id="role-mappings-title">Discord Role 映射</h2></div><p>版本冲突时不会覆盖他人的更新，请刷新后重试。</p></div>
@@ -44,7 +44,42 @@ export function AccessManagementPage(props: {
   );
 }
 
-function StaffAccountForm(props:{staff:StaffAccountRecord;submitting?:boolean;onApprove:(staff:StaffAccountRecord,reason:string)=>void;onUpdate:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void}){const[level,setLevel]=useState<StaffLevel>(props.staff.effectiveLevel);const[reason,setReason]=useState('ACCESS_CORRECTION');return <article className="access-mapping-row" aria-label={`员工 ${props.staff.displayName}`}><div className="access-mapping-row__level"><small>{props.staff.status}</small><strong>{props.staff.displayName}</strong><span>{staffLevelLabels[props.staff.effectiveLevel]} · 权限 v{props.staff.permissionsVersion} · 活跃会话 {props.staff.activeSessions}</span>{props.staff.pendingElevationLevel?<em>待确认升级至 {staffLevelLabels[props.staff.pendingElevationLevel]}</em>:null}</div><label className="field"><span>内部级别</span><select value={level} onChange={(event)=>setLevel(event.currentTarget.value as StaffLevel)}>{Object.entries(staffLevelLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label className="field"><span>操作原因</span><input value={reason} onChange={(event)=>setReason(event.currentTarget.value)} pattern="[A-Z][A-Z0-9_]{2,99}" required/></label><div className="button-row">{props.staff.pendingElevationLevel?<button className="button-primary" disabled={props.submitting} onClick={()=>props.onApprove(props.staff,'ROLE_AND_IDENTITY_VERIFIED')}>确认提权</button>:null}<button disabled={props.submitting||level===props.staff.effectiveLevel} onClick={()=>props.onUpdate(props.staff,level,'ACTIVE',reason)}>保存级别</button><button disabled={props.submitting} onClick={()=>props.onRevokeSessions(props.staff,'SECURITY_RESPONSE')}>撤销会话</button><button className="table-action--danger" disabled={props.submitting||props.staff.status==='REVOKED'} onClick={()=>props.onUpdate(props.staff,props.staff.effectiveLevel,'REVOKED','ACCESS_REVOKED')}>撤销权限</button></div></article>;}
+function StaffAccountForm(props:{staff:StaffAccountRecord;mappings:RoleMappingRecord[];submitting?:boolean;onApprove:(staff:StaffAccountRecord,reason:string)=>void;onUpdate:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;onReconcile:(staff:StaffAccountRecord)=>void}) {
+  const [level,setLevel]=useState<StaffLevel>(props.staff.effectiveLevel);
+  const [reason,setReason]=useState('ACCESS_CORRECTION');
+  const observedRoles=(props.staff.observedDiscordRoleIds??[]).map((roleId)=>{
+    const mapping=props.mappings.find((candidate)=>candidate.discordRoleId===roleId);
+    return mapping?`${staffLevelLabels[mapping.targetLevel]} (${roleId})`:roleId;
+  });
+  return <article className="access-mapping-row" aria-label={`员工 ${props.staff.displayName}`}>
+    <div className="access-mapping-row__level">
+      <small>{props.staff.status}</small><strong>{props.staff.displayName}</strong>
+      <span>{staffLevelLabels[props.staff.effectiveLevel]} · 权限 v{props.staff.permissionsVersion} · 活跃会话 {props.staff.activeSessions}</span>
+      {props.staff.pendingElevationLevel?<em>待确认升级至 {staffLevelLabels[props.staff.pendingElevationLevel]}</em>:null}
+      <dl className="compact-definition">
+        <dt>最近同步</dt><dd>{formatSyncTime(props.staff.roleSyncedAt)}</dd>
+        <dt>当前观察 Role</dt><dd>{observedRoles.length?observedRoles.join('、'):'尚无观测'}</dd>
+        <dt>处理结果</dt><dd>{props.staff.lastRoleSyncStatus??'尚无结果'}{props.staff.roleSyncQueueStatus?` · 队列 ${props.staff.roleSyncQueueStatus}`:''}</dd>
+        <dt>上次同步错误</dt><dd>{props.staff.lastRoleSyncError??'无'}</dd>
+      </dl>
+    </div>
+    <label className="field"><span>内部级别</span><select value={level} onChange={(event)=>setLevel(event.currentTarget.value as StaffLevel)}>{Object.entries(staffLevelLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+    <label className="field"><span>操作原因</span><input value={reason} onChange={(event)=>setReason(event.currentTarget.value)} pattern="[A-Z][A-Z0-9_]{2,99}" required/></label>
+    <div className="button-row">
+      {props.staff.pendingElevationLevel?<button className="button-primary" disabled={props.submitting} onClick={()=>props.onApprove(props.staff,'ROLE_AND_IDENTITY_VERIFIED')}>确认提权</button>:null}
+      <button className="button-secondary" disabled={props.submitting} onClick={()=>props.onReconcile(props.staff)}>立即从 Discord 对账</button>
+      <button disabled={props.submitting||level===props.staff.effectiveLevel} onClick={()=>props.onUpdate(props.staff,level,'ACTIVE',reason)}>保存级别</button>
+      <button disabled={props.submitting} onClick={()=>props.onRevokeSessions(props.staff,'SECURITY_RESPONSE')}>撤销会话</button>
+      <button className="table-action--danger" disabled={props.submitting||props.staff.status==='REVOKED'} onClick={()=>props.onUpdate(props.staff,props.staff.effectiveLevel,'REVOKED','ACCESS_REVOKED')}>撤销权限</button>
+    </div>
+  </article>;
+}
+
+function formatSyncTime(value?:string|null):string {
+  if(!value)return '尚未同步';
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?'时间未知':date.toLocaleString('zh-CN');
+}
 
 function RoleMappingForm(props: { mapping: RoleMappingRecord; submitting?: boolean; onSubmit: (mapping: RoleMappingRecord, discordRoleId: string, reasonCode: string) => void }) {
   const [roleId, setRoleId] = useState(props.mapping.discordRoleId);

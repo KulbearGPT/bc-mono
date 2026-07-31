@@ -92,15 +92,81 @@ export function createChannelArchiveHandler(input: {
 }
 
 export function createRoleReconciliationHandler(input: {
-  reconcile: (guildId: string, mappingVersion: number, observedAt: string) => Promise<unknown>;
+  reconcileGuild: (guildId: string, mappingVersion: number, observedAt: string) => Promise<unknown>;
+  reconcileMember: (guildId: string, discordUserId: string, mappingVersion: number, observedAt: string) => Promise<unknown>;
+  syncObservation: (observation: RoleSyncObservationPayload) => Promise<unknown>;
 }): OutboxHandler {
   return async (job) => {
     if (job.type !== 'ROLE_RECONCILIATION') throw new Error('Expected a ROLE_RECONCILIATION job.');
-    const payload = job.payload as { guildId?: unknown; mappingVersion?: unknown } | null;
+    const payload = job.payload as Record<string, unknown> | null;
+    if (payload?.mode === 'OBSERVED_MEMBER') {
+      await input.syncObservation(roleSyncObservation(payload.observation));
+      return;
+    }
+    if (payload?.mode === 'MEMBER_FETCH') {
+      const guildId = snowflake(payload.guildId, 'guildId');
+      const discordUserId = snowflake(payload.discordUserId, 'discordUserId');
+      const mappingVersion = nonNegativeVersion(payload.mappingVersion);
+      await input.reconcileMember(guildId, discordUserId, mappingVersion, job.createdAt);
+      return;
+    }
     if (!payload || typeof payload.guildId !== 'string' || !Number.isSafeInteger(payload.mappingVersion)
       || Number(payload.mappingVersion) < 1) {
       throw new Error('Role reconciliation payload is invalid.');
     }
-    await input.reconcile(payload.guildId, Number(payload.mappingVersion), job.createdAt);
+    await input.reconcileGuild(payload.guildId, Number(payload.mappingVersion), job.createdAt);
   };
+}
+
+export interface RoleSyncObservationPayload {
+  guildId: string;
+  discordUserId: string;
+  observedRoleIds: string[];
+  mappingVersion: number;
+  source: 'GUILD_MEMBER_UPDATE' | 'STARTUP_RECONCILIATION' | 'MANUAL_RETRY';
+  sourceEventId: string;
+  observedAt: string;
+}
+
+function roleSyncObservation(value: unknown): RoleSyncObservationPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Role sync observation payload is invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  const source = input.source;
+  const observedRoleIds = input.observedRoleIds;
+  if (
+    !Array.isArray(observedRoleIds)
+    || observedRoleIds.some((roleId) => typeof roleId !== 'string' || !/^\d{17,20}$/u.test(roleId))
+    || (source !== 'GUILD_MEMBER_UPDATE' && source !== 'STARTUP_RECONCILIATION' && source !== 'MANUAL_RETRY')
+    || typeof input.sourceEventId !== 'string'
+    || !input.sourceEventId
+    || typeof input.observedAt !== 'string'
+    || Number.isNaN(Date.parse(input.observedAt))
+  ) {
+    throw new Error('Role sync observation payload is invalid.');
+  }
+  return {
+    guildId: snowflake(input.guildId, 'guildId'),
+    discordUserId: snowflake(input.discordUserId, 'discordUserId'),
+    observedRoleIds: [...new Set(observedRoleIds as string[])].sort(),
+    mappingVersion: nonNegativeVersion(input.mappingVersion),
+    source,
+    sourceEventId: input.sourceEventId,
+    observedAt: input.observedAt
+  };
+}
+
+function snowflake(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^\d{17,20}$/u.test(value)) {
+    throw new Error(`Role reconciliation ${field} is invalid.`);
+  }
+  return value;
+}
+
+function nonNegativeVersion(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error('Role reconciliation mappingVersion is invalid.');
+  }
+  return Number(value);
 }

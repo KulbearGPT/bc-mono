@@ -352,8 +352,14 @@ describe("M5-US-02 production Worker runtime", () => {
       }),
     );
     await createRoleReconciliationHandler({
-      reconcile: async (guildId, mappingVersion, observedAt) => {
+      reconcileGuild: async (guildId, mappingVersion, observedAt) => {
         calls.push(`roles:${guildId}:v${mappingVersion}:${observedAt}`);
+      },
+      reconcileMember: async (guildId, discordUserId, mappingVersion, observedAt) => {
+        calls.push(`member:${guildId}:${discordUserId}:v${mappingVersion}:${observedAt}`);
+      },
+      syncObservation: async (observation) => {
+        calls.push(`observation:${observation.discordUserId}:${observation.sourceEventId}`);
       },
     })(
       fixtureJob({
@@ -367,12 +373,54 @@ describe("M5-US-02 production Worker runtime", () => {
         },
       }),
     );
+    await createRoleReconciliationHandler({
+      reconcileGuild: async () => undefined,
+      reconcileMember: async () => undefined,
+      syncObservation: async (observation) => {
+        calls.push(`observation:${observation.discordUserId}:${observation.sourceEventId}`);
+      },
+    })(fixtureJob({
+      type: "ROLE_RECONCILIATION",
+      aggregateType: "staff_account",
+      aggregateId: "00000000-0000-0000-0000-000000005299",
+      payload: {
+        mode: "OBSERVED_MEMBER",
+        observation: {
+          guildId: "900000000000000001",
+          discordUserId: "900000000000000002",
+          observedRoleIds: ["900000000000000003"],
+          mappingVersion: 4,
+          source: "GUILD_MEMBER_UPDATE",
+          sourceEventId: "gateway-event-1",
+          observedAt: now.toISOString(),
+        },
+      },
+    }));
+    await createRoleReconciliationHandler({
+      reconcileGuild: async () => undefined,
+      reconcileMember: async (guildId, discordUserId, mappingVersion, observedAt) => {
+        calls.push(`member:${guildId}:${discordUserId}:v${mappingVersion}:${observedAt}`);
+      },
+      syncObservation: async () => undefined,
+    })(fixtureJob({
+      type: "ROLE_RECONCILIATION",
+      aggregateType: "staff_account",
+      aggregateId: "00000000-0000-0000-0000-000000005299",
+      payload: {
+        mode: "MEMBER_FETCH",
+        guildId: "900000000000000001",
+        discordUserId: "900000000000000002",
+        mappingVersion: 0,
+      },
+    }));
 
     expect(calls).toEqual([
       "dispatch:attempt-2",
       "readiness:order-2",
       "archive:channel-2",
       `roles:guild-2:v4:${now.toISOString()}`,
+      "observation:900000000000000002:gateway-event-1",
+      `member:900000000000000001:900000000000000002:v0:${now.toISOString()}`,
     ]);
   });
 });

@@ -22,7 +22,7 @@ function member(input: { id: string; roleIds: string[]; bot?: boolean }) {
 }
 
 describe('M4-US-05 Bot Discord Role sync adapter', () => {
-  test('posts only observed Discord facts to the shared API with service authentication', async () => {
+  test('persists observed Discord facts through the shared API queue with service authentication', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -48,7 +48,7 @@ describe('M4-US-05 Bot Discord Role sync adapter', () => {
     expect(observation.observedRoleIds).toEqual(['200000000000000002', '300000000000000003']);
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.example.test/api/v1/internal/discord/role-sync',
+      'https://api.example.test/api/v1/internal/discord/role-sync/queue',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify(observation),

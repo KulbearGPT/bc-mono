@@ -54,13 +54,15 @@ describe('M4-US-01 dashboard shell', () => {
 
   test('notifies the shell when an established dashboard session expires', async () => {
     let expired = false;
+    let reason: string | null = null;
     const client = createDashboardApiClient({
       cookie: () => '',
-      onUnauthorized: () => { expired = true; },
-      fetch: async () => new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED' } }), { status: 401 })
+      onUnauthorized: (value) => { expired = true; reason = value; },
+      fetch: async () => new Response(JSON.stringify({ error: { code: 'SESSION_REVOKED' } }), { status: 401 })
     });
     const response = await client.get('/api/v1/admin/service-catalog');
     expect(response.status).toBe(401);
     expect(expired).toBe(true);
+    expect(reason).toBe('SESSION_REVOKED');
   });
 });

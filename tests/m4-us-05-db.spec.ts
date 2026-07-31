@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
-import { PostgresAccessStore } from '@blackcat/api/access';
+import { PostgresAccessStore, enqueuePeriodicRoleReconciliation } from '@blackcat/api/access';
 import { InMemoryAuditSink, type AuditRecord } from '@blackcat/api/security';
 
 const execFile = promisify(execFileCallback);
@@ -99,6 +99,38 @@ describe('M4-US-05 PostgreSQL Role mapping and access', () => {
     expect(decisions.rows[0]?.count).toBe('1');
   });
 
+  test('persists gateway/manual retries, exposes failure evidence, and deduplicates periodic reconciliation', async () => {
+    const store = new PostgresAccessStore(pool);
+    const sink = new InMemoryAuditSink();
+    const refreshedAt = new Date(now.getTime() + 30_000);
+    const refreshed = await store.syncRoles({ ...sync(ids.targetDiscord, [role.l1], 'db:refresh-observation'), observedAt: refreshedAt });
+    await refreshed.commit(audit({ action: 'SYNC_DISCORD_ROLES', actorStaffId: null, actorId: null, actorLevel: null, actorSource: 'DISCORD_BOT', occurredAt: refreshedAt.toISOString() }), sink);
+    const manualAt = new Date(now.getTime() + 60_000);
+    const manual = await store.queueStaffReconciliation({ targetStaffId: ids.targetStaff, guildId, now: manualAt });
+    await manual.commit(audit({ action: 'RECONCILE_STAFF_DISCORD_ROLE', targetId: ids.targetStaff, occurredAt: manualAt.toISOString() }), sink);
+    await pool.query(`UPDATE outbox_events SET status='FAILED',last_error='Discord API timeout',updated_at=$2 WHERE id=$1`, [manual.data.jobId, manualAt]);
+
+    const staff = await store.listStaff({ guildId, cursor: null, limit: 100 });
+    expect(staff.items.find((item) => item.staffId === ids.targetStaff)).toMatchObject({
+      roleSyncedAt: refreshedAt.toISOString(),
+      observedDiscordRoleIds: [role.l1],
+      lastRoleSyncStatus: 'APPLIED',
+      roleSyncQueueStatus: 'FAILED',
+      lastRoleSyncError: 'Discord API timeout'
+    });
+
+    const gatewayAt = new Date(now.getTime() + 120_000);
+    const queued = await store.queueRoleSync({ ...sync(ids.targetDiscord, [role.l2], 'db:durable-gateway'), observedAt: gatewayAt });
+    await queued.commit(audit({ action: 'QUEUE_DISCORD_ROLE_SYNC', actorStaffId: null, actorId: null, actorLevel: null, actorSource: 'DISCORD_BOT', occurredAt: gatewayAt.toISOString() }), sink);
+    expect(queued.data).toMatchObject({ queued: true, persistent: true, staffId: ids.targetStaff });
+    const persisted = await pool.query(`SELECT status::text,payload FROM outbox_events WHERE id=$1`, [queued.data.jobId]);
+    expect(persisted.rows[0]).toMatchObject({ status: 'PENDING', payload: { mode: 'OBSERVED_MEMBER', staffId: ids.targetStaff } });
+
+    const periodicAt = new Date('2026-07-18T20:05:00.000Z');
+    expect(await enqueuePeriodicRoleReconciliation({ client: pool, guildId, now: periodicAt, intervalMs: 300_000 })).toBe(true);
+    expect(await enqueuePeriodicRoleReconciliation({ client: pool, guildId, now: periodicAt, intervalMs: 300_000 })).toBe(false);
+  });
+
   test('rolls back a mapping change when its transactional audit cannot be inserted', async () => {
     const store = new PostgresAccessStore(pool);
     const before = await store.listMappings();
@@ -114,7 +146,7 @@ describe('M4-US-05 PostgreSQL Role mapping and access', () => {
     const next = await store.updateMapping({ guildId, discordRoleId: '900000000000005113', targetLevel: 'L3_OPERATIONS', expectedVersion: 2, enabled: true, actorStaffId: ids.ownerStaff, now: new Date(now.getTime() + 1_000) });
     await next.commit(audit({ action: 'UPDATE_DISCORD_ROLE_MAPPING', targetType: 'discord_role_mapping', occurredAt: new Date(now.getTime() + 1_000).toISOString() }), new InMemoryAuditSink());
     expect(new Set((await store.listMappings()).map((mapping) => mapping.version))).toEqual(new Set([3]));
-    const queued = await pool.query(`SELECT event_type, aggregate_type, payload, status::text FROM outbox_events WHERE event_type = 'ROLE_RECONCILIATION' ORDER BY created_at`);
+    const queued = await pool.query(`SELECT event_type, aggregate_type, payload, status::text FROM outbox_events WHERE event_type = 'ROLE_RECONCILIATION' AND aggregate_type = 'discord_role_mapping' AND payload->>'trigger' IS DISTINCT FROM 'PERIODIC' ORDER BY created_at`);
     expect(queued.rows).toEqual([
       { event_type: 'ROLE_RECONCILIATION', aggregate_type: 'discord_role_mapping', payload: { guildId, targetLevel: 'L2_SUPERVISOR', mappingVersion: 2 }, status: 'PENDING' },
       { event_type: 'ROLE_RECONCILIATION', aggregate_type: 'discord_role_mapping', payload: { guildId, targetLevel: 'L3_OPERATIONS', mappingVersion: 3 }, status: 'PENDING' }

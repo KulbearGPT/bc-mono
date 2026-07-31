@@ -99,20 +99,23 @@ const navigationIcons: Array<[RegExp, LucideIcon]> = [
 
 export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}) {
   const manifest = buildDashboardManifest();
-  const [result, setResult] = useState<{ status: number; capabilities?: DashboardCapabilities } | null>(null);
+  const [result, setResult] = useState<{ status: number; capabilities?: DashboardCapabilities; authReason?: string | null } | null>(null);
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
   const [contentBusy, setContentBusy] = useState(false);
 
   useEffect(() => {
     void createDashboardApiClient().get('/api/v1/admin/me/capabilities').then(async (response) => {
-      const body = response.ok ? await response.json() as { data: DashboardCapabilities } : null;
-      setResult({ status: response.status, capabilities: body?.data });
+      const body = await response.json().catch(() => null) as { data?: DashboardCapabilities; error?: { code?: string } } | null;
+      setResult({ status: response.status, capabilities: body?.data, authReason: body?.error?.code ?? null });
     }).catch(() => setResult({ status: 500 }));
   }, []);
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
-    const handleSessionExpired = () => setResult({ status: 401 });
+    const handleSessionExpired = (event: Event) => setResult({
+      status: 401,
+      authReason: (event as CustomEvent<{ reason?: string | null }>).detail?.reason ?? null
+    });
     window.addEventListener('popstate', handlePopState);
     window.addEventListener(dashboardSessionExpiredEvent, handleSessionExpired);
     return () => {
@@ -146,7 +149,7 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
     return <DashboardGate kind="LOADING" appName={manifest.appName} />;
   }
   if (state.kind === 'SIGNED_OUT') {
-    return <DashboardGate kind="SIGNED_OUT" appName={manifest.appName} />;
+    return <DashboardGate kind="SIGNED_OUT" appName={manifest.appName} authReason={result?.authReason} />;
   }
   if (state.kind === 'FORBIDDEN') {
     return <DashboardGate kind="FORBIDDEN" appName={manifest.appName} />;
@@ -341,10 +344,10 @@ export function DashboardOverview(props: {
   );
 }
 
-function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | 'ERROR'; appName: string }) {
+function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | 'ERROR'; appName: string; authReason?: string | null }) {
   const content = {
     LOADING: { icon: Activity, eyebrow: 'SECURE SESSION', title: '正在建立安全工作区', copy: '正在读取服务端员工权限与可用能力。' },
-    SIGNED_OUT: { icon: LockKeyhole, eyebrow: 'STAFF ACCESS', title: '登录客服管理后台', copy: '使用 Discord 完成身份验证后进入 BlackCat 运营工作区。' },
+    SIGNED_OUT: { icon: LockKeyhole, eyebrow: 'STAFF ACCESS', title: '登录客服管理后台', copy: props.authReason === 'SESSION_REVOKED' ? '权限已变化，请重新登录。新的内部有效级别会在登录后载入。' : '使用 Discord 完成身份验证后进入 BlackCat 运营工作区。' },
     FORBIDDEN: { icon: ShieldCheck, eyebrow: 'ACCESS LIMITED', title: '当前账户无权访问', copy: '员工账户没有此页面所需权限，请联系管理员确认内部有效级别。' },
     ERROR: { icon: Activity, eyebrow: 'CONNECTION ERROR', title: '暂时无法载入', copy: '请稍后重试，或向管理员提供请求编号以便排查。' }
   }[props.kind];

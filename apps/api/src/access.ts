@@ -1,15 +1,40 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import type { AuditRecord, AuditSink, StaffAccount, StaffDirectory, StaffLevel } from './security.js';
-import { InMemoryAuditSink, insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute } from './security.js';
+import {
+  InMemoryAuditSink,
+  insertPostgresAuditRecord,
+  registerSecureReadRoute,
+  registerSecureWriteRoute,
+  type AuditRecord,
+  type AuditSink,
+  type StaffAccount,
+  type StaffDirectory,
+  type StaffDirectoryQueryClient,
+  type StaffLevel
+} from './security.js';
 import type { DashboardAuthStore } from './dashboard-auth.js';
 
 export interface RoleMappingRecord { guildId: string; discordRoleId: string; targetLevel: StaffLevel; enabled: boolean; version: number; reconciliationQueued: boolean }
-export interface StaffAccessRecord { staffId: string; discordUserId: string; guildId: string; level: StaffLevel; requestedLevel: StaffLevel | null; status: 'ACTIVE' | 'REVOKED'; permissionsVersion: number; observedRoleIds: string[] }
-export interface AdminStaffAccountRecord{staffId:string;displayName:string;effectiveLevel:StaffLevel;pendingElevationLevel:StaffLevel|null;permissionsVersion:number;activeSessions:number;status:'ACTIVE'|'REVOKED'}
+export interface StaffAccessRecord { staffId: string; discordUserId: string; guildId: string; level: StaffLevel; requestedLevel: StaffLevel | null; status: 'ACTIVE' | 'REVOKED'; permissionsVersion: number; observedRoleIds: string[]; roleSyncedAt?: string | null }
+export interface AdminStaffAccountRecord {
+  staffId: string;
+  displayName: string;
+  effectiveLevel: StaffLevel;
+  pendingElevationLevel: StaffLevel | null;
+  permissionsVersion: number;
+  activeSessions: number;
+  status: 'ACTIVE' | 'REVOKED';
+  roleSyncedAt: string | null;
+  observedDiscordRoleIds: string[];
+  lastRoleSyncStatus: string | null;
+  roleSyncQueueStatus: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | null;
+  lastRoleSyncError: string | null;
+}
 export interface RoleSyncResult { discordUserId: string; previousLevel: StaffLevel | null; requestedLevel: StaffLevel | null; effectiveLevel: StaffLevel | null; status: 'APPLIED' | 'NO_CHANGE' | 'ACCESS_REVOKED'; permissionsVersion: number; sessionsRevoked: boolean }
 export interface PendingRoleElevation { code: 'ROLE_ELEVATION_PENDING'; staffId: string; effectiveLevel: StaffLevel; requestedLevel: StaffLevel; approvalRequestId: string }
+export interface RoleSyncQueueResult { queued: true; persistent: true; jobId: string; staffId: string | null }
+export interface StaffRoleReconciliationResult { staffId: string; jobId: string; status: 'QUEUED' }
 interface StagedAccessWrite<T> { data: T; statusCode?: number; commit(audit: AuditRecord, auditSink: AuditSink): Promise<void> | void }
 
 export interface AccessStore {
@@ -17,6 +42,8 @@ export interface AccessStore {
   listMappings(): RoleMappingRecord[] | Promise<RoleMappingRecord[]>;
   updateMapping(input: { guildId: string; discordRoleId: string; targetLevel: StaffLevel; expectedVersion: number; enabled: boolean; actorStaffId: string; now: Date }): StagedAccessWrite<RoleMappingRecord> | Promise<StagedAccessWrite<RoleMappingRecord>>;
   syncRoles(input: { guildId: string; discordUserId: string; observedRoleIds: string[]; mappingVersion: number; source: string; sourceEventId: string; observedAt: Date }): StagedAccessWrite<RoleSyncResult | PendingRoleElevation> | Promise<StagedAccessWrite<RoleSyncResult | PendingRoleElevation>>;
+  queueRoleSync(input: { guildId: string; discordUserId: string; observedRoleIds: string[]; mappingVersion: number; source: string; sourceEventId: string; observedAt: Date }): StagedAccessWrite<RoleSyncQueueResult> | Promise<StagedAccessWrite<RoleSyncQueueResult>>;
+  queueStaffReconciliation(input: { targetStaffId: string; guildId: string; now: Date }): StagedAccessWrite<StaffRoleReconciliationResult> | Promise<StagedAccessWrite<StaffRoleReconciliationResult>>;
   approveElevation(input: { targetStaffId: string; actorStaffId: string; expectedPermissionsVersion: number; requestedLevel: StaffLevel; now: Date }): StagedAccessWrite<StaffAccessRecord & { sessionsRevoked: boolean }> | Promise<StagedAccessWrite<StaffAccessRecord & { sessionsRevoked: boolean }>>;
   updateStaffRole(input: { targetStaffId: string; expectedPermissionsVersion: number; level: StaffLevel; status: 'ACTIVE' | 'REVOKED'; now: Date }): StagedAccessWrite<StaffAccessRecord & { sessionsRevoked: boolean }> | Promise<StagedAccessWrite<StaffAccessRecord & { sessionsRevoked: boolean }>>;
   revokeSessions(input: { targetStaffId: string; now: Date }): StagedAccessWrite<{ staffId: string; revokedSessionCount: number; revokedAt: string }> | Promise<StagedAccessWrite<{ staffId: string; revokedSessionCount: number; revokedAt: string }>>;
@@ -35,6 +62,7 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
   private readonly syncResults = new Map<string, RoleSyncResult | PendingRoleElevation>();
   private readonly manuallyRevoked = new Set<string>();
   private readonly lastObservedAt = new Map<string, number>();
+  readonly reconciliationJobs: Array<{ id: string; aggregateId: string; payload: Record<string, unknown>; status: 'PENDING'; lastError: null }> = [];
 
   constructor(private readonly options: { authStore: DashboardAuthStore; mappings?: RoleMappingRecord[]; staff?: StaffAccessRecord[] }) {
     this.mappings = options.mappings?.map((item) => ({ ...item })) ?? [];
@@ -46,7 +74,72 @@ export class InMemoryAccessStore implements AccessStore, StaffDirectory {
     for (const item of this.mappings) generations.set(item.guildId, Math.max(generations.get(item.guildId) ?? 0, item.version));
     return this.mappings.filter((item) => item.enabled).map((item) => ({ ...item, version: generations.get(item.guildId) ?? item.version })).sort((a, b) => rank[a.targetLevel] - rank[b.targetLevel]);
   }
-  listStaff(input:{guildId:string;cursor:string|null;limit:number}){const sorted=[...this.staff.values()].filter((item)=>item.guildId===input.guildId).sort((a,b)=>a.staffId.localeCompare(b.staffId));const start=input.cursor?Math.max(0,sorted.findIndex((item)=>item.staffId===input.cursor)+1):0;const page=sorted.slice(start,start+input.limit);return{items:page.map((item)=>({staffId:item.staffId,displayName:`Discord ••••${item.discordUserId.slice(-4)}`,effectiveLevel:item.level,pendingElevationLevel:item.requestedLevel,permissionsVersion:item.permissionsVersion,activeSessions:0,status:item.status})),nextCursor:start+input.limit<sorted.length?page.at(-1)?.staffId??null:null};}
+  listStaff(input: { guildId: string; cursor: string | null; limit: number }) {
+    const sorted = [...this.staff.values()]
+      .filter((item) => item.guildId === input.guildId)
+      .sort((left, right) => left.staffId.localeCompare(right.staffId));
+    const start = input.cursor
+      ? Math.max(0, sorted.findIndex((item) => item.staffId === input.cursor) + 1)
+      : 0;
+    const page = sorted.slice(start, start + input.limit);
+    return {
+      items: page.map((item): AdminStaffAccountRecord => {
+        const job = [...this.reconciliationJobs]
+          .reverse()
+          .find((candidate) => candidate.aggregateId === item.staffId);
+        return {
+          staffId: item.staffId,
+          displayName: `Discord ••••${item.discordUserId.slice(-4)}`,
+          effectiveLevel: item.level,
+          pendingElevationLevel: item.requestedLevel,
+          permissionsVersion: item.permissionsVersion,
+          activeSessions: 0,
+          status: item.status,
+          roleSyncedAt: item.roleSyncedAt ?? null,
+          observedDiscordRoleIds: [...item.observedRoleIds],
+          lastRoleSyncStatus: null,
+          roleSyncQueueStatus: job?.status ?? null,
+          lastRoleSyncError: job?.lastError ?? null
+        };
+      }),
+      nextCursor: start + input.limit < sorted.length ? page.at(-1)?.staffId ?? null : null
+    };
+  }
+
+  queueRoleSync(input: SyncInput): StagedAccessWrite<RoleSyncQueueResult> {
+    const staffId = this.staffByDiscord.get(key(input.guildId, input.discordUserId)) ?? null;
+    const jobId = crypto.randomUUID();
+    const data: RoleSyncQueueResult = { queued: true, persistent: true, jobId, staffId };
+    return staged(data, async (audit, sink) => {
+      await sink.append(audit);
+      if (!this.reconciliationJobs.some((job) => job.payload.sourceEventId === input.sourceEventId)) {
+        this.reconciliationJobs.push({
+          id: jobId,
+          aggregateId: staffId ?? jobId,
+          payload: { mode: 'OBSERVED_MEMBER', sourceEventId: input.sourceEventId, observation: { ...input, observedAt: input.observedAt.toISOString() } },
+          status: 'PENDING',
+          lastError: null
+        });
+      }
+    }, 202);
+  }
+
+  queueStaffReconciliation(input: { targetStaffId: string; guildId: string; now: Date }): StagedAccessWrite<StaffRoleReconciliationResult> {
+    const staff = this.staff.get(input.targetStaffId);
+    if (!staff || staff.guildId !== input.guildId) throw new AccessError('NOT_FOUND', 'Staff account was not found.');
+    const jobId = crypto.randomUUID();
+    const data: StaffRoleReconciliationResult = { staffId: staff.staffId, jobId, status: 'QUEUED' };
+    return staged(data, async (audit, sink) => {
+      await sink.append(audit);
+      this.reconciliationJobs.push({
+        id: jobId,
+        aggregateId: staff.staffId,
+        payload: { mode: 'MEMBER_FETCH', guildId: staff.guildId, discordUserId: staff.discordUserId, mappingVersion: Math.max(0, ...this.mappings.map((mapping) => mapping.version)) },
+        status: 'PENDING',
+        lastError: null
+      });
+    }, 202);
+  }
 
   resolveByDiscord(input: { discordUserId: string; guildId: string }): StaffAccount | null {
     const staffId = this.staffByDiscord.get(key(input.guildId, input.discordUserId));
@@ -190,11 +283,132 @@ type ApprovalRow = {
 type SyncInput = Parameters<AccessStore['syncRoles']>[0];
 type SyncOutcome = RoleSyncResult | PendingRoleElevation;
 
+export async function enqueuePeriodicRoleReconciliation(input: {
+  client: Pick<StaffDirectoryQueryClient, 'query'>;
+  guildId: string;
+  now: Date;
+  intervalMs: number;
+}): Promise<boolean> {
+  if (!Number.isSafeInteger(input.intervalMs) || input.intervalMs < 60_000) {
+    throw new AccessError('VALIDATION_ERROR', 'Role reconciliation interval must be at least one minute.');
+  }
+  const bucket = Math.floor(input.now.getTime() / input.intervalMs);
+  const dedupeKey = `role-reconciliation:periodic:${input.guildId}:${bucket}`;
+  const result = await input.client.query<{ id: string }>(
+    `
+WITH latest_mapping AS (
+  SELECT mapping.id,
+         (SELECT max(history.version)::int
+          FROM discord_role_mappings history
+          WHERE history.guild_id = $2) AS mapping_version
+  FROM discord_role_mappings mapping
+  WHERE mapping.guild_id = $2
+    AND mapping.enabled = true
+    AND mapping.retired_at IS NULL
+  ORDER BY mapping.version DESC, mapping.created_at DESC
+  LIMIT 1
+)
+INSERT INTO outbox_events (
+  id, event_type, aggregate_type, aggregate_id, dedupe_key, payload, status,
+  row_version, attempt_count, max_attempts, available_at, created_at, updated_at
+)
+SELECT $1::uuid, 'ROLE_RECONCILIATION', 'discord_role_mapping', latest_mapping.id,
+       $3, jsonb_build_object(
+         'mode', 'FULL_GUILD',
+         'guildId', $2,
+         'mappingVersion', latest_mapping.mapping_version,
+         'trigger', 'PERIODIC'
+       ), 'PENDING', 1, 0, 8, $4::timestamptz, $4::timestamptz, $4::timestamptz
+FROM latest_mapping
+ON CONFLICT (dedupe_key) DO NOTHING
+RETURNING id
+    `,
+    [randomUUID(), input.guildId, dedupeKey, input.now]
+  );
+  return Boolean(result.rows[0]);
+}
+
 /** PostgreSQL access persistence. Discord Roles remain observations; staff_accounts is authoritative. */
 export class PostgresAccessStore implements AccessStore {
   constructor(private readonly pool: Pool) {}
 
-  async listStaff(input:{guildId:string;cursor:string|null;limit:number}){const rows=await this.pool.query<{staff_id:string;display_name:string;level:StaffLevel;requested_level:StaffLevel|null;permissions_version:number;status:'ACTIVE'|'REVOKED';active_sessions:number}>(`SELECT staff.id staff_id,u.display_name,staff.level,staff.requested_level,staff.permissions_version,staff.status,COUNT(session.id) FILTER (WHERE session.revoked_at IS NULL AND session.expires_at>now())::int active_sessions FROM staff_accounts staff JOIN users u ON u.id=staff.user_id JOIN discord_accounts account ON account.user_id=u.id AND account.guild_id=$1 LEFT JOIN staff_sessions session ON session.staff_id=staff.id WHERE ($2::uuid IS NULL OR staff.id>$2::uuid) GROUP BY staff.id,u.display_name ORDER BY staff.id LIMIT $3`,[input.guildId,input.cursor,input.limit+1]);const page=rows.rows.slice(0,input.limit);return{items:page.map((row)=>({staffId:row.staff_id,displayName:row.display_name,effectiveLevel:row.level,pendingElevationLevel:row.requested_level,permissionsVersion:row.permissions_version,activeSessions:Number(row.active_sessions),status:row.status})),nextCursor:rows.rows.length>input.limit?page.at(-1)?.staff_id??null:null};}
+  async listStaff(input: { guildId: string; cursor: string | null; limit: number }) {
+    const rows = await this.pool.query<{
+      staff_id: string;
+      display_name: string;
+      level: StaffLevel;
+      requested_level: StaffLevel | null;
+      permissions_version: number;
+      status: 'ACTIVE' | 'REVOKED';
+      active_sessions: number;
+      role_synced_at: Date | string | null;
+      observed_role_ids: string[];
+      last_sync_status: string | null;
+      queue_status: AdminStaffAccountRecord['roleSyncQueueStatus'];
+      last_sync_error: string | null;
+    }>(
+      `
+SELECT staff.id AS staff_id,
+       users.display_name,
+       staff.level,
+       staff.requested_level,
+       staff.permissions_version,
+       CASE WHEN staff.status = 'ACTIVE' THEN 'ACTIVE' ELSE 'REVOKED' END AS status,
+       count(session.id) FILTER (
+         WHERE session.revoked_at IS NULL AND session.expires_at > now()
+       )::int AS active_sessions,
+       staff.role_synced_at,
+       COALESCE(observation.observed_discord_role_ids, ARRAY[]::text[]) AS observed_role_ids,
+       observation.status::text AS last_sync_status,
+       queue.status::text AS queue_status,
+       queue.last_error AS last_sync_error
+FROM staff_accounts staff
+JOIN users ON users.id = staff.user_id
+JOIN discord_accounts account ON account.user_id = users.id AND account.guild_id = $1
+LEFT JOIN staff_sessions session ON session.staff_account_id = staff.id
+LEFT JOIN LATERAL (
+  SELECT event.observed_discord_role_ids, event.status
+  FROM staff_role_sync_events event
+  WHERE event.staff_account_id = staff.id AND event.guild_id = $1
+  ORDER BY event.created_at DESC, event.id DESC
+  LIMIT 1
+) observation ON true
+LEFT JOIN LATERAL (
+  SELECT job.status, job.last_error
+  FROM outbox_events job
+  WHERE job.event_type = 'ROLE_RECONCILIATION'
+    AND job.aggregate_type = 'staff_account'
+    AND job.aggregate_id = staff.id
+  ORDER BY job.created_at DESC, job.id DESC
+  LIMIT 1
+) queue ON true
+WHERE ($2::uuid IS NULL OR staff.id > $2::uuid)
+GROUP BY staff.id, users.display_name, observation.observed_discord_role_ids,
+         observation.status, queue.status, queue.last_error
+ORDER BY staff.id
+LIMIT $3
+      `,
+      [input.guildId, input.cursor, input.limit + 1]
+    );
+    const page = rows.rows.slice(0, input.limit);
+    return {
+      items: page.map((row): AdminStaffAccountRecord => ({
+        staffId: row.staff_id,
+        displayName: row.display_name,
+        effectiveLevel: row.level,
+        pendingElevationLevel: row.requested_level,
+        permissionsVersion: row.permissions_version,
+        activeSessions: Number(row.active_sessions),
+        status: row.status,
+        roleSyncedAt: row.role_synced_at ? new Date(row.role_synced_at).toISOString() : null,
+        observedDiscordRoleIds: row.observed_role_ids,
+        lastRoleSyncStatus: row.last_sync_status,
+        roleSyncQueueStatus: row.queue_status,
+        lastRoleSyncError: row.last_sync_error
+      })),
+      nextCursor: rows.rows.length > input.limit ? page.at(-1)?.staff_id ?? null : null
+    };
+  }
 
   async bootstrapOwner(input: { guildId: string; discordUserId: string; now: Date }): Promise<StaffAccessRecord> {
     const client = await this.pool.connect();
@@ -363,6 +577,86 @@ export class PostgresAccessStore implements AccessStore {
     }, isPending(data) ? 202 : 200);
   }
 
+  async queueRoleSync(input: SyncInput): Promise<StagedAccessWrite<RoleSyncQueueResult>> {
+    const resolved = await loadStaffByDiscord(this.pool, input.guildId, input.discordUserId);
+    const mappingVersion = await loadGuildMappingVersion(this.pool, input.guildId);
+    const jobId = randomUUID();
+    const data: RoleSyncQueueResult = {
+      queued: true,
+      persistent: true,
+      jobId,
+      staffId: resolved.staff?.staff_id ?? null
+    };
+    const dedupeKey = roleObservationDedupeKey(input.source, input.sourceEventId);
+    return staged(data, async (audit) => {
+      await this.transaction(async (client) => {
+        const locked = await loadStaffByDiscord(client, input.guildId, input.discordUserId, true);
+        const aggregateId = locked.staff?.staff_id ?? locked.userId;
+        const inserted = await client.query<{ id: string }>(
+          `
+INSERT INTO outbox_events (
+  id, event_type, aggregate_type, aggregate_id, dedupe_key, payload, status,
+  row_version, attempt_count, max_attempts, available_at, created_at, updated_at
+) VALUES (
+  $1::uuid, 'ROLE_RECONCILIATION', 'staff_account', $2::uuid, $3, $4::jsonb,
+  'PENDING', 1, 0, 8, $5::timestamptz, $5::timestamptz, $5::timestamptz
+)
+ON CONFLICT (dedupe_key) DO NOTHING
+RETURNING id
+          `,
+          [jobId, aggregateId, dedupeKey, JSON.stringify({
+            mode: 'OBSERVED_MEMBER',
+            staffId: locked.staff?.staff_id ?? null,
+            observation: { ...input, mappingVersion, observedAt: input.observedAt.toISOString() }
+          }), input.observedAt]
+        );
+        if (!inserted.rows[0]) {
+          const existing = await client.query<{ id: string }>('SELECT id FROM outbox_events WHERE dedupe_key = $1', [dedupeKey]);
+          if (existing.rows[0]) data.jobId = existing.rows[0].id;
+        }
+        data.staffId = locked.staff?.staff_id ?? null;
+        await insertPostgresAuditRecord(client, audit);
+      });
+    }, 202);
+  }
+
+  async queueStaffReconciliation(input: { targetStaffId: string; guildId: string; now: Date }): Promise<StagedAccessWrite<StaffRoleReconciliationResult>> {
+    const current = await loadStaffById(this.pool, input.targetStaffId);
+    if (!current || current.guild_id !== input.guildId || !current.discord_user_id) {
+      throw new AccessError('NOT_FOUND', 'Staff account was not found.');
+    }
+    const mappingVersion = await loadGuildMappingVersion(this.pool, input.guildId);
+    const jobId = randomUUID();
+    const data: StaffRoleReconciliationResult = { staffId: input.targetStaffId, jobId, status: 'QUEUED' };
+    return staged(data, async (audit) => {
+      await this.transaction(async (client) => {
+        const locked = await loadStaffById(client, input.targetStaffId, true);
+        if (!locked || locked.guild_id !== input.guildId || !locked.discord_user_id) {
+          throw new AccessError('NOT_FOUND', 'Staff account was not found.');
+        }
+        await client.query(
+          `
+INSERT INTO outbox_events (
+  id, event_type, aggregate_type, aggregate_id, dedupe_key, payload, status,
+  row_version, attempt_count, max_attempts, available_at, created_at, updated_at
+) VALUES (
+  $1::uuid, 'ROLE_RECONCILIATION', 'staff_account', $2::uuid, $3, $4::jsonb,
+  'PENDING', 1, 0, 8, $5::timestamptz, $5::timestamptz, $5::timestamptz
+)
+          `,
+          [jobId, input.targetStaffId, `role-reconciliation:staff:${input.targetStaffId}:${jobId}`, JSON.stringify({
+            mode: 'MEMBER_FETCH',
+            staffId: input.targetStaffId,
+            guildId: input.guildId,
+            discordUserId: locked.discord_user_id,
+            mappingVersion
+          }), input.now]
+        );
+        await insertPostgresAuditRecord(client, audit);
+      });
+    }, 202);
+  }
+
   async approveElevation(input: Parameters<AccessStore['approveElevation']>[0]): Promise<StagedAccessWrite<StaffAccessRecord & { sessionsRevoked: boolean }>> {
     if (input.actorStaffId === input.targetStaffId) throw new AccessError('SELF_APPROVAL_FORBIDDEN', 'Staff cannot approve their own access elevation.');
     const current = await loadStaffById(this.pool, input.targetStaffId);
@@ -485,6 +779,11 @@ type SyncPlan = {
 async function loadGuildMappingVersion(db: AccessDb, guildId: string): Promise<number> {
   const result = await db.query<{ version: number | null }>(`SELECT max(version)::int AS version FROM discord_role_mappings WHERE guild_id = $1`, [guildId]);
   return result.rows[0]?.version ?? 0;
+}
+
+function roleObservationDedupeKey(source: string, sourceEventId: string): string {
+  const fingerprint = createHash('sha256').update(`${source}:${sourceEventId}`).digest('hex');
+  return `role-sync-observation:${fingerprint}`;
 }
 
 async function loadActiveMappings(db: AccessDb, guildId: string, lock = false): Promise<MappingRow[]> {
@@ -839,7 +1138,9 @@ export function registerAccessRoutes(server: FastifyInstance, options: { store: 
   registerSecureReadRoute(server,security,{method:'GET',url:'/api/v1/admin/staff',permission:'access.manage',action:'LIST_ADMIN_STAFF_ACCOUNTS',targetType:'staff_account',acceptedSources:['DASHBOARD'],requiresRecentStepUp:true,mapError,handler:(request,actor)=>{if(!actor.guildId)throw new AccessError('NOT_FOUND','Guild was not found.');const query=request.query as {cursor?:unknown;limit?:unknown};const cursor=query.cursor===undefined?null:String(query.cursor);const limit=Number(query.limit??25);if(!Number.isInteger(limit)||limit<1||limit>100)throw new AccessError('VALIDATION_ERROR','limit is invalid.');return options.store.listStaff({guildId:actor.guildId,cursor,limit});}});
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/discord-role-mappings', permission: 'access.read', action: 'LIST_DISCORD_ROLE_MAPPINGS', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, handler: async () => ({ items: await options.store.listMappings() }) });
   registerSecureWriteRoute(server, security, { method: 'PUT', url: '/api/v1/admin/discord-role-mappings/:level', permission: 'access.manage', action: 'UPDATE_DISCORD_ROLE_MAPPING', targetType: 'discord_role_mapping', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request, actor) => { parseReason(request); return bind(await options.store.updateMapping({ ...parseMapping(request), targetLevel: levelParam(request), actorStaffId: actor.actorStaffId!, now: now() }), auditSink); } });
+  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/internal/discord/role-sync/queue', permission: 'access.role_sync', action: 'QUEUE_DISCORD_ROLE_SYNC', targetType: 'staff_account', acceptedSources: ['DISCORD_BOT'], allowServiceActor: true, mapError, handler: async (request) => bind(await options.store.queueRoleSync(parseSync(request)), auditSink) });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/internal/discord/role-sync', permission: 'access.role_sync', action: 'SYNC_DISCORD_ROLES', targetType: 'staff_account', acceptedSources: ['DISCORD_BOT'], allowServiceActor: true, mapError, handler: async (request) => bind(await options.store.syncRoles(parseSync(request)), auditSink) });
+  registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/staff/:staffId/discord-role-reconcile', permission: 'access.manage', action: 'RECONCILE_STAFF_DISCORD_ROLE', targetType: 'staff_account', targetId: (request) => param(request, 'staffId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request, actor) => { parseReason(request); if (!actor.guildId) throw new AccessError('NOT_FOUND', 'Guild was not found.'); return bind(await options.store.queueStaffReconciliation({ targetStaffId: param(request, 'staffId'), guildId: actor.guildId, now: now() }), auditSink); } });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/staff/:staffId/role-elevation/approve', permission: 'access.manage', action: 'APPROVE_STAFF_ROLE_ELEVATION', targetType: 'staff_account', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request, actor) => { parseReason(request); return bind(await options.store.approveElevation({ targetStaffId: param(request, 'staffId'), actorStaffId: actor.actorStaffId!, ...parseApproval(request), now: now() }), auditSink); } });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/staff/:staffId/role', permission: 'access.manage', action: 'UPDATE_STAFF_ROLE', targetType: 'staff_account', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request) => { parseReason(request); return bind(await options.store.updateStaffRole({ targetStaffId: param(request, 'staffId'), ...parseStaffRole(request), now: now() }), auditSink); } });
   registerSecureWriteRoute(server, security, { method: 'POST', url: '/api/v1/admin/staff/:staffId/revoke-sessions', permission: 'access.manage', action: 'REVOKE_STAFF_SESSIONS', targetType: 'staff_session', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], requiresRecentStepUp: true, mapError, successReason: parseReason, handler: async (request) => { parseReason(request); return bind(await options.store.revokeSessions({ targetStaffId: param(request, 'staffId'), now: now() }), auditSink); } });

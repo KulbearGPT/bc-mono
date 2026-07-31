@@ -272,4 +272,51 @@ describe('M5-US-02 Worker delivery adapters', () => {
       source: 'STARTUP_RECONCILIATION', observedAt: '2026-07-18T23:00:00.000Z'
     } });
   });
+
+  test('reconciles one staff member for an on-demand Dashboard request', async () => {
+    const requests: Array<{ url: string; method: string; body: any }> = [];
+    const adapter = new DiscordRestDeliveryAdapter({
+      botToken: 'discord-token-value', businessApiBaseUrl: 'https://api.example.test', botServiceToken: 'service-token-value',
+      fetch: async (url, init) => {
+        requests.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
+        if (String(url).includes('/guilds/')) {
+          return new Response(JSON.stringify({ user: { id: 'member-1' }, roles: ['role-2', 'role-1'] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ data: { status: 'APPLIED' } }), { status: 200 });
+      }
+    });
+
+    await adapter.reconcileMember('guild-1', 'member-1', 4, '2026-07-18T23:00:00.000Z');
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({ method: 'GET', url: 'https://discord.com/api/v10/guilds/guild-1/members/member-1' });
+    expect(requests[1]).toMatchObject({ method: 'POST', body: {
+      guildId: 'guild-1', discordUserId: 'member-1', observedRoleIds: ['role-1', 'role-2'], mappingVersion: 4,
+      source: 'MANUAL_RETRY', observedAt: '2026-07-18T23:00:00.000Z'
+    } });
+  });
+
+  test('refreshes a stale mapping version once while processing a durable role-sync job', async () => {
+    const requests: Array<{ body: any; idempotencyKey: string | null }> = [];
+    const adapter = new DiscordRestDeliveryAdapter({
+      botToken: 'discord-token-value', businessApiBaseUrl: 'https://api.example.test', botServiceToken: 'service-token-value',
+      fetch: async (_url, init) => {
+        requests.push({ body: JSON.parse(String(init?.body)), idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+        if (requests.length === 1) {
+          return new Response(JSON.stringify({ error: { code: 'MAPPING_VERSION_STALE', details: [
+            { field: 'mappingVersion', reason: 'expected 7' }
+          ] } }), { status: 409 });
+        }
+        return new Response(JSON.stringify({ data: { status: 'APPLIED' } }), { status: 200 });
+      }
+    });
+
+    await adapter.syncObservedRoles({
+      guildId: 'guild-1', discordUserId: 'member-1', observedRoleIds: ['role-1'], mappingVersion: 4,
+      source: 'GUILD_MEMBER_UPDATE', sourceEventId: 'event-1', observedAt: '2026-07-18T23:00:00.000Z'
+    });
+
+    expect(requests.map((request) => request.body.mappingVersion)).toEqual([4, 7]);
+    expect(requests[0]!.idempotencyKey).not.toBe(requests[1]!.idempotencyKey);
+  });
 });

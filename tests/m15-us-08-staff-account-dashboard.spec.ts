@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildStaffElevationApprovalRequest,
+  buildStaffRoleReconciliationRequest,
   buildStaffRoleUpdateRequest,
   buildStaffSessionRevocationRequest,
 } from "../apps/dashboard/src/access-management.js";
@@ -14,5 +15,12 @@ describe("M15-US-08 staff account Dashboard actions",()=>{
   test("builds downgrade/revoke and session revocation without client authority claims",()=>{
     expect(buildStaffRoleUpdateRequest(staff,"L1_SUPPORT","ACTIVE","ACCESS_CORRECTION")).toEqual({method:"PATCH",path:"/api/v1/admin/staff/staff-target/role",body:{expectedPermissionsVersion:4,level:"L1_SUPPORT",status:"ACTIVE",reasonCode:"ACCESS_CORRECTION"}});
     expect(buildStaffSessionRevocationRequest(staff,"SECURITY_RESPONSE")).toEqual({method:"POST",path:"/api/v1/admin/staff/staff-target/revoke-sessions",body:{reasonCode:"SECURITY_RESPONSE"}});
+  });
+  test("queues a fresh Discord observation for one staff account",()=>{
+    expect(buildStaffRoleReconciliationRequest(staff)).toEqual({
+      method:"POST",
+      path:"/api/v1/admin/staff/staff-target/discord-role-reconcile",
+      body:{reasonCode:"ROLE_SYNC_RECOVERY"}
+    });
   });
 });

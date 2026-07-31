@@ -77,7 +77,7 @@ export class HttpRoleSyncApiClient implements RoleSyncApi {
 
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.transport.request('/api/v1/internal/discord/role-sync', {
+        return await this.transport.request('/api/v1/internal/discord/role-sync/queue', {
           method: 'POST',
           idempotencyKey: buildRoleSyncIdempotencyKey(currentObservation),
           body: currentObservation

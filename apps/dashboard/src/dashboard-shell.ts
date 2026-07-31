@@ -51,16 +51,19 @@ export function buildDashboardState(input: { status: number; capabilities?: Dash
 export function createDashboardApiClient(options: {
   fetch?: typeof fetch;
   cookie?: () => string;
-  onUnauthorized?: () => void;
+  onUnauthorized?: (reason: string | null) => void;
 } = {}) {
   const request = options.fetch ?? fetch;
   const cookie = options.cookie ?? (() => document.cookie);
-  const onUnauthorized = options.onUnauthorized ?? (() => {
-    if (typeof window !== 'undefined') window.dispatchEvent(new Event(dashboardSessionExpiredEvent));
+  const onUnauthorized = options.onUnauthorized ?? ((reason) => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(dashboardSessionExpiredEvent, { detail: { reason } }));
   });
   const send = async (path: string, init: RequestInit) => {
     const response = await request(path, init);
-    if (response.status === 401) onUnauthorized();
+    if (response.status === 401) {
+      const body = await response.clone().json().catch(() => null) as { error?: { code?: unknown } } | null;
+      onUnauthorized(typeof body?.error?.code === 'string' ? body.error.code : null);
+    }
     return response;
   };
   const write = (method: 'POST' | 'PUT' | 'PATCH', path: string, body: unknown, idempotencyKey?: string) => {

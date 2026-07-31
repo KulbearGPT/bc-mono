@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { DispatchMessageStore, DispatchOfferDiscordAdapter } from './worker-handlers.js';
+import type { DispatchMessageStore, DispatchOfferDiscordAdapter, RoleSyncObservationPayload } from './worker-handlers.js';
 import type { DiscordChannelMessageSnapshot, TerminalChannelDiscordAdapter } from './order-channel-cleanup.js';
 
 interface QueryClient {
@@ -196,7 +196,7 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter, 
           ? member.roles.map((roleId) => requiredString(roleId, 'member.roles')).sort()
           : [];
         const fingerprint = stableNonce(`${guildId}:${discordUserId}:${mappingVersion}:${observedRoleIds.join(',')}`);
-        const body = {
+        await this.syncObservedRoles({
           guildId,
           discordUserId,
           observedRoleIds,
@@ -204,23 +204,62 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter, 
           source: 'STARTUP_RECONCILIATION',
           sourceEventId: `role-reconciliation:${fingerprint}`,
           observedAt
-        };
-        const response = await this.fetchImpl(`${businessApiBaseUrl}/api/v1/internal/discord/role-sync`, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${serviceToken}`,
-            'content-type': 'application/json',
-            'x-client-source': 'DISCORD_BOT',
-            'idempotency-key': `role-reconciliation:${fingerprint}`
-          },
-          body: JSON.stringify(body)
         });
-        if (!response.ok) throw new Error(`Role reconciliation failed with HTTP ${response.status}.`);
       }
       after = members.length === 1000
         ? requiredString((members.at(-1) as { user?: { id?: unknown } }).user?.id, 'member.user.id')
         : null;
     } while (after);
+  }
+
+  async reconcileMember(guildId: string, discordUserId: string, mappingVersion: number, observedAt: string): Promise<void> {
+    const member = await this.request<{ user?: { id?: unknown }; roles?: unknown }>(
+      `/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(discordUserId)}`,
+      { method: 'GET' }
+    );
+    const observedRoleIds = Array.isArray(member.roles)
+      ? member.roles.map((roleId) => requiredString(roleId, 'member.roles')).sort()
+      : [];
+    const fingerprint = stableNonce(`${guildId}:${discordUserId}:${mappingVersion}:${observedRoleIds.join(',')}:${observedAt}`);
+    await this.syncObservedRoles({
+      guildId,
+      discordUserId,
+      observedRoleIds,
+      mappingVersion,
+      source: 'MANUAL_RETRY',
+      sourceEventId: `manual-role-reconciliation:${fingerprint}`,
+      observedAt
+    });
+  }
+
+  async syncObservedRoles(observation: RoleSyncObservationPayload): Promise<void> {
+    const businessApiBaseUrl = this.input.businessApiBaseUrl?.replace(/\/+$/u, '');
+    const serviceToken = this.input.botServiceToken?.trim();
+    if (!businessApiBaseUrl || !serviceToken) throw new Error('Role reconciliation API configuration is incomplete.');
+    let currentObservation = observation;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const fingerprint = stableNonce(`${currentObservation.source}:${currentObservation.sourceEventId}:v${currentObservation.mappingVersion}`);
+      const response = await this.fetchImpl(`${businessApiBaseUrl}/api/v1/internal/discord/role-sync`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${serviceToken}`,
+          'content-type': 'application/json',
+          'x-client-source': 'DISCORD_BOT',
+          'idempotency-key': `role-reconciliation:${fingerprint}`
+        },
+        body: JSON.stringify(currentObservation)
+      });
+      if (response.ok) return;
+      const errorBody = await response.json().catch(() => null);
+      const expectedMappingVersion = response.status === 409
+        ? expectedRoleMappingVersion(errorBody)
+        : null;
+      if (expectedMappingVersion !== null && attempt === 0) {
+        currentObservation = { ...currentObservation, mappingVersion: expectedMappingVersion };
+        continue;
+      }
+      throw new Error(`Role reconciliation failed with HTTP ${response.status}.`);
+    }
   }
 
   private async findMessageByNonce(channelId: string, nonce: string, notBefore: string): Promise<string | null> {
@@ -269,6 +308,18 @@ function discordRetryAfterMs(response: Response, body: Record<string, unknown>):
 
 function stableNonce(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 24);
+}
+
+function expectedRoleMappingVersion(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null;
+  const envelope = value as { error?: { code?: unknown; details?: unknown }; code?: unknown; details?: unknown };
+  const error = envelope.error ?? envelope;
+  if (error.code !== 'MAPPING_VERSION_STALE' || !Array.isArray(error.details)) return null;
+  const detail = error.details.find((item) => item && typeof item === 'object'
+    && (item as { field?: unknown }).field === 'mappingVersion') as { reason?: unknown } | undefined;
+  const match = typeof detail?.reason === 'string' ? detail.reason.match(/^expected (\d+)$/u) : null;
+  const mappingVersion = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(mappingVersion) && mappingVersion >= 0 ? mappingVersion : null;
 }
 
 function buildDispatchOfferEmbed(payload: Record<string, unknown>): Record<string, unknown> {

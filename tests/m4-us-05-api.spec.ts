@@ -199,6 +199,50 @@ describe('M4-US-05 Discord Role mapping and access API', () => {
     expect(missingReason.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
   });
 
+  test('queues member observations durably and lets L4 queue one staff reconciliation', async () => {
+    const { server, store } = fixture();
+    const observation = await server.inject({
+      method: 'POST',
+      url: '/api/v1/internal/discord/role-sync/queue',
+      headers: roleSyncHeaders('access:role-sync:queue-member-update'),
+      payload: syncPayload({
+        discordUserId: targetL2.discordUserId,
+        observedRoleIds: [roles.L2_SUPERVISOR, roles.L3_OPERATIONS],
+        sourceEventId: 'member-update:durable-queue'
+      })
+    });
+    expect(observation.statusCode).toBe(202);
+    expect(observation.json()).toMatchObject({
+      data: {
+        queued: true,
+        persistent: true,
+        staffId: targetL2.staffId,
+        jobId: expect.any(String)
+      }
+    });
+
+    const manual = await server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/staff/${targetL2.staffId}/discord-role-reconcile`,
+      headers: adminHeaders(ownerA, 'access:manual-role-reconcile', { 'x-test-step-up': 'valid' }),
+      payload: { reasonCode: 'ROLE_SYNC_RECOVERY' }
+    });
+    expect(manual.statusCode, manual.body).toBe(202);
+    expect(manual.json()).toMatchObject({
+      data: { staffId: targetL2.staffId, status: 'QUEUED', jobId: expect.any(String) }
+    });
+
+    const listed = await store.listStaff({ guildId, cursor: null, limit: 100 });
+    expect(listed.items).toContainEqual(expect.objectContaining({
+      staffId: targetL2.staffId,
+      observedDiscordRoleIds: [roles.L2_SUPERVISOR],
+      roleSyncedAt: null,
+      roleSyncQueueStatus: 'PENDING',
+      lastRoleSyncError: null,
+      pendingElevationLevel: null
+    }));
+  });
+
   test('lists current mappings and creates a new optimistic mapping version', async () => {
     const { server } = fixture();
     const listed = await server.inject({

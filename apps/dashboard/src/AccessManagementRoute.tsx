@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccessManagementPage } from './AccessManagementPage.js';
-import { buildRoleMappingUpdateRequest,buildStaffElevationApprovalRequest,buildStaffRoleUpdateRequest,buildStaffSessionRevocationRequest, type AccessManagementModel, type RoleMappingRecord,type StaffAccountRecord } from './access-management.js';
+import { buildRoleMappingUpdateRequest,buildStaffElevationApprovalRequest,buildStaffRoleReconciliationRequest,buildStaffRoleUpdateRequest,buildStaffSessionRevocationRequest, type AccessManagementModel, type RoleMappingRecord,type StaffAccountRecord } from './access-management.js';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
 
 const loading: AccessManagementModel = { kind: 'LOADING', mappings: [], requestId: null };
@@ -49,7 +49,7 @@ export function AccessManagementRoute(props: { capabilities: DashboardCapabiliti
     } finally { setSubmitting(false); }
   };
 
-  const writeStaff=async(request:{method:'POST'|'PATCH';path:string;body:Record<string,unknown>})=>{setSubmitting(true);setNotice(null);try{const response=request.method==='POST'?await api.post(request.path,request.body):await api.patch(request.path,request.body);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setNotice(`${payload?.error?.message??'员工账号操作失败。'}${payload?.requestId?` · request_id: ${payload.requestId}`:''}`);return;}setNotice('员工账号已更新，旧会话已按规则撤销。');await load();}catch(error){setNotice(error instanceof Error?error.message:'员工账号操作失败。');}finally{setSubmitting(false);}};
+  const writeStaff=async(request:{method:'POST'|'PATCH';path:string;body:Record<string,unknown>},successMessage='员工账号已更新，旧会话已按规则撤销。')=>{setSubmitting(true);setNotice(null);try{const response=request.method==='POST'?await api.post(request.path,request.body):await api.patch(request.path,request.body);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setNotice(`${payload?.error?.message??'员工账号操作失败。'}${payload?.requestId?` · request_id: ${payload.requestId}`:''}`);return;}setNotice(successMessage);await load();}catch(error){setNotice(error instanceof Error?error.message:'员工账号操作失败。');}finally{setSubmitting(false);}};
 
-  return <AccessManagementPage model={model} staffAccounts={staffAccounts} submitting={submitting} notice={notice} onRefresh={() => void load()} onUpdateMapping={(...args) => void updateMapping(...args)} onApproveElevation={(staff,reason)=>void writeStaff(buildStaffElevationApprovalRequest(staff,reason))} onUpdateStaff={(staff,level,status,reason)=>void writeStaff(buildStaffRoleUpdateRequest(staff,level,status,reason))} onRevokeSessions={(staff,reason)=>void writeStaff(buildStaffSessionRevocationRequest(staff,reason))} />;
+  return <AccessManagementPage model={model} staffAccounts={staffAccounts} submitting={submitting} notice={notice} onRefresh={() => void load()} onUpdateMapping={(...args) => void updateMapping(...args)} onApproveElevation={(staff,reason)=>void writeStaff(buildStaffElevationApprovalRequest(staff,reason))} onUpdateStaff={(staff,level,status,reason)=>void writeStaff(buildStaffRoleUpdateRequest(staff,level,status,reason))} onRevokeSessions={(staff,reason)=>void writeStaff(buildStaffSessionRevocationRequest(staff,reason))} onReconcileStaff={(staff)=>void writeStaff(buildStaffRoleReconciliationRequest(staff),'已进入持久化对账队列；可刷新查看状态。')} />;
 }

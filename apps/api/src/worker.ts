@@ -48,6 +48,7 @@ import {
   createSupportResponseOverdueHandler,
   createSupportResponseReminderHandler,
 } from "./support-response-jobs.js";
+import { enqueuePeriodicRoleReconciliation } from "./access.js";
 
 const READY_FILE = "/tmp/blackcat-worker-ready";
 const validation = validateRuntimeEnv(process.env, {
@@ -148,8 +149,11 @@ const runtime = new ProductionOutboxRuntime({
       discord: panelDiscord,
     }),
     roleReconciliation: createRoleReconciliationHandler({
-      reconcile: (guildId, mappingVersion, observedAt) =>
+      reconcileGuild: (guildId, mappingVersion, observedAt) =>
         delivery.reconcileRoles(guildId, mappingVersion, observedAt),
+      reconcileMember: (guildId, discordUserId, mappingVersion, observedAt) =>
+        delivery.reconcileMember(guildId, discordUserId, mappingVersion, observedAt),
+      syncObservation: (observation) => delivery.syncObservedRoles(observation),
     }),
     weeklyReportGenerate: createWeeklyReportGenerationHandler({
       store: weeklyReportStore,
@@ -200,13 +204,27 @@ try {
     500,
   );
   const reportGuildId = process.env.DISCORD_GUILD_ID?.trim();
+  const roleReconciliationIntervalMs = positiveInteger(
+    process.env.ROLE_RECONCILIATION_INTERVAL_MS,
+    5 * 60_000,
+  );
   let nextReportScheduleCheckAt = 0;
   let nextTerminalChannelCleanupCheckAt = 0;
+  let nextRoleReconciliationAt = 0;
   while (!stopping) {
     const loopNow = Date.now();
     if (loopNow >= nextTerminalChannelCleanupCheckAt) {
       await terminalChannelCleanupStore.enqueueDueTerminalOrders(new Date(loopNow));
       nextTerminalChannelCleanupCheckAt = loopNow + 60_000;
+    }
+    if (reportGuildId && loopNow >= nextRoleReconciliationAt) {
+      await enqueuePeriodicRoleReconciliation({
+        client: pool,
+        guildId: reportGuildId,
+        now: new Date(loopNow),
+        intervalMs: roleReconciliationIntervalMs,
+      });
+      nextRoleReconciliationAt = loopNow + roleReconciliationIntervalMs;
     }
     if (reportGuildId && loopNow >= nextReportScheduleCheckAt) {
       await weeklyReportStore.enqueueScheduledGeneration({

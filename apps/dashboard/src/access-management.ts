@@ -8,7 +8,20 @@ export interface RoleMappingRecord {
   version: number;
   reconciliationQueued: boolean;
 }
-export interface StaffAccountRecord{staffId:string;displayName:string;effectiveLevel:StaffLevel;pendingElevationLevel:StaffLevel|null;permissionsVersion:number;activeSessions:number;status:'ACTIVE'|'REVOKED'}
+export interface StaffAccountRecord {
+  staffId: string;
+  displayName: string;
+  effectiveLevel: StaffLevel;
+  pendingElevationLevel: StaffLevel | null;
+  permissionsVersion: number;
+  activeSessions: number;
+  status: 'ACTIVE' | 'REVOKED';
+  roleSyncedAt?: string | null;
+  observedDiscordRoleIds?: string[];
+  lastRoleSyncStatus?: string | null;
+  roleSyncQueueStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | null;
+  lastRoleSyncError?: string | null;
+}
 
 export type AccessManagementModel =
   | { kind: 'LOADING'; mappings: RoleMappingRecord[]; requestId: null }
@@ -49,6 +62,13 @@ export const staffLevelLabels: Record<StaffLevel, string> = {
 export function buildStaffElevationApprovalRequest(staff:StaffAccountRecord,reasonCode:string){if(!staff.pendingElevationLevel)throw new Error('No role elevation is pending.');return{method:'POST' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/role-elevation/approve`,body:{expectedPermissionsVersion:staff.permissionsVersion,requestedLevel:staff.pendingElevationLevel,reasonCode:reason(reasonCode)}};}
 export function buildStaffRoleUpdateRequest(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reasonCode:string){return{method:'PATCH' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/role`,body:{expectedPermissionsVersion:staff.permissionsVersion,level,status,reasonCode:reason(reasonCode)}};}
 export function buildStaffSessionRevocationRequest(staff:StaffAccountRecord,reasonCode:string){return{method:'POST' as const,path:`/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/revoke-sessions`,body:{reasonCode:reason(reasonCode)}};}
+export function buildStaffRoleReconciliationRequest(staff: StaffAccountRecord) {
+  return {
+    method: 'POST' as const,
+    path: `/api/v1/admin/staff/${encodeURIComponent(staff.staffId)}/discord-role-reconcile`,
+    body: { reasonCode: 'ROLE_SYNC_RECOVERY' }
+  };
+}
 function reason(value:string){const normalized=requireText(value,'reasonCode').toUpperCase();if(!/^[A-Z][A-Z0-9_]{2,99}$/u.test(normalized))throw new Error('reasonCode is invalid.');return normalized;}
 
 function requireText(value: string, field: string) {

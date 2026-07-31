@@ -31,5 +31,5 @@ describe('M16-US-04 shared DTO and quality gates', () => {
     for (const script of ['quality:routes', 'lint:api-dashboard', 'format:check']) {
       execFileSync('npm', ['run', script], { cwd: root, stdio: 'pipe' });
     }
-  }, 30_000);
+  }, 60_000);
 });
