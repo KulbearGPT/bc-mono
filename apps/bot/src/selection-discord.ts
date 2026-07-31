@@ -63,8 +63,10 @@ export type SelectionRoute =
       action: 'page';
       orderId: string;
       poolId: string;
+      expectedPoolVersion: number | null;
       expectedOrderVersion: number;
-      cursor: string;
+      pageIndex: number;
+      legacyCursor?: string;
     }
   | { action: 'unknown' };
 
@@ -76,8 +78,13 @@ export function buildSelectionCandidatePanel(input: {
   items: SelectionCandidate[];
   nextCursor: string | null;
   selectedApplicationIds: string[];
+  selectedCandidates?: Array<{ id: string; playerDisplayName: string }>;
+  pageIndex?: number;
 }): MessageSpec {
-  const selected = new Set(input.selectedApplicationIds);
+  const pageIndex = input.pageIndex ?? 0;
+  if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) throw new Error('Selection page index is invalid.');
+  const selectedCandidates = normalizeSelectedCandidates(input);
+  const selected = new Set(selectedCandidates.map((candidate) => candidate.id));
   const options = input.items.map((item) => ({
     label: item.playerDisplayName.slice(0, 100),
     value: short(item.id),
@@ -85,6 +92,25 @@ export function buildSelectionCandidatePanel(input: {
     default: selected.has(item.id)
   }));
   const components: MessageSpec['components'] = [];
+  if (selectedCandidates.length)
+    components.push({
+      type: 'ACTION_ROW',
+      components: [
+        {
+          type: 'STRING_SELECT',
+          customId: `bc:sp:p:${short(input.orderId)}:${short(input.poolId)}`,
+          placeholder: `已选择 ${selectedCandidates.length} 位陪玩`,
+          options: selectedCandidates.map((candidate) => ({
+            label: candidate.playerDisplayName.slice(0, 100),
+            value: short(candidate.id),
+            default: true
+          })),
+          minValues: selectedCandidates.length,
+          maxValues: selectedCandidates.length,
+          disabled: true
+        }
+      ]
+    });
   if (options.length)
     components.push({
       type: 'ACTION_ROW',
@@ -99,25 +125,33 @@ export function buildSelectionCandidatePanel(input: {
         }
       ]
     });
+  const navigation = [];
+  if (pageIndex > 0)
+    navigation.push({
+      type: 'BUTTON' as const,
+      style: 'SECONDARY' as const,
+      customId: selectionPageCustomId(input, pageIndex - 1),
+      label: '← 上一页'
+    });
   if (input.nextCursor)
-    components.push({
-      type: 'ACTION_ROW',
-      components: [
-        {
-          type: 'BUTTON',
-          style: 'SECONDARY',
-          customId: `bc:sp:n:${short(input.orderId)}:${short(input.poolId)}:o${input.orderVersion}:${input.nextCursor}`,
-          label: '下一页 →'
-        }
-      ]
+    navigation.push({
+      type: 'BUTTON' as const,
+      style: 'SECONDARY' as const,
+      customId: selectionPageCustomId(input, pageIndex + 1),
+      label: '下一页 →'
     });
   if (options.length)
-    components.push(
-      selectionActionButton(
-        `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
-        '再发起一轮报名'
-      )
-    );
+    navigation.push({
+      type: 'BUTTON' as const,
+      style: 'PRIMARY' as const,
+      customId: `bc:sp:r:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}`,
+      label: '再发起一轮报名'
+    });
+  if (navigation.length)
+    components.push({
+      type: 'ACTION_ROW',
+      components: navigation
+    });
   components.push(
     {
       type: 'ACTION_ROW',
@@ -170,7 +204,9 @@ export function buildSelectionCandidatePanel(input: {
           : '暂无报名陪玩'
       }
     ],
-    progress: input.items.length ? '试音匹配进行中' : '本轮招募已终止',
+    progress: input.items.length
+      ? `试音匹配进行中 · 第 ${pageIndex + 1} 页${selectedCandidates.length ? ` · 已选 ${selectedCandidates.length} 位` : ''}`
+      : '本轮招募已终止',
     nextStep: input.items.length ? '选中陪玩后进入确认页；如都不合适，可重新招募。' : '重新开始招募，或取消订单。',
     components
   });
@@ -269,43 +305,54 @@ export function buildSelectionCandidateConfirmation(input: {
 }
 
 export function selectionIdsFromConfirmationComponents(components: readonly unknown[]): string[] {
-  for (const row of components) {
-    const children = (row as { components?: readonly unknown[] } | null)?.components;
-    if (!children) continue;
-    for (const component of children) {
-      const candidate = component as {
-        customId?: unknown;
-        custom_id?: unknown;
-        options?: ReadonlyArray<{ value?: unknown }>;
-      };
-      const customId = candidate.customId ?? candidate.custom_id;
-      if (typeof customId !== 'string' || !customId.startsWith('bc:sp:p:') || !candidate.options) continue;
-      return Array.from(
-        new Set(
-          candidate.options
-            .map((option) => option.value)
-            .filter((value): value is string => typeof value === 'string')
-            .map(decodeSelectionId)
-        )
-      );
+  return selectionCandidatesFromComponents(components).map((candidate) => candidate.id);
+}
+
+export function selectionCandidatesFromComponents(
+  components: readonly unknown[]
+): Array<{ id: string; playerDisplayName: string }> {
+  for (const component of walkComponents(components)) {
+    const candidate = component as {
+      customId?: unknown;
+      custom_id?: unknown;
+      options?: ReadonlyArray<{ value?: unknown; label?: unknown }>;
+    };
+    const customId = candidate.customId ?? candidate.custom_id;
+    if (typeof customId !== 'string' || !customId.startsWith('bc:sp:p:') || !candidate.options) continue;
+    const unique = new Map<string, string>();
+    for (const option of candidate.options) {
+      if (typeof option.value !== 'string') continue;
+      const id = decodeSelectionId(option.value);
+      unique.set(id, typeof option.label === 'string' ? option.label : '已选陪玩');
     }
+    return [...unique].map(([id, playerDisplayName]) => ({ id, playerDisplayName }));
   }
   return [];
+}
+
+export function mergeSelectionCandidates(input: {
+  retainedCandidates: Array<{ id: string; playerDisplayName: string }>;
+  currentPageCandidates: Array<{ id: string; playerDisplayName: string }>;
+  selectedCurrentPageIds: string[];
+}): Array<{ id: string; playerDisplayName: string }> {
+  const currentPageIds = new Set(input.currentPageCandidates.map((candidate) => candidate.id));
+  const selectedIds = new Set(input.selectedCurrentPageIds);
+  const merged = [
+    ...input.retainedCandidates.filter((candidate) => !currentPageIds.has(candidate.id)),
+    ...input.currentPageCandidates.filter((candidate) => selectedIds.has(candidate.id))
+  ];
+  return [...new Map(merged.map((candidate) => [candidate.id, candidate])).values()];
 }
 
 export function selectionFinalizeRouteFromConfirmationComponents(
   components: readonly unknown[]
 ): Extract<SelectionRoute, { action: 'finalize' }> | null {
-  for (const row of components) {
-    const children = (row as { components?: readonly unknown[] } | null)?.components;
-    if (!children) continue;
-    for (const component of children) {
-      const candidate = component as { customId?: unknown; custom_id?: unknown };
-      const customId = candidate.customId ?? candidate.custom_id;
-      if (typeof customId !== 'string') continue;
-      const route = parseSelectionCustomId(customId);
-      if (route.action === 'finalize') return route;
-    }
+  for (const component of walkComponents(components)) {
+    const candidate = component as { customId?: unknown; custom_id?: unknown };
+    const customId = candidate.customId ?? candidate.custom_id;
+    if (typeof customId !== 'string') continue;
+    const route = parseSelectionCustomId(customId);
+    if (route.action === 'finalize') return route;
   }
   return null;
 }
@@ -550,14 +597,26 @@ export function parseSelectionCustomId(value: string): SelectionRoute {
       expectedPoolVersion: null,
       expectedOrderVersion: null
     };
+  match = /^bc:sp:pg:([^:]+):([^:]+):v(\d+):o(\d+):p(\d+)$/u.exec(value);
+  if (match)
+    return {
+      action: 'page',
+      orderId: long(match[1]!),
+      poolId: long(match[2]!),
+      expectedPoolVersion: Number(match[3]),
+      expectedOrderVersion: Number(match[4]),
+      pageIndex: Number(match[5])
+    };
   match = /^bc:sp:n:([^:]+):([^:]+):o(\d+):([A-Za-z0-9_-]+)$/u.exec(value);
   if (match)
     return {
       action: 'page',
       orderId: long(match[1]!),
       poolId: long(match[2]!),
+      expectedPoolVersion: null,
       expectedOrderVersion: Number(match[3]),
-      cursor: match[4]!
+      pageIndex: 1,
+      legacyCursor: match[4]!
     };
   return { action: 'unknown' };
 }
@@ -604,6 +663,38 @@ export function buildSelectionVoicePlan(projection: SelectionVoiceProjection) {
 function short(uuid: string) {
   if (!/^[0-9a-f-]{36}$/iu.test(uuid)) throw new Error('Invalid UUID.');
   return Buffer.from(uuid.replaceAll('-', ''), 'hex').toString('base64url');
+}
+
+function selectionPageCustomId(
+  input: { orderId: string; poolId: string; poolVersion: number; orderVersion: number },
+  pageIndex: number
+) {
+  return `bc:sp:pg:${short(input.orderId)}:${short(input.poolId)}:v${input.poolVersion}:o${input.orderVersion}:p${pageIndex}`;
+}
+
+function normalizeSelectedCandidates(input: {
+  items: SelectionCandidate[];
+  selectedApplicationIds: string[];
+  selectedCandidates?: Array<{ id: string; playerDisplayName: string }>;
+}) {
+  const labels = new Map(input.items.map((item) => [item.id, item.playerDisplayName]));
+  const selected =
+    input.selectedCandidates ??
+    input.selectedApplicationIds.map((id, index) => ({
+      id,
+      playerDisplayName: labels.get(id) ?? `已选陪玩 ${index + 1}`
+    }));
+  const unique = new Map(selected.map((candidate) => [candidate.id, candidate.playerDisplayName]));
+  if (unique.size > 25) throw new Error('Selection context exceeds the Discord component limit.');
+  return [...unique].map(([id, playerDisplayName]) => ({ id, playerDisplayName }));
+}
+
+function* walkComponents(components: readonly unknown[]): Generator<unknown> {
+  for (const component of components) {
+    yield component;
+    const children = (component as { components?: readonly unknown[] } | null)?.components;
+    if (children) yield* walkComponents(children);
+  }
 }
 function long(value: string) {
   const hex = Buffer.from(value, 'base64url').toString('hex');

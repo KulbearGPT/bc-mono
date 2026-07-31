@@ -15,7 +15,9 @@ import {
   buildSelectionPoolRefreshMessage,
   buildSelectionPoolStartedNotice,
   decodeSelectionId,
+  mergeSelectionCandidates,
   parseSelectionCustomId,
+  selectionCandidatesFromComponents,
   withdrawCustomId
 } from '../../selection-discord.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
@@ -74,10 +76,15 @@ export default class SelectionSelectsHandler extends InteractionHandler {
     if (updatesOrderPanel) await interaction.deferUpdate();
     else await interaction.deferReply({ ephemeral: true });
     if (route.action === 'finalize') {
-      const selectedCandidates = interaction.values.map((value) => ({
-        id: decodeSelectionId(value),
-        playerDisplayName: interaction.component.options.find((option) => option.value === value)?.label ?? '报名陪玩'
+      const currentPageCandidates = interaction.component.options.map((option) => ({
+        id: decodeSelectionId(option.value),
+        playerDisplayName: option.label
       }));
+      const selectedCandidates = mergeSelectionCandidates({
+        retainedCandidates: selectionCandidatesFromComponents(interaction.message.components),
+        currentPageCandidates,
+        selectedCurrentPageIds: interaction.values.map(decodeSelectionId)
+      });
       await interaction.editReply(
         toDiscordUpdate(
           buildSelectionCandidateConfirmation({
@@ -250,6 +257,7 @@ export async function executeSelectionReselect(input: {
   interaction: Pick<StringSelectMenuInteraction, 'editReply'>;
   api: BotApiClient;
   actor: BotActorContext;
+  selectedCandidates?: Array<{ id: string; playerDisplayName: string }>;
   route: {
     action: 'reselect';
     orderId: string;
@@ -268,7 +276,9 @@ export async function executeSelectionReselect(input: {
         orderVersion: input.route.expectedOrderVersion,
         items: page.items,
         nextCursor: page.nextCursor,
-        selectedApplicationIds: []
+        selectedApplicationIds: input.selectedCandidates?.map((candidate) => candidate.id) ?? [],
+        selectedCandidates: input.selectedCandidates,
+        pageIndex: 0
       })
     )
   );

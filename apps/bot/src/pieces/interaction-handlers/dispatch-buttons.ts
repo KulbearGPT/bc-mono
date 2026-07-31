@@ -2,10 +2,11 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { ButtonInteraction } from 'discord.js';
 import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
-import { HttpBotApiClient, buildDiscordIdempotencyKey } from '../../service-center.js';
+import { HttpBotApiClient, buildDiscordIdempotencyKey, type BotApiClient } from '../../service-center.js';
 import {
   buildSelectionCandidatePanel,
   parseSelectionCustomId,
+  selectionCandidatesFromComponents,
   selectionFinalizeRouteFromConfirmationComponents,
   selectionIdsFromConfirmationComponents,
   withdrawCustomId
@@ -77,6 +78,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
           interaction,
           api,
           actor,
+          selectedCandidates: selectionCandidatesFromComponents(interaction.message.components),
           route: { ...route, expectedPoolVersion, expectedOrderVersion }
         });
         return;
@@ -175,7 +177,15 @@ export class DispatchButtonsHandler extends InteractionHandler {
         return;
       }
       if (route.action === 'page') {
-        const page = await api.listSelectionApplications(route.orderId, route.poolId, actor, route.cursor);
+        const selectedCandidates = selectionCandidatesFromComponents(interaction.message.components);
+        const page = await loadSelectionApplicationPage({
+          api,
+          actor,
+          orderId: route.orderId,
+          poolId: route.poolId,
+          pageIndex: route.pageIndex,
+          legacyCursor: route.legacyCursor
+        });
         await interaction.editReply(
           toDiscordUpdate(
             buildSelectionCandidatePanel({
@@ -185,7 +195,9 @@ export class DispatchButtonsHandler extends InteractionHandler {
               orderVersion: route.expectedOrderVersion,
               items: page.items,
               nextCursor: page.nextCursor,
-              selectedApplicationIds: []
+              selectedApplicationIds: selectedCandidates.map((candidate) => candidate.id),
+              selectedCandidates,
+              pageIndex: route.pageIndex
             })
           )
         );
@@ -206,6 +218,27 @@ export class DispatchButtonsHandler extends InteractionHandler {
       });
     }
   }
+}
+
+export async function loadSelectionApplicationPage(input: {
+  api: Pick<BotApiClient, 'listSelectionApplications'>;
+  actor: NonNullable<ReturnType<typeof buildBotActorContext>>;
+  orderId: string;
+  poolId: string;
+  pageIndex: number;
+  legacyCursor?: string;
+}) {
+  if (input.legacyCursor) {
+    return input.api.listSelectionApplications(input.orderId, input.poolId, input.actor, input.legacyCursor);
+  }
+  let cursor: string | undefined;
+  for (let index = 0; index <= input.pageIndex; index += 1) {
+    const page = await input.api.listSelectionApplications(input.orderId, input.poolId, input.actor, cursor);
+    if (index === input.pageIndex) return page;
+    if (!page.nextCursor) throw new Error('Selection page is no longer available.');
+    cursor = page.nextCursor;
+  }
+  throw new Error('Selection page is invalid.');
 }
 
 function dispatchOperation(
