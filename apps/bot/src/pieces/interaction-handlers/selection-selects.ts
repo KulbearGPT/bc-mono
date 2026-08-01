@@ -134,7 +134,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
           buildDiscordIdempotencyKey('selection:apply', interaction.id)
         );
         await interaction.editReply({
-          content: '报名成功。你可以在截止前撤回。',
+          content: '报名成功。本轮招募结束前可撤回。',
           components: [
             {
               type: 1,

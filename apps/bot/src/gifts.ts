@@ -430,6 +430,6 @@ export function buildGiftRequestConfirmation(data: GiftRequestResult) {
 }
 
 function formatGiftAmount(amountMinor: number, currency: string): string {
-  if (currency !== 'CAT') throw new Error('Customer gift display requires canonical USD minor units.');
+  if (currency !== 'CAT') throw new Error('Customer gift display requires canonical CAT subunits.');
   return formatCustomerWalletAmount(amountMinor, DEFAULT_WALLET_DISPLAY_CONFIG);
 }

@@ -7,7 +7,7 @@ import { toDiscordReply } from './discord-renderer.js';
 
 export const REGISTER_PLAYER_CUSTOM_ID = 'onboarding:register-player:v1';
 export const APPLY_COMPANION_CUSTOM_ID = 'onboarding:apply-companion:v1';
-export const ONBOARDING_RENDERED_VERSION = 4;
+export const ONBOARDING_RENDERED_VERSION = 5;
 
 export interface OnboardingActor extends DiscordBotActorContext {
   displayName: string;
@@ -163,7 +163,7 @@ export function buildOnboardingMessage(): MessageEditOptions {
         {
           type: 'ACTION_ROW',
           components: [
-            { type: 'BUTTON', style: 'PRIMARY', customId: REGISTER_PLAYER_CUSTOM_ID, label: '🐾 注册为玩家' },
+            { type: 'BUTTON', style: 'SECONDARY', customId: REGISTER_PLAYER_CUSTOM_ID, label: '🐾 注册为玩家' },
             { type: 'BUTTON', style: 'SECONDARY', customId: APPLY_COMPANION_CUSTOM_ID, label: '🎧 申请成为陪玩' },
             { type: 'BUTTON', style: 'PRIMARY', customId: 'bc:entry:create-order', label: '🎮 开始找陪玩' }
           ]

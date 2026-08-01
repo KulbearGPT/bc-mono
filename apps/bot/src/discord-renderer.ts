@@ -78,6 +78,7 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
     return {
       components: [container],
       files: rendered.attachments?.map((attachment) => ({ attachment: attachment.path, name: attachment.name })),
+      allowedMentions: { parse: [] },
       flags:
         rendered.visibility === 'EPHEMERAL'
           ? MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral
@@ -97,6 +98,7 @@ export function toDiscordReply(message: MessageSpec): InteractionReplyOptions {
       .filter((component): component is ActionRowSpec => component.type === 'ACTION_ROW')
       .map(toDiscordActionRow),
     files: rendered.attachments?.map((attachment) => ({ attachment: attachment.path, name: attachment.name })),
+    allowedMentions: { parse: [] },
     ephemeral: rendered.visibility === 'EPHEMERAL'
   };
 }
@@ -109,6 +111,7 @@ export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptio
       embeds: [],
       components: reply.components,
       files: reply.files,
+      allowedMentions: { parse: [] },
       flags: MessageFlags.IsComponentsV2
     };
   }
@@ -116,7 +119,8 @@ export function toDiscordUpdate(message: MessageSpec): InteractionEditReplyOptio
     content: null,
     embeds: reply.embeds,
     components: reply.components,
-    files: reply.files
+    files: reply.files,
+    allowedMentions: { parse: [] }
   };
 }
 
