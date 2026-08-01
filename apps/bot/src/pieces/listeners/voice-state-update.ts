@@ -1,6 +1,6 @@
 import { Events, Listener } from '@sapphire/framework';
 import type { VoiceState } from 'discord.js';
-import { deleteRetiredSelectionChannel } from '../../selection-channel-cleanup.js';
+import { deleteRetiredSelectionChannel, retiredSelectionChannelRegistry } from '../../selection-channel-cleanup.js';
 
 export default class VoiceStateUpdateListener extends Listener<typeof Events.VoiceStateUpdate> {
   public constructor(context: Listener.LoaderContext) {
@@ -9,7 +9,8 @@ export default class VoiceStateUpdateListener extends Listener<typeof Events.Voi
 
   public override async run(oldState: VoiceState): Promise<void> {
     try {
-      await deleteRetiredSelectionChannel(oldState.channel);
+      const channel = oldState.channel as never;
+      await deleteRetiredSelectionChannel(channel, retiredSelectionChannelRegistry.get(channel));
     } catch (error) {
       this.container.logger.error({
         event: 'bot.selection_voice.cleanup_failed',

@@ -32,6 +32,8 @@ export interface ProvisionalPrivateOrderChannel {
   panelMessageId: string;
 }
 
+export type FinalizePrivateOrderChannelResult = { renamed: true } | { renamed: false; error: unknown };
+
 export async function createProvisionalPrivateOrderChannel(
   input: CreateProvisionalPrivateOrderChannelInput
 ): Promise<ProvisionalPrivateOrderChannel> {
@@ -74,7 +76,7 @@ export async function finalizePrivateOrderChannel(input: {
   panel: Pick<Message<true>, 'edit'>;
   orderPublicId: string;
   message: MessageEditOptions;
-}): Promise<void> {
+}): Promise<FinalizePrivateOrderChannelResult> {
   await input.panel.edit(input.message);
   const finalPlan = buildPrivateOrderChannelPlan({
     guildId: 'unused',
@@ -83,5 +85,20 @@ export async function finalizePrivateOrderChannel(input: {
     botUserId: 'unused-bot',
     staffRoleIds: []
   });
-  await input.channel.setName(finalPlan.name).catch(() => undefined);
+  try {
+    await input.channel.setName(finalPlan.name);
+    return { renamed: true };
+  } catch (error) {
+    return { renamed: false, error };
+  }
+}
+
+export async function cleanupProvisionalPrivateOrderChannel(input: {
+  channel: Pick<TextChannel, 'delete'>;
+  businessCommitted: boolean;
+  reason: string;
+}): Promise<boolean> {
+  if (input.businessCommitted) return false;
+  await input.channel.delete(input.reason).catch(() => undefined);
+  return true;
 }

@@ -4,7 +4,11 @@ import { botConfigCache } from '../../bot-config.js';
 import { botCopy } from '../../bot-copy.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordModal, toDiscordUpdate } from '../../discord-renderer.js';
-import { createProvisionalPrivateOrderChannel, finalizePrivateOrderChannel } from '../../private-order-channel.js';
+import {
+  cleanupProvisionalPrivateOrderChannel,
+  createProvisionalPrivateOrderChannel,
+  finalizePrivateOrderChannel
+} from '../../private-order-channel.js';
 import { executeGiftButton, executeGiftRecipientPage } from '../../service-center-gift-interactions.js';
 import { executeProfileButton, executeReportsButton } from '../../service-center-profile-interactions.js';
 import { buildCurrentUserCommissionsMessage } from '../../service-center-profile.js';
@@ -358,6 +362,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       return;
     }
     let provisional = null;
+    let businessCommitted = false;
     try {
       const staffRoleIds = ['staff_l1_role_id', 'staff_l2_role_id', 'staff_l3_role_id', 'staff_l4_role_id']
         .map((key) => values?.[key])
@@ -389,6 +394,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         idempotencyKey: buildDiscordIdempotencyKey('order:create', interaction.id)
       });
       if (result.kind === 'CREATE_PRIVATE_CHANNEL') {
+        businessCommitted = true;
         const [catalog, requirements, packages] = await Promise.all([
           api.listServices(actor),
           api.listOrderRequirements(result.order.id, actor, undefined, 10),
@@ -397,13 +403,28 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         const message = requirements.items.some((item) => item.status === 'ACTIVE')
           ? buildMultiProjectOrderPanelMessage(result.order, requirements, catalog.items)
           : buildGamePickerMessage(result.order, catalog.items, packages.items);
-        await finalizePrivateOrderChannel({
+        const finalization = await finalizePrivateOrderChannel({
           channel,
           panel: placeholder,
           orderPublicId: result.order.publicId,
           message: toDiscordUpdate(message)
         });
-        await interaction.editReply(botCopy.entry.channelCreated(String(channel)));
+        if (!finalization.renamed) {
+          this.container.logger.error({
+            event: 'bot.order_channel.rename_failed',
+            guildId: interaction.guildId,
+            channelId: channel.id,
+            orderPublicId: result.order.publicId,
+            error: finalization.error
+          });
+        }
+        await interaction.editReply(
+          `${botCopy.entry.channelCreated(String(channel))}${
+            finalization.renamed
+              ? ''
+              : `\n频道名称暂未更新，请联系工作人员检查 Bot 权限。request_id: discord-interaction-${interaction.id}`
+          }`
+        );
         return;
       }
       if (result.kind === 'OPEN_EXISTING_CHANNEL') {
@@ -428,6 +449,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           actor,
           buildDiscordIdempotencyKey(`order:recover-channel:${result.orderId}`, interaction.id)
         );
+        businessCommitted = true;
         const [catalog, requirements, packages] = await Promise.all([
           api.listServices(actor),
           api.listOrderRequirements(recovered.id, actor, undefined, 10),
@@ -436,13 +458,28 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         const message = requirements.items.some((item) => item.status === 'ACTIVE')
           ? buildMultiProjectOrderPanelMessage(recovered, requirements, catalog.items)
           : buildGamePickerMessage(recovered, catalog.items, packages.items);
-        await finalizePrivateOrderChannel({
+        const finalization = await finalizePrivateOrderChannel({
           channel,
           panel: placeholder,
           orderPublicId: recovered.publicId,
           message: toDiscordUpdate(message)
         });
-        await interaction.editReply(botCopy.entry.channelCreated(String(channel)));
+        if (!finalization.renamed) {
+          this.container.logger.error({
+            event: 'bot.order_channel.rename_failed',
+            guildId: interaction.guildId,
+            channelId: channel.id,
+            orderPublicId: recovered.publicId,
+            error: finalization.error
+          });
+        }
+        await interaction.editReply(
+          `${botCopy.entry.channelCreated(String(channel))}${
+            finalization.renamed
+              ? ''
+              : `\n频道名称暂未更新，请联系工作人员检查 Bot 权限。request_id: discord-interaction-${interaction.id}`
+          }`
+        );
         return;
       }
       await channel.delete('Order creation failed').catch(() => undefined);
@@ -452,7 +489,13 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
           : formatUnexpectedBotResult('创建订单', `discord-interaction-${interaction.id}`)
       );
     } catch (error) {
-      if (provisional) await provisional.channel.delete('Order creation failed').catch(() => undefined);
+      if (provisional) {
+        await cleanupProvisionalPrivateOrderChannel({
+          channel: provisional.channel,
+          businessCommitted,
+          reason: 'Order creation failed'
+        });
+      }
       await interaction.editReply(formatDiscordError(error, '创建或恢复订单频道', interaction.id));
     }
   }

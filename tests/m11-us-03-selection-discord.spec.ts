@@ -17,7 +17,10 @@ import {
   SelectionPoolWorkerService
 } from '@blackcat/api/selection-pool-worker';
 import { BotApiError } from '@blackcat/bot/service-center-api';
-import { deleteRetiredSelectionChannel } from '@blackcat/bot/selection-channel-cleanup';
+import {
+  deleteRetiredSelectionChannel,
+  RetiredSelectionChannelRegistry
+} from '@blackcat/bot/selection-channel-cleanup';
 import {
   executeSelectionReselect,
   executeSelectionWaitSelection
@@ -328,19 +331,24 @@ describe('M11-US-03 Discord selection flow', () => {
     const remove = vi.fn().mockResolvedValue(undefined);
     const occupied = {
       id: '666666666666666666',
+      guildId: '999999999999999999',
+      parentId: '777777777777777777',
       type: 2,
       name: 'selection-p-m11-closing',
       members: { size: 1 },
       delete: remove
     };
-    await expect(deleteRetiredSelectionChannel(occupied)).resolves.toBe(false);
+    const registry = new RetiredSelectionChannelRegistry();
+    const authorization = registry.authorizeTransition({
+      oldChannel: { ...occupied, name: 'selection-p-m11' },
+      newChannel: occupied,
+      configuredCategoryId: '777777777777777777'
+    });
+    await expect(deleteRetiredSelectionChannel(occupied, authorization)).resolves.toBe(false);
     expect(remove).not.toHaveBeenCalled();
-    await expect(
-      deleteRetiredSelectionChannel({
-        ...occupied,
-        members: { size: 0 }
-      })
-    ).resolves.toBe(true);
+    await expect(deleteRetiredSelectionChannel({ ...occupied, members: { size: 0 } }, authorization)).resolves.toBe(
+      true
+    );
     expect(remove).toHaveBeenCalledWith('Selection finished and the room is empty');
   });
 
