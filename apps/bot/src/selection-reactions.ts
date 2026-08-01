@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { buildBotEventActorContext, type DiscordBotActorContext } from './actor-context.js';
 import type { SelectionReactionCard, SelectionReactionObservationResult } from './service-center-api.js';
 
@@ -6,6 +6,66 @@ export type SelectionReactionState = 'ADDED' | 'REMOVED';
 
 const SUPPORTED_REACTIONS = new Set(['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣']);
 const reactionQueues = new Map<string, Promise<{ handled: boolean }>>();
+
+export class SelectionReactionObservationTracker {
+  private readonly observations = new Map<
+    string,
+    { state: SelectionReactionState; generation: number; seenAt: number }
+  >();
+  private readonly now: () => number;
+  private readonly ttlMs: number;
+  private readonly maxEntries: number;
+
+  public constructor(input: { now?: () => number; ttlMs?: number; maxEntries?: number } = {}) {
+    this.now = input.now ?? Date.now;
+    this.ttlMs = input.ttlMs ?? 30 * 60_000;
+    this.maxEntries = input.maxEntries ?? 10_000;
+  }
+
+  public observe(key: string, state: SelectionReactionState): string {
+    const now = this.now();
+    this.prune(now);
+    const previous = this.observations.get(key);
+    const generation = previous ? previous.generation + (previous.state === state ? 0 : 1) : 1;
+    this.observations.delete(key);
+    this.observations.set(key, { state, generation, seenAt: now });
+    return stableIdentity(`live:${key}:${generation}:${state}`);
+  }
+
+  private prune(now: number): void {
+    for (const [key, value] of this.observations) {
+      if (value.seenAt + this.ttlMs > now && this.observations.size < this.maxEntries) break;
+      this.observations.delete(key);
+    }
+  }
+}
+
+export function buildReconciliationObservationIdentity(input: {
+  poolId: string;
+  channelId: string;
+  messageId: string;
+  emoji: string;
+  discordUserId: string;
+  state: SelectionReactionState;
+  discordUserIds: string[];
+  appliedDiscordUserIds: string[];
+}): string {
+  return stableIdentity(
+    [
+      'reconcile',
+      input.poolId,
+      input.channelId,
+      input.messageId,
+      input.emoji,
+      input.discordUserId,
+      input.state,
+      [...input.discordUserIds].sort().join(','),
+      [...input.appliedDiscordUserIds].sort().join(',')
+    ].join(':')
+  );
+}
+
+const reactionObservationTracker = new SelectionReactionObservationTracker();
 
 interface SelectionReactionApi {
   observeSelectionReaction(
@@ -53,7 +113,7 @@ async function processSelectionReactionEvent(input: Parameters<typeof handleSele
   const emoji = input.reaction.emoji.name;
   const guildId = input.reaction.message.guildId;
   if (input.user.bot || !emoji || !SUPPORTED_REACTIONS.has(emoji) || !guildId) return { handled: false };
-  const sourceEventId = eventId();
+  const sourceEventId = reactionObservationTracker.observe(queueKeyFor(input), input.state);
   const actor = buildBotEventActorContext({
     guildId,
     discordUserId: input.user.id,
@@ -69,7 +129,7 @@ async function processSelectionReactionEvent(input: Parameters<typeof handleSele
         state: input.state
       },
       actor,
-      `selection-reaction:${randomUUID()}`
+      `selection-reaction:${sourceEventId}`
     );
     return { handled: true };
   } catch (error) {
@@ -124,12 +184,34 @@ export async function reconcileSelectionReactionCards(input: {
       const applied = new Set(binding.appliedDiscordUserIds);
       for (const discordUserId of discord) {
         if (applied.has(discordUserId)) continue;
-        if (await submitReconciled(input, card, binding.emoji, discordUserId, 'ADDED')) result.added += 1;
+        if (
+          await submitReconciled(
+            input,
+            card,
+            binding.emoji,
+            discordUserId,
+            'ADDED',
+            discordUsers,
+            binding.appliedDiscordUserIds
+          )
+        )
+          result.added += 1;
         else result.failed += 1;
       }
       for (const discordUserId of applied) {
         if (discord.has(discordUserId)) continue;
-        if (await submitReconciled(input, card, binding.emoji, discordUserId, 'REMOVED')) result.removed += 1;
+        if (
+          await submitReconciled(
+            input,
+            card,
+            binding.emoji,
+            discordUserId,
+            'REMOVED',
+            discordUsers,
+            binding.appliedDiscordUserIds
+          )
+        )
+          result.removed += 1;
         else result.failed += 1;
       }
     }
@@ -142,15 +224,27 @@ async function submitReconciled(
   card: SelectionReactionCard,
   emoji: string,
   discordUserId: string,
-  state: SelectionReactionState
+  state: SelectionReactionState,
+  discordUserIds: string[],
+  appliedDiscordUserIds: string[]
 ) {
-  const actor = buildBotEventActorContext({ guildId: input.guildId, discordUserId, sourceEventId: eventId() });
+  const sourceEventId = buildReconciliationObservationIdentity({
+    poolId: card.poolId,
+    channelId: card.channelId,
+    messageId: card.messageId,
+    emoji,
+    discordUserId,
+    state,
+    discordUserIds,
+    appliedDiscordUserIds
+  });
+  const actor = buildBotEventActorContext({ guildId: input.guildId, discordUserId, sourceEventId });
   if (!actor) return false;
   try {
     await input.api.observeSelectionReaction(
       { channelId: card.channelId, messageId: card.messageId, emoji, state },
       actor,
-      `selection-reaction-reconcile:${randomUUID()}`
+      `selection-reaction-reconcile:${sourceEventId}`
     );
     return true;
   } catch (error) {
@@ -166,6 +260,16 @@ async function submitReconciled(
   }
 }
 
-function eventId() {
-  return `selection-reaction:${randomUUID().replaceAll('-', '').slice(0, 13)}`;
+function queueKeyFor(input: Parameters<typeof handleSelectionReactionEvent>[0]): string {
+  return [
+    input.reaction.message.guildId,
+    input.reaction.message.channelId,
+    input.reaction.message.id,
+    input.reaction.emoji.name,
+    input.user.id
+  ].join(':');
+}
+
+function stableIdentity(value: string): string {
+  return `sr:${createHash('sha256').update(value).digest('hex').slice(0, 29)}`;
 }

@@ -27,6 +27,8 @@
     "./wallet-display": "./src/wallet-display.ts",
     "./welcome-command": "./src/welcome-command.ts",
     "./onboarding": "./src/onboarding.ts",
+    "./order-channel-transcript": "./src/order-channel-transcript.ts",
+    "./selection-reactions": "./src/selection-reactions.ts",
     "./private-order-channel": "./src/private-order-channel.ts",
     "./runtime": "./src/runtime.ts",
     "./actor-context": "./src/actor-context.ts",

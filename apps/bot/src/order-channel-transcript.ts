@@ -1,8 +1,51 @@
+import { createHash } from 'node:crypto';
 import type { Message, PartialMessage } from 'discord.js';
 import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { botConfigCache } from './bot-config.js';
 
 export type TranscriptEventType = 'CREATED' | 'UPDATED' | 'DELETED';
+
+interface TranscriptEventIdentityInput {
+  id: string;
+  editedTimestamp?: number | null;
+  content?: string | null;
+  embeds?: Array<{ toJSON?(): unknown } | unknown>;
+  attachments?: Iterable<unknown> | { toJSON?(): unknown };
+}
+
+export function buildTranscriptEventId(
+  message: TranscriptEventIdentityInput,
+  eventType: TranscriptEventType
+): string | null {
+  if (eventType !== 'UPDATED') return `${message.id}:${eventType}:v1`;
+  if (!message.editedTimestamp) return null;
+  const fingerprint = createHash('sha256')
+    .update(
+      JSON.stringify({
+        content: message.content ?? null,
+        embeds: message.embeds?.map((item) =>
+          typeof item === 'object' && item && 'toJSON' in item && typeof item.toJSON === 'function'
+            ? item.toJSON()
+            : item
+        ),
+        attachments:
+          message.attachments && Symbol.iterator in Object(message.attachments)
+            ? [...(message.attachments as Iterable<unknown>)]
+            : (message.attachments ?? [])
+      })
+    )
+    .digest('hex')
+    .slice(0, 16);
+  return `${message.id}:UPDATED:${message.editedTimestamp}:${fingerprint}`;
+}
+
+export async function resolveTranscriptUpdateMessage(
+  message: Message | PartialMessage
+): Promise<Message | PartialMessage | null> {
+  if (!message.partial) return message;
+  return message.fetch().catch(() => null);
+}
+
 export class OrderChannelTranscriptApi {
   private readonly transport: BotApiTransport;
   constructor(input: {
@@ -23,7 +66,8 @@ export class OrderChannelTranscriptApi {
       'parent' in channel && channel.parent && 'parentId' in channel.parent ? channel.parent.parentId : null;
     if (typeof categoryId !== 'string' || (directParent !== categoryId && grandParent !== categoryId)) return;
     const edited = message.editedTimestamp ? new Date(message.editedTimestamp).toISOString() : null;
-    const eventId = `${message.id}:${eventType}:${eventType === 'UPDATED' ? (edited ?? 'unknown') : 'v1'}`;
+    const eventId = buildTranscriptEventId(message, eventType);
+    if (!eventId) return;
     const body = {
       guildId: message.guildId,
       channelId: message.channelId,
