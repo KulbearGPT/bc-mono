@@ -1,14 +1,9 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { StringSelectMenuInteraction } from 'discord.js';
-import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
-import {
-  HttpBotApiClient,
-  buildDiscordIdempotencyKey,
-  type BotActorContext,
-  type BotApiClient
-} from '../../service-center.js';
+import { buildDiscordIdempotencyKey, type BotActorContext, type BotApiClient } from '../../service-center.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import {
   buildSelectionCandidatePanel,
   buildSelectionCandidateConfirmation,
@@ -98,18 +93,7 @@ export default class SelectionSelectsHandler extends InteractionHandler {
       );
       return;
     }
-    const env = validateRuntimeEnv(process.env, {
-      allowMissingDiscordToken: true
-    });
-    if (!env.ok) {
-      if (updatesOrderPanel) await interaction.followUp({ content: '配置暂不可用，请联系管理员。', ephemeral: true });
-      else await interaction.editReply({ content: '配置暂不可用，请联系管理员。' });
-      return;
-    }
-    const api = new HttpBotApiClient({
-      apiBaseUrl: env.values.apiBaseUrl,
-      botServiceToken: env.values.botServiceToken
-    });
+    const api = getBotRuntimeDependencies().api;
     const actor = buildBotActorContext(interaction);
     if (!actor) {
       const content = '请在服务器内进行报名与试音匹配操作。request_id: local-guild-required';

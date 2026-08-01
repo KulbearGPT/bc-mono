@@ -19,23 +19,49 @@ describe('M8-US-03 selective customer token rendering', () => {
     const confirmation = buildOrderConfirmationMessage({
       order: order(),
       estimate: {
-        serviceCatalogId: 'svc-1', catalogVersion: 1, unitCount: 2, billingUnitMinutes: 60,
-        amountMinor: 12_000, currency: 'CAT', validUntil: '2026-07-21T23:00:00Z'
+        serviceCatalogId: 'svc-1',
+        catalogVersion: 1,
+        unitCount: 2,
+        billingUnitMinutes: 60,
+        amountMinor: 12_000,
+        currency: 'CAT',
+        validUntil: '2026-07-21T23:00:00Z'
       },
       balance: balance(20_000)
     });
-    const gift = buildGiftAffordabilityMessage({
-      giftCatalogVersionId: 'gift-1', catalogVersion: 1, priceMinor: 5_000,
-      recipientCount: 1, totalPriceMinor: 5_000,
-      ledgerBalanceMinor: 20_000, reservedMinor: 0, availableMinor: 20_000,
-      shortfallMinor: 0, currency: 'CAT', calculatedAt: '2026-07-21T22:00:00Z',
-      stale: false, canAfford: true, topUpInstructions: '联系客服并提交付款 receipt。'
-    }, 'continuation-token');
+    const gift = buildGiftAffordabilityMessage(
+      {
+        giftCatalogVersionId: 'gift-1',
+        catalogVersion: 1,
+        priceMinor: 5_000,
+        recipientCount: 1,
+        totalPriceMinor: 5_000,
+        ledgerBalanceMinor: 20_000,
+        reservedMinor: 0,
+        availableMinor: 20_000,
+        shortfallMinor: 0,
+        currency: 'CAT',
+        calculatedAt: '2026-07-21T22:00:00Z',
+        stale: false,
+        canAfford: true,
+        topUpInstructions: '联系客服并提交付款 receipt。'
+      },
+      'continuation-token'
+    );
     const consumptions = buildCurrentUserConsumptionsMessage({
-      items: [{
-        id: 'con-1', type: 'ORDER', sourceId: 'ord-1', amountMinor: 8_800, currency: 'CAT',
-        status: 'SUCCEEDED', targetDisplay: '陪玩A', occurredAt: '2026-07-21T21:00:00Z', reversalOf: null
-      }],
+      items: [
+        {
+          id: 'con-1',
+          type: 'ORDER',
+          sourceId: 'ord-1',
+          amountMinor: 8_800,
+          currency: 'CAT',
+          status: 'SUCCEEDED',
+          targetDisplay: '陪玩A',
+          occurredAt: '2026-07-21T21:00:00Z',
+          reversalOf: null
+        }
+      ],
       nextCursor: null
     });
 
@@ -50,8 +76,15 @@ describe('M8-US-03 selective customer token rendering', () => {
   test('does not mix USD commission amounts into the CAT wallet service-center summary', () => {
     const message = buildServiceCenterMessage({
       currentUser: {
-        user: { id: 'user-1', displayName: '客户A', status: 'ACTIVE', externalAccountDisplay: null,
-          activeOrderId: null, riskFlags: [], version: 1 },
+        user: {
+          id: 'user-1',
+          displayName: '客户A',
+          status: 'ACTIVE',
+          externalAccountDisplay: null,
+          activeOrderId: null,
+          riskFlags: [],
+          version: 1
+        },
         activeOrderId: null,
         consumptionSummary: { totalMinor: 0, currency: 'CAT' },
         commissionSummary: { pendingMinor: 200, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }
@@ -74,8 +107,15 @@ describe('M8-US-03 selective customer token rendering', () => {
     const creditedAmountMinor = 10_000;
     const api = {
       getCurrentUser: vi.fn().mockResolvedValue({
-        user: { id: 'user-1', displayName: '客户A', status: 'ACTIVE', externalAccountDisplay: null,
-          activeOrderId: null, riskFlags: [], version: 1 },
+        user: {
+          id: 'user-1',
+          displayName: '客户A',
+          status: 'ACTIVE',
+          externalAccountDisplay: null,
+          activeOrderId: null,
+          riskFlags: [],
+          version: 1
+        },
         activeOrderId: null,
         consumptionSummary: { totalMinor: 0, currency: 'CAT' },
         commissionSummary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' }
@@ -84,12 +124,18 @@ describe('M8-US-03 selective customer token rendering', () => {
       listCurrentUserConsumptions: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
       listCurrentUserCommissions: vi.fn().mockResolvedValue({
         summary: { pendingMinor: 0, confirmedMinor: 0, paidMinor: 0, currency: 'CAT' },
-        items: [], nextCursor: null
+        items: [],
+        nextCursor: null
       })
     } as unknown as BotApiClient;
     const result = await handleOpenServiceCenterFromPublicEntry({
       api,
-      actor: { guildId: 'guild-1', discordUserId: 'discord-1', interactionId: 'interaction-1', clientSource: 'DISCORD_BOT' }
+      actor: {
+        guildId: 'guild-1',
+        discordUserId: 'discord-1',
+        interactionId: 'interaction-1',
+        clientSource: 'DISCORD_BOT'
+      }
     });
 
     expect(creditedAmountMinor).toBe(10_000);
@@ -101,12 +147,24 @@ describe('M8-US-03 selective customer token rendering', () => {
 
   test('keeps player earnings and reports in CAT', () => {
     const report = buildCurrentPlayerWeeklyReportDetailMessage({
-      id: 'report-1', reportType: 'PLAYER', periodStart: '2026-07-13', periodEnd: '2026-07-20',
-      timeZone: 'America/Toronto', currency: 'CAT', status: 'READY', currentRevision: 1,
+      id: 'report-1',
+      reportType: 'PLAYER',
+      periodStart: '2026-07-13',
+      periodEnd: '2026-07-20',
+      timeZone: 'America/Toronto',
+      currency: 'CAT',
+      status: 'READY',
+      currentRevision: 1,
       metrics: {
-        completedOrderCount: 3, cancelledOrderCount: 0, serviceMinutes: 180,
-        orderEarningMinor: 8_400, giftEarningMinor: 600, adjustmentMinor: 0,
-        pendingMinor: 1_000, settlementReadyMinor: 8_000, batchedMinor: 0
+        completedOrderCount: 3,
+        cancelledOrderCount: 0,
+        serviceMinutes: 180,
+        orderEarningMinor: 8_400,
+        giftEarningMinor: 600,
+        adjustmentMinor: 0,
+        pendingMinor: 1_000,
+        settlementReadyMinor: 8_000,
+        batchedMinor: 0
       }
     });
 
@@ -126,11 +184,13 @@ describe('M8-US-03 selective customer token rendering', () => {
 
   test('makes every money call site choose explicit CAT semantics', () => {
     const serviceCenter = readFileSync('apps/bot/src/service-center.ts', 'utf8');
+    const playerWorkbench = readFileSync('apps/bot/src/player-workbench-message.ts', 'utf8');
     const gifts = readFileSync('apps/bot/src/gifts.ts', 'utf8');
 
     expect(serviceCenter).not.toMatch(/\bformatMoney\s*\(/u);
     expect(serviceCenter).toContain('formatCustomerWalletAmount');
-    expect(serviceCenter).toContain('formatPlatformMoney');
+    expect(playerWorkbench).toContain('formatPlatformMoney');
+    expect(playerWorkbench).toContain('formatCustomerWalletAmount');
     expect(gifts).toContain('formatCustomerWalletAmount');
     expect(gifts).not.toMatch(/\bformatMinor\s*\(/u);
   });
@@ -149,9 +209,18 @@ function balance(availableMinor: number): BalanceSummary {
 
 function order(): OrderSummary {
   return {
-    id: 'order-1', publicId: 'P-1', status: 'DRAFT', version: 1,
-    game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
-    billingUnitMinutes: 60, unitCount: 2, amountMinor: 12_000, currency: 'CAT', notes: null,
+    id: 'order-1',
+    publicId: 'P-1',
+    status: 'DRAFT',
+    version: 1,
+    game: 'VALORANT',
+    service: 'ENTERTAINMENT',
+    region: 'NA',
+    billingUnitMinutes: 60,
+    unitCount: 2,
+    amountMinor: 12_000,
+    currency: 'CAT',
+    notes: null,
     channelSpec: { channelId: 'channel-1', panelMessageId: 'message-1', voiceChannelId: null },
     matching: null
   };

@@ -2,12 +2,12 @@ import { Events, type Presence } from 'discord.js';
 import { Listener } from '@sapphire/framework';
 import { buildBotEventActorContext } from '../../actor-context.js';
 import {
-  HttpBotApiClient,
   buildDiscordIdempotencyKey,
   buildDiscordSourceEventId,
   type BotActorContext,
   type DiscordPresenceSummary
 } from '../../service-center-api.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 
 export default class PresenceUpdateListener extends Listener<typeof Events.PresenceUpdate> {
   public constructor(context: Listener.LoaderContext) {
@@ -30,10 +30,7 @@ export default class PresenceUpdateListener extends Listener<typeof Events.Prese
     });
     if (!actor) return;
 
-    const api = new HttpBotApiClient({
-      apiBaseUrl: process.env.API_BASE_URL ?? '',
-      botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-    });
+    const api = getBotRuntimeDependencies().api;
 
     await api.syncDiscordPresence(
       {

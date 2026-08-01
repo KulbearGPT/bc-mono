@@ -103,7 +103,3 @@ export class OrderChannelTranscriptApi {
     }
   }
 }
-export const orderChannelTranscriptApi = new OrderChannelTranscriptApi({
-  apiBaseUrl: process.env.API_BASE_URL ?? '',
-  botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-});

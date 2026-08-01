@@ -1,12 +1,8 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { Interaction, ModalSubmitInteraction } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
-import {
-  botConfigFlow,
-  parseBotConfigCustomId,
-  toDiscordBotConfigReply,
-  type BotConfigActorContext
-} from '../../bot-config.js';
+import { parseBotConfigCustomId, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigModalHandler extends InteractionHandler {
@@ -26,6 +22,7 @@ export default class BotConfigModalHandler extends InteractionHandler {
     }
     await interaction.deferReply({ ephemeral: true });
     try {
+      const botConfigFlow = getBotRuntimeDependencies().botConfigFlow;
       const reply = toDiscordBotConfigReply(
         await botConfigFlow.previewTextInput(
           actor,

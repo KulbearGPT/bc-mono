@@ -1,12 +1,8 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { AnySelectMenuInteraction, Interaction } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
-import {
-  botConfigFlow,
-  parseBotConfigCustomId,
-  toDiscordBotConfigReply,
-  type BotConfigActorContext
-} from '../../bot-config.js';
+import { parseBotConfigCustomId, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigSelectHandler extends InteractionHandler {
@@ -34,6 +30,7 @@ export default class BotConfigSelectHandler extends InteractionHandler {
     }
     await interaction.deferUpdate();
     try {
+      const botConfigFlow = getBotRuntimeDependencies().botConfigFlow;
       const reply =
         route.operation === 'field' || route.operation === 'security'
           ? botConfigFlow.chooseField(actor, route.sessionId, interaction.values[0] ?? '')

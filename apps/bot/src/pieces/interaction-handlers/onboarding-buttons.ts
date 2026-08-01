@@ -5,10 +5,10 @@ import { botCopy } from '../../bot-copy.js';
 import {
   APPLY_COMPANION_CUSTOM_ID,
   REGISTER_PLAYER_CUSTOM_ID,
-  onboardingApi,
   reconcileProductRoleTasks,
   type CompanionApplicationResult
 } from '../../onboarding.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class OnboardingButtonHandler extends InteractionHandler {
@@ -34,6 +34,7 @@ export default class OnboardingButtonHandler extends InteractionHandler {
           : (interaction.user.globalName ?? interaction.user.username)
     };
     try {
+      const onboardingApi = getBotRuntimeDependencies().onboardingApi;
       const result =
         customId === APPLY_COMPANION_CUSTOM_ID
           ? await onboardingApi.applyForCompanion(actor)

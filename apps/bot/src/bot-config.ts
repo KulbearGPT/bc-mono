@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { GuildBotActorContext } from './actor-context.js';
 import { BotApiTransport, BotApiTransportError } from './api-transport.js';
+import { BotApiDataValidationError, validateBotApiData } from './bot-api-validation.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -181,11 +182,25 @@ export class HttpBotConfigApiClient implements BotConfigApiClient {
     this.transport = input.transport ?? new BotApiTransport(input);
   }
 
-  public getBotConfig(guildId: string, actor: BotConfigActorContext): Promise<BotConfigSnapshot> {
-    return this.request(`/api/v1/admin/bot-config?guildId=${encodeURIComponent(guildId)}`, {
-      method: 'GET',
-      actor: actor.discordUserId ? actor : undefined
-    });
+  public async getBotConfig(guildId: string, actor: BotConfigActorContext): Promise<BotConfigSnapshot> {
+    const snapshot = await this.request<BotConfigSnapshot>(
+      `/api/v1/admin/bot-config?guildId=${encodeURIComponent(guildId)}`,
+      {
+        method: 'GET',
+        actor: actor.discordUserId ? actor : undefined
+      }
+    );
+    try {
+      return validateBotApiData('bot-config', snapshot);
+    } catch (error) {
+      if (!(error instanceof BotApiDataValidationError)) throw error;
+      throw new BotConfigApiError({
+        code: 'INVALID_RESPONSE',
+        message: error.message,
+        requestId: 'bot-api-invalid-data',
+        statusCode: 502
+      });
+    }
   }
 
   public getWelcomeDmContext(
@@ -298,23 +313,32 @@ export class BotConfigSessionStore {
   private readonly idFactory: () => string;
   private readonly now: () => number;
   private readonly ttlMs: number;
+  private readonly maxEntries: number;
 
   public constructor(
     input: {
       idFactory?: () => string;
       now?: () => number;
       ttlMs?: number;
+      maxEntries?: number;
     } = {}
   ) {
     this.idFactory = input.idFactory ?? (() => randomUUID().replaceAll('-', '').slice(0, 12));
     this.now = input.now ?? Date.now;
     this.ttlMs = input.ttlMs ?? 5 * 60_000;
+    this.maxEntries = input.maxEntries ?? 1_000;
   }
 
   public create(actor: BotConfigActorContext, snapshot: BotConfigSnapshot): BotConfigSession {
     if (!actor.discordUserId) throw new Error('A human actor is required for a Bot config session.');
     const id = this.idFactory();
     if (!/^[A-Za-z0-9_-]{8,16}$/u.test(id)) throw new Error('Bot config session ids must be short and URL-safe.');
+    this.prune();
+    while (this.sessions.size >= this.maxEntries) {
+      const oldest = this.sessions.keys().next().value;
+      if (oldest === undefined) break;
+      this.sessions.delete(oldest);
+    }
     const session = {
       id,
       guildId: actor.guildId,
@@ -342,6 +366,14 @@ export class BotConfigSessionStore {
 
   public delete(sessionId: string): void {
     this.sessions.delete(sessionId);
+  }
+
+  private prune(): void {
+    const now = this.now();
+    for (const [id, session] of this.sessions) {
+      if (session.expiresAt > now) continue;
+      this.sessions.delete(id);
+    }
   }
 }
 
@@ -837,14 +869,4 @@ function parseIntegerInput(raw: string) {
   return Number(raw.trim());
 }
 
-export const botConfigApi = new HttpBotConfigApiClient({
-  apiBaseUrl: process.env.API_BASE_URL ?? '',
-  botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-});
 export const botConfigCache = new BotConfigCache();
-export const botConfigSessions = new BotConfigSessionStore();
-export const botConfigFlow = new BotConfigFlow({
-  api: botConfigApi,
-  cache: botConfigCache,
-  sessions: botConfigSessions
-});

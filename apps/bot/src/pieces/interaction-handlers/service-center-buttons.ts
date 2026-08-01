@@ -9,7 +9,6 @@ import { buildCurrentUserCommissionsMessage } from '../../service-center-profile
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import { executeSupportRatingButton } from '../../service-center-support-interactions.js';
 import {
-  HttpBotApiClient,
   buildOrderNotesModal,
   buildRequirementNoteModal,
   buildDiscordIdempotencyKey,
@@ -29,6 +28,7 @@ import {
   type BotActorContext,
   type ServiceCenterRoute
 } from '../../service-center.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatDiscordError, formatUnexpectedBotResult } from '../../user-facing-error.js';
 export default class ServiceCenterButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -582,17 +582,12 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
   }
 }
 
-function createBotApiClient(): HttpBotApiClient {
-  return new HttpBotApiClient({
-    apiBaseUrl: process.env.API_BASE_URL ?? '',
-    botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-  });
+function createBotApiClient() {
+  return getBotRuntimeDependencies().api;
 }
 
 function giftContinuationSecret(): string {
-  const secret = process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '';
-  if (secret.length < 32) throw new Error('Gift continuation signing secret is not configured.');
-  return secret;
+  return getBotRuntimeDependencies().giftContinuationSigningSecret;
 }
 
 async function guildRequired(interaction: ButtonInteraction, action: string): Promise<void> {

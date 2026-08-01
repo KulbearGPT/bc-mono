@@ -1,16 +1,11 @@
 import type { SapphireClient } from '@sapphire/framework';
 import { buildGuildActorContext } from './actor-context.js';
-import { BotConfigApiError, botConfigApi, botConfigCache, reloadBotConfigCache } from './bot-config.js';
-import { ensureOnboardingMessage, onboardingApi, reconcileProductRoleTasks } from './onboarding.js';
-import {
-  HttpRoleSyncApiClient,
-  RoleSyncApiError,
-  readRoleMappingVersion,
-  reconcileDiscordGuilds
-} from './role-sync.js';
+import { BotConfigApiError, botConfigCache, reloadBotConfigCache } from './bot-config.js';
+import { ensureOnboardingMessage, reconcileProductRoleTasks } from './onboarding.js';
+import { RoleSyncApiError, reconcileDiscordGuilds } from './role-sync.js';
 import { BotReadinessState, initializeBotRuntime, type BotRuntimeTask } from './runtime.js';
-import { HttpBotApiClient } from './service-center-api.js';
 import { reconcileSelectionReactionCards } from './selection-reactions.js';
+import type { BotRuntimeDependencies } from './runtime-dependencies.js';
 
 interface RuntimeLogger {
   info(value: unknown): void;
@@ -21,25 +16,16 @@ export async function initializeLiveBotRuntime(input: {
   client: SapphireClient;
   readiness: BotReadinessState;
   apiBaseUrl: string;
-  botServiceToken: string;
-  roleMappingVersion: string | undefined;
   logger: RuntimeLogger;
-  fetch?: typeof fetch;
+  dependencies: BotRuntimeDependencies;
 }): Promise<{ backgroundDone: Promise<{ completed: number; failed: number }> }> {
   const guilds = [...input.client.guilds.cache.values()];
-  const roleSyncApi = new HttpRoleSyncApiClient({
-    apiBaseUrl: input.apiBaseUrl,
-    botServiceToken: input.botServiceToken
-  });
-  const selectionReactionApi = new HttpBotApiClient({
-    apiBaseUrl: input.apiBaseUrl,
-    botServiceToken: input.botServiceToken,
-    fetch: input.fetch
-  });
-  const mappingVersion = readRoleMappingVersion(input.roleMappingVersion);
+  const roleSyncApi = input.dependencies.roleSyncApi;
+  const selectionReactionApi = input.dependencies.api;
+  const mappingVersion = input.dependencies.roleMappingVersion;
   const criticalTasks: BotRuntimeTask[] = [
     async () => {
-      const response = await (input.fetch ?? fetch)(new URL('/health', input.apiBaseUrl), {
+      const response = await input.dependencies.fetch(new URL('/health', input.apiBaseUrl), {
         signal: AbortSignal.timeout(10_000)
       });
       if (!response.ok) throw new Error('Unified API health check failed during Bot startup.');
@@ -47,7 +33,7 @@ export async function initializeLiveBotRuntime(input: {
     async () => {
       const fatalErrors: unknown[] = [];
       const reload = await reloadBotConfigCache({
-        api: botConfigApi,
+        api: input.dependencies.botConfigApi,
         cache: botConfigCache,
         guildIds: guilds.map((guild) => guild.id),
         actorForGuild: (guildId) => {
@@ -77,7 +63,7 @@ export async function initializeLiveBotRuntime(input: {
       const result = await ensureOnboardingMessage({
         guild,
         channelId,
-        api: onboardingApi
+        api: input.dependencies.onboardingApi
       });
       input.logger.info({
         event: 'bot.onboarding_message.ensured',
@@ -107,7 +93,7 @@ export async function initializeLiveBotRuntime(input: {
     });
     const productRoles = await reconcileProductRoleTasks({
       guild,
-      api: onboardingApi
+      api: input.dependencies.onboardingApi
     });
     input.logger.info({
       event: 'bot.product_roles.reconciled',

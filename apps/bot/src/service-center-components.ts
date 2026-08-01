@@ -132,11 +132,6 @@ export interface PrivateOrderChannelPlan {
   permissionOverwrites: PermissionOverwriteSpec[];
 }
 
-export interface AcceptedPlayerChannelPermissionPlan {
-  channelId: string;
-  permissionOverwrites: PermissionOverwriteSpec[];
-}
-
 export type BotFlowResult =
   | { kind: 'SHOW_MODAL'; modal: ModalSpec }
   | { kind: 'SHOW_SERVICE_CENTER'; message: MessageSpec }

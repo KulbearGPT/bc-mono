@@ -21,20 +21,40 @@ const event = {
 
 describe('M9-US-12 append-only order channel transcript events', () => {
   test('derives order and ticket from the trusted guild/channel mapping and deduplicates gateway retries', async () => {
-    const store = new InMemoryOrderChannelEventStore([{ orderId: '00000000-0000-0000-0000-000000009012', orderPublicId: 'P-9012', ...event }]);
+    const store = new InMemoryOrderChannelEventStore([
+      { orderId: '00000000-0000-0000-0000-000000009012', orderPublicId: 'P-9012', ...event }
+    ]);
     const first = await recordOrderChannelEvent({ store, event, observedAt: new Date('2026-08-02T23:01:00Z') });
     const replay = await recordOrderChannelEvent({ store, event, observedAt: new Date('2026-08-02T23:02:00Z') });
-    expect(first).toMatchObject({ orderId: '00000000-0000-0000-0000-000000009012', orderPublicId: 'P-9012', created: true });
+    expect(first).toMatchObject({
+      orderId: '00000000-0000-0000-0000-000000009012',
+      orderPublicId: 'P-9012',
+      created: true
+    });
     expect(replay).toMatchObject({ orderPublicId: 'P-9012', created: false });
     expect(store.events).toHaveLength(1);
   });
 
   test('keeps create, update and delete as separate immutable events', async () => {
-    const store = new InMemoryOrderChannelEventStore([{ orderId: '00000000-0000-0000-0000-000000009012', orderPublicId: 'P-9012', ...event }]);
-    for (const [eventType, suffix, content] of [['CREATED','create','初稿'],['UPDATED','edit-1','修改稿'],['DELETED','delete','修改稿']] as const) {
-      await recordOrderChannelEvent({ store, event: { ...event, eventType, eventId: `${event.messageId}:${suffix}`, content }, observedAt: new Date() });
+    const store = new InMemoryOrderChannelEventStore([
+      { orderId: '00000000-0000-0000-0000-000000009012', orderPublicId: 'P-9012', ...event }
+    ]);
+    for (const [eventType, suffix, content] of [
+      ['CREATED', 'create', '初稿'],
+      ['UPDATED', 'edit-1', '修改稿'],
+      ['DELETED', 'delete', '修改稿']
+    ] as const) {
+      await recordOrderChannelEvent({
+        store,
+        event: { ...event, eventType, eventId: `${event.messageId}:${suffix}`, content },
+        observedAt: new Date()
+      });
     }
-    expect(store.events.map((item) => [item.eventType, item.content])).toEqual([['CREATED','初稿'],['UPDATED','修改稿'],['DELETED','修改稿']]);
+    expect(store.events.map((item) => [item.eventType, item.content])).toEqual([
+      ['CREATED', '初稿'],
+      ['UPDATED', '修改稿'],
+      ['DELETED', '修改稿']
+    ]);
   });
 
   test('bot enables message intents and ships all three persistent listeners through the unified API', async () => {
@@ -43,7 +63,7 @@ describe('M9-US-12 append-only order channel transcript events', () => {
     expect(index).toContain('GatewayIntentBits.MessageContent');
     for (const name of ['message-create', 'message-update', 'message-delete']) {
       const source = await readFile(`apps/bot/src/pieces/listeners/${name}.ts`, 'utf8');
-      expect(source).toContain('orderChannelTranscriptApi.record');
+      expect(source).toContain('getBotRuntimeDependencies().transcriptApi.record');
     }
     const client = await readFile('apps/bot/src/order-channel-transcript.ts', 'utf8');
     expect(client).toContain('private_order_category_id');

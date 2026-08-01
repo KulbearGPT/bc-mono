@@ -1,6 +1,7 @@
 import { Command } from '@sapphire/framework';
 import { buildBotActorContext } from '../../actor-context.js';
-import { botConfigFlow, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigCommand extends Command {
@@ -20,7 +21,9 @@ export default class BotConfigCommand extends Command {
     }
     await interaction.deferReply({ ephemeral: true });
     try {
-      const reply = toDiscordBotConfigReply(await botConfigFlow.open(actorFromInteraction(interaction)));
+      const reply = toDiscordBotConfigReply(
+        await getBotRuntimeDependencies().botConfigFlow.open(actorFromInteraction(interaction))
+      );
       await interaction.editReply({ content: reply.content, components: reply.components });
     } catch (error) {
       interaction.client.logger.error({

@@ -209,8 +209,3 @@ export async function ensureOnboardingMessage(input: {
   });
   return { messageId: message.id, created };
 }
-
-export const onboardingApi = new HttpOnboardingApiClient({
-  apiBaseUrl: process.env.API_BASE_URL ?? '',
-  botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-});

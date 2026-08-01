@@ -4,7 +4,6 @@ import type { Interaction } from 'discord.js';
 import { toDiscordUpdate } from '../../discord-renderer.js';
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import {
-  HttpBotApiClient,
   buildDiscordIdempotencyKey,
   buildGamePickerMessage,
   buildMultiProjectOrderPanelMessage,
@@ -16,6 +15,7 @@ import {
   type BotActorContext,
   type ServiceCenterRoute
 } from '../../service-center.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import {
   buildGiftAffordabilityMessage,
   buildGiftCatalogMessage,
@@ -59,13 +59,10 @@ export default class OrderSelectHandler extends InteractionHandler {
       return;
     }
     try {
-      const api = new HttpBotApiClient({
-        apiBaseUrl: process.env.API_BASE_URL ?? '',
-        botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-      });
+      const dependencies = getBotRuntimeDependencies();
+      const api = dependencies.api;
       if (parsedData.area === 'gift-catalog-select') {
-        const secret =
-          process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '';
+        const secret = dependencies.giftContinuationSigningSecret;
         const token = interaction.values[0] ?? '';
         const context = readGiftContinuationToken(token, actor, secret);
         const catalog = await api.listGifts(context.orderId, actor);
@@ -106,7 +103,7 @@ export default class OrderSelectHandler extends InteractionHandler {
               catalog,
               parsedData.expectedVersion,
               actor,
-              process.env.GIFT_CONTINUATION_SIGNING_SECRET?.trim() || process.env.BOT_SERVICE_TOKEN?.trim() || '',
+              dependencies.giftContinuationSigningSecret,
               new Date(),
               selected,
               parsedData.page
@@ -178,10 +175,7 @@ export default class OrderSelectHandler extends InteractionHandler {
         return;
       }
       try {
-        const recoveryApi = new HttpBotApiClient({
-          apiBaseUrl: process.env.API_BASE_URL ?? '',
-          botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-        });
+        const recoveryApi = getBotRuntimeDependencies().api;
         const [order, requirements, services, packages] = await Promise.all([
           recoveryApi.getOrder(parsedData.orderId, actor),
           recoveryApi.listOrderRequirements(parsedData.orderId, actor, undefined, 10),

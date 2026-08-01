@@ -8,6 +8,11 @@ import {
   type BotApiClient
 } from '@blackcat/bot/service-center';
 import ServiceCenterButtonHandler from '../apps/bot/src/pieces/interaction-handlers/service-center-buttons';
+import {
+  configureBotRuntimeDependencies,
+  createBotRuntimeDependencies,
+  resetBotRuntimeDependenciesForTests
+} from '@blackcat/bot/runtime-dependencies';
 
 const guildId = '999999999999999999';
 const customerDiscordUserId = '111111111111111111';
@@ -138,14 +143,24 @@ describe('M1-US-08 final submit Bot flow', () => {
       editReply: vi.fn(async () => events.push('edit')),
       followUp: vi.fn(async () => events.push('follow-up'))
     };
+    configureBotRuntimeDependencies(
+      createBotRuntimeDependencies({
+        apiBaseUrl: 'https://api.example.test',
+        botServiceToken: 'bot-token',
+        fetch: globalThis.fetch
+      })
+    );
     const handler = Object.create(ServiceCenterButtonHandler.prototype) as ServiceCenterButtonHandler;
-
-    await handler.run(interaction as never, {
-      area: 'order-action',
-      action: 'submit-final',
-      orderId,
-      expectedVersion: 2
-    });
+    try {
+      await handler.run(interaction as never, {
+        area: 'order-action',
+        action: 'submit-final',
+        orderId,
+        expectedVersion: 2
+      });
+    } finally {
+      resetBotRuntimeDependenciesForTests();
+    }
 
     expect(events).toEqual(['ack', 'api', 'edit']);
     const update = interaction.editReply.mock.calls[0]?.[0];

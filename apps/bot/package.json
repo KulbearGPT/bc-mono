@@ -31,6 +31,8 @@
     "./selection-reactions": "./src/selection-reactions.ts",
     "./private-order-channel": "./src/private-order-channel.ts",
     "./runtime": "./src/runtime.ts",
+    "./runtime-dependencies": "./src/runtime-dependencies.ts",
+    "./bot-api-validation": "./src/bot-api-validation.ts",
     "./actor-context": "./src/actor-context.ts",
     "./api-transport": "./src/api-transport.ts",
     "./user-facing-error": "./src/user-facing-error.ts",

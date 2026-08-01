@@ -16,7 +16,57 @@ export interface DeferredButtonInteraction {
   followUp(options: { content: string; ephemeral: true }): Promise<unknown>;
 }
 
-const paginationHistory = new Map<string, string[]>();
+export class PaginationHistoryStore {
+  private readonly histories = new Map<string, { cursors: string[]; touchedAt: number }>();
+  private readonly now: () => number;
+  private readonly ttlMs: number;
+  private readonly maxEntries: number;
+
+  public constructor(input: { now?: () => number; ttlMs?: number; maxEntries?: number } = {}) {
+    this.now = input.now ?? Date.now;
+    this.ttlMs = input.ttlMs ?? 30 * 60_000;
+    this.maxEntries = input.maxEntries ?? 2_000;
+  }
+
+  public previous(key: string, cursor: string): string | null {
+    const now = this.now();
+    this.prune(now);
+    const current = this.histories.get(key)?.cursors ?? ['first'];
+    const existingIndex = current.indexOf(cursor);
+    const cursors = existingIndex >= 0 ? current.slice(0, existingIndex + 1) : [...current, cursor];
+    this.set(key, cursors, now);
+    return cursors.at(-2) ?? null;
+  }
+
+  public reset(key: string): void {
+    const now = this.now();
+    this.prune(now);
+    this.set(key, ['first'], now);
+  }
+
+  public size(): number {
+    return this.histories.size;
+  }
+
+  private prune(now: number): void {
+    for (const [key, value] of this.histories) {
+      if (value.touchedAt + this.ttlMs > now) continue;
+      this.histories.delete(key);
+    }
+  }
+
+  private set(key: string, cursors: string[], now: number): void {
+    this.histories.delete(key);
+    while (this.histories.size >= this.maxEntries) {
+      const oldest = this.histories.keys().next().value;
+      if (oldest === undefined) break;
+      this.histories.delete(oldest);
+    }
+    this.histories.set(key, { cursors, touchedAt: now });
+  }
+}
+
+const paginationHistory = new PaginationHistoryStore();
 
 export async function executeProfileButton(input: {
   interaction: DeferredButtonInteraction;
@@ -93,12 +143,8 @@ function profileNavigation(
   const key = `${actor.guildId}:${actor.discordUserId}:${area}`;
   const current = cursor ?? 'first';
   if (current === 'first') {
-    paginationHistory.set(key, ['first']);
+    paginationHistory.reset(key);
     return { previousCursor: null };
   }
-  const history = paginationHistory.get(key) ?? ['first'];
-  const existingIndex = history.indexOf(current);
-  const activeHistory = existingIndex >= 0 ? history.slice(0, existingIndex + 1) : [...history, current];
-  paginationHistory.set(key, activeHistory);
-  return { previousCursor: activeHistory.at(-2) ?? null };
+  return { previousCursor: paginationHistory.previous(key, current) };
 }

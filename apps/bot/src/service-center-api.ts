@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DiscordBotActorContext } from './actor-context.js';
 import { BotApiTransport, BotApiTransportError } from './api-transport.js';
+import { BotApiDataValidationError, validateBotApiData, type BotApiDataKind } from './bot-api-validation.js';
 import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 
 export type ClientSource = 'DISCORD_BOT';
@@ -361,8 +362,6 @@ export interface PlayerWorkbenchSummary {
   profile: {
     playerId: string;
     reviewStatus: string;
-    availability: 'AVAILABLE' | 'BUSY' | 'OFFLINE';
-    discordPresence: DiscordPresenceSummary;
     gameTags: string[];
     serviceTags: string[];
     activeOrderId: string | null;
@@ -375,10 +374,9 @@ export interface PlayerWorkbenchSummary {
   };
   currentOrder: PlayerWorkbenchOrderSummary | null;
   matchingOrders: Array<{
-    dispatchAttemptId: string;
-    acceptBy: string;
-    secondsRemaining: number;
-    nextAction: 'ACCEPT_OR_DECLINE';
+    selectionPoolId: string;
+    applicationStatus: string | null;
+    nextAction: 'APPLY' | 'WITHDRAW' | 'WAIT';
     order: PlayerWorkbenchOrderSummary;
   }>;
   earningsSummary: {
@@ -390,9 +388,9 @@ export interface PlayerWorkbenchSummary {
   };
   availableActions: OrderAvailableActionSummary[];
   nextActions: Array<
-    | 'SET_AVAILABLE'
-    | 'REVIEW_MATCH'
-    | 'ACCEPT_ORDER'
+    | 'REVIEW_SELECTION_POOL'
+    | 'APPLY_SELECTION'
+    | 'WITHDRAW_APPLICATION'
     | 'SET_READINESS'
     | 'REQUEST_COMPLETION'
     | 'WAIT_FOR_CUSTOMER'
@@ -415,22 +413,6 @@ export interface PlayerWorkbenchOrderSummary {
   playerEarningMinor: number;
   currency: string;
   requirements: string[];
-  voiceChannelId: string | null;
-}
-
-export interface DispatchOfferSummary {
-  dispatchAttemptId: string;
-  orderId: string;
-  orderPublicId: string;
-  orderVersion: number;
-  game: string;
-  service: string;
-  region: string;
-  durationLabel: string;
-  playerEarningMinor: number;
-  currency: string;
-  notes: string | null;
-  expiresAt: string;
   voiceChannelId: string | null;
 }
 
@@ -655,18 +637,6 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<CancellationPreviewSummary>;
-  acceptOrder(
-    orderId: string,
-    input: { expectedVersion: number; dispatchAttemptId: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<OrderSummary>;
-  declineOrderOffer(
-    orderId: string,
-    input: { expectedVersion: number },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<OrderSummary>;
   setOrderReadiness(
     orderId: string,
     input: { expectedVersion: number; readiness: 'READY' },
@@ -843,7 +813,8 @@ export class HttpBotApiClient implements BotApiClient {
       method: 'POST',
       actor,
       idempotencyKey,
-      body: input
+      body: input,
+      validateAs: 'order'
     });
   }
 
@@ -868,7 +839,8 @@ export class HttpBotApiClient implements BotApiClient {
   public async getOrder(orderId: string, actor: BotActorContext): Promise<OrderSummary> {
     return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}`, {
       method: 'GET',
-      actor
+      actor,
+      validateAs: 'order'
     });
   }
 
@@ -882,7 +854,8 @@ export class HttpBotApiClient implements BotApiClient {
       method: 'PATCH',
       actor,
       idempotencyKey,
-      body: input
+      body: input,
+      validateAs: 'order'
     });
   }
 
@@ -987,7 +960,8 @@ export class HttpBotApiClient implements BotApiClient {
   public async getCurrentBalance(actor: BotActorContext): Promise<BalanceSummary> {
     return this.request<BalanceSummary>('/api/v1/me/balance', {
       method: 'GET',
-      actor
+      actor,
+      validateAs: 'balance'
     });
   }
 
@@ -1009,7 +983,8 @@ export class HttpBotApiClient implements BotApiClient {
   public async listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData> {
     return this.request<GiftPanelData>(`/api/v1/gifts?orderId=${encodeURIComponent(orderId)}`, {
       method: 'GET',
-      actor
+      actor,
+      validateAs: 'gift-panel'
     });
   }
 
@@ -1022,7 +997,8 @@ export class HttpBotApiClient implements BotApiClient {
     return this.request<GiftAffordabilityResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-affordability`, {
       method: 'POST',
       actor,
-      body: { giftCatalogVersionId, participantIds }
+      body: { giftCatalogVersionId, participantIds },
+      validateAs: 'gift-affordability'
     });
   }
 
@@ -1042,7 +1018,8 @@ export class HttpBotApiClient implements BotApiClient {
       method: 'POST',
       actor,
       idempotencyKey,
-      body: input
+      body: input,
+      validateAs: 'gift-request'
     });
   }
 
@@ -1165,34 +1142,6 @@ export class HttpBotApiClient implements BotApiClient {
         body: input
       }
     );
-  }
-
-  public async acceptOrder(
-    orderId: string,
-    input: { expectedVersion: number; dispatchAttemptId: string },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<OrderSummary> {
-    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/accept`, {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input
-    });
-  }
-
-  public async declineOrderOffer(
-    orderId: string,
-    input: { expectedVersion: number },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<OrderSummary> {
-    return this.request<OrderSummary>(`/api/v1/orders/${encodeURIComponent(orderId)}/decline`, {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input
-    });
   }
 
   public async setOrderReadiness(
@@ -1336,7 +1285,7 @@ export class HttpBotApiClient implements BotApiClient {
         cursor,
         25
       ),
-      { method: 'GET', actor }
+      { method: 'GET', actor, validateAs: 'selection-page' }
     );
   }
   public finalizeSelectionPool(
@@ -1382,6 +1331,7 @@ export class HttpBotApiClient implements BotApiClient {
       idempotencyKey?: string;
       body?: unknown;
       includeStatus?: false;
+      validateAs?: BotApiDataKind;
     }
   ): Promise<T>;
   private async request<T>(
@@ -1392,6 +1342,7 @@ export class HttpBotApiClient implements BotApiClient {
       idempotencyKey?: string;
       body?: unknown;
       includeStatus: true;
+      validateAs?: BotApiDataKind;
     }
   ): Promise<{ statusCode: number; data: T }>;
   private async request<T>(
@@ -1402,15 +1353,29 @@ export class HttpBotApiClient implements BotApiClient {
       idempotencyKey?: string;
       body?: unknown;
       includeStatus?: boolean;
+      validateAs?: BotApiDataKind;
     }
   ): Promise<T | { statusCode: number; data: T }> {
     try {
+      const { validateAs, ...transportInput } = input;
       if (input.includeStatus) {
-        const response = await this.transport.request<T>(path, { ...input, includeStatus: true });
-        return { statusCode: response.statusCode, data: response.data };
+        const response = await this.transport.request<T>(path, { ...transportInput, includeStatus: true });
+        return {
+          statusCode: response.statusCode,
+          data: validateAs ? validateBotApiData(validateAs, response.data) : response.data
+        };
       }
-      return await this.transport.request<T>(path, input);
+      const data = await this.transport.request<T>(path, transportInput);
+      return validateAs ? validateBotApiData(validateAs, data) : data;
     } catch (error) {
+      if (error instanceof BotApiDataValidationError) {
+        throw new BotApiError({
+          code: 'INVALID_RESPONSE',
+          message: error.message,
+          requestId: 'bot-api-invalid-data',
+          statusCode: 502
+        });
+      }
       if (!(error instanceof BotApiTransportError)) throw error;
       throw new BotApiError({
         code: error.code,

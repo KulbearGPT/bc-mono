@@ -1,12 +1,12 @@
 import type { Command } from '@sapphire/framework';
 import { buildBotActorContext } from './actor-context.js';
-import { botConfigApi } from './bot-config.js';
+import { getBotRuntimeDependencies } from './runtime-dependencies.js';
 import { formatUserFacingError } from './user-facing-error.js';
 import { isWelcomeDmBlocked, resendWelcomeDm, type WelcomeDmAuthorizationApi } from './welcome-dm.js';
 
 export async function executeWelcomeCommand(
   interaction: Command.ChatInputCommandInteraction,
-  api: WelcomeDmAuthorizationApi = botConfigApi
+  api: WelcomeDmAuthorizationApi = getBotRuntimeDependencies().botConfigApi
 ): Promise<void> {
   if (!interaction.guildId || !interaction.guild) {
     await interaction.reply({ content: '请在服务器内使用迎新指令。', ephemeral: true });

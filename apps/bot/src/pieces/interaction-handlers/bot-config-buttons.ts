@@ -8,12 +8,8 @@ import {
   type Interaction
 } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
-import {
-  botConfigFlow,
-  parseBotConfigCustomId,
-  toDiscordBotConfigReply,
-  type BotConfigActorContext
-} from '../../bot-config.js';
+import { parseBotConfigCustomId, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
 
 export default class BotConfigButtonHandler extends InteractionHandler {
@@ -44,6 +40,7 @@ export default class BotConfigButtonHandler extends InteractionHandler {
       return;
     }
     try {
+      const botConfigFlow = getBotRuntimeDependencies().botConfigFlow;
       if (route.operation === 'input') {
         const input = botConfigFlow.describeTextInput(actor, route.sessionId);
         await interaction.showModal(

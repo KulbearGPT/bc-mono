@@ -124,7 +124,9 @@ describe('M1-US-06 private service center Discord flow', () => {
         'bc:service-center:commissions'
       ])
     );
-    expect(JSON.stringify(message)).not.toMatch(/externalUserId|mock-user-ok|sourceCustomer|beneficiaryId|rateBps|referralAttribution/i);
+    expect(JSON.stringify(message)).not.toMatch(
+      /externalUserId|mock-user-ok|sourceCustomer|beneficiaryId|rateBps|referralAttribution/i
+    );
   });
 
   test('opens service center by reading reusable API endpoints and active order through the Bot API client', async () => {
@@ -169,11 +171,21 @@ describe('M1-US-06 private service center Discord flow', () => {
 });
 describe('M1-US-06 Bot HTTP client current-user API reuse', () => {
   test('calls /me, /me/balance, /me/consumptions and /me/commissions with trusted Discord actor headers', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => ({
       ok: true,
       status: 200,
-      json: async () => ({ data: {} })
-    });
+      json: async () => ({
+        data: url.endsWith('/api/v1/me/balance')
+          ? {
+              ledgerBalanceMinor: 100,
+              reservedMinor: 20,
+              availableMinor: 80,
+              currency: 'CAT',
+              calculatedAt: '2026-08-11T00:00:00.000Z'
+            }
+          : {}
+      })
+    }));
     vi.stubGlobal('fetch', fetchMock);
     const client = new HttpBotApiClient({
       apiBaseUrl: 'https://api.example.test/',
@@ -222,7 +234,8 @@ describe('M1-US-06 Sapphire button handler wiring', () => {
     const source = await readFile('apps/bot/src/pieces/interaction-handlers/service-center-buttons.ts', 'utf8');
 
     expect(source).toContain('handleOpenServiceCenterFromPublicEntry');
-    expect(source).toContain('HttpBotApiClient');
+    expect(source).toContain('getBotRuntimeDependencies');
+    expect(source).not.toContain('new HttpBotApiClient');
     expect(source).toContain('await interaction.deferReply({ ephemeral: true })');
     expect(source).toContain('interaction.editReply(toDiscordUpdate(result.message))');
     expect(source).not.toContain('正在打开你的服务中心。');

@@ -2,8 +2,9 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import type { Interaction } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import { executeServiceCenterModalSubmit } from '../../service-center-modal-interactions.js';
-import { HttpBotApiClient, parseServiceCenterCustomId } from '../../service-center.js';
+import { parseServiceCenterCustomId } from '../../service-center.js';
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 
 export default class ServiceCenterModalHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -27,10 +28,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
       interaction,
       route: parsedData,
       actor,
-      api: new HttpBotApiClient({
-        apiBaseUrl: process.env.API_BASE_URL ?? '',
-        botServiceToken: process.env.BOT_SERVICE_TOKEN ?? ''
-      })
+      api: getBotRuntimeDependencies().api
     });
   }
 }

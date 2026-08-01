@@ -1,8 +1,8 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
-import { validateRuntimeEnv } from '@blackcat/platform/env';
 import { buildBotActorContext } from '../../actor-context.js';
-import { HttpBotApiClient, buildDiscordIdempotencyKey, type BotApiClient } from '../../service-center.js';
+import { buildDiscordIdempotencyKey, type BotApiClient } from '../../service-center.js';
+import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import {
   buildSelectionCandidatePanel,
   parseSelectionCustomId,
@@ -33,17 +33,7 @@ export class DispatchButtonsHandler extends InteractionHandler {
     const updatesConfirmation = route.action === 'finalize' || route.action === 'reselect' || route.action === 'start';
     if (updatesConfirmation) await interaction.deferUpdate();
     else await interaction.deferReply({ ephemeral: true });
-    const env = validateRuntimeEnv(process.env, {
-      allowMissingDiscordToken: true
-    });
-    if (!env.ok) {
-      await interaction.editReply({ content: '配置暂不可用，请联系管理员。' });
-      return;
-    }
-    const api = new HttpBotApiClient({
-      apiBaseUrl: env.values.apiBaseUrl,
-      botServiceToken: env.values.botServiceToken
-    });
+    const api = getBotRuntimeDependencies().api;
     const actor = buildBotActorContext(interaction);
     if (!actor) {
       await interaction.editReply({ content: '请在服务器内进行报名与试音匹配操作。request_id: local-guild-required' });
