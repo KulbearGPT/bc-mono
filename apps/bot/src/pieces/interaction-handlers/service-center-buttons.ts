@@ -1,14 +1,8 @@
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { type ButtonInteraction, type Interaction } from 'discord.js';
-import { botConfigCache } from '../../bot-config.js';
-import { botCopy } from '../../bot-copy.js';
 import { buildBotActorContext } from '../../actor-context.js';
 import { toDiscordModal, toDiscordUpdate } from '../../discord-renderer.js';
-import {
-  cleanupProvisionalPrivateOrderChannel,
-  createProvisionalPrivateOrderChannel,
-  finalizePrivateOrderChannel
-} from '../../private-order-channel.js';
+import { executeCreateOrderFromEntry } from '../../public-entry-order-interactions.js';
 import { executeGiftButton, executeGiftRecipientPage } from '../../service-center-gift-interactions.js';
 import { executeProfileButton, executeReportsButton } from '../../service-center-profile-interactions.js';
 import { buildCurrentUserCommissionsMessage } from '../../service-center-profile.js';
@@ -16,8 +10,6 @@ import { serviceCenterInteractionKind } from '../../service-center-route-registr
 import { executeSupportRatingButton } from '../../service-center-support-interactions.js';
 import {
   HttpBotApiClient,
-  buildGamePickerMessage,
-  buildMultiProjectOrderPanelMessage,
   buildOrderNotesModal,
   buildRequirementNoteModal,
   buildDiscordIdempotencyKey,
@@ -29,7 +21,6 @@ import {
   handleServicePackageAction,
   handleOpenCancellationPreview,
   handleConfirmCancellation,
-  handleCreateOrderFromPublicEntry,
   handleOpenPlayerWorkbench,
   handleOpenServiceCenterFromPublicEntry,
   handleServiceLifecycleAction,
@@ -53,6 +44,27 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
   }
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
+    try {
+      await this.dispatch(interaction, parsedData);
+    } catch (error) {
+      if (!interaction.isButton()) return;
+      this.container.logger.error({
+        event: 'bot.service_center.interaction_failed',
+        guildId: interaction.guildId,
+        discordUserId: interaction.user.id,
+        customId: interaction.customId,
+        error
+      });
+      const response = {
+        content: formatDiscordError(error, '处理服务中心操作', interaction.id),
+        ephemeral: true as const
+      };
+      if (interaction.deferred || interaction.replied) await interaction.followUp(response);
+      else await interaction.reply(response);
+    }
+  }
+
+  private async dispatch(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
     if (!interaction.isButton() || !parsedData || parsedData.area === 'unknown') {
       return;
     }
@@ -144,7 +156,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         return;
       }
 
-      await this.createOrderFromEntry(interaction);
+      await executeCreateOrderFromEntry({ interaction, api: createBotApiClient() });
       return;
     }
 
@@ -344,160 +356,6 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       content: '该订单操作将在后续步骤处理。request_id: local-action-pending',
       ephemeral: true
     });
-  }
-
-  private async createOrderFromEntry(interaction: ButtonInteraction): Promise<void> {
-    if (!interaction.guild || !interaction.guildId) {
-      await interaction.reply({
-        content: '请在服务器内创建订单。',
-        ephemeral: true
-      });
-      return;
-    }
-    await interaction.deferReply({ ephemeral: true });
-    const values = botConfigCache.get(interaction.guildId)?.values;
-    const categoryId = typeof values?.private_order_category_id === 'string' ? values.private_order_category_id : null;
-    if (values?.new_orders_enabled === false || !categoryId) {
-      await interaction.editReply('当前未开放新订单，或尚未配置私密订单频道分类。');
-      return;
-    }
-    let provisional = null;
-    let businessCommitted = false;
-    try {
-      const staffRoleIds = ['staff_l1_role_id', 'staff_l2_role_id', 'staff_l3_role_id', 'staff_l4_role_id']
-        .map((key) => values?.[key])
-        .filter((id): id is string => typeof id === 'string');
-      provisional = await createProvisionalPrivateOrderChannel({
-        guild: interaction.guild,
-        guildId: interaction.guildId,
-        categoryId,
-        customerDiscordUserId: interaction.user.id,
-        botUserId: interaction.client.user.id,
-        staffRoleIds,
-        playerRoleId: typeof values?.player_role_id === 'string' ? values.player_role_id : null,
-        provisionalName: interaction.user.username
-          .toLowerCase()
-          .replace(/[^a-z0-9-]/gu, '-')
-          .slice(0, 80)
-      });
-      const { channel, panel: placeholder } = provisional;
-      const actor = actorFromInteraction(interaction)!;
-      const api = createBotApiClient();
-      const result = await handleCreateOrderFromPublicEntry({
-        api,
-        actor,
-        provisionalChannel: {
-          channelId: provisional.channelId,
-          panelMessageId: provisional.panelMessageId,
-          voiceChannelId: null
-        },
-        idempotencyKey: buildDiscordIdempotencyKey('order:create', interaction.id)
-      });
-      if (result.kind === 'CREATE_PRIVATE_CHANNEL') {
-        businessCommitted = true;
-        const [catalog, requirements, packages] = await Promise.all([
-          api.listServices(actor),
-          api.listOrderRequirements(result.order.id, actor, undefined, 10),
-          api.listServicePackages(actor, undefined, 25)
-        ]);
-        const message = requirements.items.some((item) => item.status === 'ACTIVE')
-          ? buildMultiProjectOrderPanelMessage(result.order, requirements, catalog.items)
-          : buildGamePickerMessage(result.order, catalog.items, packages.items);
-        const finalization = await finalizePrivateOrderChannel({
-          channel,
-          panel: placeholder,
-          orderPublicId: result.order.publicId,
-          message: toDiscordUpdate(message)
-        });
-        if (!finalization.renamed) {
-          this.container.logger.error({
-            event: 'bot.order_channel.rename_failed',
-            guildId: interaction.guildId,
-            channelId: channel.id,
-            orderPublicId: result.order.publicId,
-            error: finalization.error
-          });
-        }
-        await interaction.editReply(
-          `${botCopy.entry.channelCreated(String(channel))}${
-            finalization.renamed
-              ? ''
-              : `\n频道名称暂未更新，请联系工作人员检查 Bot 权限。request_id: discord-interaction-${interaction.id}`
-          }`
-        );
-        return;
-      }
-      if (result.kind === 'OPEN_EXISTING_CHANNEL') {
-        const existing = await interaction.guild.channels.fetch(result.channelId).catch(() => null);
-        if (existing) {
-          await channel.delete('Duplicate provisional order channel').catch(() => undefined);
-          await interaction.editReply(botCopy.entry.existingOrder(result.channelId));
-          return;
-        }
-        const order = await api.getOrder(result.orderId, actor);
-        const recovered = await api.recoverOrderChannel(
-          result.orderId,
-          {
-            expectedVersion: order.version,
-            previousChannelId: result.channelId,
-            channelSpec: {
-              channelId: provisional.channelId,
-              panelMessageId: provisional.panelMessageId,
-              voiceChannelId: order.channelSpec.voiceChannelId
-            }
-          },
-          actor,
-          buildDiscordIdempotencyKey(`order:recover-channel:${result.orderId}`, interaction.id)
-        );
-        businessCommitted = true;
-        const [catalog, requirements, packages] = await Promise.all([
-          api.listServices(actor),
-          api.listOrderRequirements(recovered.id, actor, undefined, 10),
-          api.listServicePackages(actor, undefined, 25)
-        ]);
-        const message = requirements.items.some((item) => item.status === 'ACTIVE')
-          ? buildMultiProjectOrderPanelMessage(recovered, requirements, catalog.items)
-          : buildGamePickerMessage(recovered, catalog.items, packages.items);
-        const finalization = await finalizePrivateOrderChannel({
-          channel,
-          panel: placeholder,
-          orderPublicId: recovered.publicId,
-          message: toDiscordUpdate(message)
-        });
-        if (!finalization.renamed) {
-          this.container.logger.error({
-            event: 'bot.order_channel.rename_failed',
-            guildId: interaction.guildId,
-            channelId: channel.id,
-            orderPublicId: recovered.publicId,
-            error: finalization.error
-          });
-        }
-        await interaction.editReply(
-          `${botCopy.entry.channelCreated(String(channel))}${
-            finalization.renamed
-              ? ''
-              : `\n频道名称暂未更新，请联系工作人员检查 Bot 权限。request_id: discord-interaction-${interaction.id}`
-          }`
-        );
-        return;
-      }
-      await channel.delete('Order creation failed').catch(() => undefined);
-      await interaction.editReply(
-        result.kind === 'EPHEMERAL_MESSAGE' || result.kind === 'CHANNEL_CREATION_FAILED'
-          ? result.message
-          : formatUnexpectedBotResult('创建订单', `discord-interaction-${interaction.id}`)
-      );
-    } catch (error) {
-      if (provisional) {
-        await cleanupProvisionalPrivateOrderChannel({
-          channel: provisional.channel,
-          businessCommitted,
-          reason: 'Order creation failed'
-        });
-      }
-      await interaction.editReply(formatDiscordError(error, '创建或恢复订单频道', interaction.id));
-    }
   }
 
   private async handleServiceLifecycleButton(

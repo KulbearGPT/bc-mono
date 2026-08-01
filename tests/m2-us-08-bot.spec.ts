@@ -138,7 +138,7 @@ describe("M2-US-08 Sapphire player workbench", () => {
       "utf8",
     );
     expect(source).toContain(".setName('player-workbench')");
-    expect(source).toContain("handleOpenPlayerWorkbench");
+    expect(source).toContain("executePlayerWorkbenchInteraction");
   });
 
   test("loads repository pieces and targets the configured test guild for immediate slash-command registration", async () => {
