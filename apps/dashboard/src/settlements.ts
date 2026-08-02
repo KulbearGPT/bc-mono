@@ -3,7 +3,7 @@ export type SettlementAction = 'PREVIEW' | 'CREATE' | 'SUBMIT' | 'APPROVE' | 'EX
 export interface SettlementPageModel {
   section: SettlementSection; kind: 'LOADING' | 'READY' | 'EMPTY' | 'ERROR' | 'FORBIDDEN';
   items: Array<Record<string, unknown>>; actions: SettlementAction[]; requestId: string | null; alert: string | null;
-  emptyMessage: string | null;
+  emptyMessage: string | null; nextCursor: string | null; loadingMore: boolean;
 }
 
 export const EMPTY_SETTLEMENT_PREVIEW_MESSAGE = '当前周期没有可结算的已确认收益。';
@@ -18,7 +18,7 @@ export function buildSettlementNavigation(permissions: string[], enabledFeatures
 }
 
 export function buildSettlementPage(input: { section: SettlementSection; permissions: string[]; status: 'LOADING' | 'READY' | 'ERROR';
-  items: Array<Record<string, unknown>>; requestId?: string | null; emptyMessage?: string | null }): SettlementPageModel {
+  items: Array<Record<string, unknown>>; requestId?: string | null; emptyMessage?: string | null; nextCursor?:string|null;loadingMore?:boolean }): SettlementPageModel {
   const readPermission = input.section === 'settlements' ? 'settlement.read' : 'weekly_report.read';
   const actions: SettlementAction[] = [];
   if (input.section === 'settlements') {
@@ -31,7 +31,7 @@ export function buildSettlementPage(input: { section: SettlementSection; permiss
   return { section: input.section, kind: !input.permissions.includes(readPermission) ? 'FORBIDDEN' : input.status === 'ERROR' ? 'ERROR'
     : input.status === 'LOADING' ? 'LOADING' : input.items.length ? 'READY' : 'EMPTY', items: input.status === 'READY' ? input.items : [],
     actions, requestId: input.requestId ?? null, alert: failed ? `${failed} 个支付项目失败，可单独重试。` : null,
-    emptyMessage: input.emptyMessage ?? null };
+    emptyMessage: input.emptyMessage ?? null,nextCursor:input.nextCursor??null,loadingMore:Boolean(input.loadingMore) };
 }
 
 export function buildSettlementPreviewResult(data: Record<string, unknown>): {

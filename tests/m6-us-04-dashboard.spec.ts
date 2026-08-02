@@ -15,6 +15,7 @@ import {
   type CustomerProfileModules
 } from '@blackcat/dashboard/customer-profile';
 import { SettlementPage } from '../apps/dashboard/src/SettlementPage.js';
+import { buildSettlementVoidFields } from '../apps/dashboard/src/SettlementPage.js';
 import { CustomerProfilePage } from '../apps/dashboard/src/CustomerProfilePage.js';
 
 describe('M6-US-04 Dashboard settlement and profiles', () => {
@@ -86,6 +87,22 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
     })).toThrow(/replacementBatchId and replacement/u);
   });
 
+  test('requires the Dashboard to create an atomic replacement for finalized batches', () => {
+    expect(buildSettlementVoidFields({
+      id: 'batch-final', status: 'APPROVED', periodStart: '2026-07-13T16:00:00.000Z',
+      periodEnd: '2026-07-19T16:00:00.000Z', timeZone: 'America/Edmonton', currency: 'CAT'
+    }, 'replacement-id', 'REPLACED_AFTER_REVIEW')).toEqual({
+      reasonCode: 'REPLACED_AFTER_REVIEW',
+      replacementBatchId: 'replacement-id',
+      replacement: {
+        source: 'MANUAL', periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
+        timeZone: 'America/Edmonton', currency: 'CAT', playerUserIds: null
+      }
+    });
+    expect(() => buildSettlementVoidFields({ status: 'EXPORTED', currency: 'CAT' }, 'replacement-id', 'REPLACED_AFTER_EXPORT')).toThrow(/replacement period/u);
+    expect(buildSettlementVoidFields({ status: 'DRAFT' }, 'unused', 'DRAFT_CREATED_IN_ERROR')).toEqual({ reasonCode: 'DRAFT_CREATED_IN_ERROR' });
+  });
+
   test('keeps destructive settlement actions restricted and models partial failures', () => {
     const l3 = buildSettlementPage({ section: 'settlements', permissions: ['settlement.read', 'settlement.manage', 'settlement.approve'],
       status: 'READY', items: [{ id: 'batch-1', status: 'PARTIALLY_PAID', version: 4, netAmountMinor: 30_000, currency: 'CAT',
@@ -106,6 +123,18 @@ describe('M6-US-04 Dashboard settlement and profiles', () => {
       const html = renderToStaticMarkup(createElement(SettlementPage, { model, onAction: () => undefined, onRetry: () => undefined }));
       expect(html).toMatch(/正在载入|暂无|req-report/u);
     }
+  });
+
+  test('keeps settlement and report records reachable across cursor pages', () => {
+    const model = buildSettlementPage({ section: 'settlements', permissions: ['settlement.read'], status: 'READY',
+      items: [{ id: 'batch-page-1', status: 'DRAFT' }], nextCursor: 'page-2' });
+    const html = renderToStaticMarkup(createElement(SettlementPage, { model, onAction: () => undefined,
+      onRetry: () => undefined, onNextPage: () => undefined }));
+    expect(model.nextCursor).toBe('page-2');
+    expect(html).toContain('继续加载结算批次');
+    const route = readFileSync('apps/dashboard/src/SettlementRoute.tsx', 'utf8');
+    expect(route).toContain('nextCursor');
+    expect(route).toContain('cursor=${encodeURIComponent(cursor)}');
   });
 
   test('renders the canonical CAT currency in the settlement builder', () => {

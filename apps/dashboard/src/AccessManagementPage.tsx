@@ -8,7 +8,7 @@ export function AccessManagementPage(props: {
   notice?: string | null;
   onRefresh: () => void;
   onUpdateMapping: (mapping: RoleMappingRecord, discordRoleId: string, reasonCode: string) => void;
-  staffAccounts?:StaffAccountRecord[];onApproveElevation:(staff:StaffAccountRecord,reason:string)=>void;onUpdateStaff:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;onReconcileStaff:(staff:StaffAccountRecord)=>void;
+  staffAccounts?:StaffAccountRecord[];staffNextCursor?:string|null;staffLoadingMore?:boolean;onNextStaffPage?:()=>void;onApproveElevation:(staff:StaffAccountRecord,reason:string)=>void;onUpdateStaff:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;onReconcileStaff:(staff:StaffAccountRecord)=>void;
 }) {
   if (props.model.kind === 'LOADING') return <AccessState title="正在读取权限配置" copy="Role 映射由统一业务 API 安全载入。" />;
   if (props.model.kind === 'FORBIDDEN') return <AccessState title="无权访问权限管理" copy="此工作区仅对具备 access.manage 的 L4 员工开放。" requestId={props.model.requestId} />;
@@ -30,7 +30,7 @@ export function AccessManagementPage(props: {
 
       {props.notice && <div className="status-notice" role="status">{props.notice}</div>}
 
-      <section className="content-panel" aria-labelledby="staff-accounts-title"><div className="section-heading"><div><span className="page-eyebrow">STAFF ACCOUNTS</span><h2 id="staff-accounts-title">员工账号与 Role 同步状态</h2></div><p>内部有效级别是授权事实；这里同时展示 Discord 最近观察结果和持久化对账状态。</p></div><div className="access-mapping-list">{(props.staffAccounts??[]).map((staff)=><StaffAccountForm key={staff.staffId} staff={staff} mappings={props.model.mappings} submitting={props.submitting} onApprove={props.onApproveElevation} onUpdate={props.onUpdateStaff} onRevokeSessions={props.onRevokeSessions} onReconcile={props.onReconcileStaff}/>)}</div>{!(props.staffAccounts??[]).length?<p>当前 Guild 没有员工账号。</p>:null}</section>
+      <section className="content-panel" aria-labelledby="staff-accounts-title"><div className="section-heading"><div><span className="page-eyebrow">STAFF ACCOUNTS</span><h2 id="staff-accounts-title">员工账号与 Role 同步状态</h2></div><p>内部有效级别是授权事实；这里同时展示 Discord 最近观察结果和持久化对账状态。</p></div><div className="access-mapping-list">{(props.staffAccounts??[]).map((staff)=><StaffAccountForm key={staff.staffId} staff={staff} mappings={props.model.mappings} submitting={props.submitting} onApprove={props.onApproveElevation} onUpdate={props.onUpdateStaff} onRevokeSessions={props.onRevokeSessions} onReconcile={props.onReconcileStaff}/>)}</div>{!(props.staffAccounts??[]).length?<p>当前 Guild 没有员工账号。</p>:null}{props.staffNextCursor&&props.onNextStaffPage?<div className="pagination-bar"><button type="button" disabled={props.staffLoadingMore} onClick={props.onNextStaffPage}>{props.staffLoadingMore?'载入中…':'继续加载员工'}</button></div>:null}</section>
 
       <section className="content-panel" aria-labelledby="role-mappings-title">
         <div className="section-heading"><div><span className="page-eyebrow">ROLE MAPPINGS</span><h2 id="role-mappings-title">Discord Role 映射</h2></div><p>版本冲突时不会覆盖他人的更新，请刷新后重试。</p></div>
