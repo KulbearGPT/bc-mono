@@ -20,7 +20,7 @@ interface GiftVerificationDraft { method: GiftVerificationMethod; notes: string 
 interface OrderContext {
   order: { id: string; publicId: string; version: number; status: string; game?: string | null; gameDisplayName?: string | null; service?: string | null; serviceDisplayName?: string | null; amountMinor?: number; currency?: string; customerDisplayName?: string | null };
   readiness?: {
-    participants: Array<{ participantId: string; playerId?: string; displayName: string; readiness: 'READY' | 'NOT_READY' }>;
+    participants?: Array<{ participantId: string; playerId?: string; displayName: string; readiness: 'READY' | 'NOT_READY' }>;
     allActivePlayersReady: boolean;
     readyDeadlineAt?: string | null;
     startedAt?: string | null;
@@ -47,6 +47,15 @@ export type DashboardMetricState={kind:'LOADING'|'READY'|'ERROR';requestId:strin
 interface SupportShift { id:string;staffId:string;clockedInAt:string;clockedOutAt:string|null }
 interface SupportSummaryItem { staffId:string;displayName:string;clockedIn:boolean;shiftSeconds:number;handledTaskCount:number;overdueTaskCount:number;ratingCount:number;averageRating:number|null }
 
+interface SelectedSupportContext { task: StaffTaskPayload; order: OrderContext }
+
+export function supportSelectionMatches(
+  task: { orderId: string | null },
+  context: { order: { id: string } }
+): boolean {
+  return Boolean(task.orderId && task.orderId === context.order.id);
+}
+
 export function DashboardMetricSummaryLoader(){
   const [state,setState]=useState<DashboardMetricState>({kind:'LOADING',requestId:null,data:null});
   const client=useMemo(()=>createDashboardApiClient(),[]);
@@ -65,8 +74,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
   const [resolutionDrafts, setResolutionDrafts] = useState<Record<string, string>>({});
   const [giftVerificationDrafts, setGiftVerificationDrafts] = useState<Record<string, GiftVerificationDraft>>({});
   const [giftDecisionDrafts, setGiftDecisionDrafts] = useState<Record<string, string>>({});
-  const [selectedOrder, setSelectedOrder] = useState<OrderContext | null>(null);
-  const [selectedTask, setSelectedTask] = useState<StaffTaskPayload | null>(null);
+  const [selectedContext, setSelectedContext] = useState<SelectedSupportContext | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'MINE' | 'UNCLAIMED'>(()=>{if(typeof window==='undefined')return 'ALL';const value=new URLSearchParams(window.location.search).get('taskFilter');return value==='MINE'||value==='UNCLAIMED'?value:'ALL';});
   const [shift, setShift] = useState<SupportShift | null>(null);
@@ -89,12 +97,8 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     const payload = await response.json() as { data: { items: StaffTaskPayload[] } };
     if (!taskRequestSequence.isCurrent(sequence)) return true;
     setTasks(payload.data.items);
-    setSelectedTask((current) => {
-      if (!current) return null;
-      const next = payload.data.items.find((item) => item.id === current.id) ?? current;
-      selectedTaskRef.current = next;
-      return next;
-    });
+    const selected = selectedTaskRef.current;
+    if (selected) selectedTaskRef.current = payload.data.items.find((item) => item.id === selected.id) ?? selected;
     return true;
   }, [client, taskRequestSequence]);
 
@@ -118,7 +122,11 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
       if (surfaceError) setError(response.status === 403 ? '请先认领任务，再查看完整订单。' : '订单详情暂时无法载入。');
       return false;
     }
-    setSelectedOrder(payload.data);
+    if (!supportSelectionMatches(task, payload.data)) {
+      if (surfaceError) setError('订单详情与当前任务不一致，已停止显示和操作。');
+      return false;
+    }
+    setSelectedContext({ task, order: payload.data });
     return true;
   }, [client, orderRequestSequence]);
 
@@ -259,7 +267,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
 
   async function openOrder(task: StaffTaskPayload) {
     if (!task.orderId) return;
-    setSelectedTask(task);
+    setSelectedContext(null);
     selectedTaskRef.current = task;
     const loaded = await loadOrderContext(task, true);
     if (loaded) setError(null);
@@ -378,9 +386,9 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         </tbody></table></div>
       </section>
       <DashboardMetricSummaryLoader/>
-      {selectedOrder && selectedTask && <>
-        <SupportOrderContextPreview context={selectedOrder} />
-        <SupportAutomationControl context={selectedOrder} task={selectedTask} capabilities={capabilities} onUpdated={refreshSupportState} />
+      {selectedContext && <>
+        <SupportOrderContextPreview context={selectedContext.order} />
+        <SupportAutomationControl context={selectedContext.order} task={selectedContext.task} capabilities={capabilities} onUpdated={refreshSupportState} />
       </>}
     </section>
   );
@@ -457,8 +465,9 @@ export function SupportOrderContextPreview({ context }: { context: OrderContext 
   const { order } = context;
   const service = [order.gameDisplayName ?? order.game, order.serviceDisplayName ?? order.service].filter(Boolean).join(' · ') || '项目资料待补充';
   const amount = typeof order.amountMinor === 'number' && order.currency ? formatMinorCurrency(order.amountMinor, order.currency) : '金额待补充';
-  const readiness = context.readiness?.participants.length
-    ? context.readiness.participants.map((participant) => `${participant.displayName}：${participant.readiness === 'READY' ? '已就绪' : '未就绪'}`).join('；')
+  const participants = context.readiness?.participants ?? [];
+  const readiness = participants.length
+    ? participants.map((participant) => `${participant.displayName}：${participant.readiness === 'READY' ? '已就绪' : '未就绪'}`).join('；')
     : order.status === 'ACCEPTED' ? '等待 API 返回有效陪玩名单' : '当前无待确认陪玩';
   return <aside className="action-panel order-preview" aria-label="订单处理概览">
     <div className="panel-heading"><div><span className="page-eyebrow">订单处理概览</span><h2>订单 {order.publicId}</h2></div></div>

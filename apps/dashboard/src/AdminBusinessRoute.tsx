@@ -53,11 +53,12 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
-  const [dispatchCandidateOptions,setDispatchCandidateOptions]=useState<Array<Record<string,unknown>>>([]);
+  const dispatchCandidateOptions=useMemo<Array<Record<string,unknown>>>(()=>[],[]);
   const [participantPlayerOptions,setParticipantPlayerOptions]=useState<Array<Record<string,unknown>>>([]);
   const [participantMutationError,setParticipantMutationError]=useState<string|null>(null);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const requestSequence=useRef(createLatestRequestSequence()).current;
+  const detailRequestSequence=useRef(createLatestRequestSequence()).current;
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
 
@@ -87,6 +88,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
 
   useEffect(() => {
     requestSequence.invalidate();
+    detailRequestSequence.invalidate();
     setActiveAction(null);
     setDetail(null);
     activeWrite.current = null;
@@ -134,10 +136,13 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   async function openDetail(item: Record<string, unknown>) {
     const page = props.page;
     if (page !== 'orders' && page !== 'users' && page !== 'players' && page !== 'giftRequests' && page !== 'giftCatalog' && page !== 'serviceCatalog' && page !== 'servicePackages') return;
+    const sequence = detailRequestSequence.begin();
+    const isCurrent = () => detailRequestSequence.isCurrent(sequence);
     setDetail({ kind: 'LOADING', page, requestId: null, data: null });
     try {
       const response = await client.get(buildAdminDetailRequest(page, item));
       const body = await response.json().catch(() => null) as { requestId?: string; data?: Record<string, unknown> } | null;
+      if (!isCurrent()) return;
       if (response.status === 403) {
         setDetail({ kind: 'FORBIDDEN', page, requestId: body?.requestId ?? null, data: null });
         return;
@@ -151,10 +156,26 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
         if(page==='orders'&&typeof item.id==='string'){
           const participantResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participants?limit=100`);
           const participantBody=await participantResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
           if(!participantResponse.ok||!participantBody?.data){setDetail({kind:participantResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:participantBody?.requestId??null,data:null});return;}
-          const requirementResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/requirements?limit=100`);const requirementBody=await requirementResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;if(!requirementResponse.ok||!requirementBody?.data){setDetail({kind:requirementResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:requirementBody?.requestId??null,data:null});return;}
-          const transcriptResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/transcript?limit=25`);const transcriptBody=await transcriptResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
-          const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(candidateResponse.ok){const candidates=candidateBody?.data?.items??[];setParticipantPlayerOptions(candidates);const projects=new Map<string,Record<string,unknown>>();for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}setServiceCatalogOptions(Array.from(projects.values()));}
+          const requirementResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/requirements?limit=100`);
+          const requirementBody=await requirementResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
+          if(!requirementResponse.ok||!requirementBody?.data){setDetail({kind:requirementResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:requirementBody?.requestId??null,data:null});return;}
+          const transcriptResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/transcript?limit=25`);
+          const transcriptBody=await transcriptResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
+          const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);
+          const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
+          if (!isCurrent()) return;
+          if(candidateResponse.ok){
+            const candidates=candidateBody?.data?.items??[];
+            setParticipantPlayerOptions(candidates);
+            const projects=new Map<string,Record<string,unknown>>();
+            for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}
+            for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}
+            setServiceCatalogOptions(Array.from(projects.values()));
+          }
           data={...body.data,requirements:requirementBody.data,participants:participantBody.data,transcript:transcriptResponse.ok&&transcriptBody?.data?transcriptBody.data:{items:[],nextCursor:null}};
           setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data,
             timelinePage: { kind: 'READY', requestId: null },transcriptPage:{kind:transcriptResponse.ok?'READY':'ERROR',requestId:transcriptBody?.requestId??null} });
@@ -172,7 +193,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
       setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data: body.data, consumptions: { kind: 'LOADING', requestId: null, items: [], nextCursor: null } });
       await loadUserConsumptions(userId, null, false);
     } catch {
-      setDetail({ kind: 'ERROR', page, requestId: null, data: null });
+      if (isCurrent()) setDetail({ kind: 'ERROR', page, requestId: null, data: null });
     }
   }
 
@@ -271,7 +292,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     activeAction={activeAction} actionStatus={actionStatus} actionError={actionError}
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
-    detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
+    detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => { detailRequestSequence.invalidate(); setDetail(null); }}
     onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
     participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} onUpdateOrderNote={(fields)=>void mutateOrderNote(fields)} onUpdateOrderRequirement={(fields)=>void mutateRequirement(fields)} />;
 }

@@ -4,6 +4,7 @@ import {
   createLatestRequestSequence,
   createVisibleRefreshLoop
 } from '../apps/dashboard/src/live-query-refresh.js';
+import { supportSelectionMatches } from '../apps/dashboard/src/SupportWorkbenchPage.js';
 
 class FakeVisibility {
   visibilityState: 'visible' | 'hidden' = 'visible';
@@ -63,6 +64,13 @@ describe('M19-US-04 support live refresh', () => {
     expect(sequence.isCurrent(newRequest)).toBe(false);
   });
 
+  test('never combines a newly selected task with the previously loaded order', () => {
+    const orderA = { order: { id: 'order-a' } };
+    expect(supportSelectionMatches({ orderId: 'order-a' }, orderA)).toBe(true);
+    expect(supportSelectionMatches({ orderId: 'order-b' }, orderA)).toBe(false);
+    expect(supportSelectionMatches({ orderId: null }, orderA)).toBe(false);
+  });
+
   test('integrates automatic and manual refresh with every support write path', async () => {
     const source = await readFile('apps/dashboard/src/SupportWorkbenchPage.tsx', 'utf8');
     expect(source).toContain('createVisibleRefreshLoop');
@@ -81,5 +89,16 @@ describe('M19-US-04 support live refresh', () => {
       const body = start < 0 ? '' : source.slice(start, nextFunction < 0 ? source.indexOf('\n\n  return', start) : nextFunction);
       expect(body, `${operation} must invalidate and re-read affected staff facts`).toContain('refreshSupportState');
     }
+  });
+
+  test('guards admin detail responses and page rendering against stale or malformed projections', async () => {
+    const [route, app] = await Promise.all([
+      readFile('apps/dashboard/src/AdminBusinessRoute.tsx', 'utf8'),
+      readFile('apps/dashboard/src/App.tsx', 'utf8')
+    ]);
+    expect(route).toContain('detailRequestSequence');
+    expect(route).toContain('detailRequestSequence.isCurrent(sequence)');
+    expect(route).toContain('detailRequestSequence.invalidate()');
+    expect(app).toContain('DashboardErrorBoundary');
   });
 });

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
   BadgeCheck,
@@ -10,8 +9,6 @@ import {
   ChevronRight,
   CircleDollarSign,
   Cpu,
-  ClipboardCheck,
-  FileClock,
   Gift,
   Headphones,
   LayoutDashboard,
@@ -24,7 +21,8 @@ import {
   Tags,
   UserRoundCog,
   UsersRound,
-  WalletCards
+  WalletCards,
+  type LucideIcon
 } from 'lucide-react';
 import { buildDashboardManifest } from './manifest.js';
 import {
@@ -43,6 +41,7 @@ import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { AccessManagementRoute } from './AccessManagementRoute.js';
 import { BusinessTagsRoute } from './BusinessTagsRoute.js';
 import { BotConfigPage } from './BotConfigPage.js';
+import { DashboardErrorBoundary } from './DashboardErrorBoundary.js';
 import { buildSettlementNavigation } from './settlements.js';
 import {
   getSandboxBanner,
@@ -193,7 +192,7 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
       contentBusy={contentBusy}
       onNavigate={navigate}
     >
-      {content}
+      <DashboardErrorBoundary key={currentPath}>{content}</DashboardErrorBoundary>
     </DashboardChrome>
   );
 }
@@ -357,7 +356,7 @@ function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | '
     <main className="dashboard-gate" aria-labelledby="gate-title">
       <div className="dashboard-gate__ambient" aria-hidden="true" />
       <section className="dashboard-gate__card" role={props.kind === 'ERROR' ? 'alert' : undefined} aria-live={props.kind === 'LOADING' ? 'polite' : undefined}>
-        <div className="brand-mark brand-mark--large" aria-hidden="true"><Sparkles size={28} /></div>
+        <div className="brand-mark brand-mark--large" aria-hidden="true"><Icon size={28} /></div>
         <span className="page-eyebrow">{content.eyebrow}</span>
         <h1 id="gate-title">{content.title}</h1>
         <p>{content.copy}</p>
