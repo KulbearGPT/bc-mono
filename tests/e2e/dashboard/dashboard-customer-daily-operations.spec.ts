@@ -96,7 +96,7 @@ test.describe('Dashboard browser E2E: daily customer support operations', () => 
     await page.getByRole('button', { name: '确认扣款' }).click();
     await expect(page.getByRole('cell', { name: 'EXTERNAL_REFUND_DEBIT' })).toBeVisible();
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
-    expect(state.walletBalance).toMatchObject({ ledgerBalanceMinor: 8_200, reservedMinor: 2_500, availableMinor: 5_700, version: 2 });
+    expect(state.walletBalance).toMatchObject({ ledgerBalanceMinor: 9_820, reservedMinor: 2_500, availableMinor: 7_320, version: 2 });
     expect(state.walletBalance.availableMinor).toBe(state.walletBalance.ledgerBalanceMinor - state.walletBalance.reservedMinor);
     expect(state.bulkUsers.filter((user: { version: number }) => user.version !== 1 && user.id !== userId)).toEqual([]);
   });

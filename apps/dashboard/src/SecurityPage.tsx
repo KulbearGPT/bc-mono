@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createDashboardApiClient, type DashboardCapabilities } from './dashboard-shell.js';
+import { formatMinorCurrency } from './admin-business.js';
 
 type Enrollment = { enrollmentId: string; provisioningUri: string; expiresAt: string };
 type Challenge = { challengeId: string; expiresAt: string };
@@ -54,8 +55,8 @@ export function SecurityPage({ capabilities }: { capabilities: DashboardCapabili
       <header className="page-heading"><div><span className="page-eyebrow">SECURITY</span><h1 id="security-title">账户安全与操作范围</h1><p>管理多因素验证，并查看由服务端返回的当前执行边界。</p></div></header>
       <div className="card-grid">
         <PolicyItem title="当前层级" value={capabilities.level ?? '未知'} />
-        <PolicyItem title="礼物直接执行上限" value={formatLimit(capabilities.thresholds?.giftApprovalLimitMinor)} />
-        <PolicyItem title="退款直接执行上限" value={formatLimit(capabilities.thresholds?.refundLimitMinor)} />
+        <PolicyItem title="礼物直接执行上限" value={formatLimit(capabilities.thresholds?.giftApprovalLimitMinor,capabilities.thresholds?.currency)} />
+        <PolicyItem title="退款直接执行上限" value={formatLimit(capabilities.thresholds?.refundLimitMinor,capabilities.thresholds?.currency)} />
         <PolicyItem title="近期验证" value={capabilities.stepUp?.validUntil ? `有效至 ${new Date(capabilities.stepUp.validUntil).toLocaleString('zh-CN')}` : '当前未验证'} />
       </div>
       <div className="content-panel security-guidance"><p>超过当前层级金额上限的操作会进入审批，不会提前扣款、退款或广播。达到执行层级后，敏感操作仍需完成 15 分钟内的近期验证。</p><div className="inline-actions">
@@ -90,6 +91,6 @@ function PolicyItem({ title, value }: { title: string; value: string }) {
   return <div className="metric-card"><small>{title}</small><strong>{value}</strong></div>;
 }
 
-function formatLimit(value: number | null | undefined): string {
-  return value == null ? '无直接执行权限' : `¥${(value / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`;
+export function formatLimit(value: number | null | undefined,currency='CAT'): string {
+  return value == null ? '无直接执行权限' : formatMinorCurrency(value,currency);
 }
