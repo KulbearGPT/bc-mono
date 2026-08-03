@@ -27,6 +27,9 @@ export interface AdminBusinessAction {
   label: string;
   requiresReason: boolean;
   scope: 'COLLECTION' | 'ITEM';
+  enabled?: boolean;
+  requiredPermission?: string;
+  disabledReason?: string;
 }
 
 export interface AdminActionRequest {
@@ -131,7 +134,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     actions: [
       { id: 'CREATE_SERVICE_VERSION', label: '创建服务版本', permission: 'catalog.manage', requiresReason: true, scope: 'COLLECTION' },
       { id: 'UPDATE_VERSION', label: '编辑服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' },
-      { id: 'ARCHIVE_SERVICE', label: '删除', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'ARCHIVE_SERVICE', label: '归档服务项目', permission: 'catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -150,7 +153,7 @@ const pageDefinitions: readonly AdminPageDefinition[] = [
     actions: [
       { id: 'CREATE_GIFT', label: '创建礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'COLLECTION' },
       { id: 'UPDATE_GIFT_VERSION', label: '编辑礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' },
-      { id: 'ARCHIVE_GIFT', label: '删除', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
+      { id: 'ARCHIVE_GIFT', label: '归档礼物', permission: 'gift_catalog.manage', requiresReason: true, scope: 'ITEM' }
     ]
   },
   {
@@ -178,7 +181,7 @@ const defaultSort={sortBy:'createdAt',sortDirection:'desc' as const};
 export const adminCollectionConfigs:Record<AdminCollectionPageId,AdminCollectionConfig>={
   orders:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'amountMinor',label:'订单金额'}],defaultSort,columns:[{key:'publicId',label:'订单号'},{key:'status',label:'状态'},{key:'customerDisplayName',label:'客户'},{key:'playerDisplayNames',label:'陪玩'},{key:'serviceSummary',label:'服务'},{key:'amountMinor',label:'订单金额'},{key:'updatedAt',label:'最近更新'}]},
   users:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'status',label:'状态'},{key:'discordUserId',label:'Discord 用户 ID'},{key:'activeOrderId',label:'当前订单'},{key:'createdAt',label:'创建时间'}]},
-  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'availability',label:'接单状态'},{key:'discordPresence',label:'Discord 在线状态'},{key:'createdAt',label:'创建时间'}]},
+  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'discordPresence',label:'Discord 在线状态（仅诊断）'},{key:'createdAt',label:'创建时间'}]},
   serviceCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'offeringName',label:'项目名称'},{id:'customerUnitPriceMinor',label:'客户单价'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'gameDisplayName',label:'游戏'},{key:'serviceDisplayName',label:'服务'},{key:'status',label:'状态'},{key:'customerUnitPriceMinor',label:'客户单价'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   servicePackages:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'displayName',label:'套餐名称'},{id:'defaultCustomerPriceMinor',label:'套餐价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'displayName',label:'套餐名称'},{key:'status',label:'状态'},{key:'defaultCustomerPriceMinor',label:'套餐价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   giftCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'name',label:'礼物名称'},{id:'priceMinor',label:'礼物价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'name',label:'礼物名称'},{key:'status',label:'状态'},{key:'priceMinor',label:'礼物价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
@@ -224,9 +227,15 @@ export function buildAdminBusinessPage(input: AdminBusinessPageInput): AdminBusi
     items: mayExposeItems ? sourceItems : [],
     filters: definition.filters,
     actions: permitted
-      ? definition.actions
-        .filter((action) => permissions.has(action.permission))
-        .map(({ permission: _permission, ...action }) => action)
+      ? definition.actions.map(({ permission, ...action }) => {
+        const enabled = permissions.has(permission);
+        return {
+          ...action,
+          enabled,
+          requiredPermission: permission,
+          disabledReason: enabled ? undefined : `需要权限 ${permission}；请通过现有客服任务提交主管处理。`
+        };
+      })
       : [],
     pagination: {
       hasNext: permitted && Boolean(input.nextCursor),
@@ -439,9 +448,6 @@ function requirePlayerItem(item:Record<string,unknown>|undefined):{id:string;ver
   if(!Number.isSafeInteger(item.version)||Number(item.version)<1)throw new TypeError('A valid player version is required.');return{id,version:Number(item.version)};}
 function splitTags(value:string|boolean|undefined):string[]{if(typeof value!=='string')throw new TypeError('Tags are required.');const tags=Array.from(new Set(value.split(',').map(item=>item.trim()).filter(Boolean)));
   if(!tags.length)throw new TypeError('At least one tag is required.');return tags;}
-function splitOptionalDiscordIds(value:string|boolean|undefined):string[]{if(value===undefined||value==='')return[];if(typeof value!=='string')throw new TypeError('Player selection is invalid.');const ids=value.split(',').map(item=>item.trim()).filter(Boolean);
-  if(ids.length>3)throw new TypeError('Manual dispatch supports at most three players.');if(new Set(ids).size!==ids.length)throw new TypeError('Player selection contains duplicates.');return ids;}
-
 function requireReasonCode(value: unknown): string {
   const reasonCode = requireText(value, 'reasonCode');
   if (!/^[A-Z0-9_]{3,100}$/.test(reasonCode)) throw new TypeError('reasonCode must contain 3-100 uppercase letters, numbers, or underscores.');

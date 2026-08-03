@@ -46,7 +46,7 @@ const cases: Array<{
     page: 'serviceCatalog',
     items: [{ id: 'service-1', code: 'VALORANT_ESCORT', status: 'ACTIVE', currency: 'CAT' }],
     collectionActions: ['创建服务版本'],
-    itemActions: ['查看详情', '编辑服务项目', '删除']
+    itemActions: ['查看详情', '编辑服务项目', '归档服务项目']
   },
   {
     page: 'servicePackages',
@@ -58,7 +58,7 @@ const cases: Array<{
     page: 'giftCatalog',
     items: [{ id: 'gift-1', code: 'STAR', name: '星光礼物', status: 'ACTIVE', currency: 'CAT' }],
     collectionActions: ['创建礼物'],
-    itemActions: ['查看详情', '编辑礼物', '删除']
+    itemActions: ['查看详情', '编辑礼物', '归档礼物']
   },
   {
     page: 'giftRequests',
@@ -97,5 +97,24 @@ describe('Dashboard collection action visibility', () => {
     const summaryIndex = html.search(/(?:order|business)-discussion-card__summary/u);
     expect(actionIndex).toBeGreaterThan(-1);
     expect(actionIndex).toBeLessThan(summaryIndex);
+  });
+
+  test('renders missing-permission actions as disabled guidance instead of hiding the workflow', () => {
+    const model = buildAdminBusinessPage({
+      page: 'serviceCatalog',
+      permissions: ['catalog.read'],
+      status: 'READY',
+      items: [{ id: 'service-1', status: 'ACTIVE' }]
+    });
+    const html = renderToStaticMarkup(createElement(AdminBusinessPage, {
+      model,
+      onAction: () => undefined,
+      onOpenDetail: () => undefined
+    }));
+
+    expect(html).toContain('创建服务版本');
+    expect(html).toContain('归档服务项目');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('需要权限 catalog.manage');
   });
 });

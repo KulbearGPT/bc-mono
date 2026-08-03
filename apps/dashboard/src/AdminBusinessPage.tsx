@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { AdminBusinessAction, AdminBusinessDetailState, AdminBusinessPageModel, AdminCollectionView, AdminSortDirection } from './admin-business.js';
-import { adminCollectionConfigs, formatMinorCurrency, isAdminCollectionPage, readAdminOrderTimeline } from './admin-business.js';
+import {
+  adminCollectionConfigs,
+  formatMinorCurrency,
+  isAdminCollectionPage,
+  readAdminOrderTimeline,
+  type AdminBusinessAction,
+  type AdminBusinessDetailState,
+  type AdminBusinessPageModel,
+  type AdminCollectionView,
+  type AdminSortDirection
+} from './admin-business.js';
 import type { BusinessTagGroups, BusinessTagRecord } from './business-tags.js';
 import { dashboardFieldLabel } from './table-labels.js';
 
@@ -31,7 +40,6 @@ export function AdminBusinessPage(props: {
   onNextTranscript?: (cursor:string)=>void;
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
-  dispatchCandidateOptions?: Array<Record<string, unknown>>;
   participantPlayerOptions?: Array<Record<string,unknown>>;
   participantMutationError?: string|null;
   onAddOrderParticipant?: (fields:Record<string,unknown>)=>void;
@@ -52,7 +60,7 @@ export function AdminBusinessPage(props: {
         <div><span className="page-eyebrow">BUSINESS OPS</span><h1 id="admin-page-title">{model.title}</h1><p>查看业务事实并执行当前权限范围内的操作。</p></div>
         <div className="page-actions">
           {props.onAction && model.actions.filter((action) => action.scope === 'COLLECTION').map((action) => (
-            <button className="button-primary" key={action.id} type="button" onClick={() => props.onAction?.(action)}>{action.label}</button>
+            <button className="button-primary" key={action.id} type="button" disabled={action.enabled === false} title={action.disabledReason} onClick={() => props.onAction?.(action)}>{action.label}</button>
           ))}
         </div>
       </header>
@@ -69,7 +77,7 @@ export function AdminBusinessPage(props: {
       {model.kind === 'READY' && (collectionConfig?(view==='TABLE'?<AdminBusinessTable model={model} columns={collectionConfig.columns} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions}/>:model.page==='orders'?<OrderDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail}/>:<BusinessDiscussionGrid model={model} onAction={props.onAction} onOpenDetail={props.onOpenDetail}/>):<AdminBusinessTable model={model} columns={[]} onAction={props.onAction} onOpenDetail={props.onOpenDetail} businessTagOptions={props.businessTagOptions}/>)}
 
       {props.detail && <DashboardOverlay label="业务对象详情" onClose={props.onCloseDetail}><AdminDetailRegion detail={props.detail} onClose={props.onCloseDetail} onNextConsumptions={props.onNextConsumptions} onNextTimeline={props.onNextTimeline} onNextTranscript={props.onNextTranscript} serviceCatalogOptions={props.serviceCatalogOptions} participantPlayerOptions={props.participantPlayerOptions} participantMutationError={props.participantMutationError} onAddOrderParticipant={props.onAddOrderParticipant} onUpdateOrderParticipant={props.onUpdateOrderParticipant} onUpdateOrderNote={props.onUpdateOrderNote} onUpdateOrderRequirement={props.onUpdateOrderRequirement} /></DashboardOverlay>}
-      {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions}
+      {props.activeAction && <DashboardOverlay label={`${props.activeAction.action.label}操作`} onClose={props.onCancelAction}><AdminActionPanel active={props.activeAction} status={props.actionStatus ?? 'IDLE'} error={props.actionError} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions}
         onCancel={props.onCancelAction} onSubmit={props.onSubmitAction} /></DashboardOverlay>}
 
       {model.pagination.hasNext && model.pagination.nextCursor && (
@@ -120,7 +128,7 @@ function DashboardOverlay(props: { label: string; onClose?: () => void; children
 }
 
 function EarningOperationNotice({ model }: { model: AdminBusinessPageModel }) {
-  const canManage = model.actions.some((action) => action.id === 'CONFIRM' || action.id === 'MARK_PAID');
+  const canManage = model.actions.some((action) => action.enabled !== false && (action.id === 'CONFIRM' || action.id === 'MARK_PAID'));
   return <div className={`status-notice earning-operation-notice${canManage ? '' : ' earning-operation-notice--readonly'}`} role="status">
     {canManage
       ? <>操作规则：待确认收益可“确认收益”，已确认收益可“标记已支付”；已支付或已冲正记录只读。</>
@@ -144,7 +152,7 @@ function CollectionItemActions(props: {
   if (!hasDetail && actions.length === 0) return null;
   return <div className={`${props.className} collection-item-actions collection-item-actions--${props.variant.toLowerCase()}`} role="group" aria-label="可用操作">
     {hasDetail && <button type="button" onClick={() => props.onOpenDetail?.(props.item)}>查看详情</button>}
-    {actions.map((action) => <button className={isDangerousAdminAction(action) ? 'table-action--danger' : undefined} key={action.id} type="button" onClick={() => props.onAction?.(action, props.item)}>{action.label}</button>)}
+    {actions.map((action) => <button className={isDangerousAdminAction(action) ? 'table-action--danger' : undefined} key={action.id} type="button" disabled={action.enabled === false} title={action.disabledReason} onClick={() => props.onAction?.(action, props.item)}>{action.label}</button>)}
   </div>;
 }
 
@@ -273,7 +281,7 @@ function orderOperationalState(status:string):{blocker:string;nextAction:string}
   return ({
     DRAFT:{blocker:'订单尚未提交',nextAction:'核对项目与价格后提交订单'},
     PENDING_DISPATCH:{blocker:'尚无陪玩接单',nextAction:'继续等待候选或联系客户'},
-    ACCEPTED:{blocker:'等待双方就绪',nextAction:'确认客户与陪玩均已准备'},
+    ACCEPTED:{blocker:'等待所有有效陪玩就绪',nextAction:'确认各有效陪玩已完成就绪'},
     IN_SERVICE:{blocker:'无',nextAction:'关注服务进度与异常反馈'},
     PENDING_CONFIRMATION:{blocker:'等待客户确认完成',nextAction:'提醒客户确认或登记问题'},
     COMPLETED:{blocker:'无',nextAction:'无需处理'},
@@ -328,7 +336,6 @@ function AdminActionPanel(props: {
   onSubmit?: (action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) => void;
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
-  dispatchCandidateOptions?: Array<Record<string, unknown>>;
 }) {
   const action = props.active.action;
   const [pendingCompensation,setPendingCompensation]=useState<{fields:Record<string,string|boolean>;changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>}|null>(null);
@@ -337,7 +344,7 @@ function AdminActionPanel(props: {
     <aside className="action-panel" aria-label={`${action.label}操作面板`}>
       <div className="panel-heading"><div><span className="page-eyebrow">ACTION</span><h2>{action.label}</h2></div><button type="button" disabled={props.status === 'SUBMITTING'} onClick={props.onCancel}>关闭</button></div>
       <form className="form-grid" aria-label={`${action.label}操作表单`} onSubmit={handleSubmit}>
-        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} dispatchCandidateOptions={props.dispatchCandidateOptions} />
+        <ActionFields action={action} item={props.active.item} businessTagOptions={props.businessTagOptions} serviceCatalogOptions={props.serviceCatalogOptions} />
         {action.requiresReason && (action.id === 'CANCEL_ORDER_RESOLUTION'
           ? <label className="field"><span>取消原因</span><select name="reasonCode" required defaultValue="USER_REQUEST"><option value="USER_REQUEST">客户请求</option><option value="DISPATCH_TIMEOUT">派单超时</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">客户未到场</option><option value="SERVICE_INTERRUPTED">服务中断</option><option value="COMPLETION_DISPUTE">完成争议</option><option value="PAYMENT_FAILURE">资金处理失败</option><option value="REFUND_FAILURE">退款处理失败</option><option value="ADMIN_CORRECTION">管理员纠正</option></select></label>
           : action.id === 'REFUND_ORDER' ? null
@@ -355,7 +362,7 @@ function AdminActionPanel(props: {
 
 function CompensationChangeConfirmation(props:{changes:Array<{offering:Record<string,unknown>;draft:Record<string,string>}>;onCancel:()=>void;onConfirm:()=>void}){return <aside className="action-panel compensation-confirmation" aria-label="分成改动确认"><div className="panel-heading"><div><span className="page-eyebrow">CONFIRM CHANGE</span><h2>确认分成改动（{props.changes.length} 项）</h2></div><button type="button" onClick={props.onCancel}>返回编辑</button></div><p>确认后会一次性写入全部项目；任一项目版本冲突或校验失败时，所有改动都不会保存。</p><div className="compensation-confirmation__changes">{props.changes.map(({offering,draft})=>{const rule=offering.compensationRule as Record<string,unknown>|undefined;return <dl className="compensation-confirmation__facts" key={draft.serviceOfferingId}><div><dt>项目</dt><dd>{compensationProjectName(offering)}</dd></div><div><dt>原分成</dt><dd>{compensationRuleText(rule,offering)}</dd></div><div><dt>新分成</dt><dd>{compensationDraftText(draft,offering)}</dd></div><div><dt>修改方式</dt><dd>{draft.type==='FIXED_MINOR'?'每计费单位固定收益':'按客户价格比例'}</dd></div></dl>;})}</div><div className="form-actions"><button className="button-primary" type="button" onClick={props.onConfirm}>确认并保存全部</button><button type="button" onClick={props.onCancel}>取消</button></div></aside>}
 
-function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions, dispatchCandidateOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>>;dispatchCandidateOptions?:Array<Record<string,unknown>> }) {
+function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions }: { action: AdminBusinessAction; item?:Record<string,unknown>; businessTagOptions?: BusinessTagGroups;serviceCatalogOptions?:Array<Record<string,unknown>> }) {
   if(action.id==='REFUND_ORDER')return <StandaloneRefundFields item={item}/>;
   if(action.id==='CANCEL_ORDER_RESOLUTION')return <OrderCancellationResolutionFields item={item}/>;
   if(action.id==='APPROVE_COMPANION')return <><TagSelect name="gameTagIds" label="支持游戏" items={businessTagOptions?.GAME??[]} multiple/><TagSelect name="serviceTagIds" label="支持服务/种类" items={businessTagOptions?.SERVICE??[]} multiple/><TagSelect name="languageTagIds" label="服务语言（可选）" items={businessTagOptions?.LANGUAGE??[]} multiple required={false}/></>;
@@ -372,7 +379,7 @@ function ActionFields({ action, item, businessTagOptions, serviceCatalogOptions,
   if(action.id==='UPDATE_PACKAGE_STATUS')return <PackageStatusFields item={item}/>;
   if (action.id === 'UPDATE_GIFT_VERSION') return <VersionActionFields action={action} replacementAction="CREATE_REPLACEMENT_VERSION" replacementFields={<GiftCatalogFields options={businessTagOptions} item={item}/>} />;
   if (action.id === 'UPDATE_VERSION') return <VersionActionFields action={action} replacementAction="SUPERSEDE" replacementFields={<ServiceCatalogFields options={businessTagOptions} item={item}/>} />;
-  if(action.id==='ARCHIVE_SERVICE'||action.id==='ARCHIVE_GIFT')return <div className="field field--full archive-warning"><strong>确认从目录中删除？</strong><p>该操作会归档当前项目，使其不再出现在目录中；历史订单、礼物记录和金额快照不会受到影响。</p></div>;
+  if(action.id==='ARCHIVE_SERVICE'||action.id==='ARCHIVE_GIFT')return <div className="field field--full archive-warning"><strong>确认归档当前版本？</strong><p>归档后当前版本不再出现在新业务目录中；历史订单、礼物记录和金额快照保持不变。</p></div>;
   if (action.id === 'CREATE_RISK_EVENT') return <>
     <label className="field"><span>事件类型</span><select name="type" required defaultValue="PAYMENT_ANOMALY"><option value="PAYMENT_ANOMALY">支付异常</option><option value="DUPLICATE_ACCOUNT_SIGNAL">重复账号信号</option><option value="REFERRAL_ABUSE_SIGNAL">返佣滥用信号</option><option value="PLAYER_NO_SHOW">陪玩未到场</option><option value="CUSTOMER_NO_SHOW">用户未到场</option></select></label>
     <label className="field"><span>严重程度</span><select name="severity" required defaultValue="MEDIUM"><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label>
@@ -407,8 +414,6 @@ function OrderCancellationResolutionFields({item}:{item?:Record<string,unknown>}
     <label className="field field--full"><span>核对证据与处理说明</span><textarea name="evidenceNote" required rows={4} maxLength={2000} placeholder="说明已核对的订单频道、服务进度与退款/收益依据。"/></label>
   </>;
 }
-
-function ManualDispatchFields({candidates}:{candidates:Array<Record<string,unknown>>}){const[selected,setSelected]=useState<string[]>([]);return <fieldset className="field field--full tag-checklist"><legend>选择派单范围（最多 3 人）</legend><p className="field-help">不勾选时发送给全部当前合格陪玩；勾选后仅通知指定人选。</p>{candidates.length===0?<p>当前没有符合订单要求且在线可接单的陪玩。</p>:candidates.map((candidate)=>{const id=textValue(candidate.discordUserId);const checked=selected.includes(id);return <label className="checkbox-field" key={id}><input type="checkbox" name="targetDiscordUserIds" value={id} checked={checked} disabled={!checked&&selected.length>=3} onChange={()=>setSelected((current)=>checked?current.filter((value)=>value!==id):[...current,id])}/><span>{`陪玩 ${textValue(candidate.playerId).slice(0,8)} · Discord ${id}`}</span></label>;})}<p className="field-help">已选 {selected.length}/3</p></fieldset>}
 
 function PlayerCompensationFields({offerings}:{offerings:Array<Record<string,unknown>>}){
   const firstId=textValue(offerings[0]?.serviceOfferingId);

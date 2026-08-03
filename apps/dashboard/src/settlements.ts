@@ -13,7 +13,7 @@ export function buildSettlementNavigation(permissions: string[], enabledFeatures
   return [
     permissions.includes('settlement.read') ? { id: 'settlements', label: '结算', href: '/settlements' } : null,
     permissions.includes('weekly_report.read') ? { id: 'reports', label: '周报', href: '/reports' } : null,
-    permissions.includes('customer_profile.read') ? { id: 'profiles', label: '客户 Profile', href: '/admin/users' } : null
+    permissions.includes('customer_profile.read') && permissions.includes('user.read') ? { id: 'profiles', label: '客户 Profile', href: '/admin/users' } : null
   ].filter((item): item is { id: string; label: string; href: string } => item !== null);
 }
 

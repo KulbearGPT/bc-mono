@@ -20,12 +20,13 @@ import { CustomerProfilePage } from '../apps/dashboard/src/CustomerProfilePage.j
 
 describe('M6-US-04 Dashboard settlement and profiles', () => {
   test('derives work navigation from server capabilities', () => {
-    expect(buildSettlementNavigation(['settlement.read', 'weekly_report.read', 'customer_profile.read'])).toEqual([
+    expect(buildSettlementNavigation(['settlement.read', 'weekly_report.read', 'customer_profile.read', 'user.read'])).toEqual([
       { id: 'settlements', label: '结算', href: '/settlements' },
       { id: 'reports', label: '周报', href: '/reports' },
       { id: 'profiles', label: '客户 Profile', href: '/admin/users' }
     ]);
     expect(buildSettlementNavigation([])).toEqual([]);
+    expect(buildSettlementNavigation(['customer_profile.read'])).toEqual([]);
   });
 
   test('maps preview, create, review, export and payment result commands to unified API', () => {

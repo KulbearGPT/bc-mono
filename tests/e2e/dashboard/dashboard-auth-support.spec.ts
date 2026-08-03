@@ -54,6 +54,14 @@ test.describe('Dashboard browser E2E: authentication and support workbench', () 
     await expect(page.getByRole('heading', { name: '登录客服管理后台' })).toBeVisible();
   });
 
+  test('DE2E-AUTH-011 direct URLs distinguish forbidden and missing pages', async ({ page }) => {
+    await login(page);
+    await page.goto('/access');
+    await expect(page.getByRole('heading', { name: '无权访问此页面' })).toBeVisible();
+    await page.goto('/not-a-dashboard-route');
+    await expect(page.getByRole('heading', { name: '页面不存在' })).toBeVisible();
+  });
+
   test('DE2E-JOB-001 L2 retries an eligible failed worker job through the Dashboard CSRF and idempotency envelope', async ({ page }) => {
     await loginAsSupervisor(page);
     await page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: '系统运营', exact: true }).click();

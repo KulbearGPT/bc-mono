@@ -3034,6 +3034,84 @@ textarea:hover {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.global-search {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 320px) 38px;
+  min-width: 280px;
+  overflow: hidden;
+  border: 1px solid #273750;
+  border-radius: 5px;
+  background: rgb(5 10 19 / 72%);
+}
+
+.global-search select,
+.global-search input,
+.global-search button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #c9d5e5;
+}
+
+.global-search select {
+  padding-inline: 10px;
+  border-right: 1px solid #273750;
+  color: #8f80ff;
+}
+
+.global-search input { min-width: 0; }
+.global-search button { border-left: 1px solid #273750; color: #62dda1; }
+
+.approval-status {
+  min-height: 32px;
+  padding: 5px 9px;
+  border-color: #51452b;
+  border-radius: 4px;
+  color: #bfa664;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  white-space: nowrap;
+  opacity: 1;
+}
+
+.account-menu { position: relative; }
+.account-menu summary { list-style: none; cursor: pointer; }
+.account-menu summary::-webkit-details-marker { display: none; }
+
+.account-menu__panel {
+  position: absolute;
+  z-index: calc(var(--z-topbar) + 1);
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  gap: 10px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid #354862;
+  border-radius: 6px;
+  background: #0d1625;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 35%);
+  color: #c9d5e5;
+}
+
+.account-menu__panel small { color: #8493a9; overflow-wrap: anywhere; }
+.account-menu__panel a,
+.account-menu__panel button { justify-content: flex-start; }
+.account-menu__panel [role="alert"] { color: var(--color-danger); font-size: 12px; }
+
 .sandbox-banner {
   border-bottom-color: rgb(207 157 47 / 40%);
   background:
@@ -3285,6 +3363,8 @@ textarea:hover {
 }
 
 @media (max-width: 920px) {
+  .global-search { display: none; }
+  .approval-status { display: none; }
   .status-rail__item:nth-child(2) {
     display: none;
   }
