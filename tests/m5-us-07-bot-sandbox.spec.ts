@@ -11,7 +11,7 @@ describe('M5-US-07 Sandbox Bot presentation', () => {
   it('adds the warning to every Sandbox message visibility', () => {
     for (const visibility of ['EPHEMERAL', 'PRIVATE_CHANNEL', 'PUBLIC'] as const) {
       expect(decorateSandboxPrivateMessage({ visibility, body: '余额或入口' }, 'SANDBOX').body)
-        .toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
+        .toContain('当前余额不代表真实资金，任何操作均不会产生真实收付款');
     }
     expect(decorateSandboxPrivateMessage({ visibility: 'EPHEMERAL', body: '余额' }, 'PRODUCTION').body).toBe('余额');
   });
@@ -27,7 +27,7 @@ describe('M5-US-07 Sandbox Bot presentation', () => {
   it('applies the configured warning at the final Discord render boundary', () => {
     configureDiscordRendererEnvironment('SANDBOX');
     const reply = toDiscordReply({ title: '个人中心', body: '余额', visibility: 'EPHEMERAL', components: [] });
-    expect(JSON.stringify(reply.embeds)).toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
+    expect(JSON.stringify(reply.embeds)).toContain('当前余额不代表真实资金，任何操作均不会产生真实收付款');
     configureDiscordRendererEnvironment('PRODUCTION');
   });
 
@@ -46,7 +46,7 @@ describe('M5-US-07 Sandbox Bot presentation', () => {
     const reply = await flow.open({
       guildId: '999999999999999999', discordUserId: '111111111111111111', interactionId: '222222222222222222', clientSource: 'DISCORD_BOT'
     });
-    expect(reply.content).toContain('SANDBOX 测试环境 · 测试余额不代表真实资金');
-    expect(reply.content).toContain('Bot 配置 · OWNER');
+    expect(reply.content).toContain('当前余额不代表真实资金，任何操作均不会产生真实收付款');
+    expect(reply.content).toContain('服务器配置 · OWNER');
   });
 });

@@ -29,8 +29,14 @@ export async function executeCreateOrderFromEntry(input: {
   await interaction.deferReply({ ephemeral: true });
   const values = botConfigCache.get(interaction.guildId)?.values;
   const categoryId = typeof values?.private_order_category_id === 'string' ? values.private_order_category_id : null;
-  if (values?.new_orders_enabled === false || !categoryId) {
-    await interaction.editReply('当前未开放新订单，或尚未配置私密订单频道分类。');
+  if (values?.new_orders_enabled === false) {
+    await interaction.editReply('当前暂停接收新订单，请稍后再试或联系猫舍前台。');
+    return;
+  }
+  if (!categoryId) {
+    await interaction.editReply(
+      `暂时无法创建订单，请将下方编号提供给猫舍前台。\nrequest_id: discord-interaction-${interaction.id}`
+    );
     return;
   }
   let provisional = null;
@@ -149,7 +155,7 @@ async function renderCommittedChannel(input: {
     `${botCopy.entry.channelCreated(String(input.channel))}${
       finalization.renamed
         ? ''
-        : `\n频道名称暂未更新，请联系工作人员检查 Bot 权限。request_id: discord-interaction-${input.interaction.id}`
+        : `\n订单频道已创建，但名称更新失败。请将下方编号提供给猫舍前台。\nrequest_id: discord-interaction-${input.interaction.id}`
     }`
   );
 }

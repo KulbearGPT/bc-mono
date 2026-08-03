@@ -132,7 +132,7 @@ describe('M1-US-07 order confirmation panel', () => {
     expect(message.body).toContain('服务：娱乐陪玩');
     expect(message.body).toContain('区服：北美');
     expect(message.body).toContain('时长：2 小时');
-    expect(message.body).toContain('标签：P0 默认匹配');
+    expect(message.body).toContain('匹配方式：按已认证的游戏与服务标签');
     expect(message.body).toContain('备注：轻松交流，不急着上分');
     expect(message.body).toContain('预计价格：1,200.0 CAT');
     expect(message.body).toContain('可用余额：1,800.0 CAT');

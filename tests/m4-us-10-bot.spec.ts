@@ -178,7 +178,7 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
 
     const opened = await flow.open(actor);
     expect(opened.ephemeral).toBe(true);
-    expect(opened.content).toContain("版本 12");
+    expect(opened.content).toContain("配置修订号 12");
     expect(opened.components[0]?.components[0]).toMatchObject({
       type: "STRING_SELECT",
       customId: "bc:cfg:field:abc123XYZ0",
@@ -200,14 +200,14 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
       "gift_broadcast_channel_id",
     );
     expect(channel.ephemeral).toBe(true);
-    expect(channel.content).toContain("Bot 配置 · 礼物播报频道");
+    expect(channel.content).toContain("服务器配置 · 礼物播报频道");
     expect(channel.components[0]?.components[0]).toMatchObject({
       type: "CHANNEL_SELECT",
       customId: "bc:cfg:value:abc123XYZ0",
     });
 
     const role = flow.chooseField(actor, "abc123XYZ0", "player_role_id");
-    expect(role.content).toContain("Bot 配置 · 基础玩家角色");
+    expect(role.content).toContain("服务器配置 · 基础玩家角色");
     expect(role.components[0]?.components[0]).toMatchObject({
       type: "ROLE_SELECT",
       customId: "bc:cfg:value:abc123XYZ0",
@@ -332,7 +332,7 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
     expect(api.getBotConfig).toHaveBeenLastCalledWith(guildId, actor);
     expect(cache.get(guildId)).toEqual(refreshed);
     expect(saved.ephemeral).toBe(true);
-    expect(saved.content).toContain("版本 13");
+    expect(saved.content).toContain("配置修订号 13");
   });
 
   test("tests proposed channel delivery without applying the pending change", async () => {
@@ -369,7 +369,7 @@ describe("M4-US-10 Discord /bot-config adapter", () => {
     );
     expect(api.updateBotConfig).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ephemeral: true });
-    expect(result.content).toContain("测试消息已送达");
+    expect(result.content).toContain("频道预览已送达");
   });
 
   test("keeps full config, permissions and validation token out of short custom IDs and rejects another actor", async () => {

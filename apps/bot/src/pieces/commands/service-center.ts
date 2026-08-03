@@ -8,7 +8,7 @@ export default class ServiceCenterCommand extends Command {
     registry.registerChatInputCommand((builder) => {
       return builder
         .setName('service-center')
-        .setDescription('Deploy or repair the Guild companion service entry.')
+        .setDescription('发布或修复本服务器的陪玩服务入口。')
         .setDMPermission(false)
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
     });

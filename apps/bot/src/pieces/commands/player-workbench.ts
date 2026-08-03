@@ -6,10 +6,7 @@ import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 export default class PlayerWorkbenchCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry): void {
     registry.registerChatInputCommand((builder) => {
-      return builder
-        .setName('player-workbench')
-        .setDescription('Open your private player workbench.')
-        .setDMPermission(false);
+      return builder.setName('player-workbench').setDescription('打开你的私密陪玩工作台。').setDMPermission(false);
     });
   }
 

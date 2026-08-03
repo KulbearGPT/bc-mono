@@ -74,7 +74,7 @@ describe('M2-US-04 Bot service lifecycle adapter', () => {
     expect(message.title).toBe('🤝 订单 #P-4401 · 等待陪玩全员就绪');
     expect(message.fields).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: '👥 就绪名单', value: expect.stringContaining('陪玩名单：等待 API 返回') })
+        expect.objectContaining({ name: '👥 就绪名单', value: expect.stringContaining('陪玩名单：正在同步') })
       ])
     );
     expect(JSON.stringify(message.components)).not.toContain('开始服务');

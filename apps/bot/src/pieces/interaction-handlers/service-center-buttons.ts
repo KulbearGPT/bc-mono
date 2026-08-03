@@ -353,7 +353,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
 
     await interaction.reply({
-      content: '该订单操作将在后续步骤处理。request_id: local-action-pending',
+      content: `这个订单操作已失效，请刷新订单后使用最新按钮。\nrequest_id: discord-interaction-${interaction.id}`,
       ephemeral: true
     });
   }

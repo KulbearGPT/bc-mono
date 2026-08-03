@@ -10,7 +10,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
     const participants = order.readiness.participants;
     const playerLines = participants.length
       ? participants.map((participant) => `${participant.displayName}：${readinessMilestone(participant.readiness)}`)
-      : ['陪玩名单：等待 API 返回'];
+      : ['陪玩名单：正在同步'];
     const allPlayersReady = order.readiness.allActivePlayersReady;
     const components = lifecycleActionRows(order, giftsEnabled);
 
@@ -29,8 +29,8 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
         ...(order.readiness.readyDeadlineAt ? [{ name: '⏰ 确认时限', value: order.readiness.readyDeadlineAt }] : [])
       ],
       progress: allPlayersReady
-        ? '全部有效陪玩都已就绪，等待业务 API 确认进入服务中。'
-        : '仍有陪玩尚未就绪；只有全部有效陪玩 READY 后才会开始服务。',
+        ? '全部有效陪玩都已就绪，正在更新订单状态。'
+        : '仍有陪玩尚未就绪；只有全部有效陪玩确认就绪后才会开始服务。',
       nextStep:
         order.actorRole === 'PLAYER'
           ? '尚未确认的陪玩点击“陪玩：我已准备好”；如果准备遇到问题，可联系猫舍前台。'
@@ -91,7 +91,7 @@ export function buildServiceLifecyclePanelMessage(order: OrderLifecyclePanelSumm
       density: 'PRIVATE_ORDER',
       tone: 'SUCCESS',
       coreFacts: [{ name: '✅ 服务结果', value: '已完成' }],
-      progress: '订单与资金结果已由业务 API 记录；本卡不重新计算收益或金额。',
+      progress: '订单已完成；资金与收益结果以本卡显示为准。',
       nextStep: '如需查看明细、补充反馈或申诉，请使用下方入口。',
       components: lifecycleActionRows(order, giftsEnabled)
     });

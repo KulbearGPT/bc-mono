@@ -17,7 +17,7 @@ export default class BotConfigModalHandler extends InteractionHandler {
   public override async run(interaction: ModalSubmitInteraction, route: { operation: 'modal'; sessionId: string }) {
     const actor = actorFrom(interaction);
     if (!actor) {
-      await interaction.reply({ content: '请在服务器内管理 Bot 配置。', ephemeral: true });
+      await interaction.reply({ content: '请在服务器内管理运营配置。', ephemeral: true });
       return;
     }
     await interaction.deferReply({ ephemeral: true });
@@ -42,7 +42,7 @@ export default class BotConfigModalHandler extends InteractionHandler {
       });
       await interaction.editReply({
         content: formatUserFacingError(error, {
-          operation: '校验 Bot 配置输入',
+          operation: '校验服务器配置输入',
           localRequestId: `discord-interaction-${interaction.id}`
         }),
         components: []

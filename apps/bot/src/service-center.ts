@@ -355,7 +355,7 @@ export function buildServicePackagePickerMessage(order: OrderSummary, page: Serv
     title: `🎮 订单 #${order.publicId} · 选择套餐`,
     body: [
       '套餐会先展开成独立陪玩席位，应用后每个席位都能单独修改。',
-      page.items.length ? '请选择一个套餐查看默认阵容和服务端报价。' : '目前没有可用套餐，你仍可返回自由搭配。'
+      page.items.length ? '请选择一个套餐查看默认阵容和当前报价。' : '目前没有可用套餐，你仍可返回自由搭配。'
     ].join('\n\n'),
     visibility: 'PRIVATE_CHANNEL',
     components: [
@@ -568,7 +568,7 @@ export function buildServicePackagePreviewMessage(order: OrderSummary, pkg: Serv
       { name: '🐟 套餐报价', value: formatCustomerMoney(pkg.derivedTotalMinor, pkg.currency) }
     ],
     bossRequest: order.notes || null,
-    nextStep: '采用后每个席位仍可单独调整；业务 API 会按最终阵容重新报价。',
+    nextStep: '采用后每个席位仍可单独调整；系统会按最终阵容重新报价。',
     components: [
       { type: 'V2_MEDIA', url: banner.url, description: `${pkg.gameDisplayName} × 黑猫陪玩主题横幅` },
       {
@@ -769,9 +769,7 @@ export function buildMatchingProgressMessage(order: OrderSummary): MessageSpec {
 }
 
 export function buildCancellationPreviewMessage(preview: CancellationPreviewSummary): MessageSpec {
-  const handling = preview.staffTaskRequired
-    ? '提交客服核对；不会自动退款、扣款或释放预留'
-    : '确认后由业务 API 立即处理';
+  const handling = preview.staffTaskRequired ? '提交客服核对；不会自动退款、扣款或释放预留' : '确认后立即处理';
   return buildExperienceMessage({
     title: '取消订单前请确认',
     icon: '⚠️',
@@ -830,7 +828,7 @@ export function buildOrderConfirmationMessage(input: {
   const deficitMinor = Math.max(0, input.estimate.amountMinor - input.balance.availableMinor);
   const canSubmit = missing.length === 0 && deficitMinor === 0 && !currencyMismatch;
   const statusLine = canSubmit
-    ? '状态：可以提交。提交时 API 会再次复核价格、余额、版本和服务目录。'
+    ? '状态：可以提交。提交时系统会再次复核价格、余额和服务内容。'
     : confirmationBlockedReason({
         missing,
         deficitMinor,
@@ -846,7 +844,7 @@ export function buildOrderConfirmationMessage(input: {
       `服务：${formatService(input.order.service)}`,
       `区服：${formatRegion(input.order.region)}`,
       `时长：${formatEstimateDuration(input.estimate)}`,
-      '标签：P0 默认匹配',
+      '匹配方式：按已认证的游戏与服务标签',
       input.order.notes ? `备注：${input.order.notes}` : '备注：未填写',
       '',
       '**价格与余额**',
@@ -923,7 +921,7 @@ export function buildMultiProjectOrderConfirmationMessage(input: {
     )
     .join('\n');
   const submissionStatus = canSubmit
-    ? '可以提交 · 业务 API 会再次校验目录、价格、余额和版本。'
+    ? '可以提交 · 系统会再次校验服务内容、价格和余额。'
     : currencyMismatch
       ? '暂不可提交 · 订单币种与钱包币种不一致。'
       : active.length === 0
@@ -981,12 +979,12 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
       icon: input.staffTaskId ? '🛎️' : '⚠️',
       introduction: input.staffTaskId
         ? '猫舍前台已经接手，会核对订单、服务进度和资金状态。'
-        : '业务 API 没有返回已取消状态，当前卡不会把订单描述为已取消。',
+        : '当前还无法确认订单已取消，请以最新订单状态为准。',
       visibility: 'PRIVATE_CHANNEL',
       density: 'HIGH_RISK',
       tone: 'WAITING',
       coreFacts: [
-        { name: '📋 当前订单状态', value: input.status },
+        { name: '📋 当前订单状态', value: orderStatusDisplay(input.status) },
         ...(input.staffTaskId ? [{ name: '🛎️ 客服任务', value: input.staffTaskId }] : [])
       ],
       progress: '写入结果仍以最新订单状态为准；当前不会自动退款或释放预留。',
@@ -1017,18 +1015,27 @@ export function buildCancellationResultMessage(input: CancellationResultSummary)
     density: 'HIGH_RISK',
     tone: 'DANGER',
     coreFacts: [
-      { name: '📋 订单结果', value: 'CANCELLED · 已取消' },
+      { name: '📋 订单结果', value: '已取消' },
       {
         name: '🐟 资金结果',
         value: input.releasedReservation
-          ? `已释放预留：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}\n处理类型：${input.fundAction}`
-          : `处理类型：${input.fundAction}\n没有返回可展示的预留释放金额`
+          ? `已释放预留：${formatCustomerMoney(input.releasedReservation.releasedMinor, input.releasedReservation.currency)}\n资金处理：${cancellationFundActionDisplay(input.fundAction)}`
+          : `资金处理：${cancellationFundActionDisplay(input.fundAction)}\n没有可展示的预留释放金额`
       }
     ],
-    progress: '业务 API 已确认订单进入 CANCELLED；本卡只展示返回的资金事实。',
+    progress: '订单已取消；资金结果以本卡显示为准。',
     nextStep: '如对取消或资金结果有疑问，请从订单入口联系猫舍前台。',
     components: [{ type: 'ACTION_ROW', components: [refreshOrderControl(input.orderId)] }]
   });
+}
+
+function cancellationFundActionDisplay(fundAction: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    RELEASE_RESERVATION: '释放订单预留',
+    REFUND_CAPTURED_PAYMENT: '退回已扣款项',
+    NONE: '无需资金处理'
+  };
+  return labels[fundAction] ?? '等待资金结果确认';
 }
 
 export async function handleOpenOrderConfirmation(input: {

@@ -136,7 +136,7 @@ async function giftFailure(interaction: ButtonInteraction, error: unknown): Prom
         '请返回订单最新面板重新选择礼物和接收陪玩。',
         '',
         '**写入结果**',
-        '本次未向业务 API 发起写请求。',
+        '本次没有提交礼物请求，资金状态未改变。',
         '',
         `request_id: discord-interaction-${interaction.id}`
       ].join('\n'),

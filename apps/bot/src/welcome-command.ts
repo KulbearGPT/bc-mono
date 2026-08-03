@@ -24,7 +24,7 @@ export async function executeWelcomeCommand(
       api
     });
     await interaction.editReply(
-      result.sent ? `迎新私信已重新发送给 ${target.username}。` : '目标账号是 Bot，不发送迎新私信。'
+      result.sent ? `迎新私信已重新发送给 ${target.username}。` : '目标账号是机器人，未发送迎新私信。'
     );
   } catch (error) {
     interaction.client.logger.error({

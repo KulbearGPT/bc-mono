@@ -7,16 +7,13 @@ import { formatUserFacingError } from '../../user-facing-error.js';
 export default class BotConfigCommand extends Command {
   public override registerApplicationCommands(registry: Command.Registry): void {
     registry.registerChatInputCommand((builder) =>
-      builder
-        .setName('bot-config')
-        .setDescription('Open the private Guild Bot configuration flow.')
-        .setDMPermission(false)
+      builder.setName('bot-config').setDescription('打开本服务器的私密运营配置。').setDMPermission(false)
     );
   }
 
   public override async chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<void> {
     if (!interaction.guildId) {
-      await interaction.reply({ content: '请在服务器内管理 Bot 配置。', ephemeral: true });
+      await interaction.reply({ content: '请在服务器内管理运营配置。', ephemeral: true });
       return;
     }
     await interaction.deferReply({ ephemeral: true });
@@ -34,7 +31,7 @@ export default class BotConfigCommand extends Command {
       });
       await interaction.editReply({
         content: formatUserFacingError(error, {
-          operation: '打开 Bot 配置',
+          operation: '打开服务器配置',
           localRequestId: `discord-interaction-${interaction.id}`
         }),
         components: []

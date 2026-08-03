@@ -238,7 +238,7 @@ describe('M1-US-04 Sapphire interaction flow calls unified API instead of owning
 
     expect(result).toEqual({
       kind: 'CHANNEL_CREATION_FAILED',
-      message: expect.stringMatching(/^无法创建订单频道：Discord 没有返回可用的私密频道/u)
+      message: expect.stringMatching(/^无法创建订单频道，因此订单创建未继续。/u)
     });
   });
 

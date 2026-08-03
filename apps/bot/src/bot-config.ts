@@ -525,7 +525,7 @@ export class BotConfigFlow {
     );
     return {
       ...presentPreview(session),
-      content: `${presentPreview(session).content}\n\n${result.delivered ? '测试消息已送达。' : '测试消息未送达。'}`
+      content: `${presentPreview(session).content}\n\n${result.delivered ? '频道预览已送达。' : '频道预览发送失败。'}`
     };
   }
 
@@ -533,7 +533,7 @@ export class BotConfigFlow {
     this.sessions.require(actor, sessionId);
     this.sessions.delete(sessionId);
     return {
-      content: '已取消本次 Bot 配置修改。',
+      content: '已取消本次服务器配置修改。',
       components: [],
       ephemeral: true
     };
@@ -670,9 +670,9 @@ function presentFieldPicker(session: BotConfigSession, snapshot: BotConfigSnapsh
     });
   return {
     content: [
-      snapshot.businessEnvironment === 'SANDBOX' ? 'SANDBOX 测试环境 · 测试余额不代表真实资金' : null,
-      `**Bot 配置${snapshot.displayRole ? ` · ${snapshot.displayRole}` : ''}**`,
-      `当前版本 ${session.version}。请选择要修改的配置字段。`
+      snapshot.businessEnvironment === 'SANDBOX' ? '⚠️ 当前余额不代表真实资金，任何操作均不会产生真实收付款' : null,
+      `**服务器配置${snapshot.displayRole ? ` · ${snapshot.displayRole}` : ''}**`,
+      `配置修订号 ${session.version}。请选择要修改的配置项。`
     ]
       .filter(Boolean)
       .join('\n'),
@@ -725,7 +725,7 @@ function presentValuePicker(session: BotConfigSession): BotConfigReply {
       ]
     });
   return {
-    content: `**Bot 配置 · ${fieldLabel(field)}**\n当前值：${formatConfigValue(field, session.currentValue)}`,
+    content: `**服务器配置 · ${fieldLabel(field)}**\n当前值：${formatConfigValue(field, session.currentValue)}`,
     components: rows,
     ephemeral: true
   };
@@ -740,7 +740,7 @@ function presentPreview(session: BotConfigSession): BotConfigReply {
     buttons.push({
       type: 'BUTTON',
       customId: customId('test', session.id),
-      label: '测试投递',
+      label: '发送频道预览',
       style: 'SECONDARY'
     });
   if (validation.mayApply && validation.validationToken)
@@ -757,7 +757,7 @@ function presentPreview(session: BotConfigSession): BotConfigReply {
     style: 'DANGER'
   });
   return {
-    content: `**Bot 配置变更预览**\n字段：${fieldLabel(field)}\n旧值：${formatConfigValue(field, session.currentValue)}\n新值：${formatConfigValue(field, session.proposedValue)}${issues ? `\n${issues}` : ''}`,
+    content: `**服务器配置变更预览**\n配置项：${fieldLabel(field)}\n旧值：${formatConfigValue(field, session.currentValue)}\n新值：${formatConfigValue(field, session.proposedValue)}${issues ? `\n${issues}` : ''}`,
     components: [{ components: buttons }],
     ephemeral: true
   };
@@ -765,7 +765,7 @@ function presentPreview(session: BotConfigSession): BotConfigReply {
 
 function presentSaved(snapshot: BotConfigSnapshot): BotConfigReply {
   return {
-    content: `Bot 配置已应用并刷新缓存。当前版本 ${snapshot.version}。`,
+    content: `服务器配置已应用。配置修订号 ${snapshot.version}。`,
     components: [],
     ephemeral: true
   };

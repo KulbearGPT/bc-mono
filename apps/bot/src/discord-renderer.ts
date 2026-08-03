@@ -27,7 +27,7 @@ import {
   type TextInputSpec
 } from './service-center-components.js';
 import { DISCORD_EXPERIENCE, discordExperienceColor } from './discord-experience.js';
-export const BOT_SANDBOX_WARNING = 'SANDBOX 测试环境 · 测试余额不代表真实资金';
+export const BOT_SANDBOX_WARNING = '⚠️ 当前余额不代表真实资金，任何操作均不会产生真实收付款';
 
 export function decorateSandboxPrivateMessage<
   T extends { visibility: 'EPHEMERAL' | 'PUBLIC' | 'PRIVATE_CHANNEL'; body: string }

@@ -150,7 +150,7 @@ describe('M18-US-07 support and high-risk experience', () => {
       expect(message).toContain('\n\n**写入结果**\n');
       expect(message).toMatch(/request_id: req-m18-(rejected|uncertain)$/u);
     }
-    expect(rejected).toContain('业务 API 已拒绝本次请求，本次操作未生效');
+    expect(rejected).toContain('系统已拒绝本次请求，本次操作未生效');
     expect(uncertain).toContain('写入结果暂时无法确认');
     expect(uncertain).not.toContain('本次操作未生效');
   });

@@ -36,7 +36,7 @@ export default class BotConfigButtonHandler extends InteractionHandler {
   ): Promise<void> {
     const actor = actorFromInteraction(interaction);
     if (!actor) {
-      await interaction.reply({ content: '请在服务器内管理 Bot 配置。', ephemeral: true });
+      await interaction.reply({ content: '请在服务器内管理运营配置。', ephemeral: true });
       return;
     }
     try {
@@ -109,9 +109,9 @@ function actorFromInteraction(interaction: ButtonInteraction): BotConfigActorCon
 }
 
 function botConfigOperation(operation: 'input' | 'clear' | 'test' | 'confirm' | 'cancel'): string {
-  if (operation === 'test') return '测试 Bot 配置投递';
-  if (operation === 'confirm') return '保存 Bot 配置';
-  if (operation === 'clear') return '清除 Bot 配置字段';
-  if (operation === 'cancel') return '取消 Bot 配置会话';
-  return '打开 Bot 配置输入框';
+  if (operation === 'test') return '发送配置频道预览';
+  if (operation === 'confirm') return '保存服务器配置';
+  if (operation === 'clear') return '清除服务器配置项';
+  if (operation === 'cancel') return '取消服务器配置修改';
+  return '打开服务器配置输入框';
 }

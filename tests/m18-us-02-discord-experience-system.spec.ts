@@ -94,7 +94,7 @@ describe('M18-US-02 Discord visual and copy system', () => {
 
     const copy = await readFile('apps/bot/src/bot-copy.ts', 'utf8');
     expect(copy).not.toContain('在线可接单');
-    expect(copy).toContain('内部审批、同一服务器与需求标签');
+    expect(copy).toContain('已通过资格审核、属于同一服务器且需求标签匹配');
   });
 });
 

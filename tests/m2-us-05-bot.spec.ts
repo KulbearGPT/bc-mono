@@ -20,7 +20,7 @@ describe('M2-US-05 Bot cancellation support states', () => {
 
     expect(message.title).toBe('🛎️ 取消申请已转客服');
     expect(message.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({name:'📋 当前订单状态',value:'ACCEPTED'}),
+      expect.objectContaining({name:'📋 当前订单状态',value:'已确认陪玩，等待陪玩全员就绪'}),
       expect.objectContaining({name:'🛎️ 客服任务',value:result.staffTaskId})
     ]));
     expect(JSON.stringify(message)).toContain('不会自动退款或释放预留');

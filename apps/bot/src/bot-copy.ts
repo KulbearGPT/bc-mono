@@ -19,7 +19,7 @@ export const BOT_COPY = {
     privateSupportPath: '充值、订单或申请遇到问题，可从服务入口联系猫舍前台处理。',
     privatePromise: '需求会先确认，订单进度随时可查；遇到问题可以找到真人客服。我们不在私信中索要密码或完整付款信息。',
     privateFirstSteps: '① 打开黑猫服务入口\n② 注册或确认玩家账户\n③ 点击「开始找陪玩」，创建属于你的私密订单',
-    invalidEntryChannel: '新人入口目前不可用，请联系管理员检查 Bot 的频道读写权限。'
+    invalidEntryChannel: '新人入口暂时无法使用，请联系猫舍前台处理。'
   },
   gifts: {
     staleBalance: '**🐟 猫条余额需要刷新**\n\n当前余额信息已经过期。请先刷新余额，再继续确认礼物。'
@@ -35,7 +35,7 @@ export const BOT_COPY = {
     staffReviewScope: '客服会核对订单记录、语音频道和双方说明；核对期间不会自动取消、退款或扣罚任何一方。',
     reservationOnly: '目前只是预留本单所需猫条，还没有产生正式消费。',
     dispatchStarted:
-      '**🐈‍⬛ 猫舍正在为你寻找合适的陪玩**\n符合内部审批、同一服务器与需求标签的成员现在可以报名。服务开始前取消订单，预留猫条会按规则释放。',
+      '**🐈‍⬛ 猫舍正在为你寻找合适的陪玩**\n已通过资格审核、属于同一服务器且需求标签匹配的陪玩现在可以报名。服务开始前取消订单，预留猫条会按规则释放。',
     accountUnavailable: '账户还没有准备好，请联系猫舍前台协助开通。',
     cancellationEscalated: '**🛎️ 猫舍前台已经接手处理**\n\n请留意订单频道的后续更新。核对完成前不会擅自变更资金状态。',
     cancellationCompleted: '订单已经取消，相关预留猫条也已释放。',
@@ -67,7 +67,7 @@ export const botCopy = {
       `订单刚刚有了新变化，我们已经为你刷新到最新内容。request_id: ${requestId}`,
     incomplete: (requestId: string) => `委托信息还差一点，请补齐标出的内容后再确认。request_id: ${requestId}`,
     channelCreationFailed: (requestId: string, reportFailed = false) =>
-      `无法创建订单频道：Discord 没有返回可用的私密频道，因此订单创建未继续。\n请联系猫舍前台检查 Bot 的频道创建与权限覆盖权限。request_id: ${requestId}${reportFailed ? '\n业务 API 也未能记录频道故障；请务必把这个编号提供给客服。' : ''}`,
+      `无法创建订单频道，因此订单创建未继续。\n请将下方编号提供给猫舍前台。request_id: ${requestId}${reportFailed ? '\n故障记录也未能完成，请务必一并说明。' : ''}`,
     cancellationRefreshed: (requestId: string) =>
       `原取消说明已过期或订单已有新变化，我们已经刷新到最新影响。请核对后再次确认；本次刷新没有取消订单。request_id: ${requestId}`
   },

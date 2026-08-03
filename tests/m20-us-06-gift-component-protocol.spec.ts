@@ -158,7 +158,7 @@ describe('M20-US-06 gift selected-recipient component protocol', () => {
     expect(api.createOrderGiftRequest).not.toHaveBeenCalled();
     expect(followUp).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining('本次未向业务 API 发起写请求')
+        content: expect.stringContaining('本次没有提交礼物请求，资金状态未改变')
       })
     );
   });

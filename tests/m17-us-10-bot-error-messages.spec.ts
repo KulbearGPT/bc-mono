@@ -39,9 +39,9 @@ describe('M17-US-10 precise Bot error messages', () => {
   });
 
   test.each([
-    ['GATEWAY_TIMEOUT', 'bot-api-timeout', '业务 API 在时限内没有响应'],
-    ['SERVICE_UNAVAILABLE', 'bot-api-unreachable', 'Bot 当前无法连接业务 API'],
-    ['INVALID_RESPONSE', 'bot-api-invalid-response', '业务 API 返回了 Bot 无法识别的响应']
+    ['GATEWAY_TIMEOUT', 'bot-api-timeout', '系统在时限内没有响应'],
+    ['SERVICE_UNAVAILABLE', 'bot-api-unreachable', '当前服务暂时无法连接'],
+    ['INVALID_RESPONSE', 'bot-api-invalid-response', '系统返回了无法确认的结果']
   ])('does not claim that an uncertain transport failure is safe to retry', (code, requestId, reason) => {
     const message = formatUserFacingError(
       { code, requestId, statusCode: 503, message: 'transport failed' },
@@ -58,12 +58,13 @@ describe('M17-US-10 precise Bot error messages', () => {
       operation: '打开个人中心',
       localRequestId: 'discord-interaction-123'
     });
-    expect(message).toContain('未分类的 Bot 内部异常：boom');
-    expect(message).toContain('无法从当前响应确认是否曾向业务 API 发起请求');
+    expect(message).toContain('系统发生未分类异常，当前无法确认详细原因');
+    expect(message).toContain('无法确认本次请求是否已送达');
+    expect(message).not.toContain('boom');
     expect(message).toContain('request_id: discord-interaction-123');
   });
 
-  test('includes a bounded server reason when no dedicated translation exists', () => {
+  test('does not expose an internal server reason when no dedicated translation exists', () => {
     const message = formatUserFacingError(
       new BotApiError({
         code: 'BUSINESS_RULE_ERROR',
@@ -73,8 +74,8 @@ describe('M17-US-10 precise Bot error messages', () => {
       }),
       { operation: '选择服务项目' }
     );
-    expect(message).toContain('业务 API 拒绝了当前操作');
-    expect(message).toContain('The selected catalog entry is archived.');
+    expect(message).toContain('当前业务状态不满足执行条件');
+    expect(message).not.toContain('The selected catalog entry is archived.');
     expect(message).toContain('request_id: req-archived');
   });
 

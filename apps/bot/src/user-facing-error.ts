@@ -84,16 +84,16 @@ const exactExplanations: ReadonlyArray<[RegExp, ErrorExplanation]> = [
   [
     /The operation failed before it could be completed\./iu,
     {
-      reason: '业务 API 在完成操作前发生内部异常，没有返回可确认的业务结果。',
-      nextStep: '请先查看最新状态，不要连续操作，并将下方编号提供给管理员查询服务端日志。'
+      reason: '系统暂时未能完成操作，也没有返回可确认的结果。',
+      nextStep: '请先查看最新状态，不要连续操作，并将下方编号提供给管理员查询处理记录。'
     }
   ]
 ];
 
 const codeExplanations: Readonly<Record<string, ErrorExplanation>> = {
   AUTHENTICATION_FAILED: {
-    reason: 'Bot 未能通过业务 API 的服务身份验证。',
-    nextStep: '请联系管理员检查 Bot 服务凭据；普通用户重复操作不会解决该问题。'
+    reason: '系统服务身份验证失败。',
+    nextStep: '请联系管理员处理服务连接配置；普通用户重复操作不会解决该问题。'
   },
   PERMISSION_DENIED: {
     reason: '当前 Discord 账号没有执行此操作所需的权限或对象归属。',
@@ -104,7 +104,7 @@ const codeExplanations: Readonly<Record<string, ErrorExplanation>> = {
     nextStep: '请先从新人入口完成客户注册；如已经注册，请联系猫舍前台核对账号绑定。'
   },
   AUTH_REQUIRED: {
-    reason: '业务 API 无法从当前 Discord 身份解析有效账户。',
+    reason: '系统无法从当前 Discord 身份确认有效账户。',
     nextStep: '请在服务器内使用已注册账号操作；如账号已注册，请联系猫舍前台核对绑定。'
   },
   NOT_FOUND: {
@@ -120,15 +120,15 @@ const codeExplanations: Readonly<Record<string, ErrorExplanation>> = {
     nextStep: '请重新打开对应面板，核对最新状态后再操作。'
   },
   IDEMPOTENCY_CONFLICT: {
-    reason: '同一个操作编号此前已用于不同请求，业务 API 为避免重复写入而拒绝执行。',
+    reason: '同一个操作编号此前已用于不同操作，系统为避免重复执行而拒绝处理。',
     nextStep: '请关闭旧面板并从最新入口重新发起操作；不要重复点击原组件。'
   },
   VALIDATION_ERROR: {
-    reason: '提交的数据未通过业务 API 校验。',
+    reason: '提交的内容未通过校验。',
     nextStep: '请按界面要求检查输入；如果输入来自旧组件，请重新打开最新面板。'
   },
   BUSINESS_RULE_ERROR: {
-    reason: '业务 API 拒绝了当前操作，因为当前业务状态不满足执行条件。',
+    reason: '当前业务状态不满足执行条件。',
     nextStep: '请重新打开对应面板查看当前状态和可用操作。'
   },
   INSUFFICIENT_FUNDS: {
@@ -136,19 +136,19 @@ const codeExplanations: Readonly<Record<string, ErrorExplanation>> = {
     nextStep: '请查看余额和现有预留，完成充值或释放其他预留后再操作。'
   },
   RATE_LIMITED: {
-    reason: '当前账号或 Bot 在短时间内提交了过多请求，业务 API 已限流。',
+    reason: '当前账号在短时间内操作过于频繁，系统已暂缓处理。',
     nextStep: '请停止连续点击，等待限流窗口结束后从最新面板操作一次。'
   },
   GATEWAY_TIMEOUT: {
-    reason: '业务 API 在时限内没有响应。',
+    reason: '系统在时限内没有响应。',
     nextStep: '请先重新打开订单查看最新状态，不要连续提交；若状态未变化，再使用同一入口操作一次。'
   },
   SERVICE_UNAVAILABLE: {
-    reason: 'Bot 当前无法连接业务 API。',
+    reason: '当前服务暂时无法连接。',
     nextStep: '请先重新打开订单查看最新状态，不要连续提交；连接恢复后再从最新面板继续。'
   },
   INVALID_RESPONSE: {
-    reason: '业务 API 返回了 Bot 无法识别的响应。',
+    reason: '系统返回了无法确认的结果。',
     nextStep: '请先重新打开订单查看最新状态，不要连续提交，并将下方编号提供给管理员排查。'
   }
 };
@@ -156,15 +156,12 @@ const codeExplanations: Readonly<Record<string, ErrorExplanation>> = {
 export function formatUserFacingError(error: unknown, options: UserFacingErrorOptions): string {
   if (!isApiError(error)) {
     const requestId = cleanRequestId(options.localRequestId ?? 'local-unhandled-error');
-    const detail =
-      error instanceof Error
-        ? `未分类的 Bot 内部异常：${cleanServerReason(error.message)}`
-        : 'Bot 收到了非标准异常值，无法读取进一步原因。';
+    const detail = '系统发生未分类异常，当前无法确认详细原因。';
     return [
       `⚠️ 无法${options.operation}`,
       `**原因**\n${detail}`,
       '**下一步**\n请先查看最新状态，不要连续操作，并将下方编号提供给管理员。',
-      '**写入结果**\n无法从当前响应确认是否曾向业务 API 发起请求。',
+      '**写入结果**\n无法确认本次请求是否已送达。',
       `request_id: ${requestId}`
     ].join('\n\n');
   }
@@ -173,7 +170,7 @@ export function formatUserFacingError(error: unknown, options: UserFacingErrorOp
   const uncertain = uncertainCodes.has(error.code) || (error.statusCode ?? 500) >= 500;
   const outcome = uncertain
     ? '由于没有收到可信的业务结果，写入结果暂时无法确认。'
-    : '业务 API 已拒绝本次请求，本次操作未生效。';
+    : '系统已拒绝本次请求，本次操作未生效。';
   return [
     `⚠️ 无法${options.operation}`,
     `**原因**\n${explanation.reason}`,
@@ -193,8 +190,8 @@ export function formatDiscordError(error: unknown, operation: string, interactio
 export function formatUnexpectedBotResult(operation: string, requestId: string): string {
   return [
     `⚠️ 无法${operation}`,
-    '**原因**\nBot 收到了无法识别的流程结果。',
-    '**下一步**\n请重新打开对应面板，并将下方编号提供给管理员排查流程协议。',
+    '**原因**\n当前操作没有返回可确认的结果。',
+    '**下一步**\n请重新打开对应面板，并将下方编号提供给管理员处理。',
     '**写入结果**\n当前页面无法确认最新业务状态。',
     `request_id: ${cleanRequestId(requestId)}`
   ].join('\n\n');
@@ -206,14 +203,8 @@ function explainApiError(error: ApiErrorShape): ErrorExplanation {
   const byCode = codeExplanations[error.code];
   if (!byCode) {
     return {
-      reason: `业务 API 返回 ${cleanCode(error.code)}。服务端原因：${cleanServerReason(error.message)}`,
-      nextStep: '请按服务端原因检查当前状态；如仍无法判断，请将下方编号提供给猫舍前台。'
-    };
-  }
-  if (error.code === 'BUSINESS_RULE_ERROR' || error.code === 'VALIDATION_ERROR') {
-    return {
-      reason: `${byCode.reason} 服务端原因：${cleanServerReason(error.message)}`,
-      nextStep: byCode.nextStep
+      reason: `系统暂时无法完成此操作（错误代码 ${cleanCode(error.code)}）。`,
+      nextStep: '请重新打开对应面板查看最新状态；如仍无法处理，请将下方编号提供给猫舍前台。'
     };
   }
   return byCode;
@@ -228,18 +219,6 @@ function isApiError(error: unknown): error is ApiErrorShape {
     typeof value.requestId === 'string' &&
     (value.statusCode === undefined || typeof value.statusCode === 'number')
   );
-}
-
-function cleanServerReason(value: string): string {
-  const normalized = [...value]
-    .map((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint < 32 || codePoint === 127 ? ' ' : character;
-    })
-    .join('')
-    .replace(/\s+/gu, ' ')
-    .trim();
-  return (normalized || '服务端未提供附加原因').slice(0, 240);
 }
 
 function cleanRequestId(value: string): string {

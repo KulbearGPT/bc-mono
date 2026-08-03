@@ -68,7 +68,7 @@ describe('M18-US-06 service lifecycle experience', () => {
 
     expect(message.title).toContain('服务圆满完成');
     expect(message.tone).toBe('SUCCESS');
-    expect(JSON.stringify(message)).toContain('订单与资金结果已由业务 API 记录');
+    expect(JSON.stringify(message)).toContain('订单已完成；资金与收益结果以本卡显示为准');
     expect(JSON.stringify(message)).not.toMatch(/预计收益|应付|payout/iu);
   });
 
