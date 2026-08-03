@@ -68,7 +68,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(buildAdminResourceQuery({ limit: 500, query: '  ' })).toBe('?limit=100');
   });
 
-  test('keeps L2 catalog and earning views read-only', () => {
+  test('keeps L2 catalog and earning views read-only while explaining unavailable actions', () => {
     const catalog = buildAdminBusinessPage({
       page: 'serviceCatalog',
       permissions: ['catalog.read'],
@@ -84,9 +84,16 @@ describe('M4-US-03 Dashboard business object pages', () => {
       nextCursor: null
     });
 
-    expect(catalog.actions).toEqual([]);
+    expect(catalog.actions).toHaveLength(3);
+    expect(catalog.actions.every((action) => action.enabled === false)).toBe(true);
+    expect(catalog.actions.map((action) => action.requiredPermission)).toEqual([
+      'catalog.manage',
+      'catalog.manage',
+      'catalog.manage'
+    ]);
     expect(catalog.pagination).toEqual({ hasNext: true, nextCursor: 'next' });
-    expect(earnings.actions).toEqual([]);
+    expect(earnings.actions).toHaveLength(2);
+    expect(earnings.actions.every((action) => action.enabled === false)).toBe(true);
   });
 
   test('only exposes write actions backed by complete forms and API mappings', () => {
@@ -119,7 +126,10 @@ describe('M4-US-03 Dashboard business object pages', () => {
     const l1Model = buildAdminBusinessPage({ page: 'orders', permissions: ['order.read'], status: 'READY', items: [accepted] });
 
     expect(l4Model.actions.map((action) => action.id)).toContain('CANCEL_ORDER_RESOLUTION');
-    expect(l1Model.actions.map((action) => action.id)).not.toContain('CANCEL_ORDER_RESOLUTION');
+    expect(l1Model.actions.find((action) => action.id === 'CANCEL_ORDER_RESOLUTION')).toMatchObject({
+      enabled: false,
+      requiredPermission: 'order.resolve'
+    });
 
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model: l4Model, onAction: () => undefined }));
     expect(html).toContain('订单 P-ACCEPTED');

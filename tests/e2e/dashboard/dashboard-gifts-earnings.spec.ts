@@ -44,8 +44,8 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
 
   test('DE2E-GFT-002 archiving a historically used gift removes it from new selection without changing request snapshots', async ({ page, request }) => {
     await loginAndOpen(page, '礼物目录');
-    await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '删除' }).click();
-    await submitAction(page, '删除操作', 'GIFT_ARCHIVE');
+    await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '归档礼物' }).click();
+    await submitAction(page, '归档礼物操作', 'GIFT_ARCHIVE');
     await expect(page.getByText('E2E 星光礼物')).toHaveCount(0);
     const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();
     expect(state.giftRecords[0]).toMatchObject({ status: 'ARCHIVED', historicalRequestCount: 1 });
@@ -91,14 +91,15 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     expect(state.earningPaymentWrites).toBe(1);
   });
 
-  test('AT-EAR-002 explains the L2 read-only boundary without exposing write controls', async ({ page }) => {
+  test('AT-EAR-002 explains the L2 read-only boundary with non-executable action guidance', async ({ page }) => {
     await loginAndOpen(page, '陪玩收益', 'l2');
 
     const permissionNotice = page.getByRole('status').filter({ hasText: '当前为只读视图' });
     await expect(permissionNotice).toContainText('当前为只读视图');
     await expect(permissionNotice).toContainText('需要 L3+ 的收益管理权限');
-    await expect(page.getByRole('button', { name: '确认收益' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '确认收益' })).toBeDisabled();
     await expect(page.getByRole('button', { name: '标记已支付' })).toHaveCount(0);
-    await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '确认收益' })).toHaveAttribute('title', /earnings\.manage/u);
+    await expect(page.getByRole('columnheader', { name: '操作' })).toBeVisible();
   });
 });

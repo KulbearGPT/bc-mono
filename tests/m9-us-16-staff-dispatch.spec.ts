@@ -25,7 +25,7 @@ describe("M9-US-16 staff selection observer", () => {
       status: "READY",
       items: [],
     });
-    expect(page.actions).toEqual([]);
+    expect(page.actions.map((action) => action.id)).not.toContain("MANUAL_DISPATCH");
   });
 
   test("retires the old targeted-dispatch client entry points", async () => {

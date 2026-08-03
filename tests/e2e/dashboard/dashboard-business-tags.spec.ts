@@ -39,4 +39,12 @@ test.describe('Dashboard browser E2E: business tags', () => {
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.giftRecords[0]).toMatchObject({ giftCategoryTagId: 'tag-gift-celebration', priceMinor: 1000 });
   });
+
+  test('DE2E-TAG-003 a network failure leaves a retryable error state instead of an endless loader', async ({ page }) => {
+    await page.route('**/api/v1/admin/business-tags', (route) => route.abort('connectionfailed'));
+    await page.goto('/__e2e/login/l3'); await page.waitForURL('**/');
+    await page.getByRole('link', { name: '业务标签库', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('业务标签库载入失败');
+    await expect(page.getByRole('button', { name: '重试' })).toBeEnabled();
+  });
 });

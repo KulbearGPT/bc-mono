@@ -10,6 +10,8 @@ export function AccessManagementRoute(props: { capabilities: DashboardCapabiliti
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [staffAccounts,setStaffAccounts]=useState<StaffAccountRecord[]>([]);
+  const [staffNextCursor,setStaffNextCursor]=useState<string|null>(null);
+  const [staffLoadingMore,setStaffLoadingMore]=useState(false);
   const api = createDashboardApiClient();
 
   const load = useCallback(async () => {
@@ -23,14 +25,17 @@ export function AccessManagementRoute(props: { capabilities: DashboardCapabiliti
     const payload = await response.json().catch(() => null) as { data?: { items?: RoleMappingRecord[] }; requestId?: string } | null;
     if (response.status === 428||staffResponse.status===428) { setModel({ kind: 'STEP_UP_REQUIRED', mappings: [], requestId: payload?.requestId ?? null }); return; }
     if (response.status === 403) { setModel({ kind: 'FORBIDDEN', mappings: [], requestId: payload?.requestId ?? null }); return; }
-    const staffPayload=await staffResponse.json().catch(()=>null) as {data?:{items?:StaffAccountRecord[]}}|null;
+    const staffPayload=await staffResponse.json().catch(()=>null) as {data?:{items?:StaffAccountRecord[];nextCursor?:string|null}}|null;
     if (!response.ok || !Array.isArray(payload?.data?.items)||!staffResponse.ok||!Array.isArray(staffPayload?.data?.items)) { setModel({ kind: 'ERROR', mappings: [], requestId: payload?.requestId ?? null }); return; }
     setStaffAccounts(staffPayload.data.items);
+    setStaffNextCursor(staffPayload.data.nextCursor??null);
     const mappings = payload.data.items;
     setModel({ kind: mappings.length ? 'READY' : 'EMPTY', mappings, requestId: null });
   }, [props.capabilities.permissions.join('|')]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadMoreStaff=async(cursor:string)=>{setStaffLoadingMore(true);setNotice(null);try{const response=await api.get(`/api/v1/admin/staff?limit=100&cursor=${encodeURIComponent(cursor)}`);const payload=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:StaffAccountRecord[];nextCursor?:string|null}}|null;if(!response.ok||!Array.isArray(payload?.data?.items)){setNotice(`员工下一页载入失败${payload?.requestId?` · request_id: ${payload.requestId}`:''}`);return;}setStaffAccounts((current)=>{const byId=new Map(current.map((staff)=>[staff.staffId,staff]));for(const staff of payload.data!.items!)byId.set(staff.staffId,staff);return Array.from(byId.values());});setStaffNextCursor(payload.data.nextCursor??null);}catch{setNotice('员工下一页载入失败，请重试。');}finally{setStaffLoadingMore(false);}};
 
   const updateMapping = async (mapping: RoleMappingRecord, discordRoleId: string, reasonCode: string) => {
     setSubmitting(true); setNotice(null);
@@ -51,5 +56,5 @@ export function AccessManagementRoute(props: { capabilities: DashboardCapabiliti
 
   const writeStaff=async(request:{method:'POST'|'PATCH';path:string;body:Record<string,unknown>},successMessage='员工账号已更新，旧会话已按规则撤销。')=>{setSubmitting(true);setNotice(null);try{const response=request.method==='POST'?await api.post(request.path,request.body):await api.patch(request.path,request.body);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setNotice(`${payload?.error?.message??'员工账号操作失败。'}${payload?.requestId?` · request_id: ${payload.requestId}`:''}`);return;}setNotice(successMessage);await load();}catch(error){setNotice(error instanceof Error?error.message:'员工账号操作失败。');}finally{setSubmitting(false);}};
 
-  return <AccessManagementPage model={model} staffAccounts={staffAccounts} submitting={submitting} notice={notice} onRefresh={() => void load()} onUpdateMapping={(...args) => void updateMapping(...args)} onApproveElevation={(staff,reason)=>void writeStaff(buildStaffElevationApprovalRequest(staff,reason))} onUpdateStaff={(staff,level,status,reason)=>void writeStaff(buildStaffRoleUpdateRequest(staff,level,status,reason))} onRevokeSessions={(staff,reason)=>void writeStaff(buildStaffSessionRevocationRequest(staff,reason))} onReconcileStaff={(staff)=>void writeStaff(buildStaffRoleReconciliationRequest(staff),'已进入持久化对账队列；可刷新查看状态。')} />;
+  return <AccessManagementPage model={model} staffAccounts={staffAccounts} staffNextCursor={staffNextCursor} staffLoadingMore={staffLoadingMore} onNextStaffPage={staffNextCursor?()=>void loadMoreStaff(staffNextCursor):undefined} submitting={submitting} notice={notice} onRefresh={() => void load()} onUpdateMapping={(...args) => void updateMapping(...args)} onApproveElevation={(staff,reason)=>void writeStaff(buildStaffElevationApprovalRequest(staff,reason))} onUpdateStaff={(staff,level,status,reason)=>void writeStaff(buildStaffRoleUpdateRequest(staff,level,status,reason))} onRevokeSessions={(staff,reason)=>void writeStaff(buildStaffSessionRevocationRequest(staff,reason))} onReconcileStaff={(staff)=>void writeStaff(buildStaffRoleReconciliationRequest(staff),'已进入持久化对账队列；可刷新查看状态。')} />;
 }

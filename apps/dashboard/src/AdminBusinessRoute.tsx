@@ -24,6 +24,7 @@ import {
 } from './admin-business.js';
 import { groupEnabledBusinessTags, type BusinessTagRecord, type BusinessTagGroups } from './business-tags.js';
 import { createLatestRequestSequence } from './live-query-refresh.js';
+import { RetriableWriteKeys } from './request-state.js';
 
 export { createLatestRequestSequence } from './live-query-refresh.js';
 
@@ -53,11 +54,13 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
-  const [dispatchCandidateOptions,setDispatchCandidateOptions]=useState<Array<Record<string,unknown>>>([]);
+  const [referenceDataError,setReferenceDataError]=useState<string|null>(null);
   const [participantPlayerOptions,setParticipantPlayerOptions]=useState<Array<Record<string,unknown>>>([]);
   const [participantMutationError,setParticipantMutationError]=useState<string|null>(null);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
   const requestSequence=useRef(createLatestRequestSequence()).current;
+  const detailRequestSequence=useRef(createLatestRequestSequence()).current;
+  const mutationWriteKeys=useRef(new RetriableWriteKeys());
   const definition = buildAdminBusinessPage({ page: props.page, permissions: props.capabilities.permissions, status: 'LOADING' });
   const mayReadPage = props.capabilities.permissions.includes(definition.requiredPermission);
 
@@ -85,16 +88,37 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     }
   }
 
+  async function loadBusinessTagOptions() {
+    try {
+      const response=await client.get('/api/v1/admin/business-tags?enabled=true');
+      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：业务标签不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      const tags=Array.isArray(body?.data)?body.data:body?.data?.items??[];
+      setBusinessTagOptions(groupEnabledBusinessTags(tags));
+    }catch{setReferenceDataError('参考数据载入失败：业务标签网络请求失败，请刷新后重试。');}
+  }
+
+  async function loadServiceCatalogOptions() {
+    try {
+      const response=await client.get('/api/v1/admin/service-catalog?limit=100');
+      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：服务目录不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));
+    }catch{setReferenceDataError('参考数据载入失败：服务目录网络请求失败，请刷新后重试。');}
+  }
+
   useEffect(() => {
     requestSequence.invalidate();
+    detailRequestSequence.invalidate();
     setActiveAction(null);
     setDetail(null);
+    setReferenceDataError(null);
     activeWrite.current = null;
     const restored=initialCollectionState(props.page);const restoredFilters=restored?.filters??{};setFilters(restoredFilters);setView(restored?.view??'CARD');setSortBy(restored?.sortBy??'createdAt');setSortDirection(restored?.sortDirection??'desc');
     if (!mayReadPage) return;
     void load(null, restoredFilters,{sortBy:restored?.sortBy??'createdAt',sortDirection:restored?.sortDirection??'desc'});
-    if(['players','serviceCatalog','giftCatalog'].includes(props.page))void client.get('/api/v1/admin/business-tags?enabled=true').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;const items=Array.isArray(body?.data)?body.data:body?.data?.items??[];if(response.ok)setBusinessTagOptions(groupEnabledBusinessTags(items));});
-    if(props.page==='players'||props.page==='servicePackages')void client.get('/api/v1/admin/service-catalog?limit=100').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(response.ok)setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));});
+    if(['players','serviceCatalog','giftCatalog'].includes(props.page))void loadBusinessTagOptions();
+    if(props.page==='players'||props.page==='servicePackages')void loadServiceCatalogOptions();
   }, [props.page, mayReadPage]);
 
   async function submitAction(action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) {
@@ -134,10 +158,13 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   async function openDetail(item: Record<string, unknown>) {
     const page = props.page;
     if (page !== 'orders' && page !== 'users' && page !== 'players' && page !== 'giftRequests' && page !== 'giftCatalog' && page !== 'serviceCatalog' && page !== 'servicePackages') return;
+    const sequence = detailRequestSequence.begin();
+    const isCurrent = () => detailRequestSequence.isCurrent(sequence);
     setDetail({ kind: 'LOADING', page, requestId: null, data: null });
     try {
       const response = await client.get(buildAdminDetailRequest(page, item));
       const body = await response.json().catch(() => null) as { requestId?: string; data?: Record<string, unknown> } | null;
+      if (!isCurrent()) return;
       if (response.status === 403) {
         setDetail({ kind: 'FORBIDDEN', page, requestId: body?.requestId ?? null, data: null });
         return;
@@ -151,10 +178,26 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
         if(page==='orders'&&typeof item.id==='string'){
           const participantResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participants?limit=100`);
           const participantBody=await participantResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
           if(!participantResponse.ok||!participantBody?.data){setDetail({kind:participantResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:participantBody?.requestId??null,data:null});return;}
-          const requirementResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/requirements?limit=100`);const requirementBody=await requirementResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;if(!requirementResponse.ok||!requirementBody?.data){setDetail({kind:requirementResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:requirementBody?.requestId??null,data:null});return;}
-          const transcriptResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/transcript?limit=25`);const transcriptBody=await transcriptResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
-          const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(candidateResponse.ok){const candidates=candidateBody?.data?.items??[];setParticipantPlayerOptions(candidates);const projects=new Map<string,Record<string,unknown>>();for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}setServiceCatalogOptions(Array.from(projects.values()));}
+          const requirementResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/requirements?limit=100`);
+          const requirementBody=await requirementResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
+          if(!requirementResponse.ok||!requirementBody?.data){setDetail({kind:requirementResponse.status===403?'FORBIDDEN':'ERROR',page,requestId:requirementBody?.requestId??null,data:null});return;}
+          const transcriptResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/transcript?limit=25`);
+          const transcriptBody=await transcriptResponse.json().catch(()=>null) as {requestId?:string;data?:Record<string,unknown>}|null;
+          if (!isCurrent()) return;
+          const candidateResponse=await client.get(`/api/v1/admin/orders/${encodeURIComponent(item.id)}/participant-candidates?limit=100`);
+          const candidateBody=await candidateResponse.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
+          if (!isCurrent()) return;
+          if(candidateResponse.ok){
+            const candidates=candidateBody?.data?.items??[];
+            setParticipantPlayerOptions(candidates);
+            const projects=new Map<string,Record<string,unknown>>();
+            for(const candidate of candidates){for(const project of Array.isArray(candidate.projects)?candidate.projects:[]){if(project&&typeof project==='object'&&!Array.isArray(project)&&typeof (project as Record<string,unknown>).id==='string')projects.set(String((project as Record<string,unknown>).id),project as Record<string,unknown>);}}
+            for(const participant of Array.isArray(participantBody.data.items)?participantBody.data.items:[]){if(participant&&typeof participant==='object'&&!Array.isArray(participant)){const record=participant as Record<string,unknown>;if(typeof record.serviceCatalogVersionId==='string')projects.set(record.serviceCatalogVersionId,{id:record.serviceCatalogVersionId,game:record.game,gameDisplayName:record.gameDisplayName,service:record.service,serviceDisplayName:record.serviceDisplayName,region:record.region,regionDisplayName:record.regionDisplayName,billingUnitMinutes:record.billingUnitMinutes,customerUnitPriceMinor:record.customerUnitPriceMinor});}}
+            setServiceCatalogOptions(Array.from(projects.values()));
+          }
           data={...body.data,requirements:requirementBody.data,participants:participantBody.data,transcript:transcriptResponse.ok&&transcriptBody?.data?transcriptBody.data:{items:[],nextCursor:null}};
           setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data,
             timelinePage: { kind: 'READY', requestId: null },transcriptPage:{kind:transcriptResponse.ok?'READY':'ERROR',requestId:transcriptBody?.requestId??null} });
@@ -172,20 +215,22 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
       setDetail({ kind: 'READY', page, requestId: body.requestId ?? null, data: body.data, consumptions: { kind: 'LOADING', requestId: null, items: [], nextCursor: null } });
       await loadUserConsumptions(userId, null, false);
     } catch {
-      setDetail({ kind: 'ERROR', page, requestId: null, data: null });
+      if (isCurrent()) setDetail({ kind: 'ERROR', page, requestId: null, data: null });
     }
   }
 
   async function mutateParticipant(kind:'ADD'|'UPDATE',fields:Record<string,unknown>){
     if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;
     const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;
-    try{setParticipantMutationError(null);const request=kind==='ADD'?buildAddOrderParticipantRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildAddOrderParticipantRequest>[1]):buildUpdateOrderParticipantRequest(order.id,String(fields.participantId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateOrderParticipantRequest>[2]);const response=request.method==='POST'?await client.post(request.path,request.body,`dashboard:${crypto.randomUUID()}`):await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'陪玩明细未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}
+    try{setParticipantMutationError(null);const request=kind==='ADD'?buildAddOrderParticipantRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildAddOrderParticipantRequest>[1]):buildUpdateOrderParticipantRequest(order.id,String(fields.participantId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateOrderParticipantRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'陪玩明细未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}
     catch(error){setParticipantMutationError(error instanceof Error?error.message:'陪玩明细表单无效。');}
   }
 
-  async function mutateOrderNote(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderNoteRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderNoteRequest>[1]);const response=await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'订单备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'订单备注表单无效。');}}
+  async function mutateOrderNote(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderNoteRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderNoteRequest>[1]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'订单备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'订单备注表单无效。');}}
 
-  async function mutateRequirement(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderRequirementRequest(order.id,String(fields.requirementId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderRequirementRequest>[2]);const response=await client.patch(request.path,request.body,`dashboard:${crypto.randomUUID()}`);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'席位备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'席位备注表单无效。');}}
+  async function mutateRequirement(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderRequirementRequest(order.id,String(fields.requirementId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderRequirementRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'席位备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'席位备注表单无效。');}}
+
+  async function sendAppendOnlyMutation(request:{method:'POST'|'PUT'|'PATCH';path:string;body:unknown}):Promise<Response>{const fingerprint=JSON.stringify(request);const key=mutationWriteKeys.current.get(fingerprint);const response=request.method==='POST'?await client.post(request.path,request.body,key):request.method==='PUT'?await client.put(request.path,request.body,key):await client.patch(request.path,request.body,key);if(response.ok)mutationWriteKeys.current.complete(fingerprint);return response;}
 
   async function loadUserConsumptions(userId: string, cursor: string | null, append: boolean) {
     try {
@@ -250,11 +295,14 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   }
 
   async function openAction(action:AdminBusinessAction,item?:Record<string,unknown>){
+    if(action.enabled===false)return;
     activeWrite.current=null;
     if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
-      const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
-      const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
-      if(response.ok){const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));}
+      try{const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
+        const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
+        if(!response.ok){setReferenceDataError(`参考数据载入失败：陪玩分成不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+        const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));
+      }catch{setReferenceDataError('参考数据载入失败：陪玩分成网络请求失败，请刷新后重试。');return;}
     }
     setActiveAction({action,item});setActionError(null);setActionStatus('IDLE');
   }
@@ -271,7 +319,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     activeAction={activeAction} actionStatus={actionStatus} actionError={actionError}
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
-    detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => setDetail(null)}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} dispatchCandidateOptions={dispatchCandidateOptions}
+    detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => { detailRequestSequence.invalidate(); setDetail(null); }}
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} referenceDataError={referenceDataError}
     participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} onUpdateOrderNote={(fields)=>void mutateOrderNote(fields)} onUpdateOrderRequirement={(fields)=>void mutateRequirement(fields)} />;
 }

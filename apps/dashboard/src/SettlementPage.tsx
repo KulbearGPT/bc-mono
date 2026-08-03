@@ -4,7 +4,7 @@ import { formatMinorCurrency } from './admin-business.js';
 import type { SettlementAction, SettlementPageModel } from './settlements.js';
 
 export function SettlementPage(props: { model: SettlementPageModel; onRetry: () => void;
-  onAction: (action: SettlementAction, item?: Record<string, unknown>, fields?: Record<string, unknown>) => void }) {
+  onAction: (action: SettlementAction, item?: Record<string, unknown>, fields?: Record<string, unknown>) => void;onNextPage?:()=>void }) {
   const [period, setPeriod] = useState({ periodStart: '', periodEnd: '', cutoffAt: '', timeZone: 'Asia/Shanghai', currency: 'CAT' });
   const title = props.model.section === 'settlements' ? '周期结算' : '周期周报';
   if (props.model.kind === 'FORBIDDEN') return <section className="dashboard-page"><header className="page-heading"><div><span className="page-eyebrow">SETTLEMENTS</span><h1>{title}</h1><p>当前账户没有此工作区权限。</p></div></header></section>;
@@ -22,20 +22,25 @@ export function SettlementPage(props: { model: SettlementPageModel; onRetry: () 
     {props.model.kind === 'LOADING' && <div className="state-card">正在载入...</div>}
     {props.model.kind === 'ERROR' && <div className="state-card state-card--error"><strong>载入失败</strong><p>request_id: {props.model.requestId ?? '—'}</p></div>}
     {props.model.kind === 'EMPTY' && <div className="state-card">{props.model.emptyMessage ?? `暂无${props.model.section === 'settlements' ? '结算批次' : '周报'}。`}</div>}
-    {props.model.kind === 'READY' && <div className="table-scroll content-panel content-panel--flush"><table className="data-table settlement-table"><thead><tr>{['编号','状态','周期','应付 CAT / 实付 USD','修订/版本','操作'].map((label) => <th className={label === '操作' ? 'data-column--actions' : undefined} key={label}>{label}</th>)}</tr></thead><tbody>{props.model.items.map((item) => <tr key={String(item.id)}><td>{String(item.publicId ?? item.id)}</td><td>{String(item.status ?? '—')}</td><td>{date(item.periodStart)}<br />{date(item.periodEnd)}</td><td>{formatSettlementPayout(settlementAmount(item))}</td><td>{String(item.version ?? item.currentRevision ?? '—')}</td><td className="table-actions"><div className="table-actions__group"><RowActions model={props.model} item={item} onAction={props.onAction} /></div></td></tr>)}</tbody></table></div>}
+    {props.model.kind === 'READY' && <div className="table-scroll content-panel content-panel--flush"><table className="data-table settlement-table"><thead><tr>{['编号','状态','周期','应付 CAT / 实付 USD','修订/版本','操作'].map((label) => <th className={label === '操作' ? 'data-column--actions' : undefined} key={label}>{label}</th>)}</tr></thead><tbody>{props.model.items.map((item) => <tr key={String(item.id)}><td>{String(item.publicId ?? item.id)}</td><td>{String(item.status ?? '—')}</td><td>{date(item.periodStart)}<br />{date(item.periodEnd)}</td><td>{formatSettlementPayout(settlementAmount(item))}</td><td>{String(item.version ?? item.currentRevision ?? '—')}</td><td className="table-actions"><div className="table-actions__group"><RowActions model={props.model} item={item} onAction={props.onAction} /></div></td></tr>)}</tbody></table>{props.model.nextCursor&&props.onNextPage?<div className="pagination-bar panel-padding"><button type="button" disabled={props.model.loadingMore} onClick={props.onNextPage}>{props.model.loadingMore?'载入中…':`继续加载${props.model.section==='settlements'?'结算批次':'周报'}`}</button></div>:null}</div>}
   </section>;
 }
 
 function RowActions({ model, item, onAction }: { model: SettlementPageModel; item: Record<string, unknown>; onAction: (action: SettlementAction, item?: Record<string, unknown>, fields?: Record<string, unknown>) => void }) {
   const [showPaymentEditor, setShowPaymentEditor] = useState(false);
   const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
+  const [showVoidEditor,setShowVoidEditor]=useState(false);
+  const [voidReason,setVoidReason]=useState('OPERATIONS_VOID');
+  const [replacementConfirmed,setReplacementConfirmed]=useState(false);
+  const [replacementBatchId]=useState(()=>crypto.randomUUID());
   if (model.section === 'reports') return <button onClick={() => onAction('EXPORT', item, { exportType: 'CURRENT' })}><Download size={15} />CSV</button>;
   const status = String(item.status); const actions: Array<[SettlementAction, string, typeof Send]> = [];
   if (status === 'DRAFT' && model.actions.includes('SUBMIT')) actions.push(['SUBMIT','提交复核',Send]);
   if (status === 'PENDING_REVIEW' && model.actions.includes('APPROVE')) actions.push(['APPROVE','批准',Check]);
   if (['APPROVED','EXPORTED','PARTIALLY_PAID'].includes(status) && model.actions.includes('EXPORT')) actions.push(['EXPORT','清单',Download]);
   if (['APPROVED','EXPORTED','PARTIALLY_PAID'].includes(status) && model.actions.includes('PAYMENT_RESULTS')) actions.push(['PAYMENT_RESULTS','登记结果',FileText]);
-  if (model.actions.includes('VOID') && ['DRAFT','PENDING_REVIEW','APPROVED','EXPORTED'].includes(status)) actions.push(['VOID','作废',XCircle]);
+  const mayVoid=model.actions.includes('VOID')&&['DRAFT','PENDING_REVIEW','APPROVED','EXPORTED'].includes(status);
+  const requiresReplacement=['APPROVED','EXPORTED'].includes(status);
   const unpaidItems = Array.isArray(item.items) ? item.items.filter((value) => (value as Record<string, unknown>).paymentStatus !== 'SUCCEEDED') as Record<string, unknown>[] : [];
   const results = unpaidItems.flatMap((row) => {
     const draft = paymentDrafts[String(row.id)];
@@ -49,7 +54,13 @@ function RowActions({ model, item, onAction }: { model: SettlementPageModel; ite
     <div className="inline-actions">{actions.map(([action,label,Icon]) => <button key={action} type="button" onClick={() => {
       if (action === 'PAYMENT_RESULTS') setShowPaymentEditor((visible) => !visible);
       else onAction(action, item, defaultFields(action));
-    }}><Icon size={15} />{label}</button>)}</div>
+    }}><Icon size={15} />{label}</button>)}{mayVoid&&<button type="button" onClick={()=>setShowVoidEditor((visible)=>!visible)}><XCircle size={15}/>作废</button>}</div>
+    {showVoidEditor&&<div className="payment-editor settlement-void-editor">
+      <strong>{requiresReplacement?'作废并原子创建替代批次':'作废当前批次'}</strong>
+      <label className="field"><span>作废原因代码</span><input value={voidReason} onChange={(event)=>setVoidReason(event.currentTarget.value)} pattern="[A-Z][A-Z0-9_]{2,99}" required/></label>
+      {requiresReplacement?<><p>批准或导出的批次不可孤立作废。统一 API 将按当前周期、Guild 与币种原子创建替代批次；任一步失败都不会作废原批次。</p><label className="checkbox-field"><input type="checkbox" checked={replacementConfirmed} onChange={(event)=>setReplacementConfirmed(event.currentTarget.checked)}/><span>确认创建替代批次并保留原批次审计链</span></label></>:null}
+      <button className="button-primary" type="button" disabled={!voidReason.trim()||requiresReplacement&&!replacementConfirmed} onClick={()=>{onAction('VOID',item,buildSettlementVoidFields(item,replacementBatchId,voidReason));setShowVoidEditor(false);}}>确认作废</button>
+    </div>}
     {showPaymentEditor && <div className="payment-editor">
       {unpaidItems.length === 0 && <span>没有待登记的结算条目。</span>}
       {unpaidItems.map((row) => {
@@ -76,6 +87,14 @@ export function formatSettlementPayout(amountMinor: number): string {
   const usd = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(amountMinor / 100);
   return `${formatMinorCurrency(amountMinor, 'CAT')} · ${usd}`;
 }
+export function buildSettlementVoidFields(item:Record<string,unknown>,replacementBatchId:string,reasonCode:string):Record<string,unknown>{
+  const reason=reasonCode.trim();if(!reason)throw new TypeError('void reason is required.');
+  if(!['APPROVED','EXPORTED'].includes(String(item.status)))return{reasonCode:reason};
+  const periodStart=requiredText(item.periodStart);const periodEnd=requiredText(item.periodEnd);const timeZone=requiredText(item.timeZone);const currency=requiredText(item.currency);
+  if(!periodStart||!periodEnd||!timeZone||!currency)throw new TypeError('replacement period, time zone, and currency are required.');
+  return{reasonCode:reason,replacementBatchId,replacement:{source:'MANUAL',periodStart,periodEnd,timeZone,currency,playerUserIds:null}};
+}
+function requiredText(value:unknown):string|null{return typeof value==='string'&&value.trim()?value.trim():null;}
 function isoPeriod(period: Record<string, string>) { const convert = (value: string) => value ? new Date(value).toISOString() : value; return { ...period,
   periodStart: convert(period.periodStart), periodEnd: convert(period.periodEnd), cutoffAt: convert(period.cutoffAt) }; }
 function defaultFields(action: SettlementAction) { if (action === 'EXPORT') return { exportType: 'TRANSFER_LIST' };

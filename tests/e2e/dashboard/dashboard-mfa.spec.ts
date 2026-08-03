@@ -91,4 +91,12 @@ test.describe('Dashboard browser E2E: MFA and step-up', () => {
     await expect(page.locator('.status-message')).toContainText('MFA 已启用');
     await expect(page.getByRole('heading', { name: '一次性恢复码' })).toBeVisible();
   });
+
+  test('DE2E-MFA-002 a failed step-up request restores controls and gives retry feedback', async ({ page }) => {
+    await login(page, 'l4');
+    await page.route('**/api/v1/admin/auth/step-up', (route) => route.abort('connectionfailed'));
+    await page.getByRole('button', { name: '进行近期验证' }).click();
+    await expect(page.locator('.status-message')).toContainText('网络请求失败');
+    await expect(page.getByRole('button', { name: '进行近期验证' })).toBeEnabled();
+  });
 });

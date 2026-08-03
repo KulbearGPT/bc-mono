@@ -3,7 +3,7 @@ import { createDashboardApiClient, type DashboardCapabilities } from './dashboar
 import { CustomerProfilePage } from './CustomerProfilePage.js';
 import { appendCursor, buildCustomerProfileRequests,buildCustomerProfileUpdateRequest, buildCustomerProfileView, type CustomerProfileModules, type PageModule } from './customer-profile.js';
 import { buildWalletAdjustmentRequest,buildWalletRequest,createWalletAdjustmentIdempotencyKey,createWalletIdempotencyKey,parseWalletBalance,parseWalletEntryPage,walletPaths,type WalletAdjustmentSubmission,type WalletBalance,type WalletEntry,type WalletFundingSubmission } from './customer-wallet.js';
-import { LatestRequestGate,runBusyTask } from './request-state.js';
+import { LatestRequestGate,RetriableWriteKeys,runBusyTask } from './request-state.js';
 
 export function CustomerProfileRoute(props: { userId: string; capabilities: DashboardCapabilities }) {
   const client = useMemo(() => createDashboardApiClient(), []); const [windowValue, setWindow] = useState<'DAYS_30' | 'DAYS_90' | 'ALL'>('DAYS_30');
@@ -17,8 +17,11 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
   const summaryRequests=useRef(new LatestRequestGate());
   const walletRequests=useRef(new LatestRequestGate());
   const pageRequests=useRef({orders:new LatestRequestGate(),consumptions:new LatestRequestGate()});
+  const writeKeys=useRef(new RetriableWriteKeys());
   const mayRead = props.capabilities.permissions.includes('customer_profile.read');
   const mayAppendInternalNote = props.capabilities.permissions.includes('customer_profile.note.append');
+  const mayTopUp = props.capabilities.permissions.includes('wallet.top_up');
+  const mayExternalRefund = props.capabilities.permissions.includes('wallet.external_refund');
   const mayAdjustWallet = props.capabilities.permissions.includes('wallet.adjust');
   const mayEditProfile=props.capabilities.permissions.includes('customer_profile.manage');
 
@@ -49,8 +52,8 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
       delete fundingKeys.current[kind];await Promise.allSettled([loadSummary(),loadWallet()]);
     }catch{if(activeUserId.current===userId)setWalletError('—');}});}
   async function adjustWallet(submission:WalletAdjustmentSubmission){if(!wallet||wallet.busy||wallet.userId!==props.userId)return;const snapshot=wallet;const userId=props.userId;
-    await runBusyTask((busy)=>setWallet(current=>current?.userId===userId?{...current,busy}:current),async()=>{try{const request=buildWalletAdjustmentRequest(userId,submission,snapshot.balance.version);const response=await client.post(request.path,request.body,createWalletAdjustmentIdempotencyKey(userId));
-      if(!response.ok){const body=await response.json().catch(()=>null) as {requestId?:string}|null;if(activeUserId.current===userId)setWalletError(body?.requestId??'—');return;}await Promise.allSettled([loadSummary(),loadWallet()]);
+    await runBusyTask((busy)=>setWallet(current=>current?.userId===userId?{...current,busy}:current),async()=>{try{const request=buildWalletAdjustmentRequest(userId,submission,snapshot.balance.version);const fingerprint=JSON.stringify({kind:'ADJUSTMENT',userId,request});const key=writeKeys.current.get(fingerprint,()=>createWalletAdjustmentIdempotencyKey(userId));const response=await client.post(request.path,request.body,key);
+      if(!response.ok){const body=await response.json().catch(()=>null) as {requestId?:string}|null;if(activeUserId.current===userId)setWalletError(body?.requestId??'—');return;}writeKeys.current.complete(fingerprint);await Promise.allSettled([loadSummary(),loadWallet()]);
     }catch{if(activeUserId.current===userId)setWalletError('—');}});}
   async function loadPage(kind: 'orders' | 'consumptions', cursor: string | null = null, append = false) {
     const userId=props.userId;const request=pageRequests.current[kind].begin();const isCurrent=()=>request.isCurrent()&&activeUserId.current===userId;
@@ -62,13 +65,14 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
     }catch{if(!isCurrent())return;setModules((current)=>({...current,[kind]:{...current[kind],kind:'ERROR',requestId:null}}));}
   }
   async function appendInternalNote(body:string){if(internalNoteBusy)return false;setInternalNoteBusy(true);setInternalNoteError(null);
-    try{const response=await client.post(`/api/v1/admin/users/${encodeURIComponent(props.userId)}/profile-notes`,{body},`dashboard:profile-note:${crypto.randomUUID()}`);
+    const fingerprint=JSON.stringify({kind:'PROFILE_NOTE',userId:props.userId,body});const key=writeKeys.current.get(fingerprint,()=>`dashboard:profile-note:${crypto.randomUUID()}`);
+    try{const response=await client.post(`/api/v1/admin/users/${encodeURIComponent(props.userId)}/profile-notes`,{body},key);
       const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;
       if(!response.ok){setInternalNoteError(`${payload?.error?.message??'内部备注未能追加。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}
-      await loadSummary();return true;
+      writeKeys.current.complete(fingerprint);await loadSummary();return true;
     }catch{setInternalNoteError('内部备注未能追加，请稍后重试。');return false;}finally{setInternalNoteBusy(false);}}
-  async function updateProfile(value:{displayName:string;expectedVersion:number;reasonCode:string;note:string}){if(profileEditBusy)return false;setProfileEditBusy(true);setProfileEditError(null);try{const request=buildCustomerProfileUpdateRequest(props.userId,value);const response=await client.patch(request.path,request.body,`dashboard:profile-edit:${crypto.randomUUID()}`);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setProfileEditError(`${payload?.error?.message??'客户名称未能保存。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}await loadSummary();return true;}catch{setProfileEditError('客户名称未能保存，请稍后重试。');return false;}finally{setProfileEditBusy(false);}}
-  useEffect(() => {summaryRequests.current.invalidate();walletRequests.current.invalidate();pageRequests.current.orders.invalidate();pageRequests.current.consumptions.invalidate();fundingKeys.current={};setWallet(null);setWalletError(null);
+  async function updateProfile(value:{displayName:string;expectedVersion:number;reasonCode:string;note:string}){if(profileEditBusy)return false;setProfileEditBusy(true);setProfileEditError(null);const request=buildCustomerProfileUpdateRequest(props.userId,value);const fingerprint=JSON.stringify({kind:'PROFILE_EDIT',userId:props.userId,request});const key=writeKeys.current.get(fingerprint,()=>`dashboard:profile-edit:${crypto.randomUUID()}`);try{const response=await client.patch(request.path,request.body,key);const payload=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setProfileEditError(`${payload?.error?.message??'客户名称未能保存。'}${payload?.requestId?` request_id: ${payload.requestId}`:''}`);return false;}writeKeys.current.complete(fingerprint);await loadSummary();return true;}catch{setProfileEditError('客户名称未能保存，请稍后重试。');return false;}finally{setProfileEditBusy(false);}}
+  useEffect(() => {summaryRequests.current.invalidate();walletRequests.current.invalidate();pageRequests.current.orders.invalidate();pageRequests.current.consumptions.invalidate();fundingKeys.current={};writeKeys.current.clear();setWallet(null);setWalletError(null);
     if (!mayRead) { setModules(forbiddenModules()); return; }setModules(loadingModules());void Promise.allSettled([loadSummary(), loadPage('orders'), loadPage('consumptions'),loadWallet()]);
     return()=>{summaryRequests.current.invalidate();walletRequests.current.invalidate();pageRequests.current.orders.invalidate();pageRequests.current.consumptions.invalidate();};}, [props.userId, mayRead]);
   function changeWindow(value: 'DAYS_30' | 'DAYS_90' | 'ALL') { setWindow(value); void loadSummary(value); }
@@ -77,7 +81,7 @@ export function CustomerProfileRoute(props: { userId: string; capabilities: Dash
     onNextOrders={(cursor) => void loadPage('orders', cursor, true)} onNextConsumptions={(cursor) => void loadPage('consumptions', cursor, true)} wallet={wallet?{balance:wallet.balance,entries:wallet.entries,nextCursor:wallet.nextCursor,busy:wallet.busy}:undefined} walletError={walletError}
     canAppendInternalNote={mayAppendInternalNote} internalNoteBusy={internalNoteBusy} internalNoteError={internalNoteError} onAppendInternalNote={appendInternalNote}
     canEditProfile={mayEditProfile} profileEditBusy={profileEditBusy} profileEditError={profileEditError} onUpdateProfile={updateProfile}
-    onTopUp={(value)=>fund('TOP_UP',value)} onExternalRefund={(value)=>fund('CASH_REFUND_DEBIT',value)} canAdjustWallet={mayAdjustWallet} onWalletAdjustment={adjustWallet}
+    canTopUp={mayTopUp} canExternalRefund={mayExternalRefund} onTopUp={mayTopUp?(value)=>fund('TOP_UP',value):undefined} onExternalRefund={mayExternalRefund?(value)=>fund('CASH_REFUND_DEBIT',value):undefined} canAdjustWallet={mayAdjustWallet} onWalletAdjustment={mayAdjustWallet?adjustWallet:undefined}
     onNextWalletPage={wallet?.nextCursor?()=>void loadWallet(wallet.nextCursor,true):undefined} />;
 }
 

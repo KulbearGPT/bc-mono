@@ -23,6 +23,6 @@ describe("M9-US-15 customer-controlled selection windows", () => {
       status: "READY",
       items: [{ id: "order-1", version: 7, status: "PENDING_DISPATCH" }],
     });
-    expect(page.actions).toEqual([]);
+    expect(page.actions.map((action) => action.id)).not.toContain("MANUAL_DISPATCH");
   });
 });

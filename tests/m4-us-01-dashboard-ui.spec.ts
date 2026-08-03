@@ -41,7 +41,7 @@ describe('M4-US-01 dashboard visual shell', () => {
     expect(html).toContain('指挥中心');
     expect(html).toContain('系统治理');
     expect(html).toContain('class="status-rail"');
-    expect(html).toContain('API ONLINE');
+    expect(html).toContain('权限已载入');
   });
 
   test('loads the authorized metric projection for the overview instead of inventing business metrics', () => {

@@ -11,6 +11,8 @@ import {
 } from '@blackcat/dashboard/customer-wallet';
 import { formatSettlementPayout } from '../apps/dashboard/src/SettlementPage.js';
 import { LatestRequestGate, runBusyTask } from '../apps/dashboard/src/request-state.js';
+import { RetriableWriteKeys } from '../apps/dashboard/src/request-state.js';
+import { SecurityPage } from '../apps/dashboard/src/SecurityPage.js';
 import { readFileSync } from 'node:fs';
 
 describe('M16-US-03 Dashboard CAT and request consistency', () => {
@@ -23,7 +25,8 @@ describe('M16-US-03 Dashboard CAT and request consistency', () => {
     const html = renderToStaticMarkup(createElement(CustomerWalletPanel, {
       userId: '00000000-0000-0000-0000-000000016301',
       balance: { ledgerBalanceMinor: 2_550, reservedMinor: 50, availableMinor: 2_500, currency: 'CAT', calculatedAt: '2026-08-06T12:00:00Z', version: 2 },
-      entries: [], busy: false, onTopUp: () => undefined, onExternalRefund: () => undefined, canAdjust: true
+      entries: [], busy: false, canTopUp: true, canExternalRefund: true,
+      onTopUp: () => undefined, onExternalRefund: () => undefined, canAdjust: true
     }));
     expect(html).toContain('255.0 猫条');
     expect(html).toContain('实收金额（USD）');
@@ -73,5 +76,46 @@ describe('M16-US-03 Dashboard CAT and request consistency', () => {
 
   test('shows player settlement in canonical CAT and payout USD together', () => {
     expect(formatSettlementPayout(4_000)).toBe('400.0 猫条 · USD 40.00');
+  });
+
+  test('renders wallet writes from explicit capabilities and keeps read-only access non-actionable', () => {
+    const html = renderToStaticMarkup(createElement(CustomerWalletPanel, {
+      userId: 'user-l1',
+      balance: { ledgerBalanceMinor: 100, reservedMinor: 0, availableMinor: 100, currency: 'CAT', calculatedAt: '2026-08-06T12:00:00Z', version: 1 },
+      entries: [], busy: false, canTopUp: false, canExternalRefund: false, canAdjust: false
+    }));
+    expect(html).toContain('充值需要 L2 及以上权限');
+    expect(html).toContain('渠道退款需要 L2 及以上权限');
+    expect(html).not.toContain('确认充值');
+    expect(html).not.toContain('确认扣款');
+
+    const route = readFileSync(new URL('../apps/dashboard/src/CustomerProfileRoute.tsx', import.meta.url), 'utf8');
+    expect(route).toContain("permissions.includes('wallet.top_up')");
+    expect(route).toContain("permissions.includes('wallet.external_refund')");
+  });
+
+  test('reuses an idempotency key until the exact logical write succeeds', () => {
+    const keys = new RetriableWriteKeys();
+    let generated = 0;
+    const create = () => `key-${++generated}`;
+    expect(keys.get('adjust:user-1:entry-1', create)).toBe('key-1');
+    expect(keys.get('adjust:user-1:entry-1', create)).toBe('key-1');
+    expect(keys.get('adjust:user-1:entry-2', create)).toBe('key-2');
+    keys.complete('adjust:user-1:entry-1');
+    expect(keys.get('adjust:user-1:entry-1', create)).toBe('key-3');
+
+    const route = readFileSync(new URL('../apps/dashboard/src/CustomerProfileRoute.tsx', import.meta.url), 'utf8');
+    expect(route).toContain('RetriableWriteKeys');
+    expect(route).toContain('writeKeys.current.get');
+  });
+
+  test('formats execution thresholds in the capability currency', () => {
+    const html = renderToStaticMarkup(createElement(SecurityPage, { capabilities: {
+      permissions: ['mfa.manage_self'],
+      thresholds: { giftApprovalLimitMinor: 2_550, refundLimitMinor: 1_000, l4DirectExecutionFromMinor: 5_000, currency: 'CAT' }
+    } }));
+    expect(html).toContain('255.0 猫条');
+    expect(html).toContain('100.0 猫条');
+    expect(html).not.toContain('¥');
   });
 });

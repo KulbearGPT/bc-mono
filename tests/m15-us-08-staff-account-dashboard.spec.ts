@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
   buildStaffElevationApprovalRequest,
@@ -22,5 +23,12 @@ describe("M15-US-08 staff account Dashboard actions",()=>{
       path:"/api/v1/admin/staff/staff-target/discord-role-reconcile",
       body:{reasonCode:"ROLE_SYNC_RECOVERY"}
     });
+  });
+  test("keeps staff accounts reachable after the first cursor page",()=>{
+    const route=readFileSync("apps/dashboard/src/AccessManagementRoute.tsx","utf8");
+    const page=readFileSync("apps/dashboard/src/AccessManagementPage.tsx","utf8");
+    expect(route).toContain("staffNextCursor");
+    expect(route).toContain("cursor=${encodeURIComponent(cursor)}");
+    expect(page).toContain("继续加载员工");
   });
 });

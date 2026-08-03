@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { useCallback, useEffect, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import {
   Activity,
   BadgeCheck,
@@ -10,21 +9,22 @@ import {
   ChevronRight,
   CircleDollarSign,
   Cpu,
-  ClipboardCheck,
-  FileClock,
   Gift,
   Headphones,
   LayoutDashboard,
   LockKeyhole,
+  LogOut,
   PackageSearch,
   ReceiptText,
+  Search,
   Settings2,
   ShieldCheck,
   Sparkles,
   Tags,
   UserRoundCog,
   UsersRound,
-  WalletCards
+  WalletCards,
+  type LucideIcon
 } from 'lucide-react';
 import { buildDashboardManifest } from './manifest.js';
 import {
@@ -35,7 +35,7 @@ import {
 } from './dashboard-shell.js';
 import { DashboardMetricSummaryLoader, SupportWorkbenchPage } from './SupportWorkbenchPage.js';
 import { AdminBusinessRoute } from './AdminBusinessRoute.js';
-import { buildAdminBusinessNavigation, resolveAdminBusinessPage } from './admin-business.js';
+import { buildAdminBusinessNavigation, buildAdminBusinessPage, resolveAdminBusinessPage } from './admin-business.js';
 import { SecurityPage } from './SecurityPage.js';
 import { OperationsRoute } from './OperationsRoute.js';
 import { SettlementRoute } from './SettlementRoute.js';
@@ -43,6 +43,7 @@ import { CustomerProfileRoute } from './CustomerProfileRoute.js';
 import { AccessManagementRoute } from './AccessManagementRoute.js';
 import { BusinessTagsRoute } from './BusinessTagsRoute.js';
 import { BotConfigPage } from './BotConfigPage.js';
+import { DashboardErrorBoundary } from './DashboardErrorBoundary.js';
 import { buildSettlementNavigation } from './settlements.js';
 import {
   getSandboxBanner,
@@ -96,6 +97,17 @@ const navigationIcons: Array<[RegExp, LucideIcon]> = [
   [/bot-config/u, Settings2],
   [/access/u, UserRoundCog]
 ];
+
+const knownDashboardPaths = new Set([
+  '/', '/support', '/security', '/operations', '/access', '/business-tags', '/bot-config', '/settlements', '/reports'
+]);
+
+export type DashboardPathAccess = 'ALLOWED' | 'FORBIDDEN' | 'NOT_FOUND';
+
+export function resolveDashboardPathAccess(pathname: string, visiblePaths: string[], knownRoute: boolean): DashboardPathAccess {
+  if (visiblePaths.includes(pathname)) return 'ALLOWED';
+  return knownRoute ? 'FORBIDDEN' : 'NOT_FOUND';
+}
 
 export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION' } = {}) {
   const manifest = buildDashboardManifest();
@@ -160,8 +172,29 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
 
   const navigation = [...state.navigation, ...adminNavigation, ...m6Navigation]
     .filter((item, index, all) => all.findIndex((candidate) => candidate.href === item.href) === index);
+  const authorizedPaths = navigation.map((item) => item.href);
+  if (activeAdminPage) {
+    const requiredPermission = buildAdminBusinessPage({
+      page: activeAdminPage,
+      permissions: result!.capabilities!.permissions,
+      status: 'LOADING'
+    }).requiredPermission;
+    if (result!.capabilities!.permissions.includes(requiredPermission)) authorizedPaths.push(currentPath);
+  }
+  if (profileMatch && result!.capabilities!.permissions.includes('customer_profile.read')) authorizedPaths.push(currentPath);
+  if (currentPath === '/settlements' && result!.capabilities!.permissions.includes('settlement.read')) authorizedPaths.push(currentPath);
+  if (currentPath === '/reports' && result!.capabilities!.permissions.includes('weekly_report.read')) authorizedPaths.push(currentPath);
+  const routeAccess = resolveDashboardPathAccess(
+    currentPath,
+    authorizedPaths,
+    knownDashboardPaths.has(currentPath) || Boolean(activeAdminPage) || Boolean(profileMatch)
+  );
 
-  const content = profileMatch
+  const content = routeAccess === 'NOT_FOUND'
+    ? <RouteNotFound />
+    : routeAccess === 'FORBIDDEN'
+    ? <RouteForbidden />
+    : profileMatch
     ? hasFeature(pilotCapabilities!, 'M6') ? <CustomerProfileRoute userId={decodeURIComponent(profileMatch[1]!)} capabilities={result!.capabilities!} /> : <FeatureUnavailable />
     : currentPath === '/settlements'
     ? hasFeature(pilotCapabilities!, 'M6') ? <SettlementRoute section="settlements" capabilities={result!.capabilities!} /> : <FeatureUnavailable />
@@ -193,13 +226,14 @@ export function App(props: { publicBusinessEnvironment?: 'SANDBOX' | 'PRODUCTION
       contentBusy={contentBusy}
       onNavigate={navigate}
     >
-      {content}
+      <DashboardErrorBoundary key={currentPath}>{content}</DashboardErrorBoundary>
     </DashboardChrome>
   );
 }
 
 export function DashboardChrome(props: DashboardChromeProps) {
   const [theme, setTheme] = useState<DashboardTheme>(readDashboardTheme);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const activeItem = props.navigation.find((item) => isActivePath(item.href, props.currentPath));
   const groupedNavigation = dashboardNavigationGroups
     .map((group) => ({ ...group, items: props.navigation.filter((item) => navigationGroupForPath(item.href) === group.id) }))
@@ -215,6 +249,34 @@ export function DashboardChrome(props: DashboardChromeProps) {
     event.preventDefault();
     props.onNavigate(href);
   };
+  const searchScopes = [
+    props.capabilities.permissions.includes('order.read') ? { id: 'orders', label: '订单', path: '/admin/orders' } : null,
+    props.capabilities.permissions.includes('user.read') ? { id: 'users', label: '用户', path: '/admin/users' } : null
+  ].filter((scope): scope is { id: string; label: string; path: string } => scope !== null);
+
+  function submitGlobalSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget);
+    const query = String(fields.get('query') ?? '').trim();
+    const scope = searchScopes.find((candidate) => candidate.id === fields.get('scope'));
+    if (!query || !scope) return;
+    window.location.assign(`${scope.path}?query=${encodeURIComponent(query)}`);
+  }
+
+  async function logout() {
+    setLogoutError(null);
+    try {
+      const response = await createDashboardApiClient().post('/api/v1/auth/logout', {});
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        setLogoutError(body?.error?.message ?? '退出失败，请稍后重试。');
+        return;
+      }
+      window.location.assign('/api/v1/auth/discord');
+    } catch {
+      setLogoutError('退出失败，请检查网络后重试。');
+    }
+  }
 
   useEffect(() => {
     try {
@@ -272,12 +334,18 @@ export function DashboardChrome(props: DashboardChromeProps) {
             <span className="dashboard-topbar__eyebrow">BlackCat / 运营工作区</span>
             <strong>{activeItem?.label ?? '运营概览'}</strong>
           </div>
+          {searchScopes.length > 0 && <form className="global-search" aria-label="全局业务检索" onSubmit={submitGlobalSearch}>
+            <label><span className="sr-only">检索范围</span><select name="scope" aria-label="检索范围">{searchScopes.map((scope) => <option key={scope.id} value={scope.id}>{scope.label}</option>)}</select></label>
+            <label><span className="sr-only">检索词</span><input name="query" type="search" required maxLength={100} aria-label="检索词" placeholder="订单号、Discord ID 或用户 ID" /></label>
+            <button type="submit" aria-label="执行检索"><Search size={17} aria-hidden="true" /></button>
+          </form>}
           <div className="dashboard-topbar__meta">
             <div className="status-rail" aria-label="当前系统状态">
-              <span className="status-rail__item is-online"><Activity size={13} aria-hidden="true" /> API ONLINE</span>
+              <span className="status-rail__item is-online"><Activity size={13} aria-hidden="true" /> 权限已载入</span>
               <span className={`status-rail__item ${environmentClass}`}>{environment}</span>
               <span className="status-rail__item">{props.capabilities.displayRole ?? 'STAFF'} / {formatLevel(props.capabilities.level)}</span>
             </div>
+            <button className="approval-status" type="button" disabled title="OpenAPI 已声明审批资源，但当前 API 运行时尚未注册对应路由。">审批接口待接入</button>
             <button
               className="theme-switcher"
               type="button"
@@ -288,9 +356,16 @@ export function DashboardChrome(props: DashboardChromeProps) {
             >
               {theme === 'cute' ? <Cpu size={19} aria-hidden="true" /> : <Cat size={20} aria-hidden="true" />}
             </button>
-            <span className="level-avatar" aria-label={`当前权限 ${formatLevel(props.capabilities.level)}`}>
-              {levelInitial(props.capabilities.level)}
-            </span>
+            <details className="account-menu">
+              <summary aria-label="账户菜单"><span className="level-avatar" aria-hidden="true">{levelInitial(props.capabilities.level)}</span></summary>
+              <div className="account-menu__panel">
+                <strong>{props.capabilities.displayRole ?? 'STAFF'} · {formatLevel(props.capabilities.level)}</strong>
+                <small>{props.capabilities.staffId ? `员工编号 ${props.capabilities.staffId}` : '员工身份已由服务端验证'}</small>
+                {props.capabilities.permissions.includes('mfa.manage_self') && <a href="/security" onClick={routeClick('/security')}>账户安全</a>}
+                <button type="button" onClick={() => void logout()}><LogOut size={15} aria-hidden="true" />退出登录</button>
+                {logoutError && <span role="alert">{logoutError}</span>}
+              </div>
+            </details>
           </div>
         </header>
         {props.banner && <div className="sandbox-banner" role="status">{props.banner}</div>}
@@ -357,7 +432,7 @@ function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | '
     <main className="dashboard-gate" aria-labelledby="gate-title">
       <div className="dashboard-gate__ambient" aria-hidden="true" />
       <section className="dashboard-gate__card" role={props.kind === 'ERROR' ? 'alert' : undefined} aria-live={props.kind === 'LOADING' ? 'polite' : undefined}>
-        <div className="brand-mark brand-mark--large" aria-hidden="true"><Sparkles size={28} /></div>
+        <div className="brand-mark brand-mark--large" aria-hidden="true"><Icon size={28} /></div>
         <span className="page-eyebrow">{content.eyebrow}</span>
         <h1 id="gate-title">{content.title}</h1>
         <p>{content.copy}</p>
@@ -372,6 +447,14 @@ function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | '
 
 function FeatureUnavailable() {
   return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><Settings2 size={25} /></div><span className="page-eyebrow">PILOT FEATURE</span><h1>功能暂未开放</h1><p>当前 Pilot 阶段未开放此功能。</p></section>;
+}
+
+function RouteForbidden() {
+  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><ShieldCheck size={25} /></div><span className="page-eyebrow">ACCESS LIMITED</span><h1>无权访问此页面</h1><p>当前内部有效权限不包含此工作区。Discord Role 不会替代服务端授权。</p></section>;
+}
+
+function RouteNotFound() {
+  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><PackageSearch size={25} /></div><span className="page-eyebrow">404 / NOT FOUND</span><h1>页面不存在</h1><p>请从左侧导航进入可用工作区。</p></section>;
 }
 
 function iconForPath(path: string): LucideIcon {

@@ -6,9 +6,9 @@ const pages = [
   { slug: 'orders', label: '订单', cardActions: ['查看详情', '取消订单'] },
   { slug: 'users', label: '用户', cardActions: ['查看详情', '记录风险事件', '更新运营状态'] },
   { slug: 'players', label: '陪玩', cardActions: ['查看详情', '批准陪玩申请', '拒绝陪玩申请', '设置项目分成'] },
-  { slug: 'service-catalog', label: '服务目录', cardActions: ['查看详情', '编辑服务项目', '删除'] },
+  { slug: 'service-catalog', label: '服务目录', cardActions: ['查看详情', '编辑服务项目', '归档服务项目'] },
   { slug: 'service-packages', label: '服务套餐', cardActions: ['查看详情', '编辑套餐（创建新版本）', '发布或退役'] },
-  { slug: 'gift-catalog', label: '礼物目录', cardActions: ['查看详情', '编辑礼物', '删除'] },
+  { slug: 'gift-catalog', label: '礼物目录', cardActions: ['查看详情', '编辑礼物', '归档礼物'] },
   { slug: 'gift-requests', label: '礼物请求', cardActions: ['查看详情'] }
 ] as const;
 

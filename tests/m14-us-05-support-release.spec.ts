@@ -57,6 +57,15 @@ describe('M14-US-05 support workbench release gate', () => {
     expect(html).toContain('待补充');
   });
 
+  test('keeps the support workspace renderable when a rolling readiness projection omits participants', () => {
+    const html = renderToStaticMarkup(createElement(SupportOrderContextPreview, { context: {
+      order: { id: 'order-legacy', publicId: 'P-LEGACY', version: 3, status: 'ACCEPTED' },
+      readiness: { allActivePlayersReady: false }
+    } as never }));
+    expect(html).toContain('等待 API 返回有效陪玩名单');
+    expect(html).not.toContain('客户未就绪');
+  });
+
   test('publishes the in-progress drilldown filter in both API contract mirrors', async () => {
     const { readFile } = await import('node:fs/promises');
     const [output, docs] = await Promise.all([readFile('outputs/P0开发交付包/02-API/openapi.yaml','utf8'),readFile('docs/P0开发交付包/02-API/openapi.yaml','utf8')]);
