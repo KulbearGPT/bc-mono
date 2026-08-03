@@ -62,9 +62,9 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
 
   test('DE2E-CAT-004 archiving a historically referenced service hides it from the default list but preserves detail facts', async ({ page, request }) => {
     await openCatalog(page);
-    await page.getByRole('button', { name: '删除' }).click();
+    await page.getByRole('button', { name: '归档服务项目' }).click();
     await page.getByLabel('原因码').fill('CATALOG_ARCHIVE');
-    await page.getByRole('dialog', { name: '删除操作' }).getByRole('button', { name: '提交', exact: true }).click();
+    await page.getByRole('dialog', { name: '归档服务项目操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect(page.getByText('当前筛选下没有记录')).toBeVisible();
     const detail = await page.evaluate(async () => {
       const response = await fetch('/api/v1/admin/service-catalog/00000000-0000-0000-0000-000000000701', { credentials: 'include', headers: { 'x-client-source': 'DASHBOARD' } }); return response.json();

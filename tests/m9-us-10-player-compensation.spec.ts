@@ -92,4 +92,11 @@ describe('M9-US-10 per-player service compensation', () => {
     expect(source).toContain('确认并保存全部');
     expect(source).toContain('compensationChangesJson');
   });
+
+  test('dashboard reference-data failures are caught and shown instead of becoming unhandled rejections', async () => {
+    const source = await readFile('apps/dashboard/src/AdminBusinessRoute.tsx', 'utf8');
+    expect(source).not.toContain('.then(async');
+    expect(source).toContain('referenceDataError');
+    expect(source).toContain('参考数据载入失败');
+  });
 });

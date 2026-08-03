@@ -40,6 +40,7 @@ export function AdminBusinessPage(props: {
   onNextTranscript?: (cursor:string)=>void;
   businessTagOptions?: BusinessTagGroups;
   serviceCatalogOptions?: Array<Record<string, unknown>>;
+  referenceDataError?: string | null;
   participantPlayerOptions?: Array<Record<string,unknown>>;
   participantMutationError?: string|null;
   onAddOrderParticipant?: (fields:Record<string,unknown>)=>void;
@@ -68,6 +69,7 @@ export function AdminBusinessPage(props: {
       {collectionConfig?<AdminCollectionToolbar model={model} config={collectionConfig} view={view} sortBy={props.sortBy??collectionConfig.defaultSort.sortBy} sortDirection={props.sortDirection??collectionConfig.defaultSort.sortDirection} activeFilters={props.activeFilters??{}} onFilter={props.onFilter} onClearFilters={props.onClearFilters} onViewChange={props.onViewChange} onSortChange={props.onSortChange}/>:model.filters.length>0&&<form className="content-panel filter-bar" aria-label="列表筛选" onSubmit={(event)=>submitFilters(event,props.onFilter)}>{model.filters.map((filter)=><input key={filter.id} name={filter.id} aria-label={filter.label} placeholder={filter.label}/>) }<button className="button-primary" type="submit">筛选</button><button type="button" onClick={props.onClearFilters}>清除</button></form>}
 
       {model.page === 'playerEarnings' && ['READY', 'EMPTY'].includes(model.kind) && <EarningOperationNotice model={model} />}
+      {props.referenceDataError && <div className="status-notice state-card--error" role="alert">{props.referenceDataError}</div>}
 
       {model.kind === 'LOADING' && <div className="state-card" aria-busy="true">正在载入...</div>}
       {model.kind === 'ERROR' && (

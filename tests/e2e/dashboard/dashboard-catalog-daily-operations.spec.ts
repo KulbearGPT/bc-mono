@@ -84,8 +84,8 @@ test.describe('Dashboard browser E2E: daily catalog operations', () => {
     await create.getByLabel('播报模板').fill('{sender} 送给 {receiver} 七夕限定烟花');
     await submit(page, '创建礼物操作', 'SEASONAL_GIFT_LAUNCH');
     await expect(page.getByRole('cell', { name: '七夕限定烟花', exact: true })).toBeVisible();
-    await page.getByRole('row').filter({ hasText: '七夕限定烟花' }).getByRole('button', { name: '删除' }).click();
-    await submit(page, '删除操作', 'SEASONAL_GIFT_END');
+    await page.getByRole('row').filter({ hasText: '七夕限定烟花' }).getByRole('button', { name: '归档礼物' }).click();
+    await submit(page, '归档礼物操作', 'SEASONAL_GIFT_END');
     await expect(page.getByRole('cell', { name: '七夕限定烟花', exact: true })).toHaveCount(0);
     const state = await (await request.get('http://127.0.0.1:3000/__e2e/state')).json();
     expect(state.giftRecords.find((item: { name: string }) => item.name === '七夕限定烟花')).toMatchObject({ status: 'ARCHIVED', priceMinor: 2888 });

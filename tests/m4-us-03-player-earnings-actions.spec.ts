@@ -48,9 +48,11 @@ describe('M4-US-03 player earning action visibility', () => {
 
     expect(html).toContain('当前为只读视图');
     expect(html).toContain('需要 L3+ 的收益管理权限');
-    expect(html).not.toContain('>确认收益</button>');
-    expect(html).not.toContain('>标记已支付</button>');
-    expect(html).not.toContain('>操作</th>');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('>确认收益</button>');
+    expect(html).toContain('>标记已支付</button>');
+    expect(html).toContain('需要权限 earnings.manage');
+    expect(html).toContain('>操作</th>');
   });
 
   test('does not render an empty operation column when every earning is terminal', () => {

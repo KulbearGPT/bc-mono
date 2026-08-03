@@ -54,6 +54,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   const [detail, setDetail] = useState<AdminBusinessDetailState | null>(null);
   const [businessTagOptions,setBusinessTagOptions]=useState<BusinessTagGroups>(()=>groupEnabledBusinessTags([]));
   const [serviceCatalogOptions,setServiceCatalogOptions]=useState<Array<Record<string,unknown>>>([]);
+  const [referenceDataError,setReferenceDataError]=useState<string|null>(null);
   const [participantPlayerOptions,setParticipantPlayerOptions]=useState<Array<Record<string,unknown>>>([]);
   const [participantMutationError,setParticipantMutationError]=useState<string|null>(null);
   const activeWrite = useRef<{ fingerprint: string; retry: () => Promise<Response> } | null>(null);
@@ -87,17 +88,37 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     }
   }
 
+  async function loadBusinessTagOptions() {
+    try {
+      const response=await client.get('/api/v1/admin/business-tags?enabled=true');
+      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：业务标签不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      const tags=Array.isArray(body?.data)?body.data:body?.data?.items??[];
+      setBusinessTagOptions(groupEnabledBusinessTags(tags));
+    }catch{setReferenceDataError('参考数据载入失败：业务标签网络请求失败，请刷新后重试。');}
+  }
+
+  async function loadServiceCatalogOptions() {
+    try {
+      const response=await client.get('/api/v1/admin/service-catalog?limit=100');
+      const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：服务目录不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));
+    }catch{setReferenceDataError('参考数据载入失败：服务目录网络请求失败，请刷新后重试。');}
+  }
+
   useEffect(() => {
     requestSequence.invalidate();
     detailRequestSequence.invalidate();
     setActiveAction(null);
     setDetail(null);
+    setReferenceDataError(null);
     activeWrite.current = null;
     const restored=initialCollectionState(props.page);const restoredFilters=restored?.filters??{};setFilters(restoredFilters);setView(restored?.view??'CARD');setSortBy(restored?.sortBy??'createdAt');setSortDirection(restored?.sortDirection??'desc');
     if (!mayReadPage) return;
     void load(null, restoredFilters,{sortBy:restored?.sortBy??'createdAt',sortDirection:restored?.sortDirection??'desc'});
-    if(['players','serviceCatalog','giftCatalog'].includes(props.page))void client.get('/api/v1/admin/business-tags?enabled=true').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;const items=Array.isArray(body?.data)?body.data:body?.data?.items??[];if(response.ok)setBusinessTagOptions(groupEnabledBusinessTags(items));});
-    if(props.page==='players'||props.page==='servicePackages')void client.get('/api/v1/admin/service-catalog?limit=100').then(async(response)=>{const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;if(response.ok)setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));});
+    if(['players','serviceCatalog','giftCatalog'].includes(props.page))void loadBusinessTagOptions();
+    if(props.page==='players'||props.page==='servicePackages')void loadServiceCatalogOptions();
   }, [props.page, mayReadPage]);
 
   async function submitAction(action: AdminBusinessAction, item: Record<string, unknown> | undefined, fields: Record<string, string | boolean>) {
@@ -277,9 +298,11 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     if(action.enabled===false)return;
     activeWrite.current=null;
     if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
-      const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
-      const body=await response.json().catch(()=>null) as {data?:{items?:Array<Record<string,unknown>>}}|null;
-      if(response.ok){const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));}
+      try{const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
+        const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
+        if(!response.ok){setReferenceDataError(`参考数据载入失败：陪玩分成不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+        const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));
+      }catch{setReferenceDataError('参考数据载入失败：陪玩分成网络请求失败，请刷新后重试。');return;}
     }
     setActiveAction({action,item});setActionError(null);setActionStatus('IDLE');
   }
@@ -297,6 +320,6 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     onCancelAction={() => { activeWrite.current = null; setActiveAction(null); setActionError(null); setActionStatus('IDLE'); }}
     onSubmitAction={(action, item, fields) => void submitAction(action, item, fields)}
     detail={detail} onOpenDetail={(item) => void openDetail(item)} onCloseDetail={() => { detailRequestSequence.invalidate(); setDetail(null); }}
-    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions}
+    onNextConsumptions={loadMoreConsumptions} onNextTimeline={(cursor) => void loadMoreOrderTimeline(cursor)} onNextTranscript={(cursor)=>void loadMoreOrderTranscript(cursor)} businessTagOptions={businessTagOptions} serviceCatalogOptions={serviceCatalogOptions} referenceDataError={referenceDataError}
     participantPlayerOptions={participantPlayerOptions} participantMutationError={participantMutationError} onAddOrderParticipant={(fields)=>void mutateParticipant('ADD',fields)} onUpdateOrderParticipant={(fields)=>void mutateParticipant('UPDATE',fields)} onUpdateOrderNote={(fields)=>void mutateOrderNote(fields)} onUpdateOrderRequirement={(fields)=>void mutateRequirement(fields)} />;
 }
