@@ -30,6 +30,29 @@ import {
 } from '../../service-center.js';
 import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatDiscordError, formatUnexpectedBotResult } from '../../user-facing-error.js';
+const accountRouteAreas = new Set<ServiceCenterRoute['area']>([
+  'profile',
+  'reports',
+  'gift',
+  'gift-recipient-page',
+  'support-rating',
+  'service-center-action',
+  'order-open'
+]);
+const entryRouteAreas = new Set<ServiceCenterRoute['area']>([
+  'entry',
+  'cancellation-action',
+  'order-notes-open',
+  'order-menu-notes-open',
+  'requirement-note-open'
+]);
+const editorRouteAreas = new Set<ServiceCenterRoute['area']>([
+  'order-game-action',
+  'order-requirement-add-action',
+  'order-requirement-action'
+]);
+const packageRouteAreas = new Set<ServiceCenterRoute['area']>(['service-package-action']);
+
 export default class ServiceCenterButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
     super(context, { interactionHandlerType: InteractionHandlerTypes.Button });
@@ -64,11 +87,16 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
     }
   }
 
-  private async dispatch(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
-    if (!interaction.isButton() || !parsedData || parsedData.area === 'unknown') {
-      return;
-    }
+  private async dispatch(interaction: Interaction, route?: ServiceCenterRoute): Promise<void> {
+    if (!interaction.isButton() || !route || route.area === 'unknown') return;
+    if (accountRouteAreas.has(route.area)) return this.dispatchAccountRoute(interaction, route);
+    if (entryRouteAreas.has(route.area)) return this.dispatchEntryRoute(interaction, route);
+    if (editorRouteAreas.has(route.area)) return this.dispatchEditorRoute(interaction, route);
+    if (packageRouteAreas.has(route.area)) return this.dispatchPackageRoute(interaction, route);
+    return this.dispatchOrderRoute(interaction, route);
+  }
 
+  private async dispatchAccountRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {
     if (parsedData.area === 'profile') {
       const actor = actorFromInteraction(interaction);
       if (!actor) return void (await guildRequired(interaction, '打开个人中心'));
@@ -145,7 +173,9 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       }
       return;
     }
+  }
 
+  private async dispatchEntryRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {
     if (parsedData.area === 'entry') {
       if (parsedData.action === 'service-center') {
         await this.openPrivateServiceCenter(interaction);
@@ -180,7 +210,9 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       await interaction.showModal(toDiscordModal(buildRequirementNoteModal(parsedData)));
       return;
     }
+  }
 
+  private async dispatchEditorRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {
     if (parsedData.area === 'order-game-action') {
       const actor = actorFromInteraction(interaction);
       if (!actor) {
@@ -280,7 +312,9 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         return;
       }
     }
+  }
 
+  private async dispatchPackageRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {
     if (parsedData.area === 'service-package-action') {
       const actor = actorFromInteraction(interaction);
       if (!actor) {
@@ -316,7 +350,9 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
         return;
       }
     }
+  }
 
+  private async dispatchOrderRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {
     if (parsedData.area === 'order-refresh') {
       const actor = actorFromInteraction(interaction);
       if (!actor) return void (await guildRequired(interaction, '刷新订单'));

@@ -183,7 +183,10 @@ describe('M8-US-03 selective customer token rendering', () => {
   });
 
   test('makes every money call site choose explicit CAT semantics', () => {
-    const serviceCenter = readFileSync('apps/bot/src/service-center.ts', 'utf8');
+    const serviceCenter = [
+      readFileSync('apps/bot/src/service-center-profile.ts', 'utf8'),
+      readFileSync('apps/bot/src/service-center-shared.ts', 'utf8')
+    ].join('\n');
     const playerWorkbench = readFileSync('apps/bot/src/player-workbench-message.ts', 'utf8');
     const gifts = readFileSync('apps/bot/src/gifts.ts', 'utf8');
 

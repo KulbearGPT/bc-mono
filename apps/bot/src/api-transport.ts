@@ -64,17 +64,7 @@ export class BotApiTransport {
     path: string,
     input: BotApiRequestInput
   ): Promise<T | { statusCode: number; data: T; requestId: string }> {
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${this.botServiceToken}`,
-      'x-client-source': 'DISCORD_BOT'
-    };
-    if (input.actor) {
-      headers['x-actor-guild-id'] = input.actor.guildId;
-      if (input.actor.discordUserId) headers['x-actor-discord-user-id'] = input.actor.discordUserId;
-      if (input.actor.interactionId) headers['x-discord-interaction-id'] = input.actor.interactionId;
-    }
-    if (input.idempotencyKey) headers['idempotency-key'] = input.idempotencyKey;
-    if (input.body !== undefined) headers['content-type'] = 'application/json';
+    const headers = buildRequestHeaders(this.botServiceToken, input);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -144,4 +134,19 @@ export class BotApiTransport {
     }
     return envelope.data as T;
   }
+}
+
+function buildRequestHeaders(botServiceToken: string, input: BotApiRequestInput): Record<string, string> {
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${botServiceToken}`,
+    'x-client-source': 'DISCORD_BOT'
+  };
+  if (input.actor) {
+    headers['x-actor-guild-id'] = input.actor.guildId;
+    if (input.actor.discordUserId) headers['x-actor-discord-user-id'] = input.actor.discordUserId;
+    if (input.actor.interactionId) headers['x-discord-interaction-id'] = input.actor.interactionId;
+  }
+  if (input.idempotencyKey) headers['idempotency-key'] = input.idempotencyKey;
+  if (input.body !== undefined) headers['content-type'] = 'application/json';
+  return headers;
 }

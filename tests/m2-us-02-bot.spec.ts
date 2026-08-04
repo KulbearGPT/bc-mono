@@ -4,7 +4,7 @@ import { discoverSapphirePieces } from '@blackcat/bot/piece-manifest';
 
 describe('M2-US-02 Bot dispatch card', () => {
   test('removes the retired direct accept/decline Bot client path', async () => {
-    const source = await readFile('apps/bot/src/service-center-api.ts', 'utf8');
+    const source = await readFile('apps/bot/src/service-center-api-client.ts', 'utf8');
     expect(source).not.toContain('acceptOrder(');
     expect(source).not.toContain('declineOrderOffer(');
     expect(source).toContain('applyToSelectionPool(');

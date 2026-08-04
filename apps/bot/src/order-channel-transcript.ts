@@ -58,39 +58,10 @@ export class OrderChannelTranscriptApi {
     this.transport = input.transport ?? new BotApiTransport(input);
   }
   async record(message: Message | PartialMessage, eventType: TranscriptEventType): Promise<void> {
-    if (!message.guildId) return;
-    const categoryId = botConfigCache.get(message.guildId)?.values.private_order_category_id;
-    const channel = message.channel;
-    const directParent = 'parentId' in channel ? channel.parentId : null;
-    const grandParent =
-      'parent' in channel && channel.parent && 'parentId' in channel.parent ? channel.parent.parentId : null;
-    if (typeof categoryId !== 'string' || (directParent !== categoryId && grandParent !== categoryId)) return;
-    const edited = message.editedTimestamp ? new Date(message.editedTimestamp).toISOString() : null;
+    if (!isConfiguredOrderChannel(message)) return;
     const eventId = buildTranscriptEventId(message, eventType);
     if (!eventId) return;
-    const body = {
-      guildId: message.guildId,
-      channelId: message.channelId,
-      messageId: message.id,
-      eventId,
-      eventType,
-      authorDiscordId: message.author?.id ?? null,
-      authorDisplayName: message.member?.displayName ?? message.author?.globalName ?? message.author?.username ?? null,
-      authorIsBot: message.author?.bot ?? null,
-      content: message.content ?? null,
-      embeds: message.embeds?.map((item) => item.toJSON()) ?? [],
-      attachments:
-        message.attachments?.map((item) => ({
-          id: item.id,
-          name: item.name,
-          size: item.size,
-          contentType: item.contentType,
-          url: item.url
-        })) ?? [],
-      replyToMessageId: message.reference?.messageId ?? null,
-      discordCreatedAt: message.createdTimestamp ? new Date(message.createdTimestamp).toISOString() : null,
-      discordEditedAt: edited
-    };
+    const body = buildTranscriptBody(message, eventType, eventId);
     try {
       await this.transport.request('/api/v1/internal/order-channel-events', {
         method: 'POST',
@@ -102,4 +73,48 @@ export class OrderChannelTranscriptApi {
       throw error;
     }
   }
+}
+
+function isConfiguredOrderChannel(message: Message | PartialMessage): message is
+  | Message
+  | (PartialMessage & {
+      guildId: string;
+    }) {
+  if (!message.guildId) return false;
+  const categoryId = botConfigCache.get(message.guildId)?.values.private_order_category_id;
+  const channel = message.channel;
+  const directParent = 'parentId' in channel ? channel.parentId : null;
+  const grandParent =
+    'parent' in channel && channel.parent && 'parentId' in channel.parent ? channel.parent.parentId : null;
+  return typeof categoryId === 'string' && (directParent === categoryId || grandParent === categoryId);
+}
+
+function buildTranscriptBody(
+  message: Message | (PartialMessage & { guildId: string }),
+  eventType: TranscriptEventType,
+  eventId: string
+) {
+  return {
+    guildId: message.guildId,
+    channelId: message.channelId,
+    messageId: message.id,
+    eventId,
+    eventType,
+    authorDiscordId: message.author?.id ?? null,
+    authorDisplayName: message.member?.displayName ?? message.author?.globalName ?? message.author?.username ?? null,
+    authorIsBot: message.author?.bot ?? null,
+    content: message.content ?? null,
+    embeds: message.embeds?.map((item) => item.toJSON()) ?? [],
+    attachments:
+      message.attachments?.map((item) => ({
+        id: item.id,
+        name: item.name,
+        size: item.size,
+        contentType: item.contentType,
+        url: item.url
+      })) ?? [],
+    replyToMessageId: message.reference?.messageId ?? null,
+    discordCreatedAt: message.createdTimestamp ? new Date(message.createdTimestamp).toISOString() : null,
+    discordEditedAt: message.editedTimestamp ? new Date(message.editedTimestamp).toISOString() : null
+  };
 }

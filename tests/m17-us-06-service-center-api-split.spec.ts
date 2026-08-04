@@ -13,12 +13,20 @@ describe('M17-US-06 service-center API boundary', () => {
   });
 
   test('API module contains no Discord presentation or copy construction', async () => {
-    const apiSource = await readFile('apps/bot/src/service-center-api.ts', 'utf8');
-    expect(apiSource).toContain('export class HttpBotApiClient');
-    expect(apiSource).toContain('export interface BotApiClient');
-    expect(apiSource).toContain('BotApiTransport');
+    const [facade, client, contract] = await Promise.all([
+      readFile('apps/bot/src/service-center-api.ts', 'utf8'),
+      readFile('apps/bot/src/service-center-api-client.ts', 'utf8'),
+      readFile('apps/bot/src/service-center-api-client-contract.ts', 'utf8')
+    ]);
+    const apiSource = [client, contract].join('\n');
+    expect(facade).toContain("export * from './service-center-api-client.js'");
+    expect(facade).toContain("export * from './service-center-api-client-contract.js'");
+    expect(client).toContain('export class HttpBotApiClient');
+    expect(contract).toContain('export interface BotApiClient');
+    expect(client).toContain('BotApiTransport');
     expect(apiSource).not.toMatch(/MessageSpec|ComponentSpec|botCopy|discord-renderer|ButtonBuilder|EmbedBuilder/u);
-    expect(apiSource.split('\n').length).toBeLessThan(1_500);
+    expect(client.split('\n').length).toBeLessThan(700);
+    expect(contract.split('\n').length).toBeLessThan(300);
   });
 
   test('facade no longer owns the HTTP client and API-only consumers use the direct boundary', async () => {
