@@ -33,7 +33,7 @@ describe('M15-US-01 Dashboard support operations parity contract', () => {
       expect(artifact).not.toContain('保存可接单状态');
       expect(artifact).not.toContain('接受新匹配');
     }
-    expect(dashboardLabels).toContain("旧状态（仅诊断）");
+    expect(dashboardLabels).toContain("历史接单状态（参考）");
     expect(botCenter).not.toContain('接单开关尚未开启');
   });
 

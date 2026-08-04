@@ -109,8 +109,8 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     const dialog = page.getByRole('dialog', { name: '取消订单操作' });
     const refundMinor = Math.floor(order.amountMinor / 2);
     const earningMinor = Math.floor(order.playerEarningMinor / 2);
-    await dialog.getByLabel('退回客户（minor units）').fill(String(refundMinor));
-    await dialog.getByLabel('保留陪玩收益（minor units）').fill(String(earningMinor));
+    await dialog.getByLabel('退回客户（猫条）').fill(String(refundMinor / 10));
+    await dialog.getByLabel('保留陪玩收益（猫条）').fill(String(earningMinor / 10));
     await dialog.getByLabel('取消原因').selectOption('SERVICE_INTERRUPTED');
     await dialog.getByLabel('核对证据与处理说明').fill('依据客服备注和双方确认，按已完成一半服务进行部分退款并保留对应陪玩收益。');
     await dialog.getByRole('button', { name: '提交', exact: true }).click();
@@ -159,9 +159,9 @@ test.describe('Dashboard browser E2E: dozens of mixed-state orders', () => {
     await card.getByRole('button', { name: '独立退款' }).click();
     const dialog = page.getByRole('dialog', { name: '独立退款操作' });
     await expect(dialog).toContainText('不会取消订单');
-    await dialog.getByLabel('退款金额（minor units）').fill('625');
+    await dialog.getByLabel('退款金额（猫条）').fill('62.5');
     await dialog.getByLabel('退款原因').selectOption('QUALITY_COMPLAINT');
-    await dialog.getByLabel('核对证据与处理说明').fill('老板完单后反馈最后半小时频繁掉线；客服核对频道记录并与双方确认，退回 6.25 CAT。');
+    await dialog.getByLabel('核对证据与处理说明').fill('老板完单后反馈最后半小时频繁掉线；客服核对频道记录并与双方确认，退回 62.5 猫条。');
     const response = page.waitForResponse((candidate) => candidate.url().includes(`/orders/${target.id}/refund`) && candidate.request().method() === 'POST');
     await dialog.getByRole('button', { name: '提交', exact: true }).click();
     expect((await response).status()).toBe(200);

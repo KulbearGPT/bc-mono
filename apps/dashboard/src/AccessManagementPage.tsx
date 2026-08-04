@@ -10,7 +10,7 @@ export function AccessManagementPage(props: {
   onUpdateMapping: (mapping: RoleMappingRecord, discordRoleId: string, reasonCode: string) => void;
   staffAccounts?:StaffAccountRecord[];staffNextCursor?:string|null;staffLoadingMore?:boolean;onNextStaffPage?:()=>void;onApproveElevation:(staff:StaffAccountRecord,reason:string)=>void;onUpdateStaff:(staff:StaffAccountRecord,level:StaffLevel,status:'ACTIVE'|'REVOKED',reason:string)=>void;onRevokeSessions:(staff:StaffAccountRecord,reason:string)=>void;onReconcileStaff:(staff:StaffAccountRecord)=>void;
 }) {
-  if (props.model.kind === 'LOADING') return <AccessState title="正在读取权限配置" copy="Role 映射由统一业务 API 安全载入。" />;
+  if (props.model.kind === 'LOADING') return <AccessState title="正在读取权限配置" copy="正在读取当前账号的 Role 映射与有效权限。" />;
   if (props.model.kind === 'FORBIDDEN') return <AccessState title="无权访问权限管理" copy="此工作区仅对具备 access.manage 的 L4 员工开放。" requestId={props.model.requestId} />;
   if (props.model.kind === 'STEP_UP_REQUIRED') return <AccessState title="需要完成二次验证" copy="Role 映射属于高风险配置，请先到账户安全页面完成近期验证。" requestId={props.model.requestId} actionHref="/security" />;
   if (props.model.kind === 'ERROR') return <AccessState title="权限配置载入失败" copy="请安全重试；其他工作区不受影响。" requestId={props.model.requestId} onRetry={props.onRefresh} />;
@@ -18,13 +18,13 @@ export function AccessManagementPage(props: {
   return (
     <section className="dashboard-page" aria-labelledby="access-page-title">
       <header className="page-heading">
-        <div><span className="page-eyebrow">ACCESS CONTROL</span><h1 id="access-page-title">权限管理</h1><p>管理 Discord Role 到内部员工级别的版本化映射；最终授权始终由服务端解析。</p></div>
+        <div><span className="page-eyebrow">ACCESS CONTROL</span><h1 id="access-page-title">权限管理</h1><p>管理 Discord Role 到内部员工级别的版本化映射；最终权限以内部分级与审批结果为准。</p></div>
         <button type="button" className="button-secondary" onClick={props.onRefresh}><RefreshCw size={17} aria-hidden="true" />刷新配置</button>
       </header>
 
       <div className="metric-grid access-principles" aria-label="权限安全原则">
         <article className="metric-card"><span><ShieldCheck size={17} aria-hidden="true" />授权事实</span><strong>内部级别</strong><small>仅内部有效级别决定最终权限</small></article>
-        <article className="metric-card"><span><KeyRound size={17} aria-hidden="true" />敏感操作</span><strong>L4 + Step-up</strong><small>修改后触发全量 Role 对账</small></article>
+        <article className="metric-card"><span><KeyRound size={17} aria-hidden="true" />敏感操作</span><strong>L4 + 二次验证</strong><small>修改后触发全量 Role 对账</small></article>
         <article className="metric-card"><span><ShieldAlert size={17} aria-hidden="true" />永久限制</span><strong>无硬删除</strong><small>资金、业务与审计事实只追加</small></article>
       </div>
 
@@ -94,5 +94,5 @@ function RoleMappingForm(props: { mapping: RoleMappingRecord; submitting?: boole
 }
 
 function AccessState(props: { title: string; copy: string; requestId?: string | null; actionHref?: string; onRetry?: () => void }) {
-  return <section className="dashboard-page"><div className="state-card"><span className="page-eyebrow">ACCESS CONTROL</span><h1>{props.title}</h1><p>{props.copy}</p>{props.requestId && <code>request_id: {props.requestId}</code>}<div className="button-row">{props.actionHref && <a className="button button-primary" href={props.actionHref}>前往账户安全</a>}{props.onRetry && <button type="button" onClick={props.onRetry}>重新载入</button>}</div></div></section>;
+  return <section className="dashboard-page"><div className="state-card"><span className="page-eyebrow">ACCESS CONTROL</span><h1>{props.title}</h1><p>{props.copy}</p>{props.requestId && <code>请求编号：{props.requestId}</code>}<div className="button-row">{props.actionHref && <a className="button button-primary" href={props.actionHref}>前往账户安全</a>}{props.onRetry && <button type="button" onClick={props.onRetry}>重新载入</button>}</div></div></section>;
 }

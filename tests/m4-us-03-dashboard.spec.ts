@@ -147,15 +147,15 @@ describe('M4-US-03 Dashboard business object pages', () => {
     }));
 
     expect(html).toContain('取消订单操作表单');
-    expect(html).toContain('name="refundAmountMinor"');
-    expect(html).toContain('name="playerEarningMinor"');
+    expect(html).toContain('name="refundAmountCat"');
+    expect(html).toContain('name="playerEarningCat"');
     expect(html).toContain('name="evidenceNote"');
     expect(html).toContain('<option value="SERVICE_INTERRUPTED">服务中断</option>');
-    expect(html).toContain('该操作会原子处理预留、退款、陪玩收益和审计');
+    expect(html).toContain('该操作会同时处理预留、退款、陪玩收益和审计记录');
 
     expect(buildAdminActionRequest({
       actionId: 'CANCEL_ORDER_RESOLUTION', item,
-      fields: { refundAmountMinor: '50000', playerEarningMinor: '20000', currency: 'CAT', evidenceNote: '已核对订单频道与服务记录。', reasonCode: 'SERVICE_INTERRUPTED' }
+      fields: { refundAmountCat: '5000', playerEarningCat: '2000', currency: 'CAT', evidenceNote: '已核对订单频道与服务记录。', reasonCode: 'SERVICE_INTERRUPTED' }
     })).toEqual({
       method: 'POST', path: '/api/v1/admin/orders/order-1/resolve',
       body: {
@@ -166,10 +166,10 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
   });
 
-  test('formats integer minor units with their currency without client-side arithmetic', () => {
+  test('formats canonical integer CAT amounts for employee display', () => {
     expect(formatMinorCurrency(123456, 'CAT', 'zh-CN')).toBe('12,345.6 猫条');
     expect(formatMinorCurrency(-500, 'CAT', 'en-US')).toBe('-50.0 猫条');
-    expect(() => formatMinorCurrency(1.5, 'CAT')).toThrow(/integer minor units/i);
+    expect(() => formatMinorCurrency(1.5, 'CAT')).toThrow(/金额格式无效/u);
   });
 
   test('models loading, empty, error and forbidden states without exposing rows', () => {
@@ -266,7 +266,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
     expect(buildAdminActionRequest({
       actionId: 'CREATE_GIFT',
-      fields: { name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
+      fields: { name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountCat: '5200', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'INITIAL_GIFT_VERSION' }
     })).toEqual({
       method: 'POST',
       path: '/api/v1/admin/gift-catalog',
@@ -286,7 +286,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
   test('maps service versions, gift replacements and append-only user risk events to unified API writes', () => {
     const serviceFields = {
       gameTagId: 'game-1', serviceTagId: 'service-1', regionTagId: 'region-1', billingUnitMinutes: '60', minimumUnits: '2',
-      customerAmountMinor: '6000', defaultPlayerPayoutPercent: '66.67', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
+      customerAmountCat: '600', defaultPlayerPayoutPercent: '66.67', currency: 'CAT', enabled: true, reasonCode: 'INITIAL_VERSION'
     };
 
     expect(buildAdminActionRequest({ actionId: 'CREATE_SERVICE_VERSION', fields: serviceFields })).toEqual({
@@ -313,7 +313,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
     expect(buildAdminActionRequest({
       actionId: 'UPDATE_GIFT_VERSION', item: { id: 'gift-1', version: 2 },
-      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountMinor: '52000', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
+      fields: { action: 'CREATE_REPLACEMENT_VERSION', name: 'Super Rocket', giftCategoryTagId: 'gift-category-1', amountCat: '5200', currency: 'CAT', enabled: true, broadcastTemplate: '{sender} sent {gift}', reasonCode: 'PRICE_REFRESH' }
     })).toEqual({
       method: 'PATCH', path: '/api/v1/admin/gift-catalog/gift-1',
       body: {
@@ -409,7 +409,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
       model: userModel, activeAction: { action: userModel.actions[0], item: { id: 'user-1', version: 1 } }, onSubmitAction: () => undefined
     }));
 
-    expect(serviceHtml).toContain('name="customerAmountMinor"');
+    expect(serviceHtml).toContain('name="customerAmountCat"');
     expect(serviceHtml).toContain('name="defaultPlayerPayoutPercent"');
     expect(giftHtml).toContain('value="CREATE_REPLACEMENT_VERSION"');
     expect(giftHtml).toContain('保存修改（创建新版本）');

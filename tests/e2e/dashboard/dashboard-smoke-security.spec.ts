@@ -50,8 +50,8 @@ test.describe('Dashboard browser E2E: shell and security boundaries', () => {
     await loginAs(page, 'l3');
     const nav = page.getByRole('navigation', { name: '管理导航' });
     for (const label of ['礼物目录', '礼物请求', '返佣', '结算', '周报']) await expect(nav.getByRole('link', { name: label, exact: true })).toHaveCount(0);
-    await page.goto('/admin/gift-catalog'); await expect(page.getByRole('heading', { name: '功能暂未开放' })).toBeVisible();
-    await page.goto('/settlements'); await expect(page.getByRole('heading', { name: '功能暂未开放' })).toBeVisible();
+    await page.goto('/admin/gift-catalog'); await expect(page.getByRole('heading', { name: '此功能当前不可用' })).toBeVisible();
+    await page.goto('/settlements'); await expect(page.getByRole('heading', { name: '此功能当前不可用' })).toBeVisible();
     expect(featureRequests).toEqual([]);
   });
 

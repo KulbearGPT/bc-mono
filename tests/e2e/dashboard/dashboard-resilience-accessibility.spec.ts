@@ -17,7 +17,7 @@ test.describe('Dashboard browser E2E: resilience and accessibility', () => {
     await page.getByRole('link', { name: '订单', exact: true }).click();
     const alert = page.getByRole('alert');
     await expect(alert).toContainText('数据暂时无法载入');
-    await expect(alert).toContainText(/request_id:/u);
+    await expect(alert).toContainText(/请求编号：/u);
     await expect(page.getByRole('button', { name: '重试' })).toBeVisible();
   });
 

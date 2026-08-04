@@ -92,7 +92,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     try {
       const response=await client.get('/api/v1/admin/business-tags?enabled=true');
       const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:BusinessTagRecord[]}|BusinessTagRecord[]}|null;
-      if(!response.ok){setReferenceDataError(`参考数据载入失败：业务标签不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：业务标签不可用。${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}
       const tags=Array.isArray(body?.data)?body.data:body?.data?.items??[];
       setBusinessTagOptions(groupEnabledBusinessTags(tags));
     }catch{setReferenceDataError('参考数据载入失败：业务标签网络请求失败，请刷新后重试。');}
@@ -102,7 +102,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     try {
       const response=await client.get('/api/v1/admin/service-catalog?limit=100');
       const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
-      if(!response.ok){setReferenceDataError(`参考数据载入失败：服务目录不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+      if(!response.ok){setReferenceDataError(`参考数据载入失败：服务目录不可用。${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}
       setServiceCatalogOptions((body?.data?.items??[]).filter((item)=>item.enabled!==false));
     }catch{setReferenceDataError('参考数据载入失败：服务目录网络请求失败，请刷新后重试。');}
   }
@@ -140,7 +140,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
       const response = await activeWrite.current.retry();
       const body = await response.json().catch(() => null) as { requestId?: string; error?: { message?: string } } | null;
       if (!response.ok) {
-        const requestIdSuffix = body?.requestId ? ` request_id: ${body.requestId}` : '';
+        const requestIdSuffix = body?.requestId ? ` 请求编号：${body.requestId}` : '';
         setActionError(`${body?.error?.message ?? '操作未完成，请检查对象状态后重试。'}${requestIdSuffix}`);
         setActionStatus('ERROR');
         return;
@@ -222,13 +222,13 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
   async function mutateParticipant(kind:'ADD'|'UPDATE',fields:Record<string,unknown>){
     if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;
     const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;
-    try{setParticipantMutationError(null);const request=kind==='ADD'?buildAddOrderParticipantRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildAddOrderParticipantRequest>[1]):buildUpdateOrderParticipantRequest(order.id,String(fields.participantId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateOrderParticipantRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'陪玩明细未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}
+    try{setParticipantMutationError(null);const request=kind==='ADD'?buildAddOrderParticipantRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildAddOrderParticipantRequest>[1]):buildUpdateOrderParticipantRequest(order.id,String(fields.participantId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateOrderParticipantRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'陪玩明细未能保存。'}${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}await openDetail({id:order.id});}
     catch(error){setParticipantMutationError(error instanceof Error?error.message:'陪玩明细表单无效。');}
   }
 
-  async function mutateOrderNote(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderNoteRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderNoteRequest>[1]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'订单备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'订单备注表单无效。');}}
+  async function mutateOrderNote(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderNoteRequest(order.id,{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderNoteRequest>[1]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'订单备注未能保存。'}${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'订单备注表单无效。');}}
 
-  async function mutateRequirement(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderRequirementRequest(order.id,String(fields.requirementId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderRequirementRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'席位备注未能保存。'}${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'席位备注表单无效。');}}
+  async function mutateRequirement(fields:Record<string,unknown>){if(detail?.kind!=='READY'||detail.page!=='orders'||!detail.data)return;const order=detail.data.order as Record<string,unknown>|undefined;if(!order||typeof order.id!=='string'||typeof order.version!=='number')return;try{setParticipantMutationError(null);const request=buildUpdateAdminOrderRequirementRequest(order.id,String(fields.requirementId??''),{...fields,expectedOrderVersion:order.version} as Parameters<typeof buildUpdateAdminOrderRequirementRequest>[2]);const response=await sendAppendOnlyMutation(request);const body=await response.json().catch(()=>null) as {requestId?:string;error?:{message?:string}}|null;if(!response.ok){setParticipantMutationError(`${body?.error?.message??'席位备注未能保存。'}${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}await openDetail({id:order.id});}catch(error){setParticipantMutationError(error instanceof Error?error.message:'席位备注表单无效。');}}
 
   async function sendAppendOnlyMutation(request:{method:'POST'|'PUT'|'PATCH';path:string;body:unknown}):Promise<Response>{const fingerprint=JSON.stringify(request);const key=mutationWriteKeys.current.get(fingerprint);const response=request.method==='POST'?await client.post(request.path,request.body,key):request.method==='PUT'?await client.put(request.path,request.body,key):await client.patch(request.path,request.body,key);if(response.ok)mutationWriteKeys.current.complete(fingerprint);return response;}
 
@@ -300,7 +300,7 @@ export function AdminBusinessRoute(props: { page: AdminBusinessPageId; capabilit
     if(action.id==='EDIT_PLAYER_COMPENSATION'&&item&&typeof item.playerId==='string'){
       try{const response=await client.get(`/api/v1/admin/players/${encodeURIComponent(item.playerId)}/compensation`);
         const body=await response.json().catch(()=>null) as {requestId?:string;data?:{items?:Array<Record<string,unknown>>}}|null;
-        if(!response.ok){setReferenceDataError(`参考数据载入失败：陪玩分成不可用。${body?.requestId?` request_id: ${body.requestId}`:''}`);return;}
+        if(!response.ok){setReferenceDataError(`参考数据载入失败：陪玩分成不可用。${body?.requestId?` 请求编号：${body.requestId}`:''}`);return;}
         const rules=body?.data?.items??[];setServiceCatalogOptions((current)=>current.map((offering)=>({...offering,compensationRule:rules.find((rule)=>rule.serviceOfferingId===offering.serviceOfferingId)})));
       }catch{setReferenceDataError('参考数据载入失败：陪玩分成网络请求失败，请刷新后重试。');return;}
     }

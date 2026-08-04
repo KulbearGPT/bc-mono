@@ -213,7 +213,7 @@ function resolveListState<T>(input: ListViewInput<T>, permission: string) {
     error: kind === 'ERROR'
       ? buildOperationsError({
         requestId: input.requestId ?? 'unknown',
-        error: { code: 'REQUEST_FAILED', message: '请求失败，请向技术支持提供请求编号。', retryable: true }
+        error: { code: 'REQUEST_FAILED', message: '请求失败，请向管理员提供请求编号。', retryable: true }
       })
       : null
   };

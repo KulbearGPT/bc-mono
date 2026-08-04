@@ -48,7 +48,7 @@ export function OperationsRoute({ capabilities }: { capabilities: DashboardCapab
       const response = await client.post(request.path, request.body);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { requestId?: string; error?: { message?: string } } | null;
-        window.alert(`${body?.error?.message ?? '任务重试失败。'}${body?.requestId ? ` request_id: ${body.requestId}` : ''}`);
+        window.alert(`${body?.error?.message ?? '任务重试失败。'}${body?.requestId ? ` 请求编号：${body.requestId}` : ''}`);
         return;
       }
       await loadJobs();
@@ -63,14 +63,14 @@ export function OperationsRoute({ capabilities }: { capabilities: DashboardCapab
     const rawValue = window.prompt('请输入新的整数值', String(setting.integerValue));
     if (rawValue === null) return;
     const integerValue = Number(rawValue);
-    const reasonCode = window.prompt('请输入修改原因码', 'P0_POLICY_CONFIRMATION')?.trim();
+    const reasonCode = window.prompt('请输入修改原因码', 'POLICY_UPDATE')?.trim();
     if (!reasonCode) return;
     try {
       const request = buildUpdatePolicySettingRequest(setting, { integerValue, currency: setting.currency, reasonCode });
       const response = await client.put(request.path, request.body);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { requestId?: string; error?: { message?: string } } | null;
-        window.alert(`${body?.error?.message ?? '设置修改失败。'}${body?.requestId ? ` request_id: ${body.requestId}` : ''}`);
+        window.alert(`${body?.error?.message ?? '设置修改失败。'}${body?.requestId ? ` 请求编号：${body.requestId}` : ''}`);
         return;
       }
       await loadPolicies();
@@ -88,7 +88,7 @@ export function OperationsRoute({ capabilities }: { capabilities: DashboardCapab
       const response = await client.post(request.path, request.body);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { requestId?: string; error?: { message?: string } } | null;
-        window.alert(`${body?.error?.message ?? '面板修复任务创建失败。'}${body?.requestId ? ` request_id: ${body.requestId}` : ''}`);
+        window.alert(`${body?.error?.message ?? '面板修复任务创建失败。'}${body?.requestId ? ` 请求编号：${body.requestId}` : ''}`);
         return;
       }
       window.alert('面板修复任务已进入队列。');

@@ -20,7 +20,7 @@ export class DashboardErrorBoundary extends Component<DashboardErrorBoundaryProp
     return <section className="state-card state-card--error" role="alert">
       <h1>当前页面无法安全显示</h1>
       <p>页面已停止渲染，未提交任何业务或资金操作。请重新载入后再试。</p>
-      {this.state.incidentId && <p className="request-id">前端事件编号：{this.state.incidentId}</p>}
+      {this.state.incidentId && <p className="request-id">故障编号：{this.state.incidentId}</p>}
       <button type="button" onClick={() => window.location.reload()}>重新载入 Dashboard</button>
     </section>;
   }

@@ -20,7 +20,7 @@ export function SettlementPage(props: { model: SettlementPageModel; onRetry: () 
     </form>}
     {props.model.alert && <p className="state-card state-card--compact state-card--warning settlement-alert"><AlertTriangle size={16} />{props.model.alert}</p>}
     {props.model.kind === 'LOADING' && <div className="state-card">正在载入...</div>}
-    {props.model.kind === 'ERROR' && <div className="state-card state-card--error"><strong>载入失败</strong><p>request_id: {props.model.requestId ?? '—'}</p></div>}
+    {props.model.kind === 'ERROR' && <div className="state-card state-card--error"><strong>载入失败</strong><p>请求编号：{props.model.requestId ?? '—'}</p></div>}
     {props.model.kind === 'EMPTY' && <div className="state-card">{props.model.emptyMessage ?? `暂无${props.model.section === 'settlements' ? '结算批次' : '周报'}。`}</div>}
     {props.model.kind === 'READY' && <div className="table-scroll content-panel content-panel--flush"><table className="data-table settlement-table"><thead><tr>{['编号','状态','周期','应付 CAT / 实付 USD','修订/版本','操作'].map((label) => <th className={label === '操作' ? 'data-column--actions' : undefined} key={label}>{label}</th>)}</tr></thead><tbody>{props.model.items.map((item) => <tr key={String(item.id)}><td>{String(item.publicId ?? item.id)}</td><td>{String(item.status ?? '—')}</td><td>{date(item.periodStart)}<br />{date(item.periodEnd)}</td><td>{formatSettlementPayout(settlementAmount(item))}</td><td>{String(item.version ?? item.currentRevision ?? '—')}</td><td className="table-actions"><div className="table-actions__group"><RowActions model={props.model} item={item} onAction={props.onAction} /></div></td></tr>)}</tbody></table>{props.model.nextCursor&&props.onNextPage?<div className="pagination-bar panel-padding"><button type="button" disabled={props.model.loadingMore} onClick={props.onNextPage}>{props.model.loadingMore?'载入中…':`继续加载${props.model.section==='settlements'?'结算批次':'周报'}`}</button></div>:null}</div>}
   </section>;
@@ -56,9 +56,9 @@ function RowActions({ model, item, onAction }: { model: SettlementPageModel; ite
       else onAction(action, item, defaultFields(action));
     }}><Icon size={15} />{label}</button>)}{mayVoid&&<button type="button" onClick={()=>setShowVoidEditor((visible)=>!visible)}><XCircle size={15}/>作废</button>}</div>
     {showVoidEditor&&<div className="payment-editor settlement-void-editor">
-      <strong>{requiresReplacement?'作废并原子创建替代批次':'作废当前批次'}</strong>
+      <strong>{requiresReplacement?'作废并同步创建替代批次':'作废当前批次'}</strong>
       <label className="field"><span>作废原因代码</span><input value={voidReason} onChange={(event)=>setVoidReason(event.currentTarget.value)} pattern="[A-Z][A-Z0-9_]{2,99}" required/></label>
-      {requiresReplacement?<><p>批准或导出的批次不可孤立作废。统一 API 将按当前周期、Guild 与币种原子创建替代批次；任一步失败都不会作废原批次。</p><label className="checkbox-field"><input type="checkbox" checked={replacementConfirmed} onChange={(event)=>setReplacementConfirmed(event.currentTarget.checked)}/><span>确认创建替代批次并保留原批次审计链</span></label></>:null}
+      {requiresReplacement?<><p>批准或导出的批次不可孤立作废。系统会按当前周期、Guild 与币种同时创建替代批次；任一步失败都不会作废原批次。</p><label className="checkbox-field"><input type="checkbox" checked={replacementConfirmed} onChange={(event)=>setReplacementConfirmed(event.currentTarget.checked)}/><span>确认创建替代批次并保留原批次审计链</span></label></>:null}
       <button className="button-primary" type="button" disabled={!voidReason.trim()||requiresReplacement&&!replacementConfirmed} onClick={()=>{onAction('VOID',item,buildSettlementVoidFields(item,replacementBatchId,voidReason));setShowVoidEditor(false);}}>确认作废</button>
     </div>}
     {showPaymentEditor && <div className="payment-editor">

@@ -5,7 +5,7 @@ import { businessTagTypeLabels,businessTagTypes,type BusinessTagRecord,type Busi
 export type BusinessTagsModel={kind:'LOADING'|'READY'|'ERROR'|'FORBIDDEN';items:BusinessTagRecord[];requestId:string|null};
 export function BusinessTagsPage(props:{model:BusinessTagsModel;busy?:boolean;notice?:string|null;onCreate:(value:{type:BusinessTagType;code:string;displayName:string})=>void;onUpdate:(tag:BusinessTagRecord,value:{displayName:string;enabled:boolean})=>void;onRefresh:()=>void}){
   if(props.model.kind==='LOADING')return <section className="dashboard-page"><div className="state-card"><h1>正在载入业务标签库</h1></div></section>;
-  if(props.model.kind==='ERROR'||props.model.kind==='FORBIDDEN')return <section className="dashboard-page"><div className="state-card" role="alert"><h1>{props.model.kind==='FORBIDDEN'?'无权访问业务标签库':'业务标签库载入失败'}</h1>{props.model.requestId&&<code>request_id: {props.model.requestId}</code>}<button onClick={props.onRefresh}>重试</button></div></section>;
+  if(props.model.kind==='ERROR'||props.model.kind==='FORBIDDEN')return <section className="dashboard-page"><div className="state-card" role="alert"><h1>{props.model.kind==='FORBIDDEN'?'无权访问业务标签库':'业务标签库载入失败'}</h1>{props.model.requestId&&<code>请求编号：{props.model.requestId}</code>}<button onClick={props.onRefresh}>重试</button></div></section>;
   return <section className="dashboard-page" aria-labelledby="business-tags-title">
     <header className="page-heading"><div><span className="page-eyebrow">BUSINESS TAXONOMY</span><h1 id="business-tags-title">业务标签库</h1><p>预定义游戏、陪玩服务种类、地区、语言和礼物分类。代码稳定，停用后仍保留历史引用。</p></div><button onClick={props.onRefresh}><RefreshCw size={17}/>刷新</button></header>
     {props.notice&&<div className="status-notice" role="status">{props.notice}</div>}

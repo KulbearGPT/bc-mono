@@ -87,13 +87,13 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     await loginAndOpenDetail(page);
     const requests: Array<Record<string, unknown>> = [];
     page.on('request', (value) => { if (value.method() === 'POST' && value.url().endsWith('/participants')) requests.push(value.postDataJSON()); });
-    for (const [player, catalog, price] of [['player-e2e-1', '00000000-0000-0000-0000-000000000701', '2400'], ['player-e2e-2', 'catalog-e2e-chat', '1500']] as const) {
+    for (const [player, catalog, price] of [['player-e2e-1', '00000000-0000-0000-0000-000000000701', '240'], ['player-e2e-2', 'catalog-e2e-chat', '150']] as const) {
       await page.getByText('高级操作：添加陪玩明细').click();
       const form = page.locator('.participant-inline-form').last();
       await form.getByLabel('陪玩').selectOption(player);
       await form.getByLabel('服务项目').selectOption(catalog);
       await form.getByLabel('计费单位数').fill('1');
-      await form.getByLabel('明细价格（CAT 最小单位）').fill(price);
+      await form.getByLabel('明细价格（猫条）').fill(price);
       await form.getByRole('button', { name: '添加陪玩' }).click();
       await expect(page.locator('.participant-detail-card')).toHaveCount(requests.length);
     }
@@ -111,7 +111,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     expect((await apiAddParticipant(page, 2, 4)).status).toBe(201);
     await page.getByRole('link', { name: '订单', exact: true }).click(); await page.getByRole('button', { name: '查看详情' }).click();
     const first = page.locator('.participant-detail-card').nth(0); await first.getByRole('button', { name: '编辑明细' }).click();
-    await first.getByLabel('操作').selectOption('CHANGE_PROJECT'); await first.getByLabel('服务项目').selectOption('catalog-e2e-chat'); await first.getByLabel('计费单位数').fill('2'); await first.getByLabel('明细价格').fill('2800'); await first.getByRole('button', { name: '保存明细' }).click();
+    await first.getByLabel('操作').selectOption('CHANGE_PROJECT'); await first.getByLabel('服务项目').selectOption('catalog-e2e-chat'); await first.getByLabel('计费单位数').fill('2'); await first.getByLabel('明细价格（猫条）').fill('280'); await first.getByRole('button', { name: '保存明细' }).click();
     await expect(page.locator('.participant-detail-card').nth(0)).toContainText('聊天陪伴');
     const second = page.locator('.participant-detail-card').nth(1); await second.getByRole('button', { name: '编辑明细' }).click(); await second.getByLabel('操作').selectOption('REMOVE'); await second.getByRole('button', { name: '保存明细' }).click();
     await expect(page.locator('.participant-detail-card')).toHaveCount(2);
@@ -125,7 +125,7 @@ test.describe('Dashboard browser E2E: order mutations', () => {
     for (let index = 1; index <= 9; index += 1) expect((await apiAddParticipant(page, index, index + 2, index % 2 ? '00000000-0000-0000-0000-000000000701' : 'catalog-e2e-chat')).status).toBe(201);
     await page.getByRole('link', { name: '订单', exact: true }).click(); await page.getByRole('button', { name: '查看详情' }).click();
     await expect(page.locator('.participant-detail-card')).toHaveCount(9);
-    const ninth = page.locator('.participant-detail-card').nth(8); await ninth.getByRole('button', { name: '编辑明细' }).click(); await ninth.getByLabel('明细价格').fill('2222'); await ninth.getByRole('button', { name: '保存明细' }).click();
+    const ninth = page.locator('.participant-detail-card').nth(8); await ninth.getByRole('button', { name: '编辑明细' }).click(); await ninth.getByLabel('明细价格（猫条）').fill('222.2'); await ninth.getByRole('button', { name: '保存明细' }).click();
     await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).orderParticipants[8].linePriceMinor).toBe(2222);
   });
 

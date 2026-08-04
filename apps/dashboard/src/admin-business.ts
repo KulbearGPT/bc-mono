@@ -38,9 +38,9 @@ export interface AdminActionRequest {
   body: Record<string, unknown>;
 }
 
-export function buildAddOrderParticipantRequest(orderId:string,fields:{playerId:unknown;serviceCatalogVersionId:unknown;unitCount:unknown;linePriceMinor:unknown;expectedOrderVersion:unknown;reasonCode:unknown}):AdminActionRequest{return{method:'POST',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants`,body:{playerId:requireText(fields.playerId,'playerId'),serviceCatalogVersionId:requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'),unitCount:requirePositiveInteger(fields.unitCount,'unitCount'),linePriceMinor:requirePositiveInteger(fields.linePriceMinor,'linePriceMinor'),expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),reasonCode:requireReasonCode(fields.reasonCode)}};}
+export function buildAddOrderParticipantRequest(orderId:string,fields:{playerId:unknown;serviceCatalogVersionId:unknown;unitCount:unknown;linePriceCat:unknown;expectedOrderVersion:unknown;reasonCode:unknown}):AdminActionRequest{return{method:'POST',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants`,body:{playerId:requireText(fields.playerId,'playerId'),serviceCatalogVersionId:requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'),unitCount:requirePositiveInteger(fields.unitCount,'unitCount'),linePriceMinor:catInputToMinor(fields.linePriceCat,{field:'明细价格'}),expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),reasonCode:requireReasonCode(fields.reasonCode)}};}
 
-export function buildUpdateOrderParticipantRequest(orderId:string,participantId:string,fields:{action:unknown;playerId?:unknown;serviceCatalogVersionId?:unknown;unitCount?:unknown;linePriceMinor?:unknown;expectedOrderVersion:unknown;expectedParticipantVersion:unknown;reasonCode:unknown}):AdminActionRequest{const action=requireEnum(fields.action,['CHANGE_PROJECT','CHANGE_PRICE','REASSIGN','REMOVE'],'action');return{method:'PATCH',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants/${encodeURIComponent(requireText(participantId,'participantId'))}`,body:{expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),expectedParticipantVersion:requirePositiveInteger(fields.expectedParticipantVersion,'expectedParticipantVersion'),action,playerId:action==='REASSIGN'?requireText(fields.playerId,'playerId'):null,serviceCatalogVersionId:action==='CHANGE_PROJECT'?requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'):null,unitCount:action==='CHANGE_PROJECT'?requirePositiveInteger(fields.unitCount,'unitCount'):null,linePriceMinor:action==='CHANGE_PRICE'||action==='CHANGE_PROJECT'?requirePositiveInteger(fields.linePriceMinor,'linePriceMinor'):null,reasonCode:requireReasonCode(fields.reasonCode)}};}
+export function buildUpdateOrderParticipantRequest(orderId:string,participantId:string,fields:{action:unknown;playerId?:unknown;serviceCatalogVersionId?:unknown;unitCount?:unknown;linePriceCat?:unknown;expectedOrderVersion:unknown;expectedParticipantVersion:unknown;reasonCode:unknown}):AdminActionRequest{const action=requireEnum(fields.action,['CHANGE_PROJECT','CHANGE_PRICE','REASSIGN','REMOVE'],'action');return{method:'PATCH',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/participants/${encodeURIComponent(requireText(participantId,'participantId'))}`,body:{expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),expectedParticipantVersion:requirePositiveInteger(fields.expectedParticipantVersion,'expectedParticipantVersion'),action,playerId:action==='REASSIGN'?requireText(fields.playerId,'playerId'):null,serviceCatalogVersionId:action==='CHANGE_PROJECT'?requireText(fields.serviceCatalogVersionId,'serviceCatalogVersionId'):null,unitCount:action==='CHANGE_PROJECT'?requirePositiveInteger(fields.unitCount,'unitCount'):null,linePriceMinor:action==='CHANGE_PRICE'||action==='CHANGE_PROJECT'?catInputToMinor(fields.linePriceCat,{field:'明细价格'}):null,reasonCode:requireReasonCode(fields.reasonCode)}};}
 export function buildUpdateAdminOrderNoteRequest(orderId:string,fields:{expectedOrderVersion:unknown;note?:unknown;reasonCode:unknown}):AdminActionRequest{return{method:'PATCH',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}`,body:{expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),action:'CHANGE_NOTE',note:boundedOptionalText(fields.note,1000,'note'),reasonCode:requireReasonCode(fields.reasonCode)}};}
 export function buildUpdateAdminOrderRequirementRequest(orderId:string,requirementId:string,fields:{expectedOrderVersion:unknown;expectedRequirementVersion:unknown;customerNote?:unknown;reasonCode:unknown}):AdminActionRequest{return{method:'PATCH',path:`/api/v1/admin/orders/${encodeURIComponent(requireText(orderId,'orderId'))}/requirements/${encodeURIComponent(requireText(requirementId,'requirementId'))}`,body:{expectedOrderVersion:requirePositiveInteger(fields.expectedOrderVersion,'expectedOrderVersion'),expectedRequirementVersion:requirePositiveInteger(fields.expectedRequirementVersion,'expectedRequirementVersion'),action:'CHANGE_NOTE',customerNote:boundedOptionalText(fields.customerNote,500,'customerNote'),reasonCode:requireReasonCode(fields.reasonCode)}};}
 
@@ -181,7 +181,7 @@ const defaultSort={sortBy:'createdAt',sortDirection:'desc' as const};
 export const adminCollectionConfigs:Record<AdminCollectionPageId,AdminCollectionConfig>={
   orders:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'amountMinor',label:'订单金额'}],defaultSort,columns:[{key:'publicId',label:'订单号'},{key:'status',label:'状态'},{key:'customerDisplayName',label:'客户'},{key:'playerDisplayNames',label:'陪玩'},{key:'serviceSummary',label:'服务'},{key:'amountMinor',label:'订单金额'},{key:'updatedAt',label:'最近更新'}]},
   users:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'status',label:'状态'},{key:'discordUserId',label:'Discord 用户 ID'},{key:'activeOrderId',label:'当前订单'},{key:'createdAt',label:'创建时间'}]},
-  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'discordPresence',label:'Discord 在线状态（仅诊断）'},{key:'createdAt',label:'创建时间'}]},
+  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'discordPresence',label:'Discord 在线状态（参考）'},{key:'createdAt',label:'创建时间'}]},
   serviceCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'offeringName',label:'项目名称'},{id:'customerUnitPriceMinor',label:'客户单价'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'gameDisplayName',label:'游戏'},{key:'serviceDisplayName',label:'服务'},{key:'status',label:'状态'},{key:'customerUnitPriceMinor',label:'客户单价'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   servicePackages:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'displayName',label:'套餐名称'},{id:'defaultCustomerPriceMinor',label:'套餐价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'displayName',label:'套餐名称'},{key:'status',label:'状态'},{key:'defaultCustomerPriceMinor',label:'套餐价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   giftCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'name',label:'礼物名称'},{id:'priceMinor',label:'礼物价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'name',label:'礼物名称'},{key:'status',label:'状态'},{key:'priceMinor',label:'礼物价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
@@ -274,12 +274,33 @@ export function buildAdminResourceQuery(input: {
 
 export function formatMinorCurrency(amountMinor: number, currency: string, locale = 'zh-CN'): string {
   if (!Number.isSafeInteger(amountMinor)) {
-    throw new TypeError('Amounts must use safe integer minor units.');
+    throw new TypeError('金额格式无效。');
   }
   if(currency==='CAT')return `${(amountMinor/10).toLocaleString(locale,{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;
   const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'code' });
   const fractionDigits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
   return formatter.format(amountMinor / (10 ** fractionDigits));
+}
+
+export function catInputToMinor(value: unknown, options: { allowZero?: boolean; field?: string } = {}): number {
+  const field = options.field ?? '金额';
+  const normalized = (typeof value === 'string' || typeof value === 'number') ? String(value).trim() : '';
+  if (!/^\d+(?:\.\d)?$/u.test(normalized)) throw new TypeError(`${field}必须以猫条填写，最多保留一位小数。`);
+  const [whole, decimal = '0'] = normalized.split('.');
+  const amountMinor = Number(whole) * 10 + Number(decimal);
+  const minimum = options.allowZero ? 0 : 1;
+  if (!Number.isSafeInteger(amountMinor) || amountMinor < minimum) {
+    throw new TypeError(options.allowZero ? `${field}不能小于 0 猫条。` : `${field}必须大于 0 猫条。`);
+  }
+  return amountMinor;
+}
+
+export function minorToCatInput(amountMinor: unknown): string {
+  if (!Number.isSafeInteger(amountMinor) || Number(amountMinor) < 0) throw new TypeError('金额格式无效。');
+  const value = Number(amountMinor);
+  const whole = Math.floor(value / 10);
+  const decimal = value % 10;
+  return decimal === 0 ? String(whole) : `${whole}.${decimal}`;
 }
 
 export function buildAdminDetailRequest(
@@ -327,7 +348,7 @@ export function buildAdminActionRequest(input: {
       method: 'POST', path: `/api/v1/admin/orders/${encodeURIComponent(item.id)}/refund`,
       body: {
         expectedVersion: item.version,
-        amount: { amountMinor: requirePositiveInteger(input.fields.amountMinor, 'amountMinor'), currency: requireCurrency(input.fields.currency) },
+        amount: { amountMinor: catInputToMinor(input.fields.amountCat, { field: '退款金额' }), currency: requireCurrency(input.fields.currency) },
         reasonCode: requireReasonCode(input.fields.reasonCode),
         evidenceNote: requireText(input.fields.evidenceNote, 'evidenceNote', 2_000)
       }
@@ -343,8 +364,8 @@ export function buildAdminActionRequest(input: {
         expectedVersion: item.version,
         targetStatus: 'CANCELLED',
         reasonCode: requireReasonCode(input.fields.reasonCode),
-        refund: { amountMinor: requireNonNegativeInteger(input.fields.refundAmountMinor, 'refundAmountMinor'), currency },
-        playerEarning: { amountMinor: requireNonNegativeInteger(input.fields.playerEarningMinor, 'playerEarningMinor'), currency },
+        refund: { amountMinor: catInputToMinor(input.fields.refundAmountCat, { allowZero: true, field: '客户退款金额' }), currency },
+        playerEarning: { amountMinor: catInputToMinor(input.fields.playerEarningCat, { allowZero: true, field: '陪玩收益' }), currency },
         evidenceNote: requireText(input.fields.evidenceNote, 'evidenceNote', 2_000),
         confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
       }
@@ -355,7 +376,7 @@ export function buildAdminActionRequest(input: {
   if(input.actionId==='EDIT_COMPANION_TAGS'){const item=requirePlayerItem(input.item);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/tags`,body:{expectedVersion:item.version,
     gameTagIds:splitTags(input.fields.gameTagIds),serviceTagIds:splitTags(input.fields.serviceTagIds),languageTagIds:splitOptionalTags(input.fields.languageTagIds),reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='EDIT_PLAYER_COMPENSATION'){const item=requirePlayerItem(input.item);if(typeof input.fields.compensationChangesJson==='string'){const changes=parseCompensationChanges(input.fields.compensationChangesJson);return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation`,body:{rules:changes,reasonCode:requireReasonCode(input.fields.reasonCode)}};}const serviceOfferingId=requireText(input.fields.serviceOfferingId,'serviceOfferingId');const type=requireEnum(input.fields.compensationType,['PERCENT_BPS','FIXED_MINOR'],'compensationType');
-    const value=type==='PERCENT_BPS'?requirePercentageBps(input.fields.percentage):requirePositiveInteger(input.fields.fixedAmountMinor,'fixedAmountMinor');
+    const value=type==='PERCENT_BPS'?requirePercentageBps(input.fields.percentage):catInputToMinor(input.fields.fixedAmountCat,{field:'每单位固定收益'});
     return{method:'PUT',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/compensation/${encodeURIComponent(serviceOfferingId)}`,body:{expectedVersion:optionalPositiveInteger(input.fields.compensationVersion),type,value,currency:type==='FIXED_MINOR'?'CAT':null,reasonCode:requireReasonCode(input.fields.reasonCode)}};}
   if(input.actionId==='REJECT_COMPANION'){const item=requirePlayerItem(input.item);return{method:'POST',path:`/api/v1/admin/players/${encodeURIComponent(item.id)}/reject`,body:{expectedVersion:item.version,
     reasonCode:requireReasonCode(input.fields.reasonCode),note:requireText(input.fields.note,'note',1000)}};}
@@ -422,10 +443,10 @@ export function buildAdminActionRequest(input: {
       body: { expectedVersion: item.version, action: input.actionId, reasonCode }
     };
   }
-  throw new TypeError(`Action ${input.actionId} does not have a complete form and API mapping.`);
+  throw new TypeError('当前操作无法提交，请刷新页面后重试。');
 }
 
-function parseCompensationChanges(value:string){let entries:unknown;try{entries=JSON.parse(value);}catch{throw new Error('compensationChangesJson is invalid.');}if(!Array.isArray(entries)||!entries.length)throw new Error('至少需要一条分成改动。');return entries.map((entry)=>{if(!entry||typeof entry!=='object'||Array.isArray(entry))throw new Error('compensation change is invalid.');const item=entry as Record<string,unknown>;const type=requireEnum(item.type as string,['PERCENT_BPS','FIXED_MINOR'],'compensationType');return{serviceOfferingId:requireText(item.serviceOfferingId as string,'serviceOfferingId'),expectedVersion:optionalPositiveInteger(item.expectedVersion as string),type,value:type==='PERCENT_BPS'?requirePercentageBps(item.percentage as string):requirePositiveInteger(item.fixedAmountMinor as string,'fixedAmountMinor'),currency:type==='FIXED_MINOR'?'CAT':null};});}
+function parseCompensationChanges(value:string){let entries:unknown;try{entries=JSON.parse(value);}catch{throw new Error('compensationChangesJson is invalid.');}if(!Array.isArray(entries)||!entries.length)throw new Error('至少需要一条分成改动。');return entries.map((entry)=>{if(!entry||typeof entry!=='object'||Array.isArray(entry))throw new Error('compensation change is invalid.');const item=entry as Record<string,unknown>;const type=requireEnum(item.type as string,['PERCENT_BPS','FIXED_MINOR'],'compensationType');return{serviceOfferingId:requireText(item.serviceOfferingId as string,'serviceOfferingId'),expectedVersion:optionalPositiveInteger(item.expectedVersion as string),type,value:type==='PERCENT_BPS'?requirePercentageBps(item.percentage as string):catInputToMinor(item.fixedAmountCat,{field:'每单位固定收益'}),currency:type==='FIXED_MINOR'?'CAT':null};});}
 
 function requirePageDefinition(page: AdminBusinessPageId): AdminPageDefinition {
   const definition = pageDefinitions.find((candidate) => candidate.id === page);
@@ -475,11 +496,6 @@ function requirePositiveInteger(value: unknown, field: string): number {
   if (!Number.isSafeInteger(parsed) || parsed < 1) throw new TypeError(`${field} must be a positive integer.`);
   return parsed;
 }
-function requireNonNegativeInteger(value: unknown, field: string): number {
-  const parsed = typeof value === 'string' || typeof value === 'number' ? Number(value) : Number.NaN;
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError(`${field} must be a non-negative integer.`);
-  return parsed;
-}
 function optionalPositiveInteger(value:string|boolean|undefined):number|null{if(value===undefined||value==='')return null;return requirePositiveInteger(value,'compensationVersion');}
 function requirePercentageBps(value:string|boolean|undefined):number{const parsed=typeof value==='string'?Number(value):Number.NaN;if(!Number.isFinite(parsed)||parsed<=0||parsed>100)throw new TypeError('percentage must be between 0 and 100.');const bps=Math.round(parsed*100);if(!Number.isSafeInteger(bps)||bps<1||bps>10000)throw new TypeError('percentage must be between 0 and 100.');return bps;}
 
@@ -497,7 +513,7 @@ function requireCurrency(value: string | boolean | undefined): string {
 
 function buildServiceCatalogCreateBody(fields: Record<string, string | boolean>, reasonCode: string) {
   const currency = requireCurrency(fields.currency);
-  const customerAmountMinor = requirePositiveInteger(fields.customerAmountMinor, 'customerAmountMinor');
+  const customerAmountMinor = catInputToMinor(fields.customerAmountCat, { field: '用户单价' });
   const defaultPlayerPayoutBps = requirePercentageBps(fields.defaultPlayerPayoutPercent);
   return {
     gameTagId: requireText(fields.gameTagId, 'gameTagId', 100),
@@ -516,7 +532,7 @@ function buildServiceCatalogCreateBody(fields: Record<string, string | boolean>,
 function buildGiftCatalogCreateBody(fields: Record<string, string | boolean>, reasonCode: string) {
   return {
     name: requireText(fields.name, 'name', 100), giftCategoryTagId: requireText(fields.giftCategoryTagId,'giftCategoryTagId',100),
-    price: { amountMinor: requirePositiveInteger(fields.amountMinor, 'amountMinor'), currency: requireCurrency(fields.currency) },
+    price: { amountMinor: catInputToMinor(fields.amountCat, { field: '礼物价格' }), currency: requireCurrency(fields.currency) },
     enabled: fields.enabled === true,
     broadcastTemplate: requireText(fields.broadcastTemplate, 'broadcastTemplate', 500),
     reasonCode

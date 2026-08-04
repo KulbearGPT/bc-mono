@@ -104,7 +104,7 @@ test.describe('Dashboard browser E2E: customer profile and wallet', () => {
     await request.post('http://127.0.0.1:3000/__e2e/fault/wallet');
     await page.goto('/__e2e/login/l2'); await page.waitForURL('**/'); await page.goto(`/admin/users/${userId}/profile`);
     const wallet = page.getByRole('region', { name: '客户钱包' });
-    await expect(wallet).toContainText('钱包模块载入失败'); await expect(wallet).toContainText(/request_id: req_/u);
+    await expect(wallet).toContainText('钱包模块载入失败'); await expect(wallet).toContainText(/请求编号：req_/u);
     await expect(page.getByRole('heading', { name: '消费统计' })).toBeVisible();
     await expect(page.getByText('P-E2E-001')).toBeVisible();
   });

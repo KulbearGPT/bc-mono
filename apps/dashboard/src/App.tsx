@@ -239,7 +239,7 @@ export function DashboardChrome(props: DashboardChromeProps) {
     .map((group) => ({ ...group, items: props.navigation.filter((item) => navigationGroupForPath(item.href) === group.id) }))
     .filter((group) => group.items.length > 0);
   const environment = props.capabilities.businessEnvironment === 'SANDBOX'
-    ? 'Sandbox 环境'
+    ? '非生产环境'
     : props.capabilities.businessEnvironment === 'PRODUCTION' ? '生产环境' : '环境待确认';
   const environmentClass = props.capabilities.businessEnvironment === 'SANDBOX'
     ? 'is-sandbox'
@@ -325,7 +325,7 @@ export function DashboardChrome(props: DashboardChromeProps) {
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-footer__icon" aria-hidden="true"><LockKeyhole size={18} /></div>
-          <span><small>服务端权限已同步</small><strong>{formatLevel(props.capabilities.level)}</strong></span>
+          <span><small>权限状态已同步</small><strong>{formatLevel(props.capabilities.level)}</strong></span>
         </div>
       </aside>
       <div className="dashboard-workspace">
@@ -345,7 +345,6 @@ export function DashboardChrome(props: DashboardChromeProps) {
               <span className={`status-rail__item ${environmentClass}`}>{environment}</span>
               <span className="status-rail__item">{props.capabilities.displayRole ?? 'STAFF'} / {formatLevel(props.capabilities.level)}</span>
             </div>
-            <button className="approval-status" type="button" disabled title="OpenAPI 已声明审批资源，但当前 API 运行时尚未注册对应路由。">审批接口待接入</button>
             <button
               className="theme-switcher"
               type="button"
@@ -360,7 +359,7 @@ export function DashboardChrome(props: DashboardChromeProps) {
               <summary aria-label="账户菜单"><span className="level-avatar" aria-hidden="true">{levelInitial(props.capabilities.level)}</span></summary>
               <div className="account-menu__panel">
                 <strong>{props.capabilities.displayRole ?? 'STAFF'} · {formatLevel(props.capabilities.level)}</strong>
-                <small>{props.capabilities.staffId ? `员工编号 ${props.capabilities.staffId}` : '员工身份已由服务端验证'}</small>
+                <small>{props.capabilities.staffId ? `员工编号 ${props.capabilities.staffId}` : '员工身份已验证'}</small>
                 {props.capabilities.permissions.includes('mfa.manage_self') && <a href="/security" onClick={routeClick('/security')}>账户安全</a>}
                 <button type="button" onClick={() => void logout()}><LogOut size={15} aria-hidden="true" />退出登录</button>
                 {logoutError && <span role="alert">{logoutError}</span>}
@@ -421,7 +420,7 @@ export function DashboardOverview(props: {
 
 function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | 'ERROR'; appName: string; authReason?: string | null }) {
   const content = {
-    LOADING: { icon: Activity, eyebrow: 'SECURE SESSION', title: '正在建立安全工作区', copy: '正在读取服务端员工权限与可用能力。' },
+    LOADING: { icon: Activity, eyebrow: 'SECURE SESSION', title: '正在建立安全工作区', copy: '正在读取员工权限与可用工作区。' },
     SIGNED_OUT: { icon: LockKeyhole, eyebrow: 'STAFF ACCESS', title: '登录客服管理后台', copy: props.authReason === 'SESSION_REVOKED' ? '权限已变化，请重新登录。新的内部有效级别会在登录后载入。' : '使用 Discord 完成身份验证后进入 BlackCat 运营工作区。' },
     FORBIDDEN: { icon: ShieldCheck, eyebrow: 'ACCESS LIMITED', title: '当前账户无权访问', copy: '员工账户没有此页面所需权限，请联系管理员确认内部有效级别。' },
     ERROR: { icon: Activity, eyebrow: 'CONNECTION ERROR', title: '暂时无法载入', copy: '请稍后重试，或向管理员提供请求编号以便排查。' }
@@ -446,11 +445,11 @@ function DashboardGate(props: { kind: 'LOADING' | 'SIGNED_OUT' | 'FORBIDDEN' | '
 }
 
 function FeatureUnavailable() {
-  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><Settings2 size={25} /></div><span className="page-eyebrow">PILOT FEATURE</span><h1>功能暂未开放</h1><p>当前 Pilot 阶段未开放此功能。</p></section>;
+  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><Settings2 size={25} /></div><span className="page-eyebrow">FEATURE ACCESS</span><h1>此功能当前不可用</h1><p>此功能未在当前工作区启用，请联系管理员确认可用范围。</p></section>;
 }
 
 function RouteForbidden() {
-  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><ShieldCheck size={25} /></div><span className="page-eyebrow">ACCESS LIMITED</span><h1>无权访问此页面</h1><p>当前内部有效权限不包含此工作区。Discord Role 不会替代服务端授权。</p></section>;
+  return <section className="dashboard-page empty-page"><div className="empty-page__icon" aria-hidden="true"><ShieldCheck size={25} /></div><span className="page-eyebrow">ACCESS LIMITED</span><h1>无权访问此页面</h1><p>当前内部有效权限不包含此工作区。Discord Role 不会替代内部授权。</p></section>;
 }
 
 function RouteNotFound() {

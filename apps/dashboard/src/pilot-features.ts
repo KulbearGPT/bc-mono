@@ -7,7 +7,7 @@ export interface PilotDashboardCapabilities {
   displayRole: 'STAFF' | 'OWNER' | null;
 }
 
-export const SANDBOX_WARNING = 'SANDBOX 测试环境 · 猫条余额不代表已收到 USD';
+export const SANDBOX_WARNING = '非生产环境 · 猫条余额不代表已收到 USD';
 
 export function getSandboxBanner(environment: 'SANDBOX' | 'PRODUCTION'): string | null {
   return environment === 'SANDBOX' ? SANDBOX_WARNING : null;
