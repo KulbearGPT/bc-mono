@@ -46,6 +46,8 @@ describe('Dashboard production copy gate', () => {
       '播报模板快照',
       '原子创建替代批次',
       'minor units',
+      'CAT subunit',
+      'CAT 最小单位',
       'request_id:'
     ];
 
@@ -57,6 +59,6 @@ describe('Dashboard production copy gate', () => {
     expect(source).toContain('非生产环境 · 猫条余额不代表已收到 USD');
     expect(source).toContain('发送频道验证消息');
     expect(source).toContain('请求编号：');
-    expect(source).toContain('CAT subunit');
+    expect(source).toContain('退款金额（猫条）');
   });
 });

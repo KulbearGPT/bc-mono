@@ -56,7 +56,7 @@ describe('M9-US-10 per-player service compensation', () => {
 
   test('dashboard submits a selected service and exactly one override mode', () => {
     expect(buildAdminActionRequest({ actionId: 'EDIT_PLAYER_COMPENSATION', item: { playerId: 'player-1', version: 3 }, fields: {
-      serviceOfferingId: 'offering-1', compensationType: 'PERCENT_BPS', percentage: '60', fixedAmountMinor: '', reasonCode: 'RATE_UPDATE'
+      serviceOfferingId: 'offering-1', compensationType: 'PERCENT_BPS', percentage: '60', fixedAmountCat: '', reasonCode: 'RATE_UPDATE'
     }})).toEqual({ method: 'PUT', path: '/api/v1/admin/players/player-1/compensation/offering-1', body: {
       expectedVersion: null, type: 'PERCENT_BPS', value: 6000, currency: null, reasonCode: 'RATE_UPDATE'
     }});
@@ -64,8 +64,8 @@ describe('M9-US-10 per-player service compensation', () => {
 
   test('dashboard submits every cached project change in one request', () => {
     expect(buildAdminActionRequest({actionId:'EDIT_PLAYER_COMPENSATION',item:{playerId:'player-1',version:1},fields:{reasonCode:'RATE_UPDATE',compensationChangesJson:JSON.stringify([
-      {serviceOfferingId:'offering-1',expectedVersion:'1',type:'PERCENT_BPS',percentage:'60',fixedAmountMinor:''},
-      {serviceOfferingId:'offering-2',expectedVersion:'',type:'FIXED_MINOR',percentage:'',fixedAmountMinor:'12'}
+      {serviceOfferingId:'offering-1',expectedVersion:'1',type:'PERCENT_BPS',percentage:'60',fixedAmountCat:''},
+      {serviceOfferingId:'offering-2',expectedVersion:'',type:'FIXED_MINOR',percentage:'',fixedAmountCat:'1.2'}
     ])}})).toEqual({method:'PUT',path:'/api/v1/admin/players/player-1/compensation',body:{reasonCode:'RATE_UPDATE',rules:[
       {serviceOfferingId:'offering-1',expectedVersion:1,type:'PERCENT_BPS',value:6000,currency:null},
       {serviceOfferingId:'offering-2',expectedVersion:null,type:'FIXED_MINOR',value:12,currency:'CAT'}

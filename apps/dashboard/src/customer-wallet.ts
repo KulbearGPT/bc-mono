@@ -18,7 +18,7 @@ export function buildWalletRequest(kind:'TOP_UP'|'CASH_REFUND_DEBIT',userId:stri
   return {method:'POST' as const,path,body};
 }
 export function walletPaths(userId:string){const encoded=encodeURIComponent(userId);return{balance:`/api/v1/admin/users/${encoded}/wallet`,entries:`/api/v1/admin/users/${encoded}/wallet/entries`,receipt:`/api/v1/admin/users/${encoded}/receipt-attachments`};}
-export function formatWalletMoney(value:number){if(!Number.isSafeInteger(value))throw new TypeError('CAT amounts must use safe integer subunits.');return `${(value/10).toLocaleString('zh-CN',{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;}
+export function formatWalletMoney(value:number){if(!Number.isSafeInteger(value))throw new TypeError('金额格式无效。');return `${(value/10).toLocaleString('zh-CN',{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;}
 export function walletInputToSubunits(kind:'TOP_UP'|'CASH_REFUND_DEBIT'|'ADJUSTMENT',value:number){
   const scale=kind==='TOP_UP'?100:10;const minor=Math.round(value*scale);
   if(!Number.isSafeInteger(minor)||minor<1)throw new TypeError('Amount must be positive and use the supported precision.');return minor;

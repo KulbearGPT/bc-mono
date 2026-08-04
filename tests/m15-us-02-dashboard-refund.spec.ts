@@ -12,12 +12,12 @@ describe('M15-US-02 standalone order refund', () => {
     expect(model.actions).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'REFUND_ORDER', label: '独立退款' })]));
     const html = renderToStaticMarkup(createElement(AdminBusinessPage, { model, activeAction: { action: model.actions.find((action) => action.id === 'REFUND_ORDER')!, item: order } }));
     expect(html).toContain('独立退款操作表单');
-    expect(html).toContain('name="amountMinor"');
+    expect(html).toContain('name="amountCat"');
     expect(html).toContain('不会取消订单');
   });
 
   test('maps the form to refundOrder with version, canonical currency and evidence', () => {
-    expect(buildAdminActionRequest({ actionId: 'REFUND_ORDER', item: order, fields: { amountMinor: '3600', currency: 'CAT', reasonCode: 'PARTIAL_SERVICE_REFUND', evidenceNote: '客户完成后反馈掉线，双方确认退还三成。' } })).toEqual({
+    expect(buildAdminActionRequest({ actionId: 'REFUND_ORDER', item: order, fields: { amountCat: '360', currency: 'CAT', reasonCode: 'PARTIAL_SERVICE_REFUND', evidenceNote: '客户完成后反馈掉线，双方确认退还三成。' } })).toEqual({
       method: 'POST', path: '/api/v1/admin/orders/order-completed-1/refund', body: {
         expectedVersion: 7, amount: { amountMinor: 3600, currency: 'CAT' }, reasonCode: 'PARTIAL_SERVICE_REFUND', evidenceNote: '客户完成后反馈掉线，双方确认退还三成。'
       }

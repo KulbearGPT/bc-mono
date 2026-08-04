@@ -6,13 +6,13 @@ async function openCatalog(page: Page) {
   await expect(page.getByRole('heading', { name: '服务目录' })).toBeVisible();
 }
 
-async function fillCatalogForm(page: Page, customerPrice = '5000') {
+async function fillCatalogForm(page: Page, customerPrice = '500') {
   await page.getByLabel('游戏').selectOption('tag-game-valorant');
   await page.getByLabel('服务/种类').selectOption('tag-service-escort');
   await page.getByLabel('地区（可选）').selectOption('tag-region-na');
   await page.getByLabel('计费单位（分钟）').fill('60');
   await page.getByLabel('最少单位数').fill('1');
-  await page.getByLabel('用户单价（CAT subunit）').fill(customerPrice);
+  await page.getByLabel('用户单价（猫条）').fill(customerPrice);
   await page.getByLabel('默认陪玩分成（%）').fill('60');
 }
 
@@ -22,7 +22,7 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
   test('DE2E-CAT-001 creating a service version persists controlled tags, prices, currency, and billing unit', async ({ page, request }) => {
     await openCatalog(page);
     await page.getByRole('button', { name: '创建服务版本' }).click();
-    await fillCatalogForm(page, '5000');
+    await fillCatalogForm(page, '500');
     await page.getByLabel('原因码').fill('CATALOG_VERSION_CREATE');
     await page.getByRole('dialog', { name: '创建服务版本操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect(page.getByText('无畏契约').first()).toBeVisible();
@@ -36,7 +36,7 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
     await page.getByRole('button', { name: '创建服务版本' }).click();
     await fillCatalogForm(page, '');
     await page.getByLabel('原因码').fill('INVALID_CATALOG_TEST');
-    const price = page.getByLabel('用户单价（CAT subunit）');
+    const price = page.getByLabel('用户单价（猫条）');
     await page.getByRole('dialog', { name: '创建服务版本操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect(price).toBeFocused();
     const result = await page.evaluate(async () => {
@@ -50,7 +50,7 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
   test('DE2E-CAT-003 supersede creates a new version while retaining the retired original', async ({ page, request }) => {
     await openCatalog(page);
     await page.getByRole('button', { name: '编辑服务项目' }).click();
-    await fillCatalogForm(page, '5500');
+    await fillCatalogForm(page, '550');
     await page.getByLabel('原因码').fill('CATALOG_SUPERSEDE');
     await page.getByRole('dialog', { name: '编辑服务项目操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect.poll(async () => (await (await request.get('http://127.0.0.1:3000/__e2e/state')).json()).catalogRecords.length).toBe(2);

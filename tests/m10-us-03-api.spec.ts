@@ -53,8 +53,8 @@ function fixture() {
 
 describe('M10-US-03 order participant API', () => {
   test('builds Dashboard participant writes without accepting a client-derived order total', () => {
-    expect(buildAddOrderParticipantRequest(orderId,{playerId:playerA,serviceCatalogVersionId:valorantTech,unitCount:'2',linePriceMinor:'240',expectedOrderVersion:1,reasonCode:'ADD_PLAYER'})).toEqual({method:'POST',path:`/api/v1/admin/orders/${orderId}/participants`,body:{playerId:playerA,serviceCatalogVersionId:valorantTech,unitCount:2,linePriceMinor:240,expectedOrderVersion:1,reasonCode:'ADD_PLAYER'}});
-    expect(buildUpdateOrderParticipantRequest(orderId,'participant-1',{action:'CHANGE_PROJECT',serviceCatalogVersionId:lolFun,unitCount:'3',linePriceMinor:'300',expectedOrderVersion:2,expectedParticipantVersion:1,reasonCode:'CHANGE_PROJECT'}).body).not.toHaveProperty('amountMinor');
+    expect(buildAddOrderParticipantRequest(orderId,{playerId:playerA,serviceCatalogVersionId:valorantTech,unitCount:'2',linePriceCat:'24',expectedOrderVersion:1,reasonCode:'ADD_PLAYER'})).toEqual({method:'POST',path:`/api/v1/admin/orders/${orderId}/participants`,body:{playerId:playerA,serviceCatalogVersionId:valorantTech,unitCount:2,linePriceMinor:240,expectedOrderVersion:1,reasonCode:'ADD_PLAYER'}});
+    expect(buildUpdateOrderParticipantRequest(orderId,'participant-1',{action:'CHANGE_PROJECT',serviceCatalogVersionId:lolFun,unitCount:'3',linePriceCat:'30',expectedOrderVersion:2,expectedParticipantVersion:1,reasonCode:'CHANGE_PROJECT'}).body).not.toHaveProperty('amountMinor');
     expect(buildUpdateOrderParticipantRequest(orderId,'participant-1',{action:'REASSIGN',playerId:playerC,expectedOrderVersion:3,expectedParticipantVersion:1,reasonCode:'PLAYER_UNAVAILABLE'})).toEqual({
       method:'PATCH',path:`/api/v1/admin/orders/${orderId}/participants/participant-1`,body:{expectedOrderVersion:3,expectedParticipantVersion:1,action:'REASSIGN',playerId:playerC,serviceCatalogVersionId:null,unitCount:null,linePriceMinor:null,reasonCode:'PLAYER_UNAVAILABLE'}
     });
