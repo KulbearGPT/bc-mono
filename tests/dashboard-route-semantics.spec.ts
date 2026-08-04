@@ -48,7 +48,8 @@ describe('Dashboard route and business semantics review gate', () => {
     expect(html).toContain('<option value="orders">订单</option>');
     expect(html).toContain('<option value="users">用户</option>');
     expect(html).not.toContain('<option value="players">');
-    expect(html).toContain('审批接口待接入');
+    expect(html).not.toContain('审批接口待接入');
+    expect(html).not.toContain('OpenAPI');
     expect(html).toContain('账户菜单');
     expect(html).toContain('退出登录');
   });

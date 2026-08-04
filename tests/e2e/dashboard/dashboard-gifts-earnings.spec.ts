@@ -26,7 +26,7 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     let dialog = page.getByRole('dialog', { name: '创建礼物操作' });
     await dialog.getByLabel('礼物名称').fill('E2E 月光礼物');
     await dialog.getByLabel('礼物分类').selectOption('tag-gift-celebration');
-    await dialog.getByLabel('价格（minor units）').fill('1800');
+    await dialog.getByLabel('价格（CAT subunit）').fill('1800');
     await dialog.getByLabel('播报模板').fill('{sender} 送给 {receiver} 月光');
     await submitAction(page, '创建礼物操作', 'GIFT_CREATE');
     await expect(page.getByText('E2E 月光礼物').first()).toBeVisible();
@@ -34,7 +34,7 @@ test.describe('Dashboard browser E2E: gifts and player earnings', () => {
     await page.getByRole('row').filter({ hasText: 'E2E 星光礼物' }).getByRole('button', { name: '编辑礼物' }).click();
     dialog = page.getByRole('dialog', { name: '编辑礼物操作' });
     await dialog.getByLabel('礼物名称').fill('E2E 星光礼物 v2');
-    await dialog.getByLabel('价格（minor units）').fill('1500');
+    await dialog.getByLabel('价格（CAT subunit）').fill('1500');
     await submitAction(page, '编辑礼物操作', 'GIFT_SUPERSEDE');
     await expect.poll(async () => (await (await request.get(`${apiUrl}/__e2e/state`)).json()).giftRecords.length).toBe(3);
     const state = await (await request.get(`${apiUrl}/__e2e/state`)).json();

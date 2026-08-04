@@ -60,7 +60,7 @@ const fieldLabels: Readonly<Record<string, string>> = {
   type: '类型',
   status: '状态',
   reviewStatus: '审核状态',
-  availability: '旧状态（仅诊断）',
+  availability: '历史接单状态（参考）',
   discordPresence: 'Discord 在线状态',
   announcementStatus: '播报状态',
   discordRoleSyncStatus: 'Discord 身份同步状态',
@@ -146,5 +146,5 @@ const fieldLabels: Readonly<Record<string, string>> = {
 
 export function dashboardFieldLabel(field: string): string {
   if (/\p{Script=Han}/u.test(field)) return field;
-  return fieldLabels[field] ?? `未映射字段：${field}`;
+  return fieldLabels[field] ?? '其他信息';
 }

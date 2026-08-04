@@ -181,7 +181,7 @@ const defaultSort={sortBy:'createdAt',sortDirection:'desc' as const};
 export const adminCollectionConfigs:Record<AdminCollectionPageId,AdminCollectionConfig>={
   orders:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'amountMinor',label:'订单金额'}],defaultSort,columns:[{key:'publicId',label:'订单号'},{key:'status',label:'状态'},{key:'customerDisplayName',label:'客户'},{key:'playerDisplayNames',label:'陪玩'},{key:'serviceSummary',label:'服务'},{key:'amountMinor',label:'订单金额'},{key:'updatedAt',label:'最近更新'}]},
   users:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'status',label:'状态'},{key:'discordUserId',label:'Discord 用户 ID'},{key:'activeOrderId',label:'当前订单'},{key:'createdAt',label:'创建时间'}]},
-  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'discordPresence',label:'Discord 在线状态（仅诊断）'},{key:'createdAt',label:'创建时间'}]},
+  players:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'updatedAt',label:'更新时间'},{id:'displayName',label:'展示名称'}],defaultSort,columns:[{key:'displayName',label:'展示名称'},{key:'reviewStatus',label:'准入状态'},{key:'discordPresence',label:'Discord 在线状态（参考）'},{key:'createdAt',label:'创建时间'}]},
   serviceCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'offeringName',label:'项目名称'},{id:'customerUnitPriceMinor',label:'客户单价'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'gameDisplayName',label:'游戏'},{key:'serviceDisplayName',label:'服务'},{key:'status',label:'状态'},{key:'customerUnitPriceMinor',label:'客户单价'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   servicePackages:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'displayName',label:'套餐名称'},{id:'defaultCustomerPriceMinor',label:'套餐价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'displayName',label:'套餐名称'},{key:'status',label:'状态'},{key:'defaultCustomerPriceMinor',label:'套餐价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
   giftCatalog:{sortOptions:[{id:'createdAt',label:'创建时间'},{id:'name',label:'礼物名称'},{id:'priceMinor',label:'礼物价格'},{id:'version',label:'版本'}],defaultSort,columns:[{key:'name',label:'礼物名称'},{key:'status',label:'状态'},{key:'priceMinor',label:'礼物价格'},{key:'version',label:'版本'},{key:'createdAt',label:'创建时间'}]},
@@ -274,7 +274,7 @@ export function buildAdminResourceQuery(input: {
 
 export function formatMinorCurrency(amountMinor: number, currency: string, locale = 'zh-CN'): string {
   if (!Number.isSafeInteger(amountMinor)) {
-    throw new TypeError('Amounts must use safe integer minor units.');
+    throw new TypeError('金额必须使用安全整数 CAT subunit。');
   }
   if(currency==='CAT')return `${(amountMinor/10).toLocaleString(locale,{minimumFractionDigits:1,maximumFractionDigits:1})} 猫条`;
   const formatter = new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'code' });
@@ -422,7 +422,7 @@ export function buildAdminActionRequest(input: {
       body: { expectedVersion: item.version, action: input.actionId, reasonCode }
     };
   }
-  throw new TypeError(`Action ${input.actionId} does not have a complete form and API mapping.`);
+  throw new TypeError('当前操作无法提交，请刷新页面后重试。');
 }
 
 function parseCompensationChanges(value:string){let entries:unknown;try{entries=JSON.parse(value);}catch{throw new Error('compensationChangesJson is invalid.');}if(!Array.isArray(entries)||!entries.length)throw new Error('至少需要一条分成改动。');return entries.map((entry)=>{if(!entry||typeof entry!=='object'||Array.isArray(entry))throw new Error('compensation change is invalid.');const item=entry as Record<string,unknown>;const type=requireEnum(item.type as string,['PERCENT_BPS','FIXED_MINOR'],'compensationType');return{serviceOfferingId:requireText(item.serviceOfferingId as string,'serviceOfferingId'),expectedVersion:optionalPositiveInteger(item.expectedVersion as string),type,value:type==='PERCENT_BPS'?requirePercentageBps(item.percentage as string):requirePositiveInteger(item.fixedAmountMinor as string,'fixedAmountMinor'),currency:type==='FIXED_MINOR'?'CAT':null};});}

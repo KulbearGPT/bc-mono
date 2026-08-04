@@ -62,7 +62,7 @@ describe('M14-US-05 support workbench release gate', () => {
       order: { id: 'order-legacy', publicId: 'P-LEGACY', version: 3, status: 'ACCEPTED' },
       readiness: { allActivePlayersReady: false }
     } as never }));
-    expect(html).toContain('等待 API 返回有效陪玩名单');
+    expect(html).toContain('有效陪玩名单尚未就绪');
     expect(html).not.toContain('客户未就绪');
   });
 

@@ -12,7 +12,7 @@ async function fillCatalogForm(page: Page, customerPrice = '5000') {
   await page.getByLabel('地区（可选）').selectOption('tag-region-na');
   await page.getByLabel('计费单位（分钟）').fill('60');
   await page.getByLabel('最少单位数').fill('1');
-  await page.getByLabel('用户单价（minor units）').fill(customerPrice);
+  await page.getByLabel('用户单价（CAT subunit）').fill(customerPrice);
   await page.getByLabel('默认陪玩分成（%）').fill('60');
 }
 
@@ -36,7 +36,7 @@ test.describe('Dashboard browser E2E: service catalog versions', () => {
     await page.getByRole('button', { name: '创建服务版本' }).click();
     await fillCatalogForm(page, '');
     await page.getByLabel('原因码').fill('INVALID_CATALOG_TEST');
-    const price = page.getByLabel('用户单价（minor units）');
+    const price = page.getByLabel('用户单价（CAT subunit）');
     await page.getByRole('dialog', { name: '创建服务版本操作' }).getByRole('button', { name: '提交', exact: true }).click();
     await expect(price).toBeFocused();
     const result = await page.evaluate(async () => {

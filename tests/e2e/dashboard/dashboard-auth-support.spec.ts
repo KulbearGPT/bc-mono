@@ -25,7 +25,7 @@ test.describe('Dashboard browser E2E: authentication and support workbench', () 
 
   test('DE2E-SMK-002 authenticated L1 sees server capabilities and metrics without privileged navigation', async ({ page }) => {
     await login(page);
-    await expect(page.getByLabel('当前系统状态').getByText('Sandbox 环境')).toBeVisible();
+    await expect(page.getByLabel('当前系统状态').getByText('非生产环境')).toBeVisible();
     await expect(page.getByRole('heading', { name: '今日运营数据' })).toBeVisible();
     await expect(page.getByText('今日订单')).toBeVisible();
     await expect(page.getByRole('navigation', { name: '管理导航' }).getByRole('link', { name: '客服工作台', exact: true })).toBeVisible();

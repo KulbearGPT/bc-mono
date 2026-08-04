@@ -12,7 +12,7 @@ async function fillService(page: Page, price: string) {
   await page.getByLabel('地区（可选）').selectOption('tag-region-na');
   await page.getByLabel('计费单位（分钟）').fill('60');
   await page.getByLabel('最少单位数').fill('1');
-  await page.getByLabel('用户单价（minor units）').fill(price);
+  await page.getByLabel('用户单价（CAT subunit）').fill(price);
   await page.getByLabel('默认陪玩分成（%）').fill('60');
 }
 
@@ -80,7 +80,7 @@ test.describe('Dashboard browser E2E: daily catalog operations', () => {
     const create = page.getByRole('dialog', { name: '创建礼物操作' });
     await create.getByLabel('礼物名称').fill('七夕限定烟花');
     await create.getByLabel('礼物分类').selectOption('tag-gift-celebration');
-    await create.getByLabel('价格（minor units）').fill('2888');
+    await create.getByLabel('价格（CAT subunit）').fill('2888');
     await create.getByLabel('播报模板').fill('{sender} 送给 {receiver} 七夕限定烟花');
     await submit(page, '创建礼物操作', 'SEASONAL_GIFT_LAUNCH');
     await expect(page.getByRole('cell', { name: '七夕限定烟花', exact: true })).toBeVisible();

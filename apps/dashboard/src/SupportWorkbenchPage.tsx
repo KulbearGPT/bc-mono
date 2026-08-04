@@ -244,7 +244,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     const detailResponse = await client.get(`/api/v1/admin/gift-requests/${encodeURIComponent(giftRequestId)}`);
     const detailPayload = await detailResponse.json().catch(() => null) as { data?: { rowVersion?: unknown } } | null;
     if (!detailResponse.ok || !Number.isInteger(detailPayload?.data?.rowVersion)) {
-      const suffix = (detailPayload as { requestId?: string } | null)?.requestId ? ` request_id: ${(detailPayload as { requestId: string }).requestId}` : '';
+      const suffix = (detailPayload as { requestId?: string } | null)?.requestId ? ` 请求编号：${(detailPayload as { requestId: string }).requestId}` : '';
       setError(`礼物请求最新版本无法载入，未执行批准或拒绝。${suffix}`);
       await refreshSupportState();
       return;
@@ -255,9 +255,9 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { requestId?: string; error?: { code?: string } } | null;
-      const message = payload?.error?.code === 'STEP_UP_REQUIRED' ? '该金额需要先完成账户安全 step-up，再重新提交。' : '礼物请求状态已变化或资金处理失败，未执行决定。';
+      const message = payload?.error?.code === 'STEP_UP_REQUIRED' ? '该金额需要先完成账户安全二次验证，再重新提交。' : '礼物请求状态已变化或资金处理失败，未执行决定。';
       await refreshSupportState();
-      setError(`${message}${payload?.requestId ? ` request_id: ${payload.requestId}` : ''}`);
+      setError(`${message}${payload?.requestId ? ` 请求编号：${payload.requestId}` : ''}`);
       return;
     }
     setError(null);
@@ -284,7 +284,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
         ? '你还有已认领、未处理完的任务，暂时不能下班。'
         : '打卡操作失败，请重试。';
       await refreshSupportState();
-      setError(`${message}${payload?.requestId ? ` request_id: ${payload.requestId}` : ''}`);
+      setError(`${message}${payload?.requestId ? ` 请求编号：${payload.requestId}` : ''}`);
       return;
     }
     setError(null);
@@ -364,7 +364,7 @@ export function SupportWorkbenchPage({ capabilities }: { capabilities: Dashboard
               {(task.actions.find((action) => action.id === 'APPROVE_GIFT')?.enabled || task.actions.find((action) => action.id === 'REJECT_GIFT')?.enabled) && (
                 <div className="task-card__editor task-card__gift-decision">
                   <strong>礼物资金决定</strong>
-                  <p className="context-note">批准会捕获已有礼物预留；拒绝会释放已有礼物预留。金额由服务端快照决定，后台不会重新计算。</p>
+                  <p className="context-note">批准会扣除已有礼物预留；拒绝会释放已有礼物预留。金额以礼物申请中已记录的数值为准，工作台不会重新计算。</p>
                   <textarea aria-label={`${task.publicId} 礼物决定说明`} value={giftDecisionDrafts[task.id] ?? ''}
                     onChange={(event) => setGiftDecisionDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
                     maxLength={2000} rows={2} placeholder="填写批准依据或拒绝原因" />
@@ -450,7 +450,7 @@ function SupportAutomationControl({ context, task, capabilities, onUpdated }: {
       <button className="button-primary" type="button" disabled={!pauseNote.trim()} onClick={() => void submit('pause')}>{pause.label}</button>
     </div>}
     {resume?.enabled && <div className="task-card__editor">
-      <p className="context-note">恢复后动作：{resumeActionLabel(view.resumeAction)}。服务端会重新校验最新订单、候选、就绪、余额和预留事实。</p>
+      <p className="context-note">恢复后动作：{resumeActionLabel(view.resumeAction)}。系统会重新核对最新订单、候选、就绪、余额和预留状态。</p>
       <textarea aria-label="恢复说明" value={resumeNote} onChange={(event) => setResumeNote(event.target.value)} maxLength={1000} rows={2} placeholder="记录阻断已解除及订单、余额、预留复核结果" />
       <button className="button-primary" type="button" disabled={!resumeNote.trim()} onClick={() => void submit('resume')}>{resume.label}</button>
     </div>}
@@ -468,7 +468,7 @@ export function SupportOrderContextPreview({ context }: { context: OrderContext 
   const participants = context.readiness?.participants ?? [];
   const readiness = participants.length
     ? participants.map((participant) => `${participant.displayName}：${participant.readiness === 'READY' ? '已就绪' : '未就绪'}`).join('；')
-    : order.status === 'ACCEPTED' ? '等待 API 返回有效陪玩名单' : '当前无待确认陪玩';
+    : order.status === 'ACCEPTED' ? '有效陪玩名单尚未就绪' : '当前无待确认陪玩';
   return <aside className="action-panel order-preview" aria-label="订单处理概览">
     <div className="panel-heading"><div><span className="page-eyebrow">订单处理概览</span><h2>订单 {order.publicId}</h2></div></div>
     <dl className="definition-list">
@@ -489,7 +489,7 @@ function supportOrderStatusLabel(status: string): string {
 
 export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
   if(state.kind==='LOADING')return <section className="state-card state-card--compact" aria-label="运营指标" aria-busy="true">正在载入运营指标...</section>;
-  if(state.kind==='ERROR'||!state.data)return <section className="state-card state-card--compact state-card--error" aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` request_id: ${state.requestId}`:''}</p></section>;
+  if(state.kind==='ERROR'||!state.data)return <section className="state-card state-card--compact state-card--error" aria-label="运营指标"><p role="alert">运营指标暂时无法载入。{state.requestId?` 请求编号：${state.requestId}`:''}</p></section>;
   const {metrics,currency,timeZone}=state.data;
   const values:Array<[string,string|number,string,string?]>=[
     ['今日订单',metrics.todayOrderCount,'今日创建'],['进行中订单',metrics.inProgressOrderCount,'当前进行中','/admin/orders?status=IN_PROGRESS'],['待处理任务',metrics.pendingStaffTaskCount,'尚未终结','/support?taskFilter=ALL'],
@@ -518,7 +518,7 @@ export function DashboardMetricSummary({state}:{state:DashboardMetricState}){
 }
 
 function moneyOrHidden(value:number|null,currency:string){return value===null?'无权限':formatMinorCurrency(value,currency);}
-async function supportActionError(response:Response,fallback:string){const payload=await response.json().catch(()=>null) as {requestId?:string}|null;return `${fallback} 已刷新最新状态，请核对后再操作。${payload?.requestId?` request_id: ${payload.requestId}`:''}`;}
+async function supportActionError(response:Response,fallback:string){const payload=await response.json().catch(()=>null) as {requestId?:string}|null;return `${fallback} 已刷新最新状态，请核对后再操作。${payload?.requestId?` 请求编号：${payload.requestId}`:''}`;}
 function supportResponseLabel(task:StaffTaskPayload){
   if(task.responseStatus==='PENDING'&&task.responseDueAt)return `等待首响（截止 ${new Date(task.responseDueAt).toLocaleTimeString()}）`;
   if(task.responseStatus==='OVERDUE')return '首响已超时';

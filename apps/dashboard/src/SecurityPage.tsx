@@ -85,7 +85,7 @@ export function SecurityPage({ capabilities }: { capabilities: DashboardCapabili
 
   return (
     <section className="dashboard-page security-page" aria-labelledby="security-title">
-      <header className="page-heading"><div><span className="page-eyebrow">SECURITY</span><h1 id="security-title">账户安全与操作范围</h1><p>管理多因素验证，并查看由服务端返回的当前执行边界。</p></div></header>
+      <header className="page-heading"><div><span className="page-eyebrow">SECURITY</span><h1 id="security-title">账户安全与操作范围</h1><p>管理多因素验证，并查看当前账号实际生效的操作范围。</p></div></header>
       <div className="card-grid">
         <PolicyItem title="当前层级" value={capabilities.level ?? '未知'} />
         <PolicyItem title="礼物直接执行上限" value={formatLimit(capabilities.thresholds?.giftApprovalLimitMinor,capabilities.thresholds?.currency)} />

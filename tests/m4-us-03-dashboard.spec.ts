@@ -151,7 +151,7 @@ describe('M4-US-03 Dashboard business object pages', () => {
     expect(html).toContain('name="playerEarningMinor"');
     expect(html).toContain('name="evidenceNote"');
     expect(html).toContain('<option value="SERVICE_INTERRUPTED">服务中断</option>');
-    expect(html).toContain('该操作会原子处理预留、退款、陪玩收益和审计');
+    expect(html).toContain('该操作会同时处理预留、退款、陪玩收益和审计记录');
 
     expect(buildAdminActionRequest({
       actionId: 'CANCEL_ORDER_RESOLUTION', item,
@@ -166,10 +166,10 @@ describe('M4-US-03 Dashboard business object pages', () => {
     });
   });
 
-  test('formats integer minor units with their currency without client-side arithmetic', () => {
+  test('formats integer CAT subunits with their currency without client-side arithmetic', () => {
     expect(formatMinorCurrency(123456, 'CAT', 'zh-CN')).toBe('12,345.6 猫条');
     expect(formatMinorCurrency(-500, 'CAT', 'en-US')).toBe('-50.0 猫条');
-    expect(() => formatMinorCurrency(1.5, 'CAT')).toThrow(/integer minor units/i);
+    expect(() => formatMinorCurrency(1.5, 'CAT')).toThrow(/CAT subunit/u);
   });
 
   test('models loading, empty, error and forbidden states without exposing rows', () => {

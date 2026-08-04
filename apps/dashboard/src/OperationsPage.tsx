@@ -17,7 +17,7 @@ export function OperationsPage(props: {
   onUpdatePolicy: (setting: PolicySettingRow) => void;
 }) {
   return <section className="dashboard-page" aria-labelledby="operations-title">
-    <header className="page-heading"><div><span className="page-eyebrow">SYSTEM OPS</span><h1 id="operations-title">系统运营</h1><p>集中查看审计、失败任务与服务端策略事实。</p></div></header>
+    <header className="page-heading"><div><span className="page-eyebrow">SYSTEM OPS</span><h1 id="operations-title">系统运营</h1><p>集中查看审计记录、失败任务与当前生效策略。</p></div></header>
     {props.panelRepair.visible && <section className="content-panel operations-repair" aria-labelledby="operations-panel-repair">
       <div className="section-title-row"><div><h2 id="operations-panel-repair">订单面板修复</h2><p>仅为已删除的 Discord 订单面板创建恢复任务。</p></div><button className="button-primary" type="button" disabled={!props.panelRepair.enabled} onClick={props.onRepairPanel}>修复已删除面板</button></div>
     </section>}

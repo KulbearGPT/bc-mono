@@ -41,7 +41,7 @@ describe('M14-US-04 actionable order context', () => {
     expect(html).toContain('当前阻塞');
     expect(html).toContain('下一步');
     expect(html).toContain('<details class="order-technical-details"');
-    expect(html).toContain('技术详情与审计字段');
+    expect(html).toContain('订单标识与审计信息');
     expect(html).toContain('高级操作：添加陪玩明细');
   });
 

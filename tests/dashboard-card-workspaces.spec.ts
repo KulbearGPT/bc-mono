@@ -42,7 +42,7 @@ describe('Dashboard card workspaces', () => {
     {
       page: 'players' as const,
       data: { playerId: 'player-1', userId: 'user-2', displayName: '奶糖', discordUserId: '700000000000000002', discordUsername: 'milk', reviewStatus: 'ACTIVE', availability: 'AVAILABLE', discordPresence: 'ONLINE', gameTagDetails: [{ code: 'LOLNA', displayName: '英雄联盟' }], serviceTagDetails: [{ code: 'RANKED', displayName: '技术陪玩' }], languageTagDetails: [{ code: 'CN', displayName: '中文' }], version: 4, createdAt: '2026-08-04T00:00:00Z', updatedAt: '2026-08-04T01:00:00Z' },
-      markers: ['player-profile-detail', '陪玩档案', '支持范围', '账号与状态', 'Discord 在线状态（仅诊断）']
+      markers: ['player-profile-detail', '陪玩档案', '支持范围', '账号与状态', 'Discord 在线状态（参考）']
     },
     {
       page: 'serviceCatalog' as const,

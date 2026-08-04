@@ -22,7 +22,7 @@ describe('Dashboard Chinese table headers', () => {
     expect(dashboardFieldLabel('gameTags')).toBe('游戏标签');
     expect(dashboardFieldLabel('discordPresence')).toBe('Discord 在线状态');
     expect(dashboardFieldLabel('broadcastTemplate')).toBe('播报模板');
-    expect(dashboardFieldLabel('unknownVendorField')).toBe('未映射字段：unknownVendorField');
+    expect(dashboardFieldLabel('unknownVendorField')).toBe('其他信息');
     expect(dashboardFieldLabel('状态')).toBe('状态');
   });
 
