@@ -97,7 +97,17 @@ export interface AdminRefundOrderStore extends Pick<OrderStore, 'findById'> {
   playerEarningAdjustments?: Array<Record<string, unknown>>;
   commissionAdjustments?: Array<Record<string, unknown>>;
   approvalRequests?: Array<Record<string, unknown>>;
+  refunds?: Array<{
+    id: string;
+    orderId: string;
+    sourceTransactionId: string;
+    amountMinor: number;
+    currency: string;
+    status: Transaction['status'];
+    idempotencyKey: string;
+  }>;
   findSucceededOrderCharge?(orderId: string): Promise<ExternalTransactionMirrorRecord | null>;
+  findReservedRefundedMinor?(sourceTransactionId: string): Promise<number>;
   validateReassignmentPlayer?(input: { playerId: string; order: OrderRecord }): Promise<boolean>;
   commitApproval?(input: ApprovalCommitInput): Promise<void> | void;
   commitRefund?(input: RefundCommitInput): Promise<void> | void;
@@ -204,6 +214,12 @@ export async function refundOrder(input: {
   }
   assertMoneyMatchesOrder(input.amount, order.currency, 'Refund');
   assertAmountWithinSnapshot(input.amount.amountMinor, order.amountMinor, 'Refund');
+  const sourceTransaction = await findSucceededOrderCharge(input.orderStore, input.orderId);
+  if (!sourceTransaction?.externalRef) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge is required before refund.');
+  }
+  const alreadyRefundedMinor = await findReservedRefundedMinor(input.orderStore, sourceTransaction.id);
+  assertRefundWithinRemaining(input.amount.amountMinor, sourceTransaction.amountMinor, alreadyRefundedMinor);
   const requiredLevel = requiredRefundLevel(input.amount.amountMinor, input.approvalThresholds);
   if (requiredLevel !== 'L2_SUPERVISOR' && levelRank(input.staffLevel) < levelRank(requiredLevel)) {
     if (!input.actor.actorStaffId || (!input.orderStore.commitApproval && !input.orderStore.approvalRequests)) {
@@ -243,11 +259,6 @@ export async function refundOrder(input: {
       commit: (auditRecord) => commitApproval(input.orderStore, { approval, auditRecord })
     };
   }
-  const sourceTransaction = await findSucceededOrderCharge(input.orderStore, input.orderId);
-  if (!sourceTransaction?.externalRef) {
-    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'A successful source charge is required before refund.');
-  }
-
   const refund = internalWalletRefund(input.amount, input.orderId, `${input.idempotencyKey}:wallet`, input.now);
 
   const refundId = crypto.randomUUID();
@@ -663,6 +674,17 @@ LIMIT 1
       : null;
   }
 
+  async findReservedRefundedMinor(sourceTransactionId: string): Promise<number> {
+    const result = await this.pool.query<{ amount_minor: string | number }>(
+      `SELECT COALESCE(SUM(amount_minor), 0) AS amount_minor
+       FROM refunds
+       WHERE source_external_transaction_id = $1
+         AND status IN ('PENDING', 'SUCCEEDED')`,
+      [sourceTransactionId]
+    );
+    return Number(result.rows[0]?.amount_minor ?? 0);
+  }
+
   async validateReassignmentPlayer(input: { playerId: string; order: OrderRecord }): Promise<boolean> {
     const result = await this.pool.query(
       `
@@ -913,6 +935,23 @@ function commitRefund(store: AdminRefundOrderStore, input: RefundCommitInput): P
   if (store.commitRefund) {
     return store.commitRefund(input);
   }
+  const refunds = store.refunds ?? (store.refunds = []);
+  const alreadyRefundedMinor = refunds.reduce((total, refund) => {
+    return refund.sourceTransactionId === input.refund.sourceTransaction.id
+      && (refund.status === 'PENDING' || refund.status === 'SUCCEEDED')
+      ? total + refund.amountMinor
+      : total;
+  }, 0);
+  assertRefundWithinRemaining(input.refund.amountMinor, input.refund.sourceTransaction.amountMinor, alreadyRefundedMinor);
+  refunds.push({
+    id: input.refund.id,
+    orderId: input.refund.orderId,
+    sourceTransactionId: input.refund.sourceTransaction.id,
+    amountMinor: input.refund.amountMinor,
+    currency: input.refund.currency,
+    status: input.refund.status,
+    idempotencyKey: input.refund.idempotencyKey
+  });
 }
 
 function commitResolution(store: AdminRefundOrderStore, input: ResolutionCommitInput): Promise<void> | void {
@@ -1291,7 +1330,8 @@ async function insertRefundAndCorrections(client: OrderQueryClient, input: {
   resolutionId: string | null;
 }): Promise<void> {
   const refund = input.refund;
-  if(refund.currency!=='CAT')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use USD.');
+  if(refund.currency!=='CAT')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use CAT.');
+  await lockAndAssertRefundCapacity(client, refund);
   const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[refund.beneficiaryUserId]);
   if(!wallet.rows[0])throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Customer wallet was not found.');
   await client.query(
@@ -1416,6 +1456,28 @@ VALUES ($1, $2, 'REVERSAL_DEBIT', $3, $4, $5, $6, $7, $8, $9)
       ]
     );
   }
+}
+
+async function lockAndAssertRefundCapacity(client: OrderQueryClient, refund: RefundPersistenceRecord): Promise<void> {
+  const source = await client.query<{ amount_minor: string | number; currency: string; status: string }>(
+    `SELECT amount_minor, currency, status
+     FROM external_transactions
+     WHERE id = $1
+     FOR UPDATE`,
+    [refund.sourceTransaction.id]
+  );
+  const charge = source.rows[0];
+  if (!charge || charge.status !== 'SUCCEEDED' || charge.currency !== refund.currency) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'The successful source charge is unavailable or changed.');
+  }
+  const refunded = await client.query<{ amount_minor: string | number }>(
+    `SELECT COALESCE(SUM(amount_minor), 0) AS amount_minor
+     FROM refunds
+     WHERE source_external_transaction_id = $1
+       AND status IN ('PENDING', 'SUCCEEDED')`,
+    [refund.sourceTransaction.id]
+  );
+  assertRefundWithinRemaining(refund.amountMinor, Number(charge.amount_minor), Number(refunded.rows[0]?.amount_minor ?? 0));
 }
 
 async function insertEarningResolutionAdjustment(client: OrderQueryClient, input: {
@@ -1613,6 +1675,25 @@ async function findSucceededOrderCharge(store: AdminRefundOrderStore, orderId: s
   return store.externalTransactions?.find((transaction) => {
     return transaction.orderId === orderId && transaction.type === 'ORDER_CHARGE' && transaction.status === 'SUCCEEDED';
   }) ?? null;
+}
+
+async function findReservedRefundedMinor(store: AdminRefundOrderStore, sourceTransactionId: string): Promise<number> {
+  if (store.findReservedRefundedMinor) {
+    return store.findReservedRefundedMinor(sourceTransactionId);
+  }
+  return (store.refunds ?? []).reduce((total, refund) => {
+    return refund.sourceTransactionId === sourceTransactionId
+      && (refund.status === 'PENDING' || refund.status === 'SUCCEEDED')
+      ? total + refund.amountMinor
+      : total;
+  }, 0);
+}
+
+function assertRefundWithinRemaining(requestedMinor: number, capturedMinor: number, alreadyRefundedMinor: number): void {
+  if (!Number.isSafeInteger(capturedMinor) || !Number.isSafeInteger(alreadyRefundedMinor)
+    || capturedMinor < 0 || alreadyRefundedMinor < 0 || requestedMinor > capturedMinor - alreadyRefundedMinor) {
+    throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Refund amount exceeds the remaining refundable charge.');
+  }
 }
 
 function parseRefundOrderBody(body: unknown): {

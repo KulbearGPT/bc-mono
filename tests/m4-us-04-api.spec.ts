@@ -416,6 +416,15 @@ const customerId = '00000000-0000-0000-0000-000000004421';
 
 class PolicyOrderStore extends InMemoryOrderStore {
   readonly approvalRequests: Array<Record<string, unknown>> = [];
+  readonly refunds: Array<{
+    id: string;
+    orderId: string;
+    sourceTransactionId: string;
+    amountMinor: number;
+    currency: string;
+    status: string;
+    idempotencyKey: string;
+  }> = [];
 }
 
 function policyOrder(id: string, amountMinor: number, status: OrderRecord['status']): OrderRecord {
@@ -680,5 +689,21 @@ describe('M4-US-04 amount policy integration', () => {
     });
     expect(executed.statusCode).toBe(200);
     expect(executed.json()).toMatchObject({ data: { amountMinor: 50100, status: 'SUCCEEDED', orderStatus: 'COMPLETED' } });
+
+    const exceedsRemaining = await fixture.server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/orders/${refundOrderId}/refund`,
+      headers: sessionHeaders(l3, 'm4:refund:l3:cumulative-overflow'),
+      payload: {
+        expectedVersion: 9,
+        amount: { amountMinor: 100000, currency: 'CAT' },
+        reasonCode: 'USER_REQUEST',
+        evidenceNote: 'This would exceed the remaining refundable amount.',
+        confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
+      }
+    });
+    expect(exceedsRemaining.statusCode).toBe(422);
+    expect(exceedsRemaining.json()).toMatchObject({ error: { code: 'BUSINESS_RULE_VIOLATION' } });
+    expect(fixture.orderStore.refunds).toHaveLength(2);
   });
 });
