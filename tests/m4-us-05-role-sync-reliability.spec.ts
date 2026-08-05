@@ -27,7 +27,7 @@ describe('M4-US-05 Role sync reliability maintenance', () => {
   });
 
   test('explains that a changed permission requires a fresh login', async () => {
-    const source = await readFile('apps/dashboard/src/App.tsx', 'utf8');
+    const source = await readFile('apps/dashboard/src/DashboardChrome.tsx', 'utf8');
     expect(source).toContain('权限已变化，请重新登录');
   });
 

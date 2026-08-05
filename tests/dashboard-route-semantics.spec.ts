@@ -16,7 +16,11 @@ describe('Dashboard route and business semantics review gate', () => {
   });
 
   test('uses current readiness and append-only archive language', () => {
-    const page = readFileSync('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8');
+    const page = [
+      'apps/dashboard/src/AdminBusinessPage.tsx',
+      'apps/dashboard/src/AdminBusinessActionPanel.tsx',
+      'apps/dashboard/src/admin-business-presenters.tsx'
+    ].map((path) => readFileSync(path, 'utf8')).join('\n');
     const definitions = readFileSync('apps/dashboard/src/admin-business.ts', 'utf8');
     expect(page).toContain("ACCEPTED:{blocker:'等待所有有效陪玩就绪',nextAction:'确认各有效陪玩已完成就绪'}");
     expect(page).not.toContain('等待双方就绪');
@@ -25,7 +29,7 @@ describe('Dashboard route and business semantics review gate', () => {
   });
 
   test('does not present a capability response as a live API health check', () => {
-    const source = readFileSync('apps/dashboard/src/App.tsx', 'utf8');
+    const source = readFileSync('apps/dashboard/src/DashboardChrome.tsx', 'utf8');
     expect(source).not.toContain('API ONLINE');
     expect(source).toContain('权限已载入');
   });

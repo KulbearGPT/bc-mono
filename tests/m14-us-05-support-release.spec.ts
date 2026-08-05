@@ -18,12 +18,12 @@ describe('M14-US-05 support workbench release gate', () => {
 
   test('keeps release-critical focus, responsive and accessible-name rules in the dashboard shell', async () => {
     const { readFile } = await import('node:fs/promises');
-    const [app, support, styles] = await Promise.all([
-      readFile('apps/dashboard/src/App.tsx', 'utf8'), readFile('apps/dashboard/src/SupportWorkbenchPage.tsx', 'utf8'), readFile('apps/dashboard/src/styles.css', 'utf8')
+    const [chrome, support, styles] = await Promise.all([
+      readFile('apps/dashboard/src/DashboardChrome.tsx', 'utf8'), readFile('apps/dashboard/src/SupportWorkbenchPage.tsx', 'utf8'), readFile('apps/dashboard/src/styles.css', 'utf8')
     ]);
-    expect(app).toContain('href="#dashboard-main">跳到主要内容</a>');
-    expect(app).toContain('id="dashboard-main"');
-    expect(app).toContain('tabIndex={-1}');
+    expect(chrome).toContain('href="#dashboard-main">跳到主要内容</a>');
+    expect(chrome).toContain('id="dashboard-main"');
+    expect(chrome).toContain('tabIndex={-1}');
     expect(support).toContain('aria-pressed={filter === item.id}');
     expect(support).toContain('aria-expanded={expandedTaskId === task.id}');
     expect(styles).toContain('@media (max-width: 768px)');

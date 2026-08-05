@@ -14,7 +14,7 @@ describe('M9-US-06 Dashboard operations', () => {
   });
 
   test('exposes auditable approve and reject actions for pending companions', async () => {
-    const source = await readFile(resolve(root, 'apps/dashboard/src/admin-business.ts'), 'utf8');
+    const source = await readFile(resolve(root, 'apps/dashboard/src/admin-business-actions.ts'), 'utf8');
     expect(source).toContain('/approve');
     expect(source).toContain('/reject');
     expect(source).toContain('reasonCode');

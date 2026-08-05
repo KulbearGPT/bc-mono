@@ -72,7 +72,10 @@ describe('M19-US-04 support live refresh', () => {
   });
 
   test('integrates automatic and manual refresh with every support write path', async () => {
-    const source = await readFile('apps/dashboard/src/SupportWorkbenchPage.tsx', 'utf8');
+    const source = (await Promise.all([
+      readFile('apps/dashboard/src/SupportWorkbenchPage.tsx', 'utf8'),
+      readFile('apps/dashboard/src/SupportWorkbenchPanels.tsx', 'utf8')
+    ])).join('\n');
     expect(source).toContain('createVisibleRefreshLoop');
     expect(source).toContain('SUPPORT_REFRESH_INTERVAL_MS = 5_000');
     expect(source).toContain('refreshSupportState');

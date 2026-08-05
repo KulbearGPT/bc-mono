@@ -75,7 +75,10 @@ describe('M9-US-08 unified business tags', () => {
   });
 
   test('replaces free-text service, companion and gift classification fields with selects', async () => {
-    const source = await import('node:fs').then(({ readFileSync }) => readFileSync('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8'));
+    const source = await import('node:fs').then(({ readFileSync }) => [
+      'apps/dashboard/src/AdminBusinessPage.tsx',
+      'apps/dashboard/src/AdminBusinessActionPanel.tsx'
+    ].map((path) => readFileSync(path, 'utf8')).join('\n'));
     expect(source).toContain('businessTagOptions');
     expect(source).toContain('name="gameTagId"');
     expect(source).toContain('name="serviceTagIds"');

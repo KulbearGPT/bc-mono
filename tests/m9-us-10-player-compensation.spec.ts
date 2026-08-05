@@ -73,7 +73,7 @@ describe('M9-US-10 per-player service compensation', () => {
   });
 
   test('dashboard shows every player project compensation as a visible list instead of a dropdown', async () => {
-    const source = await readFile('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8');
+    const source = await readFile('apps/dashboard/src/AdminBusinessActionPanel.tsx', 'utf8');
     expect(source).toContain('player-compensation-list');
     expect(source).toContain('player-compensation-item');
     expect(source).toContain('当前个人分成');
@@ -83,7 +83,7 @@ describe('M9-US-10 per-player service compensation', () => {
   });
 
   test('caches compensation edits locally and requires a second confirmation before saving', async () => {
-    const source = await readFile('apps/dashboard/src/AdminBusinessPage.tsx', 'utf8');
+    const source = await readFile('apps/dashboard/src/AdminBusinessActionPanel.tsx', 'utf8');
     expect(source).toContain('compensationDrafts');
     expect(source).toContain('草稿已缓存');
     expect(source).toContain('确认分成改动');

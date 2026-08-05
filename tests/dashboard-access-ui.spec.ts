@@ -52,7 +52,10 @@ describe('Dashboard access-management UI', () => {
   });
 
   test('keeps sidebar navigation mounted and scopes route loading to the content region', async () => {
-    const source = await import('node:fs').then(({ readFileSync }) => readFileSync('apps/dashboard/src/App.tsx', 'utf8'));
+    const source = await import('node:fs').then(({ readFileSync }) => [
+      'apps/dashboard/src/App.tsx',
+      'apps/dashboard/src/DashboardChrome.tsx'
+    ].map((path) => readFileSync(path, 'utf8')).join('\n'));
     expect(source).toContain("currentPath === '/access'");
     expect(source).toContain('window.history.pushState');
     expect(source).toContain('setCurrentPath');

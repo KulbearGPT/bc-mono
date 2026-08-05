@@ -121,7 +121,7 @@ describe('Dashboard release visual gate', () => {
   });
 
   test('offers a persistent floating cute-theme preview without changing business behavior', () => {
-    const source = readFileSync('apps/dashboard/src/App.tsx', 'utf8');
+    const source = readFileSync('apps/dashboard/src/DashboardChrome.tsx', 'utf8');
     const styles = readFileSync('apps/dashboard/src/styles.css', 'utf8');
     expect(source).toContain("const dashboardThemeStorageKey = 'blackcat-dashboard-theme'");
     expect(source).toContain('className="theme-switcher"');

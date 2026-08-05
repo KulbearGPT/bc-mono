@@ -12,7 +12,7 @@ const timeline = { items: [
 
 describe('M4-US-08 Dashboard transaction timeline',()=>{
   test('mounts overlays through a body portal so layout ancestors cannot clip them', async()=>{
-    const source=await readFile('apps/dashboard/src/AdminBusinessPage.tsx','utf8');
+    const source=await readFile('apps/dashboard/src/DashboardOverlay.tsx','utf8');
     expect(source).toContain("createPortal(overlay, document.body)");
   });
 
