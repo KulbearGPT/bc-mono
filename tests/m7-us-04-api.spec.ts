@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const userId = '00000000-0000-0000-0000-000000007411';
+const guildId = '900000000000007411';
 const staff: StaffAccount = { staffId: '00000000-0000-0000-0000-000000007412', userId: '00000000-0000-0000-0000-000000007413',
   level: 'L2_SUPERVISOR', permissionsVersion: 1, status: 'ACTIVE' };
 const audit = new InMemoryAuditSink();
@@ -17,6 +18,9 @@ const env = { NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: '
 const dashboardSessions = {
   resolve: () => ({ ok: true as const, staff, csrfToken: 'csrf' }),
   verifyCsrf: () => true
+};
+const customerScope = {
+  canReadCustomer: (input: { userId: string; guildId: string }) => input.userId === userId && input.guildId === guildId
 };
 const headers = { cookie: 'p0_session=session; p0_csrf=csrf', 'x-csrf-token': 'csrf', 'x-client-source': 'DASHBOARD',
   'idempotency-key': 'm7:api:topup:0001' };
@@ -30,8 +34,8 @@ describe('M7-US-04 wallet API authorization', () => {
 
   test('credits USD receipt cents immediately for L2 and emits three affected-object audit changes', async () => {
     const service = new WalletService(new InMemoryWalletStore());
-    const server = buildApiServer({ env, security: { dashboardSessions, stepUpVerifier:{verify:()=>true}, auditSink: audit, idempotencyStore: new InMemoryIdempotencyStore() },
-      wallet: { service, now: () => new Date('2026-07-21T16:30:00Z') } });
+    const server = buildApiServer({ env, security: { dashboardSessions, dashboardGuildId: guildId, stepUpVerifier:{verify:()=>true}, auditSink: audit, idempotencyStore: new InMemoryIdempotencyStore() },
+      wallet: { service, customerScope, now: () => new Date('2026-07-21T16:30:00Z') } });
     const response = await server.inject({ method: 'POST', url: `/api/v1/admin/users/${userId}/top-ups`, headers,
       payload: { paidAmountUsdCents: 500_000, paymentMethod: 'ZELLE', receiptNumber: 'pi_api_1',
         paidAt: '2026-07-21T16:00:00Z', note: 'receipt verified',reasonCode:'MANUAL_TOP_UP' } });
@@ -44,8 +48,8 @@ describe('M7-US-04 wallet API authorization', () => {
 
   test('requires recent step-up without crediting the wallet', async () => {
     const service = new WalletService(new InMemoryWalletStore());
-    const server = buildApiServer({ env, security: { dashboardSessions, auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
-      wallet: { service } });
+    const server = buildApiServer({ env, security: { dashboardSessions, dashboardGuildId: guildId, auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
+      wallet: { service, customerScope } });
     const response = await server.inject({ method: 'POST', url: `/api/v1/admin/users/${userId}/top-ups`,
       headers: { ...headers, 'idempotency-key': 'm7:api:topup:0002' }, payload: { paidAmountUsdCents: 500_001, paymentMethod: 'PAYPAL',
         receiptNumber: 'pp_api_2', paidAt: '2026-07-21T16:00:00Z', note: 'receipt verified',reasonCode:'MANUAL_TOP_UP' } });
@@ -57,8 +61,9 @@ describe('M7-US-04 wallet API authorization', () => {
     const root = await mkdtemp(join(tmpdir(), 'm7-api-receipt-'));
     try {
       const service = new WalletService(new InMemoryWalletStore());
-      const server = buildApiServer({ env, security: { dashboardSessions, stepUpVerifier:{verify:()=>true}, auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
-        wallet: { service, receiptStorage: new PrivateFileReceiptStorage(root), now: () => new Date('2026-07-21T16:30:00Z') } });
+      const receiptStorage = new PrivateFileReceiptStorage(root);
+      const server = buildApiServer({ env, security: { dashboardSessions, dashboardGuildId: guildId, stepUpVerifier:{verify:()=>true}, auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
+        wallet: { service, customerScope, receiptStorage, now: () => new Date('2026-07-21T16:30:00Z') } });
       const topUp = await server.inject({ method: 'POST', url: `/api/v1/admin/users/${userId}/top-ups`, headers: { ...headers, 'idempotency-key': 'm7:api:receipt:topup' },
         payload: { paidAmountUsdCents: 100, paymentMethod: 'BANK_TRANSFER', receiptNumber: 'card_receipt_1', paidAt: '2026-07-21T16:00:00Z', note: 'checked',reasonCode:'MANUAL_TOP_UP' } });
       const topUpId = topUp.json().data.id as string;
@@ -72,6 +77,42 @@ describe('M7-US-04 wallet API authorization', () => {
       expect(response.statusCode, response.body).toBe(201);
       expect(response.json().data).toMatchObject({ mediaType: 'application/pdf', originalFileName: 'receipt.pdf', sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) });
       expect(response.body).not.toContain('storageKey');
+
+      const crossGuildServer = buildApiServer({ env, security: { dashboardSessions, dashboardGuildId: '900000000000007499',
+        auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore() },
+        wallet: { service, customerScope, receiptStorage } });
+      const content = await crossGuildServer.inject({ method: 'GET',
+        url: `/api/v1/admin/receipt-attachments/${response.json().data.id as string}/content`, headers });
+      expect(content.statusCode).toBe(404);
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test('fails closed before a cross-Guild wallet mutation can create financial facts', async () => {
+    const service = new WalletService(new InMemoryWalletStore());
+    const server = buildApiServer({
+      env,
+      security: {
+        dashboardSessions,
+        dashboardGuildId: '900000000000007499',
+        stepUpVerifier: { verify: () => true },
+        auditSink: new InMemoryAuditSink(),
+        idempotencyStore: new InMemoryIdempotencyStore()
+      },
+      wallet: { service, customerScope }
+    });
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/users/${userId}/top-ups`,
+      headers: { ...headers, 'idempotency-key': 'm7:api:scope:cross-guild' },
+      payload: { paidAmountUsdCents: 100, paymentMethod: 'BANK_TRANSFER', receiptNumber: 'scope-denied',
+        paidAt: '2026-07-21T16:00:00Z', note: 'must not be written', reasonCode: 'MANUAL_TOP_UP' }
+    });
+    expect(response.statusCode).toBe(404);
+    expect((await service.getBalance({ userId, now: new Date() })).ledgerBalanceMinor).toBe(0);
+
+    const balance = await server.inject({ method: 'GET', url: `/api/v1/admin/users/${userId}/wallet`, headers });
+    const entries = await server.inject({ method: 'GET', url: `/api/v1/admin/users/${userId}/wallet/entries`, headers });
+    expect(balance.statusCode).toBe(404);
+    expect(entries.statusCode).toBe(404);
   });
 });

@@ -8,6 +8,7 @@ import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWrite
 import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
+import type { CustomerProfileScope } from './customer-profiles.js';
 import type { WalletBalanceDto, WalletEntryDto, WalletEntryPageDto, WalletEntryTypeDto } from '@blackcat/platform/api-contracts';
 
 export type WalletEntryType = WalletEntryTypeDto;
@@ -688,7 +689,8 @@ export async function resolveWalletActorUserId(
   throw new WalletError('PERMISSION_DENIED', 'A bound wallet account is required.');
 }
 
-export function registerWalletRoutes(server: FastifyInstance, options: { service: WalletApplicationService; accountStore?: WalletActorAccountResolver; receiptStorage?: ReceiptStorage; now?: () => Date }): void {
+export function registerWalletRoutes(server: FastifyInstance, options: { service: WalletApplicationService; accountStore?: WalletActorAccountResolver;
+  customerScope?: CustomerProfileScope; receiptStorage?: ReceiptStorage; now?: () => Date }): void {
   if (!server.securityOptions) throw new Error('Wallet routes require security options.');
   const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, server.securityOptions, {
@@ -699,20 +701,27 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/admin/users/:userId/wallet', permission: 'wallet.read', action: 'GET_ADMIN_WALLET',
     targetType: 'wallet_account', targetId: userTarget, acceptedSources: ['DASHBOARD'], mapError: mapWalletError,
-    handler: (request) => options.service.getBalance({ userId: userTarget(request), now: now() })
+    handler: async (request, actor) => {
+      const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
+      return options.service.getBalance({ userId, now: now() });
+    }
   });
   registerSecureReadRoute(server, server.securityOptions, {
     method: 'GET', url: '/api/v1/admin/users/:userId/wallet/entries', permission: 'wallet.read', action: 'LIST_ADMIN_WALLET_ENTRIES',
     targetType: 'wallet_entry', targetId: userTarget, acceptedSources: ['DASHBOARD'], mapError: mapWalletError,
-    handler: (request) => options.service.listEntries({ userId: userTarget(request), ...walletEntryPageQuery(request) })
+    handler: async (request, actor) => {
+      const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
+      return options.service.listEntries({ userId, ...walletEntryPageQuery(request) });
+    }
   });
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST', url: '/api/v1/admin/users/:userId/top-ups', permission: 'wallet.top_up', action: 'CREATE_ADMIN_TOP_UP',
     targetType: 'top_up', targetId: userTarget, acceptedSources: ['DASHBOARD'], successStatusCode: 201,
     mapError: mapWalletError, requiresRecentStepUp: true,
     auditChanges: (_request, _actor, payload) => fundingAuditChanges(payload as TopUpResult, 'top_up'),
-    handler: (request, actor) => {
-      const input = { ...fundingBody(request, 'paidAt'), userId: userTarget(request), idempotencyKey: requireIdempotencyKey(request),
+    handler: async (request, actor) => {
+      const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
+      const input = { ...fundingBody(request, 'paidAt'), userId, idempotencyKey: requireIdempotencyKey(request),
         actorStaffId: requireActorStaff(actor), actorLevel: requireActorLevel(actor), now: now() };
       return options.service.stageCreateTopUp?.(input) ?? options.service.createTopUp(input);
     }
@@ -722,10 +731,11 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
     action: 'CREATE_ADMIN_CASH_REFUND_DEBIT', targetType: 'external_refund_debit', targetId: userTarget,
     acceptedSources: ['DASHBOARD'], successStatusCode: 201, mapError: mapWalletError,
     auditChanges: (_request, _actor, payload) => fundingAuditChanges(payload as ExternalRefundDebitResult, 'external_refund_debit'),
-    handler: (request, actor) => {
+    handler: async (request, actor) => {
+      const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
       const body = fundingBody(request, 'refundedAt') as ReturnType<typeof fundingBody> & { expectedWalletVersion?: unknown };
       const input = { ...body, expectedWalletVersion: requiredInteger(body.expectedWalletVersion, 'expectedWalletVersion'),
-        userId: userTarget(request), idempotencyKey: requireIdempotencyKey(request), actorStaffId: requireActorStaff(actor),
+        userId, idempotencyKey: requireIdempotencyKey(request), actorStaffId: requireActorStaff(actor),
         actorLevel: requireActorLevel(actor), now: now() };
       return options.service.stageCreateExternalRefundDebit?.(input) ?? options.service.createExternalRefundDebit(input);
     }
@@ -733,9 +743,10 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
   registerSecureWriteRoute(server, server.securityOptions, {
     method: 'POST', url: '/api/v1/admin/users/:userId/wallet-adjustments', permission: 'wallet.adjust', action: 'CREATE_WALLET_ADJUSTMENT',
     targetType: 'wallet_entry', targetId: userTarget, acceptedSources: ['DASHBOARD'], successStatusCode: 201, mapError: mapWalletError,
-    handler: (request, actor) => {
+    handler: async (request, actor) => {
+      const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
       const body = request.body as Record<string, unknown>;
-      const input = { userId: userTarget(request), entryType: body.entryType as 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT',
+      const input = { userId, entryType: body.entryType as 'ADJUSTMENT_CREDIT' | 'ADJUSTMENT_DEBIT',
         amountMinor: requiredInteger(body.amountMinor, 'amountMinor'), reversalOfEntryId: String(body.reversalOfEntryId ?? ''),
         reason: String(body.reason ?? ''), expectedWalletVersion: requiredInteger(body.expectedWalletVersion, 'expectedWalletVersion'),
         idempotencyKey: requireIdempotencyKey(request), actorStaffId: requireActorStaff(actor), actorLevel: requireActorLevel(actor), now: now() };
@@ -750,6 +761,7 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
       auditChanges: (_request, _actor, payload) => [{ targetType: 'receipt_attachment', targetId: (payload as ReceiptAttachmentMetadata).id,
         changeType: 'APPEND', beforeSnapshot: null, afterSnapshot: payload, changedFields: ['byteSize', 'mediaType', 'sha256'] }],
       handler: async (request, actor) => {
+        const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
         let evidenceType = ''; let evidenceId = ''; let stored: { storageKey: string; byteSize: number; sha256: string } | null = null;
         let mediaType = ''; let originalFileName = '';
         for await (const part of request.parts()) {
@@ -758,7 +770,7 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
           stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
         }
         if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
-        const input = { userId: userTarget(request), evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
+        const input = { userId, evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
           originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
         return options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input);
       }
@@ -766,8 +778,9 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
     registerSecureReadRoute(server, server.securityOptions, {
       method: 'GET', url: '/api/v1/admin/receipt-attachments/:attachmentId/content', permission: 'wallet.read', action: 'GET_RECEIPT_ATTACHMENT_CONTENT',
       targetType: 'receipt_attachment', targetId: (request) => String((request.params as { attachmentId?: string }).attachmentId ?? ''), acceptedSources: ['DASHBOARD'], mapError: mapWalletError,
-      handler: async (request) => {
+      handler: async (request, actor) => {
         const receipt = await options.service.getReceiptAttachment({ attachmentId: String((request.params as { attachmentId?: string }).attachmentId ?? '') });
+        await requireWalletCustomerScope(options.customerScope, receipt.userId, actor);
         return { receipt, body: await options.receiptStorage!.open(receipt.storageKey) };
       },
       rawResponse: (payload, reply) => {
@@ -837,6 +850,12 @@ function requireIdempotencyKey(request: FastifyRequest): string { return String(
 function requireActorUser(actor: ActorContext): string { if (!actor.actorUserId) throw new WalletError('PERMISSION_DENIED', 'User actor is required.'); return actor.actorUserId; }
 function requireActorStaff(actor: ActorContext): string { if (!actor.actorStaffId) throw new WalletError('PERMISSION_DENIED', 'Staff actor is required.'); return actor.actorStaffId; }
 function requireActorLevel(actor: ActorContext): StaffLevel { if (!actor.actorLevel) throw new WalletError('PERMISSION_DENIED', 'Staff level is required.'); return actor.actorLevel; }
+async function requireWalletCustomerScope(scope: CustomerProfileScope | undefined, userId: string, actor: ActorContext): Promise<void> {
+  if (!scope || !actor.actorStaffId || !actor.actorLevel || !actor.guildId
+    || !await scope.canReadCustomer({ userId, actorStaffId: actor.actorStaffId, actorLevel: actor.actorLevel, guildId: actor.guildId })) {
+    throw new WalletError('RESOURCE_NOT_FOUND', 'Wallet customer was not found.');
+  }
+}
 function requiredInteger(value: unknown, field: string): number { if (!Number.isSafeInteger(value)) throw new WalletError('VALIDATION_ERROR', `${field} must be an integer.`); return Number(value); }
 function mapWalletError(error: unknown) {
   if (!(error instanceof WalletError)) return null;

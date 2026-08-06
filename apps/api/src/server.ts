@@ -224,6 +224,7 @@ export interface ApiServerOptions {
   wallet?: {
     service: WalletApplicationService;
     accountStore?: Pick<AccountStore, "findByDiscord">;
+    customerScope?: CustomerProfileScope;
     receiptStorage?: ReceiptStorage;
     now?: () => Date;
   };
@@ -516,7 +517,10 @@ export function buildApiServer(
       throw new Error(
         "Wallet routes require buildApiServer({ security, wallet })",
       );
-    registerWalletRoutes(server, options.wallet);
+    registerWalletRoutes(server, {
+      ...options.wallet,
+      customerScope: options.wallet.customerScope ?? options.customerProfiles?.store,
+    });
   }
   if (options.onboarding) {
     if (!server.securityOptions)
