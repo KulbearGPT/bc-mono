@@ -24,18 +24,18 @@ export interface CommissionRecord {
 export interface CommissionMutationInput {
   commissionId: string; expectedVersion: number; action: 'CONFIRM' | 'MARK_PAID' | 'CREATE_REVERSAL';
   reversalAmount?: { amountMinor: number; currency: string }; reason: string; idempotencyKey: string;
-  actorStaffId: string; now: Date;
+  actorStaffId: string; guildId: string; now: Date;
 }
 
 export interface CommissionStore {
-  list(input: { status?: CommissionStatus; limit: number }): Promise<CommissionRecord[]> | CommissionRecord[];
+  list(input: { status?: CommissionStatus; limit: number; guildId: string }): Promise<CommissionRecord[]> | CommissionRecord[];
   listPage(input: CommissionPageInput): Promise<CommissionPage> | CommissionPage;
-  get(id: string): Promise<CommissionRecord> | CommissionRecord;
+  get(id: string, guildId: string): Promise<CommissionRecord> | CommissionRecord;
   mutate(input: CommissionMutationInput): Promise<CommissionMutationResult> | CommissionMutationResult;
 }
 
 interface CommissionPageCursor { createdAt: string; id: string; }
-interface CommissionPageInput { status?: CommissionStatus; cursor: CommissionPageCursor | null; limit: number; }
+interface CommissionPageInput { status?: CommissionStatus; cursor: CommissionPageCursor | null; limit: number; guildId: string; }
 interface CommissionPage { items: CommissionRecord[]; nextCursor: string | null; }
 
 export interface CommissionMutationResult {
@@ -51,21 +51,22 @@ export class CommissionError extends Error {
 
 export class InMemoryCommissionStore implements CommissionStore {
   readonly commissions: CommissionRecord[];
-  constructor(input: { commissions?: CommissionRecord[] } = {}) { this.commissions = structuredClone(input.commissions ?? []); }
-  list(input: { status?: CommissionStatus; limit: number }): CommissionRecord[] {
-    return structuredClone(this.commissions.filter((item) => !input.status || item.status === input.status).slice(0, input.limit));
+  private readonly commissionGuildIds: Map<string,string>;
+  constructor(input: { commissions?: CommissionRecord[]; commissionGuildIds?: Record<string,string> } = {}) { this.commissions = structuredClone(input.commissions ?? []); this.commissionGuildIds = new Map(Object.entries(input.commissionGuildIds ?? {})); }
+  list(input: { status?: CommissionStatus; limit: number; guildId: string }): CommissionRecord[] {
+    return structuredClone(this.commissions.filter((item) => this.inGuild(item.id,input.guildId) && (!input.status || item.status === input.status)).slice(0, input.limit));
   }
   listPage(input: CommissionPageInput): CommissionPage {
-    const records = this.commissions.filter((item) => !input.status || item.status === input.status);
+    const records = this.commissions.filter((item) => this.inGuild(item.id,input.guildId) && (!input.status || item.status === input.status));
     return pageCommissionRecords(records, input);
   }
-  get(id: string): CommissionRecord {
-    const item = this.commissions.find((candidate) => candidate.id === id);
+  get(id: string, guildId: string): CommissionRecord {
+    const item = this.commissions.find((candidate) => candidate.id === id && this.inGuild(candidate.id,guildId));
     if (!item) throw new CommissionError('NOT_FOUND', 'Commission was not found.');
     return structuredClone(item);
   }
   mutate(input: CommissionMutationInput): CommissionMutationResult {
-    const item = this.commissions.find((candidate) => candidate.id === input.commissionId);
+    const item = this.commissions.find((candidate) => candidate.id === input.commissionId && this.inGuild(candidate.id,input.guildId));
     if (!item) throw new CommissionError('NOT_FOUND', 'Commission was not found.');
     if (input.action === 'CREATE_REVERSAL') {
       const replay = item.adjustments.find((adjustment) => adjustment.idempotencyKey === input.idempotencyKey);
@@ -91,29 +92,27 @@ export class InMemoryCommissionStore implements CommissionStore {
     item.adjustments.push(adjustment); item.netAmountMinor -= amount.amountMinor; item.version += 1; item.updatedAt = input.now.toISOString();
     return { resultType: 'ADJUSTMENT_CREATED', commission: structuredClone(item), adjustment: structuredClone(adjustment) };
   }
+  private inGuild(commissionId:string,guildId:string):boolean { return this.commissionGuildIds.get(commissionId)===guildId; }
 }
 
 export class PostgresCommissionStore implements CommissionStore {
   constructor(private readonly pool: Pool) {}
-  async list(input: { status?: CommissionStatus; limit: number }): Promise<CommissionRecord[]> {
-    const result = await this.pool.query<{ id: string }>(`SELECT id FROM commissions
-      WHERE ($1::text IS NULL OR status::text=$1) ORDER BY created_at DESC,id DESC LIMIT $2`, [input.status ?? null, input.limit]);
-    return Promise.all(result.rows.map((row) => loadCommission(this.pool, row.id)));
+  async list(input: { status?: CommissionStatus; limit: number; guildId: string }): Promise<CommissionRecord[]> {
+    const result = await this.pool.query<{ id: string }>(`${scopedCommissionIdsSql()}
+      AND ($2::text IS NULL OR c.status::text=$2) ORDER BY c.created_at DESC,c.id DESC LIMIT $3`, [input.guildId,input.status ?? null,input.limit]);
+    return Promise.all(result.rows.map((row) => loadCommission(this.pool,row.id,false,input.guildId)));
   }
   async listPage(input: CommissionPageInput): Promise<CommissionPage> {
-    const result = await this.pool.query<{ id: string }>(`SELECT id FROM commissions
-      WHERE ($1::text IS NULL OR status::text=$1)
-        AND ($2::timestamptz IS NULL OR (created_at,id) < ($2::timestamptz,$3::uuid))
-      ORDER BY created_at DESC,id DESC LIMIT $4`, [
-      input.status ?? null,
-      input.cursor?.createdAt ?? null,
-      input.cursor?.id ?? null,
-      input.limit + 1
+    const result = await this.pool.query<{ id: string }>(`${scopedCommissionIdsSql()}
+        AND ($2::text IS NULL OR c.status::text=$2)
+        AND ($3::timestamptz IS NULL OR (c.created_at,c.id) < ($3::timestamptz,$4::uuid))
+      ORDER BY c.created_at DESC,c.id DESC LIMIT $5`, [
+      input.guildId,input.status ?? null,input.cursor?.createdAt ?? null,input.cursor?.id ?? null,input.limit + 1
     ]);
-    const records = await Promise.all(result.rows.map((row) => loadCommission(this.pool, row.id)));
+    const records = await Promise.all(result.rows.map((row) => loadCommission(this.pool,row.id,false,input.guildId)));
     return pageFromCommissionRows(records, input.limit);
   }
-  get(id: string): Promise<CommissionRecord> { return loadCommission(this.pool, id); }
+  get(id: string,guildId:string): Promise<CommissionRecord> { return loadCommission(this.pool,id,false,guildId); }
   async mutate(input: CommissionMutationInput): Promise<CommissionMutationResult> {
     const client = await this.pool.connect();
     try {
@@ -121,23 +120,23 @@ export class PostgresCommissionStore implements CommissionStore {
       if (input.action === 'CREATE_REVERSAL') {
         const replay = await client.query<{ commission_id: string }>('SELECT commission_id FROM commission_adjustments WHERE idempotency_key=$1', [input.idempotencyKey]);
         if (replay.rows[0]) {
-          const commission = await loadCommission(client, replay.rows[0].commission_id, true);
+          const commission = await loadCommission(client,replay.rows[0].commission_id,true,input.guildId);
           const adjustment = commission.adjustments.find((item) => item.idempotencyKey === input.idempotencyKey)!;
           await client.query('COMMIT'); return { resultType: 'ADJUSTMENT_CREATED', commission, adjustment };
         }
       }
-      const item = await loadCommission(client, input.commissionId, true);
+      const item = await loadCommission(client,input.commissionId,true,input.guildId);
       if (item.version !== input.expectedVersion) throw new CommissionError('CONFLICT', 'Commission version is stale.');
       if (input.action === 'CONFIRM') {
         if (item.status !== 'PENDING') throw new CommissionError('CONFLICT', 'Only pending commissions can be confirmed.');
         await client.query("UPDATE commissions SET status='CONFIRMED',row_version=row_version+1,confirmed_at=$2,updated_at=$2 WHERE id=$1", [item.id, input.now]);
-        const commission = await loadCommission(client, item.id); await client.query('COMMIT');
+        const commission = await loadCommission(client,item.id,false,input.guildId); await client.query('COMMIT');
         return { resultType: 'STATE_UPDATED', commission, adjustment: null };
       }
       if (input.action === 'MARK_PAID') {
         if (item.status !== 'CONFIRMED') throw new CommissionError('CONFLICT', 'Only confirmed commissions can be marked paid.');
         await client.query("UPDATE commissions SET status='PAID',row_version=row_version+1,paid_at=$2,updated_at=$2 WHERE id=$1", [item.id, input.now]);
-        const commission = await loadCommission(client, item.id); await client.query('COMMIT');
+        const commission = await loadCommission(client,item.id,false,input.guildId); await client.query('COMMIT');
         return { resultType: 'STATE_UPDATED', commission, adjustment: null };
       }
       const amount = requireReversal(input, item);
@@ -147,7 +146,7 @@ export class PostgresCommissionStore implements CommissionStore {
         (id,commission_id,type,source_refund_id,amount_minor,currency,reason,idempotency_key,created_by_staff_id,created_at)
         VALUES ($1,$2,'REVERSAL_DEBIT',NULL,$3,$4,$5,$6,$7,$8)`, [id,item.id,amount.amountMinor,amount.currency,input.reason,input.idempotencyKey,input.actorStaffId,input.now]);
       await client.query('UPDATE commissions SET row_version=row_version+1,updated_at=$2 WHERE id=$1', [item.id,input.now]);
-      const commission = await loadCommission(client,item.id); const adjustment = commission.adjustments.find((value) => value.id === id)!;
+      const commission = await loadCommission(client,item.id,false,input.guildId); const adjustment = commission.adjustments.find((value) => value.id === id)!;
       await client.query('COMMIT'); return { resultType: 'ADJUSTMENT_CREATED', commission, adjustment };
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   }
@@ -158,25 +157,27 @@ export function registerCommissionRoutes(server: FastifyInstance, options: { sto
   const security = server.securityOptions; const now = options.now ?? (() => new Date());
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions', permission: 'commission.read', requiredFeature: 'REFERRALS',
     action: 'LIST_COMMISSIONS', targetType: 'commission', acceptedSources: ['DASHBOARD','DISCORD_BOT'],
-    handler: (request) => options.store.listPage(commissionPageQuery(request)), mapError });
+    handler: (request,actor) => options.store.listPage({...commissionPageQuery(request),guildId:requireActorGuild(actor.guildId)}), mapError });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.read', requiredFeature: 'REFERRALS',
     action: 'GET_COMMISSION_CONFIDENTIAL', targetType: 'commission', targetId: commissionIdParam, acceptedSources: ['DASHBOARD','DISCORD_BOT'],
-    handler: (request) => options.store.get(commissionIdParam(request)), mapError });
+    handler: (request,actor) => options.store.get(commissionIdParam(request),requireActorGuild(actor.guildId)), mapError });
   registerSecureWriteRoute(server, security, { method: 'PATCH', url: '/api/v1/admin/commissions/:commissionId', permission: 'commission.manage', requiredFeature: 'REFERRALS',
     action: 'UPDATE_COMMISSION', targetType: 'commission', targetId: commissionIdParam, acceptedSources: ['DASHBOARD','DISCORD_BOT'], requiresRecentStepUp: true,
     handler: (request, actor) => {
       if (!actor.actorStaffId) throw new CommissionError('PERMISSION_DENIED','A staff actor is required.');
       return options.store.mutate({ ...parseMutation(request.body), commissionId: commissionIdParam(request), actorStaffId: actor.actorStaffId,
-        idempotencyKey: request.headers['idempotency-key'] as string, now: now() });
+        guildId:requireActorGuild(actor.guildId),idempotencyKey: request.headers['idempotency-key'] as string, now: now() });
     }, fingerprintBody: (request) => parseMutation(request.body), successReason: (request) => parseMutation(request.body).reason, mapError });
 }
 
-async function loadCommission(client: Pick<Pool,'query'> | PoolClient, id: string, forUpdate=false): Promise<CommissionRecord> {
+async function loadCommission(client: Pick<Pool,'query'> | PoolClient,id:string,forUpdate:boolean,guildId:string): Promise<CommissionRecord> {
   const result = await client.query<CommissionRow>(`SELECT c.id,c.referral_attribution_id,c.beneficiary_user_id,c.program_type_snapshot,
     c.award_mode_snapshot,c.base_amount_minor,c.rate_bps,c.amount_minor,c.currency,c.status,c.row_version,c.confirmed_at,c.paid_at,c.created_at,c.updated_at,
     ra.referred_user_id AS source_customer_id,ce.source_type,COALESCE(ce.order_id,ce.gift_request_id) AS source_id
     FROM commissions c JOIN referral_attributions ra ON ra.id=c.referral_attribution_id JOIN consumption_entries ce ON ce.id=c.source_consumption_entry_id
-    WHERE c.id=$1${forUpdate ? ' FOR UPDATE OF c' : ''}`, [id]);
+    LEFT JOIN orders source_order ON source_order.id=ce.order_id LEFT JOIN gift_requests source_gift ON source_gift.id=ce.gift_request_id
+    LEFT JOIN orders gift_order ON gift_order.id=source_gift.order_id
+    WHERE c.id=$1 AND COALESCE(source_order.guild_id,gift_order.guild_id)=$2${forUpdate ? ' FOR UPDATE OF c' : ''}`, [id,guildId]);
   const row=result.rows[0]; if(!row) throw new CommissionError('NOT_FOUND','Commission was not found.');
   const adjustmentRows=await client.query<CommissionAdjustmentRow>(`SELECT id,commission_id,type,source_refund_id,amount_minor,currency,reason,idempotency_key,created_by_staff_id,created_at
     FROM commission_adjustments WHERE commission_id=$1 ORDER BY created_at,id`,[id]);
@@ -198,7 +199,7 @@ function parseMutation(value: unknown) {
   return {expectedVersion:body.expectedVersion as number,action:body.action as CommissionMutationInput['action'],reversalAmount,reason};
 }
 function requireReversal(input:CommissionMutationInput,item:CommissionRecord){const amount=input.reversalAmount;if(!amount||amount.amountMinor<1||amount.currency!==item.currency)throw new CommissionError('VALIDATION_ERROR','A positive reversalAmount in the commission currency is required.');return amount;}
-function commissionPageQuery(request:FastifyRequest):CommissionPageInput{const query=request.query as{status?:unknown;cursor?:unknown;limit?:unknown};const limit=Number(query.limit??20);if(!Number.isInteger(limit)||limit<1||limit>100)throw new CommissionError('VALIDATION_ERROR','limit must be between 1 and 100.');if(query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>500))throw new CommissionError('VALIDATION_ERROR','cursor is invalid.');return{status:parseStatus(query.status),cursor:query.cursor===undefined?null:decodeCommissionCursor(query.cursor as string),limit};}
+function commissionPageQuery(request:FastifyRequest):Omit<CommissionPageInput,'guildId'>{const query=request.query as{status?:unknown;cursor?:unknown;limit?:unknown};const limit=Number(query.limit??20);if(!Number.isInteger(limit)||limit<1||limit>100)throw new CommissionError('VALIDATION_ERROR','limit must be between 1 and 100.');if(query.cursor!==undefined&&(typeof query.cursor!=='string'||query.cursor.length>500))throw new CommissionError('VALIDATION_ERROR','cursor is invalid.');return{status:parseStatus(query.status),cursor:query.cursor===undefined?null:decodeCommissionCursor(query.cursor as string),limit};}
 function pageCommissionRecords(records:CommissionRecord[],input:CommissionPageInput):CommissionPage{const sorted=structuredClone(records).sort(compareCommissionPageKeys);const after=input.cursor?sorted.filter((record)=>compareCommissionPageKeys(record,input.cursor!)>0):sorted;return pageFromCommissionRows(after,input.limit);}
 function pageFromCommissionRows(records:CommissionRecord[],limit:number):CommissionPage{const items=records.slice(0,limit);const last=items.at(-1);return{items,nextCursor:records.length>limit&&last?encodeCommissionCursor({createdAt:last.createdAt,id:last.id}):null};}
 function compareCommissionPageKeys(left:Pick<CommissionRecord,'createdAt'|'id'>,right:Pick<CommissionRecord,'createdAt'|'id'>){const createdAtDiff=right.createdAt.localeCompare(left.createdAt);return createdAtDiff===0?right.id.localeCompare(left.id):createdAtDiff;}
@@ -206,6 +207,8 @@ function encodeCommissionCursor(cursor:CommissionPageCursor){return Buffer.from(
 function decodeCommissionCursor(value:string):CommissionPageCursor{try{const cursor=JSON.parse(Buffer.from(value,'base64url').toString('utf8')) as Partial<CommissionPageCursor>;if(typeof cursor.createdAt!=='string'||Number.isNaN(Date.parse(cursor.createdAt))||typeof cursor.id!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cursor.id))throw new Error('invalid cursor');return{createdAt:new Date(cursor.createdAt).toISOString(),id:cursor.id};}catch{throw new CommissionError('VALIDATION_ERROR','cursor is invalid.');}}
 function parseStatus(value:unknown):CommissionStatus|undefined{if(value===undefined)return undefined;if(!['PENDING','CONFIRMED','PAID','REVERSED'].includes(String(value)))throw new CommissionError('VALIDATION_ERROR','status is invalid.');return value as CommissionStatus;}
 function commissionIdParam(request:FastifyRequest){const id=(request.params as {commissionId?:unknown}).commissionId;if(typeof id!=='string')throw new CommissionError('VALIDATION_ERROR','commissionId is required.');return id;}
+function requireActorGuild(value:string|null){if(!value)throw new CommissionError('PERMISSION_DENIED','A trusted Guild actor is required.');return value;}
+function scopedCommissionIdsSql(){return`SELECT c.id FROM commissions c JOIN consumption_entries ce ON ce.id=c.source_consumption_entry_id LEFT JOIN orders source_order ON source_order.id=ce.order_id LEFT JOIN gift_requests source_gift ON source_gift.id=ce.gift_request_id LEFT JOIN orders gift_order ON gift_order.id=source_gift.order_id WHERE COALESCE(source_order.guild_id,gift_order.guild_id)=$1`;}
 function mapError(error:unknown){if(!(error instanceof CommissionError))return null;return {statusCode:error.code==='NOT_FOUND'?404:error.code==='PERMISSION_DENIED'?403:error.code==='VALIDATION_ERROR'?400:409,code:error.code,message:error.message};}
 function mapAdjustment(row:CommissionAdjustmentRow):CommissionAdjustmentRecord{return{id:row.id,commissionId:row.commission_id,type:row.type,sourceRefundId:row.source_refund_id,amountMinor:Number(row.amount_minor),currency:row.currency,reason:row.reason,idempotencyKey:row.idempotency_key,createdByStaffId:row.created_by_staff_id,createdAt:toIso(row.created_at)};}
 function mapRewardMode(program:CommissionRecord['programType'],mode:'FIXED_MINOR'|'NET_SPEND_BPS'):CommissionRecord['rewardMode']{if(mode==='FIXED_MINOR')return'FIXED_FIRST_PURCHASE';return program==='PROMOTER_FIRST_PURCHASE'?'PERCENT_FIRST_PURCHASE':'PERCENT_LIFETIME';}

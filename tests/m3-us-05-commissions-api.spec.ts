@@ -15,14 +15,14 @@ function commission(): CommissionRecord {
     version: 1, confirmedAt: null, paidAt: null, createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
-function headers(key?: string) {
+function headers(key?: string, guildId = '900000000000000001') {
   return { authorization: 'Bearer valid-bot-token', 'x-client-source': 'DASHBOARD',
-    'x-actor-discord-user-id': '900000000000000051', 'x-actor-guild-id': '900000000000000001',
+    'x-actor-discord-user-id': '900000000000000051', 'x-actor-guild-id': guildId,
     'x-discord-interaction-id': '900000000000000052', ...(key ? { 'idempotency-key': key } : {}) };
 }
 
 function fixture(level: 'L2_SUPERVISOR' | 'L3_OPERATIONS', stepUp = false) {
-  const store = new InMemoryCommissionStore({ commissions: [commission()] });
+  const store = new InMemoryCommissionStore({ commissions: [commission()], commissionGuildIds: { [commissionId]: '900000000000000001' } });
   const staffDirectory: StaffDirectory = { resolveByDiscord: () => ({ staffId: '00000000-0000-0000-0000-000000004115',
     userId: '00000000-0000-0000-0000-000000004115', level, status: 'ACTIVE', permissionsVersion: 1 }) };
   const server = buildApiServer({ env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
@@ -32,6 +32,31 @@ function fixture(level: 'L2_SUPERVISOR' | 'L3_OPERATIONS', stepUp = false) {
 }
 
 describe('M3-US-05 confidential commission administration', () => {
+  test('does not enumerate or mutate commissions across Guilds', async () => {
+    const { server, store } = fixture('L3_OPERATIONS', true);
+    const crossGuildHeaders = headers(undefined, '900000000000000099');
+    const list = await server.inject({ method: 'GET', url: '/api/v1/admin/commissions', headers: crossGuildHeaders });
+    const detail = await server.inject({ method: 'GET', url: `/api/v1/admin/commissions/${commissionId}`, headers: crossGuildHeaders });
+    const mutation = await server.inject({ method: 'PATCH', url: `/api/v1/admin/commissions/${commissionId}`,
+      headers: headers('commission:cross-guild:0001', '900000000000000099'),
+      payload: { expectedVersion: 1, action: 'CONFIRM', reasonCode: 'REVIEWED' } });
+    expect(list.json()).toMatchObject({ data: { items: [] } }); expect(detail.statusCode).toBe(404); expect(mutation.statusCode).toBe(404);
+    expect(store.commissions[0]).toMatchObject({ status: 'PENDING', version: 1 });
+  });
+
+  test('passes the trusted actor Guild into confidential list and mutation stores', async () => {
+    const { server, store } = fixture('L3_OPERATIONS', true);
+    let listGuild: unknown; let mutationGuild: unknown;
+    const listPage = store.listPage.bind(store); const mutate = store.mutate.bind(store);
+    store.listPage = ((input) => { listGuild = (input as typeof input & { guildId?: unknown }).guildId; return listPage(input); }) as typeof store.listPage;
+    store.mutate = ((input) => { mutationGuild = (input as typeof input & { guildId?: unknown }).guildId; return mutate(input); }) as typeof store.mutate;
+    const list = await server.inject({ method: 'GET', url: '/api/v1/admin/commissions', headers: headers() });
+    const mutation = await server.inject({ method: 'PATCH', url: `/api/v1/admin/commissions/${commissionId}`,
+      headers: headers('commission:guild-scope:0001'), payload: { expectedVersion: 1, action: 'CONFIRM', reasonCode: 'REVIEWED' } });
+    expect(list.statusCode).toBe(200); expect(mutation.statusCode).toBe(200);
+    expect(listGuild).toBe('900000000000000001'); expect(mutationGuild).toBe('900000000000000001');
+  });
+
   test('denies confidential records to L2 staff', async () => {
     const { server } = fixture('L2_SUPERVISOR');
     expect((await server.inject({ method: 'GET', url: '/api/v1/admin/commissions', headers: headers() })).statusCode).toBe(403);

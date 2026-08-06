@@ -116,7 +116,9 @@ function fixture() {
     records: [catalog('000000009301'), catalog('000000009303'), catalog('000000009302')]
   });
   const commissionStore = new InMemoryCommissionStore({
-    commissions: [commission('000000009401'), commission('000000009403'), commission('000000009402'), commission('000000009499', 'PAID')]
+    commissions: [commission('000000009401'), commission('000000009403'), commission('000000009402'), commission('000000009499', 'PAID')],
+    commissionGuildIds: Object.fromEntries(['000000009401','000000009403','000000009402','000000009499']
+      .map((suffix) => [`00000000-0000-0000-0000-${suffix}`, '900000000000000001']))
   });
   const playerA = '00000000-0000-0000-0000-000000009501';
   const playerB = '00000000-0000-0000-0000-000000009502';

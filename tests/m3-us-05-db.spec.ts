@@ -50,8 +50,8 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
 
   test('keyset-paginates confidential commissions without duplicates', async () => {
     const store = new PostgresCommissionStore(pool);
-    const first = await store.listPage({ status: 'PENDING', cursor: null, limit: 1 });
-    const second = await store.listPage({ status: 'PENDING', cursor: decodeCreatedCursor(first.nextCursor!), limit: 1 });
+    const first = await store.listPage({ status: 'PENDING', cursor: null, limit: 1, guildId });
+    const second = await store.listPage({ status: 'PENDING', cursor: decodeCreatedCursor(first.nextCursor!), limit: 1, guildId });
 
     expect(first.items.map((item) => item.id)).toEqual(['00000000-0000-0000-0000-000000004215']);
     expect(second.items.map((item) => item.id)).toEqual([commissionId]);
@@ -61,8 +61,9 @@ describe('M3-US-05 PostgreSQL private financial history', () => {
     const store = new PostgresCommissionStore(pool);
     const input = { commissionId, expectedVersion: 1, action: 'CREATE_REVERSAL' as const,
       reversalAmount: { amountMinor: 20, currency: 'CAT' }, reason: 'partial refund',
-      idempotencyKey: 'commission:db:reverse:4214', actorStaffId: staffId, now: new Date('2026-07-18T19:00:00Z') };
+      idempotencyKey: 'commission:db:reverse:4214', actorStaffId: staffId, guildId, now: new Date('2026-07-18T19:00:00Z') };
     expect(await store.mutate(input)).toMatchObject({ commission: { amountMinor: 200, netAmountMinor: 100, version: 2 } });
+    await expect(store.get(commissionId, '900000000000004299')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(await store.mutate(input)).toMatchObject({ commission: { amountMinor: 200, netAmountMinor: 100, version: 2 } });
     const facts = await pool.query(`SELECT c.amount_minor::text,c.row_version,count(ca.id)::int AS adjustments
       FROM commissions c LEFT JOIN commission_adjustments ca ON ca.commission_id=c.id WHERE c.id=$1 GROUP BY c.id`, [commissionId]);
