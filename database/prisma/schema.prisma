@@ -374,6 +374,18 @@ enum SupportRatingReason {
   OTHER
 }
 
+enum ExperienceReviewTargetType {
+  ORDER
+  PLAYER
+  SUPPORT
+}
+
+enum OrderReviewPublicationStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
 enum ApprovalAction {
   GIFT_APPROVE
   REFUND_EXECUTE
@@ -609,6 +621,9 @@ model User {
   orderEvents          OrderEvent[]          @relation("OrderEventActorUser")
   customerProfileNotes CustomerProfileNote[]
   supportRatings       OrderSupportRating[] @relation("SupportRatingCustomer")
+  experienceReviews    OrderExperienceReview[] @relation("ExperienceReviewCustomer")
+  experienceReviewComments OrderExperienceReviewComment[] @relation("ExperienceReviewCommentCustomer")
+  reviewPublications   OrderReviewPublication[] @relation("ReviewPublicationCustomer")
 
   @@index([status])
   @@index([createdAt, id], map: "users_created_at_id_idx")
@@ -855,6 +870,7 @@ model StaffAccount {
   weeklyReportRevisions      WeeklyReportRevision[] @relation("WeeklyReportRevisionCreatedBy")
   supportShifts              SupportShift[]
   attributedSupportRatings   OrderSupportRating[] @relation("SupportRatingAttributedStaff")
+  attributedExperienceReviews OrderExperienceReview[] @relation("ExperienceReviewAttributedStaff")
 
   @@index([level, status])
   @@map("staff_accounts")
@@ -1389,6 +1405,8 @@ model Order {
   outboxEvents        OutboxEvent[]
   channelMessageEvents OrderChannelMessageEvent[]
   supportRating        OrderSupportRating?
+  experienceReviews    OrderExperienceReview[]
+  reviewPublication    OrderReviewPublication?
 
   @@index([customerId, createdAt])
   @@index([playerId, createdAt])
@@ -1442,6 +1460,7 @@ model OrderParticipant {
   events   OrderParticipantEvent[]
   earning  PlayerEarning?
   giftRequests GiftRequest[]
+  experienceReviews OrderExperienceReview[]
 
   @@index([orderId, status, createdAt])
   @@index([playerId, status, createdAt])
@@ -1787,6 +1806,65 @@ model OrderSupportRating {
 
   @@index([attributedStaffId, createdAt])
   @@map("order_support_ratings")
+}
+
+model OrderExperienceReview {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  orderId            String                     @map("order_id") @db.Uuid
+  customerId         String                     @map("customer_id") @db.Uuid
+  targetType         ExperienceReviewTargetType @map("target_type")
+  targetKey          String                     @map("target_key") @db.VarChar(120)
+  orderParticipantId String?                    @map("order_participant_id") @db.Uuid
+  attributedStaffId  String?                    @map("attributed_staff_id") @db.Uuid
+  score              Int
+  createdAt          DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order            Order             @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer         User              @relation("ExperienceReviewCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orderParticipant OrderParticipant? @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attributedStaff  StaffAccount?     @relation("ExperienceReviewAttributedStaff", fields: [attributedStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  comment          OrderExperienceReviewComment?
+
+  @@unique([orderId, targetKey])
+  @@index([orderParticipantId, createdAt])
+  @@index([attributedStaffId, createdAt])
+  @@index([customerId, createdAt])
+  @@map("order_experience_reviews")
+}
+
+model OrderExperienceReviewComment {
+  id         String   @id @default(uuid()) @db.Uuid
+  reviewId   String   @unique @map("review_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  comment    String   @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  review   OrderExperienceReview @relation(fields: [reviewId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer User                  @relation("ExperienceReviewCommentCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("order_experience_review_comments")
+}
+
+model OrderReviewPublication {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  orderId            String                       @unique @map("order_id") @db.Uuid
+  customerId         String                       @map("customer_id") @db.Uuid
+  snapshot           Json                         @db.JsonB
+  status             OrderReviewPublicationStatus @default(PENDING)
+  broadcastChannelId String?                      @map("broadcast_channel_id") @db.VarChar(32)
+  broadcastMessageId String?                      @unique @map("broadcast_message_id") @db.VarChar(32)
+  consentedAt        DateTime                     @map("consented_at") @db.Timestamptz(3)
+  publishedAt        DateTime?                    @map("published_at") @db.Timestamptz(3)
+  createdAt          DateTime                     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  order    Order @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer User  @relation("ReviewPublicationCustomer", fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, createdAt])
+  @@index([customerId, createdAt])
+  @@map("order_review_publications")
 }
 
 model ApprovalRequest {

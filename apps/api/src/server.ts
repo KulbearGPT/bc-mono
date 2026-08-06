@@ -124,6 +124,10 @@ import {
   registerSupportRatingRoutes,
   type SupportRatingStore,
 } from "./support-response-rating.js";
+import {
+  registerOrderExperienceReviewRoutes,
+  type OrderExperienceReviewStore,
+} from "./order-experience-reviews.js";
 
 export interface ApiServerOptions {
   env?: RuntimeEnvInput;
@@ -212,6 +216,7 @@ export interface ApiServerOptions {
   supportWorkbench?: { store: SupportWorkbenchStore; now?: () => Date };
   supportOperations?: { store: SupportOperationsStore; now?: () => Date };
   supportRatings?: { store: SupportRatingStore; now?: () => Date };
+  experienceReviews?: { store: OrderExperienceReviewStore; now?: () => Date };
   adminDirectory?: {
     store: AdminDirectoryStore;
     businessTags?: BusinessTagStore;
@@ -487,6 +492,8 @@ export function buildApiServer(
     registerSupportOperationsRoutes(server, options.supportOperations);
   if (options.supportRatings)
     registerSupportRatingRoutes(server, options.supportRatings);
+  if (options.experienceReviews)
+    registerOrderExperienceReviewRoutes(server, options.experienceReviews);
   if (options.adminDirectory)
     registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);

@@ -219,6 +219,28 @@ export class PostgresSupportRatingStore implements SupportRatingStore {
             );
           }
           await client.query(
+            `INSERT INTO order_experience_reviews
+               (id,order_id,customer_id,target_type,target_key,attributed_staff_id,score,created_at)
+             SELECT $1,o.id,o.customer_id,'SUPPORT'::"ExperienceReviewTargetType",
+                    'support:' || ($2::uuid)::text,$2::uuid,$3,$4
+               FROM orders o WHERE o.id=$5`,
+            [
+              data.id,
+              data.attributedStaffId,
+              data.score,
+              data.createdAt,
+              data.orderId,
+            ],
+          );
+          if (data.comment) {
+            await client.query(
+              `INSERT INTO order_experience_review_comments
+                 (id,review_id,customer_id,comment,created_at)
+               SELECT $1,$2,o.customer_id,$3,$4 FROM orders o WHERE o.id=$5`,
+              [randomUUID(), data.id, data.comment, data.createdAt, data.orderId],
+            );
+          }
+          await client.query(
             `INSERT INTO outbox_events
                (id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,row_version,attempt_count,max_attempts,available_at,created_at,updated_at)
              VALUES ($1,'PANEL_SYNC','order',$2,$2,$3,$4::jsonb,'PENDING',1,0,8,$5,$5,$5)

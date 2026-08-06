@@ -136,6 +136,14 @@ describe("M12-US-04 PostgreSQL rating integrity", () => {
       (await pool.query("SELECT count(*)::int AS count FROM order_support_ratings")).rows[0].count,
     ).toBe(1);
     expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM order_experience_reviews WHERE order_id=$1 AND target_type='SUPPORT'",
+          [orderId],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+    expect(
       (await pool.query("SELECT status::text FROM orders WHERE id=$1", [orderId])).rows[0].status,
     ).toBe("COMPLETED");
     expect(
