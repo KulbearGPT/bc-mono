@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
-import { InMemoryAuditSink, InMemoryIdempotencyStore, type StaffAccount, type StaffDirectory } from '@blackcat/api/security';
+import { InMemoryAuditSink, InMemoryIdempotencyStore, type AuditSink, type StaffAccount, type StaffDirectory } from '@blackcat/api/security';
 import { InMemoryAccountStore } from '@blackcat/api/accounts';
 import { InMemoryOrderStore, type OrderRecord } from '@blackcat/api/orders';
 import { InMemoryGiftStore, registerGiftRoutes, type GiftRequestRecord, type GiftReservationRecord, type GiftStaffTaskRecord } from '@blackcat/api/gifts';
@@ -58,7 +58,12 @@ function order(): OrderRecord {
     createdAt: now.toISOString(), updatedAt: now.toISOString() };
 }
 
-function fixture(level: StaffAccount['level'], priceMinor = 200000, input: { stepUp?: boolean; claimedBy?: string; verified?: boolean } = {}) {
+function fixture(level: StaffAccount['level'], priceMinor = 200000, input: {
+  stepUp?: boolean;
+  claimedBy?: string;
+  verified?: boolean;
+  auditSink?: AuditSink;
+} = {}) {
   let effectiveLevel = level;
   let stepUp = input.stepUp ?? false;
   const verified = input.verified ?? false;
@@ -72,13 +77,14 @@ function fixture(level: StaffAccount['level'], priceMinor = 200000, input: { ste
   if (verified) store.refreshVerificationHash(giftRequestId, now);
   const directory: StaffDirectory = { resolveByDiscord: () => staff(effectiveLevel) };
   const walletFunding = new TestWalletFunding();
+  const auditSink = input.auditSink ?? new InMemoryAuditSink();
   const server = buildApiServer({ env: { NODE_ENV: 'development', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000', BOT_SERVICE_TOKEN: 'valid-bot-token' },
-    security: { auditSink: new InMemoryAuditSink(), idempotencyStore: new InMemoryIdempotencyStore(), staffDirectory: directory,
+    security: { auditSink, idempotencyStore: new InMemoryIdempotencyStore(), staffDirectory: directory,
       stepUpVerifier: { verify: () => stepUp } } });
   registerGiftRoutes(server, { store, orderStore: new InMemoryOrderStore({ orders: [order()] }),
     accountStore: new InMemoryAccountStore({}), walletFunding,
     broadcastChannelId: '900000000000000020', now: () => now });
-  return { server, store, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
+  return { server, store, auditSink, setLevel: (value: StaffAccount['level']) => { effectiveLevel = value; }, setStepUp: (value: boolean) => { stepUp = value; } };
 }
 
 describe('M3-US-02 gift review and authorization', () => {
@@ -166,6 +172,56 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(store.captures).toHaveLength(0);
     expect(store.broadcasts).toHaveLength(0);
     expect(store.reservations[0]).toMatchObject({ status: 'RELEASED', version: 3 });
+  });
+
+  test('records successful approval and rejection audits', async () => {
+    const approved = fixture('L2_SUPERVISOR', 200000, { verified: true });
+    const approvedResponse = await approved.server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`, headers: headers('gift:approve:audit-success'),
+      payload: { expectedVersion: 2, reason: 'Verified request' } });
+    expect(approvedResponse.statusCode).toBe(200);
+    expect((approved.auditSink as InMemoryAuditSink).records).toEqual([
+      expect.objectContaining({ action: 'AUTHORIZE_GIFT_REQUEST', outcome: 'SUCCEEDED', targetId: giftRequestId })
+    ]);
+
+    const rejected = fixture('L2_SUPERVISOR', 200000, { verified: true });
+    const rejectedResponse = await rejected.server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-requests/${giftRequestId}/reject`, headers: headers('gift:reject:audit-success'),
+      payload: { expectedVersion: 2, reason: 'Customer changed their mind.' } });
+    expect(rejectedResponse.statusCode).toBe(200);
+    expect((rejected.auditSink as InMemoryAuditSink).records).toEqual([
+      expect.objectContaining({ action: 'REJECT_GIFT_REQUEST', outcome: 'SUCCEEDED', targetId: giftRequestId })
+    ]);
+  });
+
+  test('rolls back approval capture and rejection when the success audit cannot be committed', async () => {
+    const failingAuditSink: AuditSink = { append: async () => { throw new Error('audit unavailable'); } };
+    const verified = fixture('L1_SUPPORT', 200000, { auditSink: failingAuditSink });
+    const verifiedResponse = await verified.server.inject({ method: 'POST',
+      url: `/api/v1/admin/staff-tasks/${taskId}/verify`, headers: headers('gift:verify:audit-failure'),
+      payload: { expectedVersion: 2, verificationMethod: 'DIRECT_MESSAGE', notes: 'Confirmed.' } });
+    expect(verifiedResponse.statusCode).toBe(500);
+    expect(verified.store.requests[0]).toMatchObject({ status: 'PENDING_REVIEW', version: 1, verifiedAt: null });
+    expect(verified.store.staffTasks[0]).toMatchObject({ status: 'CLAIMED', version: 2 });
+
+    const approved = fixture('L2_SUPERVISOR', 200000, { verified: true, auditSink: failingAuditSink });
+    const approvedResponse = await approved.server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`, headers: headers('gift:approve:audit-failure'),
+      payload: { expectedVersion: 2, reason: 'Verified request' } });
+    expect(approvedResponse.statusCode).toBe(500);
+    expect(approved.store.requests[0]).toMatchObject({ status: 'PENDING_REVIEW', version: 2 });
+    expect(approved.store.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 2 });
+    expect(approved.store.captures).toHaveLength(0);
+    expect(approved.store.consumptions).toHaveLength(0);
+    expect(approved.store.broadcasts).toHaveLength(0);
+
+    const rejected = fixture('L2_SUPERVISOR', 200000, { verified: true, auditSink: failingAuditSink });
+    const rejectedResponse = await rejected.server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-requests/${giftRequestId}/reject`, headers: headers('gift:reject:audit-failure'),
+      payload: { expectedVersion: 2, reason: 'Customer changed their mind.' } });
+    expect(rejectedResponse.statusCode).toBe(500);
+    expect(rejected.store.requests[0]).toMatchObject({ status: 'PENDING_REVIEW', version: 2 });
+    expect(rejected.store.reservations[0]).toMatchObject({ status: 'ACTIVE', version: 2 });
   });
 
   test('resumes the same internal wallet debit after an approved database commit temporarily fails', async () => {

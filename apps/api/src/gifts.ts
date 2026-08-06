@@ -127,8 +127,9 @@ export interface GiftStore {
     auditRecord: AuditRecord;
     auditSink: AuditSink;
   }): Promise<void> | void;
-  verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date }): Promise<GiftReviewResult> | GiftReviewResult;
+  verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date; auditRecord?: AuditRecord; auditSink?: AuditSink }): Promise<GiftReviewResult> | GiftReviewResult;
   authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
+  commitApprovalDecision(input: GiftApprovalCommit): Promise<GiftApprovalCommitResult> | GiftApprovalCommitResult;
   getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> | GiftCaptureContext;
   findCapture(giftRequestId: string): Promise<GiftCaptureResult | null> | GiftCaptureResult | null;
   commitCapture(input: GiftCaptureCommit): Promise<GiftCaptureResult> | GiftCaptureResult;
@@ -148,6 +149,7 @@ export interface GiftTerminationCommit {
   giftRequestId: string; expectedGiftVersion: number; expectedReservationVersion: number;
   terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
   actorUserId?: string; actorStaffId?: string; now: Date;
+  auditRecord?: AuditRecord; auditSink?: AuditSink;
 }
 
 export interface GiftTerminationResult {
@@ -200,6 +202,24 @@ export interface GiftCaptureCommit {
   senderDisplayName: string;
   receiverDisplayName: string;
   now: Date;
+}
+
+export interface GiftApprovalCommit {
+  giftRequestId: string;
+  expectedVersion: number;
+  actorStaffId: string;
+  actorLevel: StaffLevel;
+  reason: string;
+  approvalThresholds?: GiftApprovalThresholds;
+  broadcastChannelId: string;
+  now: Date;
+  auditRecord: AuditRecord;
+  auditSink: AuditSink;
+}
+
+export interface GiftApprovalCommitResult {
+  data: GiftAuthorizationResult | GiftCaptureResult;
+  statusCode: 200 | 202;
 }
 
 export interface GiftReviewResult {
@@ -333,11 +353,18 @@ export class InMemoryGiftStore implements GiftStore {
     if (input.ledgerBalanceMinor - activeReservedMinor < total) {
       throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
     }
-    this.requests.push(...input.items.map((item) => clone(item.request)));
-    this.reservations.push(...input.items.map((item) => clone(item.reservation)));
-    this.staffTasks.push(...input.items.map((item) => clone(item.staffTask)));
-    this.expiryJobs.push(...input.items.map((item) => buildGiftExpiryJob(item.request)));
-    await input.auditSink.append(input.auditRecord);
+    const lengths={requests:this.requests.length,reservations:this.reservations.length,staffTasks:this.staffTasks.length,expiryJobs:this.expiryJobs.length};
+    try {
+      this.requests.push(...input.items.map((item) => clone(item.request)));
+      this.reservations.push(...input.items.map((item) => clone(item.reservation)));
+      this.staffTasks.push(...input.items.map((item) => clone(item.staffTask)));
+      this.expiryJobs.push(...input.items.map((item) => buildGiftExpiryJob(item.request)));
+      await input.auditSink.append(input.auditRecord);
+    } catch(error) {
+      this.requests.splice(lengths.requests);this.reservations.splice(lengths.reservations);
+      this.staffTasks.splice(lengths.staffTasks);this.expiryJobs.splice(lengths.expiryJobs);
+      throw error;
+    }
   }
 
   refreshVerificationHash(giftRequestId: string, now: Date): void {
@@ -346,7 +373,7 @@ export class InMemoryGiftStore implements GiftStore {
     request.executionCredentialExpiresAt = new Date(now.getTime() + 15 * 60_000).toISOString();
   }
 
-  verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date }): GiftReviewResult {
+  async verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date; auditRecord?: AuditRecord; auditSink?: AuditSink }): Promise<GiftReviewResult> {
     const task = this.staffTasks.find((candidate) => candidate.id === input.taskId);
     if (!task || task.status !== 'CLAIMED' || task.version !== input.expectedVersion || task.claimedBy !== input.actorStaffId) {
       throw new GiftError('CONFLICT', 'Gift task is not claimed by the current staff member.');
@@ -359,10 +386,17 @@ export class InMemoryGiftStore implements GiftStore {
       verifiedAt: input.now.toISOString(), verificationNote: `${input.verificationMethod}: ${input.notes}`,
       verificationPayloadHash: giftPayloadHash(request, reservation), executionCredentialExpiresAt: expiresAt,
       updatedAt: input.now.toISOString() };
-    this.requests[this.requests.indexOf(request)] = updated;
-    this.staffTasks[this.staffTasks.indexOf(task)] = { ...task, status: 'VERIFIED', version: task.version + 1, updatedAt: input.now.toISOString() };
-    return { status: 'VERIFIED', giftRequestId: request.id, taskId: task.id,
-      executionCredential: { payloadHash: updated.verificationPayloadHash!, expiresAt } };
+    const requestIndex=this.requests.indexOf(request);const taskIndex=this.staffTasks.indexOf(task);
+    const requestSnapshot=clone(request);const taskSnapshot=clone(task);
+    try {
+      this.requests[requestIndex] = updated;
+      this.staffTasks[taskIndex] = { ...task, status: 'VERIFIED', version: task.version + 1, updatedAt: input.now.toISOString() };
+      if(input.auditRecord&&input.auditSink)await input.auditSink.append(input.auditRecord);
+      return { status: 'VERIFIED', giftRequestId: request.id, taskId: task.id,
+        executionCredential: { payloadHash: updated.verificationPayloadHash!, expiresAt } };
+    } catch(error) {
+      this.requests[requestIndex]=requestSnapshot;this.staffTasks[taskIndex]=taskSnapshot;throw error;
+    }
   }
 
   authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): GiftAuthorizationResult {
@@ -401,6 +435,60 @@ export class InMemoryGiftStore implements GiftStore {
       executionCredential: { payloadHash: request.verificationPayloadHash!, expiresAt: request.executionCredentialExpiresAt! } };
   }
 
+  async commitApprovalDecision(input: GiftApprovalCommit): Promise<GiftApprovalCommitResult> {
+    const snapshots = {
+      requests: clone(this.requests),
+      reservations: clone(this.reservations),
+      staffTasks: clone(this.staffTasks),
+      captures: clone(this.captures),
+      consumptions: clone(this.consumptions),
+      broadcasts: clone(this.broadcasts),
+      approvals: clone(this.approvals)
+    };
+    try {
+      const existing = this.findCapture(input.giftRequestId);
+      if (existing) {
+        await input.auditSink.append(input.auditRecord);
+        return { data: existing, statusCode: 200 };
+      }
+      let context = this.getCaptureContext(input.giftRequestId);
+      if (context.request.status !== 'APPROVED') {
+        const authorization = this.authorizeGift(input);
+        if ('code' in authorization) {
+          await input.auditSink.append(input.auditRecord);
+          return { data: authorization, statusCode: 202 };
+        }
+        context = this.getCaptureContext(input.giftRequestId);
+      } else if (![context.request.version, context.request.version - 1].includes(input.expectedVersion)) {
+        throw new GiftError('CONFLICT', 'Gift approval version is stale.');
+      }
+      const captured = this.commitCapture({
+        giftRequestId: context.request.id,
+        expectedGiftVersion: context.request.version,
+        expectedReservationVersion: context.reservation.version,
+        provider: 'INTERNAL_WALLET',
+        providerTransactionRef: deterministicUuid(`wallet:gift:${context.request.id}:capture:v1`),
+        providerIdempotencyKey: `wallet:gift:${context.request.id}:capture:v1`,
+        actorStaffId: input.actorStaffId,
+        broadcastChannelId: input.broadcastChannelId,
+        senderDisplayName: context.senderDisplayName,
+        receiverDisplayName: context.receiverDisplayName,
+        now: input.now
+      });
+      await input.auditSink.append(input.auditRecord);
+      return { data: captured, statusCode: 200 };
+    } catch (error) {
+      restoreArray(this.requests, snapshots.requests);
+      restoreArray(this.reservations, snapshots.reservations);
+      restoreArray(this.staffTasks, snapshots.staffTasks);
+      restoreArray(this.captures, snapshots.captures);
+      restoreArray(this.consumptions, snapshots.consumptions);
+      restoreArray(this.broadcasts, snapshots.broadcasts);
+      restoreArray(this.approvals, snapshots.approvals);
+      throw error;
+    }
+  }
+
   getCaptureContext(giftRequestId: string): GiftCaptureContext {
     const request = this.requireRequest(giftRequestId);
     const reservation = this.requireReservation(giftRequestId);
@@ -418,7 +506,7 @@ export class InMemoryGiftStore implements GiftStore {
     return clone({ request: this.requireRequest(giftRequestId), reservation: this.requireReservation(giftRequestId) });
   }
 
-  commitTermination(input: GiftTerminationCommit): GiftTerminationResult {
+  async commitTermination(input: GiftTerminationCommit): Promise<GiftTerminationResult> {
     const request = this.requireRequest(input.giftRequestId); const reservation = this.requireReservation(input.giftRequestId);
     if (request.status === input.terminalStatus && ['RELEASED','EXPIRED'].includes(reservation.status)) return terminationResult(request,reservation,input.reason);
     if (request.version !== input.expectedGiftVersion || reservation.version !== input.expectedReservationVersion
@@ -426,11 +514,19 @@ export class InMemoryGiftStore implements GiftStore {
       throw new GiftError('CONFLICT','Gift request or reservation cannot be released.');
     if (input.actorUserId && request.senderId !== input.actorUserId) throw new GiftError('PERMISSION_DENIED','Only the sender can withdraw this gift request.');
     const reservationStatus = input.terminalStatus === 'EXPIRED' ? 'EXPIRED' : 'RELEASED';
-    Object.assign(request,{status:input.terminalStatus,version:request.version+1,rejectedReason:input.reason,updatedAt:input.now.toISOString()});
-    Object.assign(reservation,{status:reservationStatus,version:reservation.version+1,settledAt:input.now.toISOString(),updatedAt:input.now.toISOString()});
     const task=this.staffTasks.find((candidate)=>candidate.giftRequestId===request.id);
-    if(task)Object.assign(task,{status:input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',version:task.version+1,updatedAt:input.now.toISOString()});
-    return terminationResult(request,reservation,input.reason);
+    const snapshots={request:clone(request),reservation:clone(reservation),task:task?clone(task):null};
+    try {
+      Object.assign(request,{status:input.terminalStatus,version:request.version+1,rejectedReason:input.reason,updatedAt:input.now.toISOString()});
+      Object.assign(reservation,{status:reservationStatus,version:reservation.version+1,settledAt:input.now.toISOString(),updatedAt:input.now.toISOString()});
+      if(task)Object.assign(task,{status:input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',version:task.version+1,updatedAt:input.now.toISOString()});
+      if(input.auditRecord&&input.auditSink)await input.auditSink.append(input.auditRecord);
+      return terminationResult(request,reservation,input.reason);
+    } catch(error) {
+      Object.assign(request,snapshots.request);Object.assign(reservation,snapshots.reservation);
+      if(task&&snapshots.task)Object.assign(task,snapshots.task);
+      throw error;
+    }
   }
 
   commitCapture(input: GiftCaptureCommit): GiftCaptureResult {
@@ -468,10 +564,10 @@ export class InMemoryGiftStore implements GiftStore {
       updatedAt: input.now.toISOString() };
   }
 
-  rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }) {
+  async rejectGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; reason: string; now: Date }) {
     const request = this.requireRequest(input.giftRequestId);
     if (request.version !== input.expectedVersion || !request.verifiedAt || !request.verificationPayloadHash) throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
-    this.commitTermination({giftRequestId:input.giftRequestId,expectedGiftVersion:input.expectedVersion,
+    await this.commitTermination({giftRequestId:input.giftRequestId,expectedGiftVersion:input.expectedVersion,
       expectedReservationVersion:this.requireReservation(input.giftRequestId).version,terminalStatus:'REJECTED',reason:input.reason,actorStaffId:input.actorStaffId,now:input.now});
     return { status: 'REJECTED' as const, reason: input.reason };
   }
@@ -646,7 +742,7 @@ AND status = ANY($3::"FundReservationStatus"[])`,
     }
   }
 
-  async verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date }): Promise<GiftReviewResult> {
+  async verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date; auditRecord?: AuditRecord; auditSink?: AuditSink }): Promise<GiftReviewResult> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -664,6 +760,7 @@ AND status = ANY($3::"FundReservationStatus"[])`,
       ]);
       await client.query(`UPDATE staff_tasks SET status = 'VERIFIED', row_version = row_version + 1,
         verified_at = $2, updated_at = $2 WHERE id = $1`, [input.taskId, input.now]);
+      if(input.auditRecord)await insertPostgresAuditRecord(client,input.auditRecord);
       await client.query('COMMIT');
       return { status: 'VERIFIED', giftRequestId: snapshot.request.id, taskId: input.taskId,
         executionCredential: { payloadHash, expiresAt } };
@@ -677,52 +774,116 @@ AND status = ANY($3::"FundReservationStatus"[])`,
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
-      if (snapshot.request.status === 'PENDING_APPROVAL') {
-        const approvalResult = await client.query<{ id: string; required_level: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER'; payload_snapshot: Record<string, unknown>; payload_hash: string; expires_at: Date }>(
-          `SELECT id, required_level, payload_snapshot, payload_hash, expires_at FROM approval_requests
-           WHERE target_id = $1 AND action = 'GIFT_APPROVE' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
-          [input.giftRequestId]
-        );
-        const approval = approvalResult.rows[0];
-        if (!approval || snapshot.request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.required_level)
-          || approval.expires_at.getTime() <= input.now.getTime()
-          || approval.payload_snapshot.verificationPayloadHash !== snapshot.request.verificationPayloadHash
-          || approval.payload_hash !== hashStableJson(approval.payload_snapshot)) {
-          throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
-        }
-        await client.query(`UPDATE approval_requests SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [approval.id, input.now]);
-        await client.query(`INSERT INTO approval_decisions (id,approval_request_id,decision,decided_by_staff_id,reason,target_version_checked,payload_hash_checked,decided_at)
-          VALUES ($1,$2,'APPROVE',$3,$4,$5,$6,$7)`, [crypto.randomUUID(), approval.id, input.actorStaffId, input.reason,
-          snapshot.request.version, approval.payload_hash, input.now]);
-        await client.query(`UPDATE gift_requests SET status = 'APPROVED', row_version = row_version + 1,
-          approved_by_staff_id = $2, approved_at = $3, updated_at = $3 WHERE id = $1`, [input.giftRequestId, input.actorStaffId, input.now]);
-        await client.query(`UPDATE staff_tasks SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
-        await client.query('COMMIT');
-        return { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel: approval.required_level,
-          approvalRequestId: approval.id, executionCredential: { payloadHash: snapshot.request.verificationPayloadHash!, expiresAt: snapshot.request.executionCredentialExpiresAt! } };
-      }
-      assertExecutionCredential(snapshot.request, snapshot.reservation, snapshot.task, input.expectedVersion, input.now);
-      const requiredLevel = requiredGiftLevel(snapshot.request.priceMinor, input.approvalThresholds);
-      if (levelRank(input.actorLevel) < levelRank(requiredLevel)) {
-        if (requiredLevel === 'L2_SUPERVISOR') throw new GiftError('PERMISSION_DENIED', 'L1 cannot authorize gifts.');
-        const approval = buildGiftApproval(snapshot.request, input.actorStaffId, requiredLevel, input.reason, input.now);
-        await insertGiftApproval(client, approval, snapshot.task.id);
-        await client.query(`UPDATE gift_requests SET status = 'PENDING_APPROVAL', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [input.giftRequestId, input.now]);
-        await client.query(`UPDATE staff_tasks SET status = 'PENDING_APPROVAL', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
-        await client.query('COMMIT');
-        return { code: 'APPROVAL_PENDING', actionExecuted: false, requiredLevel, approvalRequestId: approval.id, expiresAt: approval.expiresAt };
-      }
-      await client.query(`UPDATE gift_requests SET status = 'APPROVED', row_version = row_version + 1,
-        approved_by_staff_id = $2, approved_at = $3, updated_at = $3 WHERE id = $1`, [input.giftRequestId, input.actorStaffId, input.now]);
-      await client.query(`UPDATE staff_tasks SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
+      const result = await this.authorizeGiftWithClient(client, input);
       await client.query('COMMIT');
-      return { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel, approvalRequestId: null,
-        executionCredential: { payloadHash: snapshot.request.verificationPayloadHash!, expiresAt: snapshot.request.executionCredentialExpiresAt! } };
+      return result;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
+  }
+
+  private async authorizeGiftWithClient(client: PoolClient, input: {
+    giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel;
+    reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;
+  }): Promise<GiftAuthorizationResult> {
+    const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
+    if (snapshot.request.status === 'PENDING_APPROVAL') {
+      const approvalResult = await client.query<{ id: string; required_level: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER'; payload_snapshot: Record<string, unknown>; payload_hash: string; expires_at: Date }>(
+        `SELECT id, required_level, payload_snapshot, payload_hash, expires_at FROM approval_requests
+         WHERE target_id = $1 AND action = 'GIFT_APPROVE' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+        [input.giftRequestId]
+      );
+      const approval = approvalResult.rows[0];
+      if (!approval || snapshot.request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.required_level)
+        || approval.expires_at.getTime() <= input.now.getTime()
+        || approval.payload_snapshot.verificationPayloadHash !== snapshot.request.verificationPayloadHash
+        || approval.payload_hash !== hashStableJson(approval.payload_snapshot)) {
+        throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
+      }
+      await client.query(`UPDATE approval_requests SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [approval.id, input.now]);
+      await client.query(`INSERT INTO approval_decisions (id,approval_request_id,decision,decided_by_staff_id,reason,target_version_checked,payload_hash_checked,decided_at)
+        VALUES ($1,$2,'APPROVE',$3,$4,$5,$6,$7)`, [crypto.randomUUID(), approval.id, input.actorStaffId, input.reason,
+        snapshot.request.version, approval.payload_hash, input.now]);
+      await client.query(`UPDATE gift_requests SET status = 'APPROVED', row_version = row_version + 1,
+        approved_by_staff_id = $2, approved_at = $3, updated_at = $3 WHERE id = $1`, [input.giftRequestId, input.actorStaffId, input.now]);
+      await client.query(`UPDATE staff_tasks SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
+      return { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel: approval.required_level,
+        approvalRequestId: approval.id, executionCredential: { payloadHash: snapshot.request.verificationPayloadHash!, expiresAt: snapshot.request.executionCredentialExpiresAt! } };
+    }
+    assertExecutionCredential(snapshot.request, snapshot.reservation, snapshot.task, input.expectedVersion, input.now);
+    const requiredLevel = requiredGiftLevel(snapshot.request.priceMinor, input.approvalThresholds);
+    if (levelRank(input.actorLevel) < levelRank(requiredLevel)) {
+      if (requiredLevel === 'L2_SUPERVISOR') throw new GiftError('PERMISSION_DENIED', 'L1 cannot authorize gifts.');
+      const approval = buildGiftApproval(snapshot.request, input.actorStaffId, requiredLevel, input.reason, input.now);
+      await insertGiftApproval(client, approval, snapshot.task.id);
+      await client.query(`UPDATE gift_requests SET status = 'PENDING_APPROVAL', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [input.giftRequestId, input.now]);
+      await client.query(`UPDATE staff_tasks SET status = 'PENDING_APPROVAL', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
+      return { code: 'APPROVAL_PENDING', actionExecuted: false, requiredLevel, approvalRequestId: approval.id, expiresAt: approval.expiresAt };
+    }
+    await client.query(`UPDATE gift_requests SET status = 'APPROVED', row_version = row_version + 1,
+      approved_by_staff_id = $2, approved_at = $3, updated_at = $3 WHERE id = $1`, [input.giftRequestId, input.actorStaffId, input.now]);
+    await client.query(`UPDATE staff_tasks SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [snapshot.task.id, input.now]);
+    return { status: 'APPROVED', action: 'READY_FOR_CAPTURE', requiredLevel, approvalRequestId: null,
+      executionCredential: { payloadHash: snapshot.request.verificationPayloadHash!, expiresAt: snapshot.request.executionCredentialExpiresAt! } };
+  }
+
+  async commitApprovalDecision(input: GiftApprovalCommit): Promise<GiftApprovalCommitResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const existing = await client.query<GiftCaptureRow>(`${giftCaptureSelect}
+WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED' FOR UPDATE OF tx`, [input.giftRequestId]);
+      if (existing.rows[0]) {
+        await insertPostgresAuditRecord(client, input.auditRecord);
+        await client.query('COMMIT');
+        return { data: mapGiftCaptureRow(existing.rows[0]), statusCode: 200 };
+      }
+
+      let snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
+      if (snapshot.request.status === 'APPROVED') {
+        if (![snapshot.request.version, snapshot.request.version - 1].includes(input.expectedVersion)) {
+          throw new GiftError('CONFLICT', 'Gift approval version is stale.');
+        }
+      } else {
+        const authorization = await this.authorizeGiftWithClient(client, input);
+        if ('code' in authorization) {
+          await insertPostgresAuditRecord(client, input.auditRecord);
+          await client.query('COMMIT');
+          return { data: authorization, statusCode: 202 };
+        }
+        snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
+      }
+
+      const names = await client.query<{ sender_display_name: string; receiver_display_name: string }>(`
+SELECT sender.display_name AS sender_display_name, receiver.display_name AS receiver_display_name
+FROM users sender
+JOIN users receiver ON receiver.id = $2
+WHERE sender.id = $1`, [snapshot.request.senderId, snapshot.request.receiverId]);
+      if (!names.rows[0]) throw new GiftError('CONFLICT', 'Gift participants were not found.');
+      const providerIdempotencyKey = `wallet:gift:${snapshot.request.id}:capture:v1`;
+      const captured = await this.captureGiftWithClient(client, {
+        giftRequestId: snapshot.request.id,
+        expectedGiftVersion: snapshot.request.version,
+        expectedReservationVersion: snapshot.reservation.version,
+        provider: 'INTERNAL_WALLET',
+        providerTransactionRef: deterministicUuid(providerIdempotencyKey),
+        providerIdempotencyKey,
+        actorStaffId: input.actorStaffId,
+        broadcastChannelId: input.broadcastChannelId,
+        senderDisplayName: names.rows[0].sender_display_name,
+        receiverDisplayName: names.rows[0].receiver_display_name,
+        now: input.now
+      });
+      await insertPostgresAuditRecord(client, input.auditRecord);
+      await client.query('COMMIT');
+      return { data: captured, statusCode: 200 };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> {
@@ -778,6 +939,7 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         input.actorStaffId?'DASHBOARD':input.actorUserId?'DISCORD_BOT':'SYSTEM_JOB',input.terminalStatus==='EXPIRED'?'ADMIN_CORRECTION':'USER_REQUEST',input.now]);
       await client.query('UPDATE gift_requests SET status=$2,row_version=row_version+1,rejected_reason=$3,updated_at=$4 WHERE id=$1',[snapshot.request.id,input.terminalStatus,input.reason,input.now]);
       await client.query(`UPDATE staff_tasks SET status=$2,row_version=row_version+1,resolved_by_staff_id=$3,resolved_at=$4,updated_at=$4 WHERE id=$1`,[snapshot.task.id,input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',input.actorStaffId??null,input.now]);
+      if(input.auditRecord)await insertPostgresAuditRecord(client,input.auditRecord);
       await client.query('COMMIT');
       return {giftRequestId:snapshot.request.id,status:input.terminalStatus,reason:input.reason,reservation:{reservationId:snapshot.reservation.id,status:reservationStatus,amountMinor:snapshot.reservation.amountMinor,releasedMinor:snapshot.reservation.amountMinor,currency:snapshot.reservation.currency,version:snapshot.reservation.version+1}};
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -787,73 +949,75 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const existing = await client.query<GiftCaptureRow>(`${giftCaptureSelect}
-WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED' FOR UPDATE OF tx`, [input.giftRequestId]);
-      if (existing.rows[0]) {
-        await client.query('COMMIT');
-        return mapGiftCaptureRow(existing.rows[0]);
-      }
-      const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
-      if (snapshot.request.status !== 'APPROVED' || snapshot.request.version !== input.expectedGiftVersion
-        || snapshot.reservation.status !== 'ACTIVE' || snapshot.reservation.version !== input.expectedReservationVersion
-        || snapshot.reservation.amountMinor !== snapshot.request.priceMinor) {
-        throw new GiftError('CONFLICT', 'Gift or reservation changed before capture.');
-      }
-      const wallet=await client.query<{id:string;row_version:number}>('SELECT id,row_version FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[snapshot.request.senderId]);
-      if(!wallet.rows[0])throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE','Wallet was not found.');
-      const walletEntryId=deterministicUuid(`wallet:gift:${snapshot.request.id}:capture:v1`);
-      await client.query(`INSERT INTO wallet_entries
-        (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-        VALUES ($1,$2,'GIFT_CAPTURE_DEBIT','DEBIT',$3,'CAT','FUND_RESERVATION',$4,$5,$6,$6)`,
-        [walletEntryId,wallet.rows[0].id,snapshot.request.priceMinor,snapshot.reservation.id,`wallet:gift:${snapshot.request.id}:capture:v1`,input.now]);
-      await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
-      const transactionId = deterministicUuid(`gift-transaction:${snapshot.request.id}`);
-      const consumptionId = deterministicUuid(`gift-consumption:${snapshot.request.id}`);
-      await client.query(`INSERT INTO fund_reservation_events (
-        id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,
-        idempotency_key,actor_staff_id,actor_source,reason_code,created_at
-      ) VALUES ($1,$2,$3,'CAPTURED','ACTIVE','CAPTURED',$4,$5,$6,$7,'DASHBOARD','GIFT_APPROVED',$8)`, [
-        deterministicUuid(`gift-reservation-captured:${snapshot.request.id}`), snapshot.reservation.id,
-        snapshot.reservation.version + 1, snapshot.request.priceMinor, snapshot.reservation.version + 1,
-        `gift:reservation:capture:${snapshot.request.id}:v1`, input.actorStaffId, input.now
-      ]);
-      await client.query(`INSERT INTO external_transactions (
-        id,provider,type,user_id,gift_request_id,fund_reservation_id,external_ref,idempotency_key,
-        amount_minor,currency,status,request_metadata,response_metadata,initiated_at,settled_at,created_at,updated_at
-      ) VALUES ($1,$2,'GIFT_CHARGE',$3,$4,$5,$6,$7,$8,$9,'SUCCEEDED',$10::jsonb,$11::jsonb,$12,$12,$12,$12)`, [
-        transactionId, input.provider, snapshot.request.senderId, snapshot.request.id, snapshot.reservation.id,
-        input.providerTransactionRef, input.providerIdempotencyKey, snapshot.request.priceMinor, snapshot.request.currency,
-        JSON.stringify({ fundReservationId: snapshot.reservation.id, reservationVersion: snapshot.reservation.version }),
-        JSON.stringify({ providerTransactionRef: input.providerTransactionRef }), input.now
-      ]);
-      await client.query(`INSERT INTO consumption_entries (
-        id,user_id,entry_type,direction,gift_request_id,external_transaction_id,amount_minor,currency,
-        source_type,source_id,idempotency_key,occurred_at,created_at
-      ) VALUES ($1,$2,'GIFT_CHARGE','DEBIT',$3,$4,$5,$6,'GIFT_REQUEST',$3,$7,$8,$8)`, [
-        consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
-        snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
-      ]);
-      await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
-        sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
-        currency:snapshot.request.currency,source:'GIFT',now:input.now});
-      await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
-        captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
-      const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
-        input.senderDisplayName, input.receiverDisplayName, input.now);
-      await client.query(`INSERT INTO outbox_events (
-        id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,
-        attempt_count,max_attempts,available_at,created_at,updated_at
-      ) VALUES ($1,'GIFT_ANNOUNCEMENT','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$6,$6)`, [
-        announcement.id, snapshot.request.id, announcement.dedupeKey, JSON.stringify(announcement.payload),
-        announcement.maxAttempts, input.now
-      ]);
+      const result = await this.captureGiftWithClient(client, input);
       await client.query('COMMIT');
-      return buildCaptureResult({ request: snapshot.request, reservation: snapshot.reservation,
-        consumptionId, announcementJobId: announcement.id, providerTransactionRef: input.providerTransactionRef, now: input.now });
+      return result;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
+  }
+
+  private async captureGiftWithClient(client: PoolClient, input: GiftCaptureCommit): Promise<GiftCaptureResult> {
+    const existing = await client.query<GiftCaptureRow>(`${giftCaptureSelect}
+WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED' FOR UPDATE OF tx`, [input.giftRequestId]);
+    if (existing.rows[0]) return mapGiftCaptureRow(existing.rows[0]);
+    const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
+    if (snapshot.request.status !== 'APPROVED' || snapshot.request.version !== input.expectedGiftVersion
+      || snapshot.reservation.status !== 'ACTIVE' || snapshot.reservation.version !== input.expectedReservationVersion
+      || snapshot.reservation.amountMinor !== snapshot.request.priceMinor) {
+      throw new GiftError('CONFLICT', 'Gift or reservation changed before capture.');
+    }
+    const wallet=await client.query<{id:string;row_version:number}>('SELECT id,row_version FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[snapshot.request.senderId]);
+    if(!wallet.rows[0])throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE','Wallet was not found.');
+    const walletEntryId=deterministicUuid(`wallet:gift:${snapshot.request.id}:capture:v1`);
+    await client.query(`INSERT INTO wallet_entries
+      (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+      VALUES ($1,$2,'GIFT_CAPTURE_DEBIT','DEBIT',$3,'CAT','FUND_RESERVATION',$4,$5,$6,$6)`,
+      [walletEntryId,wallet.rows[0].id,snapshot.request.priceMinor,snapshot.reservation.id,`wallet:gift:${snapshot.request.id}:capture:v1`,input.now]);
+    await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
+    const transactionId = deterministicUuid(`gift-transaction:${snapshot.request.id}`);
+    const consumptionId = deterministicUuid(`gift-consumption:${snapshot.request.id}`);
+    await client.query(`INSERT INTO fund_reservation_events (
+      id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,
+      idempotency_key,actor_staff_id,actor_source,reason_code,created_at
+    ) VALUES ($1,$2,$3,'CAPTURED','ACTIVE','CAPTURED',$4,$5,$6,$7,'DASHBOARD','GIFT_APPROVED',$8)`, [
+      deterministicUuid(`gift-reservation-captured:${snapshot.request.id}`), snapshot.reservation.id,
+      snapshot.reservation.version + 1, snapshot.request.priceMinor, snapshot.reservation.version + 1,
+      `gift:reservation:capture:${snapshot.request.id}:v1`, input.actorStaffId, input.now
+    ]);
+    await client.query(`INSERT INTO external_transactions (
+      id,provider,type,user_id,gift_request_id,fund_reservation_id,external_ref,idempotency_key,
+      amount_minor,currency,status,request_metadata,response_metadata,initiated_at,settled_at,created_at,updated_at
+    ) VALUES ($1,$2,'GIFT_CHARGE',$3,$4,$5,$6,$7,$8,$9,'SUCCEEDED',$10::jsonb,$11::jsonb,$12,$12,$12,$12)`, [
+      transactionId, input.provider, snapshot.request.senderId, snapshot.request.id, snapshot.reservation.id,
+      input.providerTransactionRef, input.providerIdempotencyKey, snapshot.request.priceMinor, snapshot.request.currency,
+      JSON.stringify({ fundReservationId: snapshot.reservation.id, reservationVersion: snapshot.reservation.version }),
+      JSON.stringify({ providerTransactionRef: input.providerTransactionRef }), input.now
+    ]);
+    await client.query(`INSERT INTO consumption_entries (
+      id,user_id,entry_type,direction,gift_request_id,external_transaction_id,amount_minor,currency,
+      source_type,source_id,idempotency_key,occurred_at,created_at
+    ) VALUES ($1,$2,'GIFT_CHARGE','DEBIT',$3,$4,$5,$6,'GIFT_REQUEST',$3,$7,$8,$8)`, [
+      consumptionId, snapshot.request.senderId, snapshot.request.id, transactionId,
+      snapshot.request.priceMinor, snapshot.request.currency, `gift:consumption:${snapshot.request.id}:v1`, input.now
+    ]);
+    await createEligibleReferralCommission(client,{referredUserId:snapshot.request.senderId,
+      sourceConsumptionEntryId:consumptionId,baseAmountMinor:snapshot.request.priceMinor,
+      currency:snapshot.request.currency,source:'GIFT',now:input.now});
+    await client.query(`UPDATE gift_requests SET status = 'CAPTURED', row_version = row_version + 1,
+      captured_at = $2, updated_at = $2 WHERE id = $1`, [snapshot.request.id, input.now]);
+    const announcement = buildGiftAnnouncementJob(snapshot.request, input.broadcastChannelId,
+      input.senderDisplayName, input.receiverDisplayName, input.now);
+    await client.query(`INSERT INTO outbox_events (
+      id,event_type,aggregate_type,aggregate_id,gift_request_id,dedupe_key,payload,status,row_version,
+      attempt_count,max_attempts,available_at,created_at,updated_at
+    ) VALUES ($1,'GIFT_ANNOUNCEMENT','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$6,$6)`, [
+      announcement.id, snapshot.request.id, announcement.dedupeKey, JSON.stringify(announcement.payload),
+      announcement.maxAttempts, input.now
+    ]);
+    return buildCaptureResult({ request: snapshot.request, reservation: snapshot.reservation,
+      consumptionId, announcementJobId: announcement.id, providerTransactionRef: input.providerTransactionRef, now: input.now });
   }
 
   async markAnnounced(input: { giftRequestId: string; channelId: string; messageId: string; now: Date }): Promise<void> {
@@ -921,11 +1085,12 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
 
   registerSecureWriteRoute(server, security, {
     method:'POST',url:'/api/v1/gift-requests/:giftRequestId/cancel',permission:'gift.request',action:'CANCEL_GIFT_REQUEST',targetType:'gift_request',targetId:giftRequestIdParam,
-    acceptedSources:['DISCORD_BOT','DASHBOARD'],handler:async(request,actor)=>{
+    acceptedSources:['DISCORD_BOT','DASHBOARD'],retryCommitFailures:true,handler:async(request,actor)=>{
       const binding=actor.guildId&&actor.discordUserId?await options.accountStore.findByDiscord({guildId:actor.guildId,discordUserId:actor.discordUserId}):null;
       if(!binding)throw new GiftError('PERMISSION_DENIED','A bound sender account is required.');const body=parseCancelBody(request.body);
-      return terminateGiftRequest({store:options.store,giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
+      const prepared=await prepareGiftTermination({store:options.store,giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
         terminalStatus:'WITHDRAWN',reason:body.reason,actorUserId:binding.userId,now:now()});
+      return bindGiftTermination(prepared,auditSink);
     },fingerprintBody:(request)=>parseCancelBody(request.body),mapError:mapGiftError
   });
 
@@ -933,11 +1098,13 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     method: 'POST', url: '/api/v1/admin/staff-tasks/:staffTaskId/verify', permission: 'staff_task.verify',
     action: 'VERIFY_GIFT_TASK', targetType: 'staff_task', targetId: giftTaskIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
+    retryCommitFailures: true,
     handler: async (request, actor) => {
       if (!actor.actorStaffId) throw new GiftError('PERMISSION_DENIED', 'A staff actor is required.');
       const body = parseVerifyBody(request.body);
-      return options.store.verifyTask({ taskId: giftTaskIdParam(request), expectedVersion: body.expectedVersion,
-        actorStaffId: actor.actorStaffId, verificationMethod: body.verificationMethod, notes: body.notes, now: now() });
+      const data:Record<string,unknown>={};const operationNow=now();
+      return {data,commit:async(auditRecord:AuditRecord)=>Object.assign(data,await options.store.verifyTask({ taskId: giftTaskIdParam(request), expectedVersion: body.expectedVersion,
+        actorStaffId: actor.actorStaffId!, verificationMethod: body.verificationMethod, notes: body.notes, now: operationNow,auditRecord,auditSink }))};
     },
     fingerprintBody: (request) => parseVerifyBody(request.body), mapError: mapGiftError
   });
@@ -947,31 +1114,25 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     action: 'AUTHORIZE_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
+    retryCommitFailures: true,
     handler: async (request, actor) => {
       if (!actor.actorStaffId || !actor.actorLevel) throw new GiftError('PERMISSION_DENIED', 'A staff actor is required.');
       const body = parseDecisionBody(request.body);
-      const existingCapture = await options.store.findCapture(giftRequestIdParam(request));
-      if (existingCapture) return { data: existingCapture, statusCode: 200, commit: () => undefined };
       const captureContext = await options.store.getCaptureContext(giftRequestIdParam(request));
-      if (captureContext.request.status === 'APPROVED') {
-        if (![captureContext.request.version, captureContext.request.version - 1].includes(body.expectedVersion)) {
-          throw new GiftError('CONFLICT', 'Gift approval version is stale.');
-        }
-        const recovered = await captureApprovedGift({ store: options.store,
-          broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-          giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
-        return { data: recovered, statusCode: 200, commit: () => undefined };
-      }
       const approvalThresholds = await giftApprovalThresholds(options.policyReader);
-      const data = await options.store.authorizeGift({ giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
-        actorStaffId: actor.actorStaffId, actorLevel: actor.actorLevel, reason: body.reason, now: now(), approvalThresholds });
-      if ('code' in data && data.code === 'APPROVAL_PENDING') {
-        return { data, statusCode: 202, commit: () => undefined };
-      }
-      const captured = await captureApprovedGift({ store: options.store,
-        broadcastChannelId: options.broadcastChannelId,botConfigStore:options.botConfigStore,
-        giftRequestId: giftRequestIdParam(request), actorStaffId: actor.actorStaffId, now: now() });
-      return { data: captured, statusCode: 200, commit: () => undefined };
+      const pending = !['APPROVED','CAPTURED','ANNOUNCED'].includes(captureContext.request.status)
+        && levelRank(actor.actorLevel) < levelRank(requiredGiftLevel(captureContext.request.priceMinor, approvalThresholds));
+      const data: Record<string, unknown> = {};
+      const operationNow=now();
+      const broadcastChannelId=pending?options.broadcastChannelId:await resolveBotConfigString(options.botConfigStore,captureContext.guildId,
+        'gift_broadcast_channel_id',options.broadcastChannelId);
+      return { data, statusCode: pending ? 202 : 200, commit: async (auditRecord: AuditRecord) => {
+        const committed=await options.store.commitApprovalDecision({giftRequestId:giftRequestIdParam(request),expectedVersion:body.expectedVersion,
+          actorStaffId:actor.actorStaffId!,actorLevel:actor.actorLevel!,reason:body.reason,approvalThresholds,broadcastChannelId,
+          now:operationNow,auditRecord,auditSink});
+        if(committed.statusCode!==(pending?202:200))throw new GiftError('CONFLICT','Gift approval outcome changed before commit.');
+        Object.assign(data,committed.data);
+      }};
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
@@ -981,14 +1142,16 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     action: 'REJECT_GIFT_REQUEST', targetType: 'gift_request', targetId: giftRequestIdParam,
     acceptedSources: ['DASHBOARD', 'DISCORD_BOT'],
     requiresRecentStepUp: (_request, actor) => actor.actorLevel === 'L3_OPERATIONS' || actor.actorLevel === 'L4_ADMIN_OWNER',
+    retryCommitFailures: true,
     handler: async (request, actor) => {
       if (!actor.actorStaffId) throw new GiftError('PERMISSION_DENIED', 'A staff actor is required.');
       const body = parseDecisionBody(request.body);
       const context = await options.store.getTerminationContext(giftRequestIdParam(request));
       if (!context.request.verifiedAt) throw new GiftError('CONFLICT', 'Gift request is not ready for rejection.');
-      return terminateGiftRequest({ store: options.store,
+      const prepared=await prepareGiftTermination({ store: options.store,
         giftRequestId: giftRequestIdParam(request), expectedVersion: body.expectedVersion,
         terminalStatus: 'REJECTED', reason: body.reason, actorStaffId: actor.actorStaffId, now: now() });
+      return bindGiftTermination(prepared,auditSink);
     },
     fingerprintBody: (request) => parseDecisionBody(request.body), mapError: mapGiftError
   });
@@ -999,9 +1162,22 @@ export async function terminateGiftRequest(input: {
   expectedVersion: number; terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
   actorUserId?: string; actorStaffId?: string; now: Date;
 }): Promise<GiftTerminationResult> {
+  const prepared=await prepareGiftTermination(input);
+  await prepared.commit();
+  return prepared.data;
+}
+
+async function prepareGiftTermination(input: {
+  store: GiftStore; giftRequestId: string;
+  expectedVersion: number; terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
+  actorUserId?: string; actorStaffId?: string; now: Date;
+}) {
   const { request, reservation } = await input.store.getTerminationContext(input.giftRequestId);
   if (request.status === input.terminalStatus && ['RELEASED', 'EXPIRED'].includes(reservation.status)) {
-    return terminationResult(request, reservation, input.reason);
+    const data=terminationResult(request, reservation, input.reason);
+    return {data,commit:async(auditRecord?:AuditRecord,auditSink?:AuditSink)=>{
+      if(auditRecord&&auditSink)await auditSink.append(auditRecord);
+    }};
   }
   if (request.version !== input.expectedVersion || reservation.status !== 'ACTIVE'
     || !['PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED'].includes(request.status)) {
@@ -1010,9 +1186,17 @@ export async function terminateGiftRequest(input: {
   if (input.actorUserId && request.senderId !== input.actorUserId) {
     throw new GiftError('PERMISSION_DENIED', 'Only the sender can withdraw this gift request.');
   }
-  return input.store.commitTermination({ giftRequestId: request.id, expectedGiftVersion: request.version,
+  const reservationStatus=input.terminalStatus==='EXPIRED'?'EXPIRED':'RELEASED';
+  const data:GiftTerminationResult={giftRequestId:request.id,status:input.terminalStatus,reason:input.reason,
+    reservation:{reservationId:reservation.id,status:reservationStatus,amountMinor:reservation.amountMinor,
+      releasedMinor:reservation.amountMinor,currency:reservation.currency,version:reservation.version+1}};
+  return {data,commit:(auditRecord?:AuditRecord,auditSink?:AuditSink)=>input.store.commitTermination({ giftRequestId: request.id, expectedGiftVersion: request.version,
     expectedReservationVersion: reservation.version, terminalStatus: input.terminalStatus, reason: input.reason,
-    actorUserId: input.actorUserId, actorStaffId: input.actorStaffId, now: input.now });
+    actorUserId: input.actorUserId, actorStaffId: input.actorStaffId, now: input.now,auditRecord,auditSink })};
+}
+
+function bindGiftTermination(prepared:Awaited<ReturnType<typeof prepareGiftTermination>>,auditSink:AuditSink){
+  return {data:prepared.data,commit:(auditRecord:AuditRecord)=>prepared.commit(auditRecord,auditSink)};
 }
 
 export async function expireGiftRequest(input: {
@@ -1566,6 +1750,10 @@ interface GiftCatalogRow {
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function restoreArray<T>(target:T[],snapshot:T[]):void{
+  target.splice(0,target.length,...clone(snapshot));
 }
 
 function hashStableJson(value: unknown): string {
