@@ -432,6 +432,7 @@ function policyOrder(id: string, amountMinor: number, status: OrderRecord['statu
     id,
     publicId: id === giftOrderId ? 'P-GIFT-4404' : 'P-REFUND-4404',
     customerId,
+    guildId,
     playerId: '00000000-0000-0000-0000-000000004422',
     status,
     version: id === giftOrderId ? 7 : 9,
@@ -608,6 +609,27 @@ function policyFixture() {
 }
 
 describe('M4-US-04 amount policy integration', () => {
+  test('fails closed before refunding an order from another Guild', async () => {
+    const fixture = policyFixture();
+    const order = fixture.orderStore.orders.find(({ id }) => id === refundOrderId)!;
+    order.guildId = '900000000000000099';
+    const l2 = await createSession(fixture.authStore, staff('L2_SUPERVISOR'), fixture.clock.now());
+    const response = await fixture.server.inject({
+      method: 'POST',
+      url: `/api/v1/admin/orders/${refundOrderId}/refund`,
+      headers: sessionHeaders(l2, 'm4:refund:cross-guild'),
+      payload: {
+        expectedVersion: 9,
+        amount: { amountMinor: 100, currency: 'CAT' },
+        reasonCode: 'USER_REQUEST',
+        evidenceNote: 'Must not cross the trusted Guild boundary.',
+        confirmation: 'EXECUTE_OR_REQUEST_APPROVAL'
+      }
+    });
+    expect(response.statusCode).toBe(404);
+    expect(fixture.orderStore.refunds).toHaveLength(0);
+  });
+
   test('AT-GFT-005 leaves money and broadcast untouched until the same staff member reaches L3 and steps up', async () => {
     const fixture = policyFixture();
     const l2 = await createSession(fixture.authStore, staff('L2_SUPERVISOR'), fixture.clock.now());

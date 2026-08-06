@@ -208,7 +208,7 @@ export async function refundOrder(input: {
   if (input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L1 support cannot execute refunds.');
   }
-  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion, input.actor);
   if (order.status !== 'COMPLETED' && order.status !== 'EXCEPTION') {
     throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Only completed or exception orders can be refunded by this endpoint.');
   }
@@ -307,7 +307,7 @@ export async function resolveOrder(input: {
   if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to resolve orders.');
   }
-  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion, input.actor);
   if (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'EXCEPTION'].includes(order.status)) {
     throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order cannot be resolved from its current status.');
   }
@@ -455,7 +455,7 @@ export async function reassignOrder(input: {
   if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to reassign orders.');
   }
-  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion);
+  const order = await requireOrder(input.orderStore, input.orderId, input.expectedVersion, input.actor);
   if (!['ACCEPTED', 'EXCEPTION'].includes(order.status)) {
     throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION', 'Order cannot be reassigned from its current status.');
   }
@@ -1651,9 +1651,9 @@ function assertAmountWithinSnapshot(amountMinor: number, snapshotMinor: number, 
   }
 }
 
-async function requireOrder(store: AdminRefundOrderStore, orderId: string, expectedVersion: number): Promise<OrderRecord> {
+async function requireOrder(store: AdminRefundOrderStore, orderId: string, expectedVersion: number, actor: ActorContext): Promise<OrderRecord> {
   const order = await store.findById(orderId);
-  if (!order) {
+  if (!order || !actor.guildId || order.guildId !== actor.guildId) {
     throw new AdminOrderActionError('NOT_FOUND', 'Order was not found.');
   }
   if (order.version !== expectedVersion) {

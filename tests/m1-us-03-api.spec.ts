@@ -119,6 +119,7 @@ function draftOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     id: '00000000-0000-0000-0000-00000000b001',
     publicId: 'P-M1-ORD-1',
     customerId: '00000000-0000-0000-0000-00000000a001',
+    guildId: '999999999999999999',
     playerId: null,
     status: 'DRAFT',
     version: 1,
@@ -143,6 +144,17 @@ function draftOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
 }
 
 describe('M1-US-03 immediate order draft and estimate API contract', () => {
+  test('does not expose the same customer order through another Guild binding', async () => {
+    const crossGuildOrder = draftOrder({ guildId: '888888888888888888' });
+    const { server } = buildOrderServer({ orders: [crossGuildOrder] });
+    const response = await server.inject({
+      method: 'GET',
+      url: `/api/v1/orders/${crossGuildOrder.id}`,
+      headers: botHeaders('111111111111111111')
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
   test('createOrder creates an immediate draft for a bound customer with channel metadata and a CREATED event', async () => {
     const { server, auditSink, orderStore } = buildOrderServer();
 

@@ -29,6 +29,19 @@ const env = {
 };
 
 describe('M2-US-04 service lifecycle API', () => {
+  test('does not accept readiness for an order from another Guild', async () => {
+    const store = buildStore({ guildId: '888888888888888888' });
+    await expect(setOrderReadiness({
+      store,
+      orderId,
+      expectedVersion: 4,
+      readiness: 'READY',
+      actor: { guildId, discordUserId: '222222222222222222' },
+      now
+    })).rejects.toThrowError(expect.objectContaining({ code: 'NOT_FOUND' }));
+    expect(store.orders[0]).toMatchObject({ status: 'ACCEPTED', version: 4, playerReadyAt: null });
+  });
+
   test('setOrderReadiness rejects customers and lets the assigned player start a legacy order', async () => {
     const store = buildStore();
 
@@ -424,6 +437,7 @@ function buildStore(
         id: orderId,
         publicId: 'P-4401',
         customerId,
+        guildId,
         playerId,
         status: 'ACCEPTED',
         version: 4,

@@ -14,6 +14,7 @@ export interface ServiceLifecycleOrderRecord {
   id: string;
   publicId: string;
   customerId: string;
+  guildId: string;
   playerId: string;
   status: LifecycleOrderStatus;
   version: number;
@@ -146,6 +147,7 @@ export interface ServiceLifecycleStore {
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     readiness: ReadinessValue;
     now: Date;
   }): Promise<OrderReadinessResult> | OrderReadinessResult;
@@ -153,6 +155,7 @@ export interface ServiceLifecycleStore {
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     now: Date;
   }): Promise<CompletionRequestResult> | CompletionRequestResult;
   commitOrderConfirmation(input: {
@@ -160,6 +163,7 @@ export interface ServiceLifecycleStore {
     expectedVersion: number;
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
+    guildId: string;
     idempotencyKey: string;
     referralsEnabled?: boolean;
     now: Date;
@@ -241,12 +245,13 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     readiness: ReadinessValue;
     now: Date;
   }): OrderReadinessResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
     const order = index === -1 ? null : this.orders[index];
-    if (!order) {
+    if (!order || order.guildId !== input.guildId) {
       throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
     }
     if (order.status !== 'ACCEPTED') {
@@ -292,11 +297,12 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     now: Date;
   }): CompletionRequestResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
     const order = index === -1 ? null : this.orders[index];
-    if (!order) {
+    if (!order || order.guildId !== input.guildId) {
       throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
     }
     if (order.status !== 'IN_SERVICE') {
@@ -334,13 +340,14 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     expectedVersion: number;
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
+    guildId: string;
     idempotencyKey: string;
     referralsEnabled?: boolean;
     now: Date;
   }): OrderCompletionResult {
     const index = this.orders.findIndex((candidate) => candidate.id === input.orderId);
     const order = index === -1 ? null : this.orders[index];
-    if (!order) {
+    if (!order || order.guildId !== input.guildId) {
       throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
     }
     if (order.status !== 'PENDING_CONFIRMATION') {
@@ -556,6 +563,7 @@ LIMIT 1
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     readiness: ReadinessValue;
     now: Date;
   }): Promise<OrderReadinessResult> {
@@ -563,7 +571,7 @@ LIMIT 1
     try {
       await transactionClient.query('BEGIN');
       const current = await lockOrder(transactionClient, input.orderId);
-      if (!current) {
+      if (!current || current.guildId !== input.guildId) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
       if (isLifecycleAutomationPaused(current)) {
@@ -729,13 +737,14 @@ RETURNING *
     orderId: string;
     expectedVersion: number;
     actorUserId: string;
+    guildId: string;
     now: Date;
   }): Promise<CompletionRequestResult> {
     const transactionClient = this.pool ? await this.pool.connect() : this.client;
     try {
       await transactionClient.query('BEGIN');
       const current = await lockOrder(transactionClient, input.orderId);
-      if (!current) {
+      if (!current || current.guildId !== input.guildId) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
       if (isLifecycleAutomationPaused(current)) {
@@ -817,6 +826,7 @@ RETURNING *
     expectedVersion: number;
     confirmation: 'CONFIRM_COMPLETED';
     actorUserId: string;
+    guildId: string;
     idempotencyKey: string;
     referralsEnabled?: boolean;
     now: Date;
@@ -825,7 +835,7 @@ RETURNING *
     try {
       await transactionClient.query('BEGIN');
       const current = await lockOrder(transactionClient, input.orderId);
-      if (!current) {
+      if (!current || current.guildId !== input.guildId) {
         throw new ServiceLifecycleError('NOT_FOUND', 'Order was not found.');
       }
       if (current.status !== 'PENDING_CONFIRMATION') {
@@ -1103,6 +1113,7 @@ export async function setOrderReadiness(input: {
     orderId: input.orderId,
     expectedVersion: input.expectedVersion,
     actorUserId,
+    guildId: input.actor.guildId,
     readiness: input.readiness,
     now: input.now
   });
@@ -1120,6 +1131,7 @@ export async function requestOrderCompletion(input: {
     orderId: input.orderId,
     expectedVersion: input.expectedVersion,
     actorUserId,
+    guildId: input.actor.guildId,
     now: input.now
   });
 }
@@ -1140,6 +1152,7 @@ export async function confirmOrder(input: {
     expectedVersion: input.expectedVersion,
     confirmation: input.confirmation,
     actorUserId,
+    guildId: input.actor.guildId,
     idempotencyKey: input.idempotencyKey,
     referralsEnabled: input.referralsEnabled ?? true,
     now: input.now
@@ -1913,6 +1926,7 @@ function mapOrderRow(row: ServiceLifecycleOrderRow): ServiceLifecycleOrderRecord
     id: row.id,
     publicId: row.public_id,
     customerId: row.customer_id,
+    guildId: row.guild_id,
     playerId: row.player_id ?? '',
     status: row.status,
     version: row.row_version,
@@ -1956,6 +1970,7 @@ interface ServiceLifecycleOrderRow {
   id: string;
   public_id: string;
   customer_id: string;
+  guild_id: string;
   player_id: string | null;
   status: LifecycleOrderStatus;
   row_version: number;

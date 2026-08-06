@@ -1604,6 +1604,9 @@ export async function prepareCreateOrder(input: {
   validateCreateOrderInput(input.input);
   const existing = await input.orderStore.findActiveByCustomer(binding.userId);
   if (existing) {
+    if (existing.guildId !== binding.guildId) {
+      throw new OrderError("CONFLICT", "Customer already has an active order.");
+    }
     return {
       data: toApiOrder(existing),
       statusCode: 200,
@@ -2292,7 +2295,7 @@ export async function preparePauseOrderAutomation(input: {
     );
   }
   const order = await input.orderStore.findById(input.orderId);
-  if (!order) {
+  if (!order || !input.actor.guildId || order.guildId !== input.actor.guildId) {
     throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.version !== input.control.expectedVersion) {
@@ -2368,7 +2371,7 @@ export async function prepareResumeOrderAutomation(input: {
     );
   }
   const order = await input.orderStore.findById(input.orderId);
-  if (!order) {
+  if (!order || !input.actor.guildId || order.guildId !== input.actor.guildId) {
     throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.version !== input.control.expectedVersion) {
@@ -3053,7 +3056,7 @@ async function requireVisibleOrder(
   binding: AccountBindingRecord,
 ): Promise<OrderRecord> {
   const order = await store.findById(orderId);
-  if (!order) {
+  if (!order || order.guildId !== binding.guildId) {
     throw new OrderError("RESOURCE_NOT_FOUND", "Order was not found.");
   }
   if (order.customerId !== binding.userId) {

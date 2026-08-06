@@ -24,6 +24,17 @@ const staffDirectory: StaffDirectory = {
 };
 
 describe('M2-US-11 automation takeover API', () => {
+  test('does not pause an order from another Guild', async () => {
+    const context = fixture({ order: order({ guildId: '888888888888888888' }), tasks: [task({ claimedBy: l1StaffId, status: 'CLAIMED' })] });
+    const response = await context.server.inject({
+      method: 'POST', url: `/api/v1/admin/orders/${orderId}/automation/pause`,
+      headers: headers(l1DiscordId, 'dashboard:automation:pause:cross-guild'),
+      payload: { expectedVersion: 3, reasonCode: 'STAFF_TAKEOVER', scope: 'ALL' }
+    });
+    expect(response.statusCode).toBe(404);
+    expect(context.orderStore.orders[0]).toMatchObject({ version: 3, automationState: 'RUNNING' });
+  });
+
   test('lets L1 pause only an order task they claimed without changing its reservation', async () => {
     const claimed = fixture({ tasks: [task({ claimedBy: l1StaffId, status: 'CLAIMED' })] });
     const paused = await claimed.server.inject({
@@ -116,6 +127,7 @@ function fixture(input: { order?: OrderRecord; tasks?: StaffTaskRecord[] } = {})
 function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
   return {
     id: orderId, publicId: 'P-611', customerId: '00000000-0000-0000-0000-00000000a611', playerId: null,
+    guildId,
     status: 'PENDING_DISPATCH', version: 3, serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT',
     region: 'NA', billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
     amountMinor: 12000, playerEarningMinor: 8400, currency: 'CAT', notes: null,

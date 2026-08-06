@@ -134,6 +134,7 @@ function buildStore(overrides: Partial<ServiceLifecycleOrderRecord> = {}) {
     id: orderId,
     publicId: 'P-MULTI004',
     customerId,
+    guildId,
     playerId: playerIds[0]!,
     status: 'ACCEPTED',
     version: 4,
