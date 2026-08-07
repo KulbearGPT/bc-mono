@@ -136,6 +136,13 @@ function lifecycleActionRows(order: OrderLifecyclePanelSummary, giftsEnabled: bo
   const primary: ComponentSpec[] = [];
   const utility: ComponentSpec[] = [];
   const danger: ComponentSpec[] = [];
+  if (order.status === 'COMPLETED' && order.actorRole === 'CUSTOMER')
+    utility.push({
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:r:${order.orderId}:o`,
+      label: '评价本次服务'
+    });
   for (const action of actions) {
     if (action.key === 'PLAYER_SET_READINESS')
       primary.push({

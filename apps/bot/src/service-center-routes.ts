@@ -12,6 +12,19 @@ export type ServiceCenterRoute =
       reason: string | null;
     }
   | { area: 'support-rating-comment'; orderId: string; score: 1 | 2 }
+  | { area: 'experience-review'; action: 'open'; orderId: string }
+  | { area: 'experience-review'; action: 'overall'; orderId: string; score: 1 | 2 | 3 | 4 | 5 }
+  | {
+      area: 'experience-review';
+      action: 'rate';
+      orderId: string;
+      score: 1 | 2 | 3 | 4 | 5;
+      state: string;
+    }
+  | { area: 'experience-review'; action: 'page'; orderId: string; page: number; state: string }
+  | { area: 'experience-review-target-select'; orderId: string; page: number; state: string }
+  | { area: 'experience-review-comment-select'; orderId: string }
+  | { area: 'experience-review-comment-modal'; orderId: string; reviewId: string }
   | {
       area: 'cancellation-action';
       action: 'confirm';
@@ -171,8 +184,10 @@ import { parseOrderBaseRoute } from './service-center-route-order-base.js';
 import { parseRequirementsRoute } from './service-center-route-requirements.js';
 import { parseCatalogNotesRoute } from './service-center-route-catalog-notes.js';
 import { parseOrderActionsRoute } from './service-center-route-order-actions.js';
+import { parseOrderExperienceReviewRoute } from './service-center-route-order-reviews.js';
 
 const routeParsers = [
+  parseOrderExperienceReviewRoute,
   parseSupportGiftProfileRoute,
   parseOrderBaseRoute,
   parseRequirementsRoute,

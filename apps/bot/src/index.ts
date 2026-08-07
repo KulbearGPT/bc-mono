@@ -30,6 +30,7 @@ const dependencies = createBotRuntimeDependencies({
   apiBaseUrl: validation.values.apiBaseUrl,
   botServiceToken: validation.values.botServiceToken,
   giftContinuationSigningSecret: process.env.GIFT_CONTINUATION_SIGNING_SECRET,
+  reviewContinuationSigningSecret: process.env.REVIEW_CONTINUATION_SIGNING_SECRET,
   roleMappingVersion: process.env.DISCORD_ROLE_MAPPING_VERSION
 });
 configureBotRuntimeDependencies(dependencies);

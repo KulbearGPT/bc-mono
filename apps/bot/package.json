@@ -19,6 +19,7 @@
     "./service-center-gift-interactions": "./src/service-center-gift-interactions.ts",
     "./service-center-route-registry": "./src/service-center-route-registry.ts",
     "./service-center-support-interactions": "./src/service-center-support-interactions.ts",
+    "./order-experience-review-interactions": "./src/order-experience-review-interactions.ts",
     "./player-workbench-interactions": "./src/player-workbench-interactions.ts",
     "./service-center-modal-interactions": "./src/service-center-modal-interactions.ts",
     "./service-center-routes": "./src/service-center-routes.ts",

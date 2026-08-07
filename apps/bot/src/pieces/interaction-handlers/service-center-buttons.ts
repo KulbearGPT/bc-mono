@@ -8,6 +8,7 @@ import { executeProfileButton, executeReportsButton } from '../../service-center
 import { buildCurrentUserCommissionsMessage } from '../../service-center-profile.js';
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import { executeSupportRatingButton } from '../../service-center-support-interactions.js';
+import { executeOrderExperienceReviewButton } from '../../order-experience-review-interactions.js';
 import {
   buildOrderNotesModal,
   buildRequirementNoteModal,
@@ -37,7 +38,8 @@ const accountRouteAreas = new Set<ServiceCenterRoute['area']>([
   'gift-recipient-page',
   'support-rating',
   'service-center-action',
-  'order-open'
+  'order-open',
+  'experience-review'
 ]);
 const entryRouteAreas = new Set<ServiceCenterRoute['area']>([
   'entry',
@@ -138,6 +140,20 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       const actor = actorFromInteraction(interaction);
       if (!actor) return void (await guildRequired(interaction, '评价客服'));
       await executeSupportRatingButton({ interaction, route: parsedData, actor, api: createBotApiClient() });
+      return;
+    }
+
+    if (parsedData.area === 'experience-review') {
+      const actor = actorFromInteraction(interaction);
+      if (!actor) return void (await guildRequired(interaction, '评价本次服务'));
+      const dependencies = getBotRuntimeDependencies();
+      await executeOrderExperienceReviewButton({
+        interaction,
+        route: parsedData,
+        actor,
+        api: dependencies.api,
+        secret: dependencies.reviewContinuationSigningSecret
+      });
       return;
     }
 

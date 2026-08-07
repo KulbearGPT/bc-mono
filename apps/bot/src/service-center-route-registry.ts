@@ -21,7 +21,8 @@ const buttonAreas = new Set<ServiceCenterRoute['area']>([
   'reports',
   'gift',
   'gift-recipient-page',
-  'support-rating'
+  'support-rating',
+  'experience-review'
 ]);
 
 const selectAreas = new Set<ServiceCenterRoute['area']>([
@@ -30,14 +31,17 @@ const selectAreas = new Set<ServiceCenterRoute['area']>([
   'service-package-select',
   'order-game-select',
   'gift-recipient-select',
-  'gift-catalog-select'
+  'gift-catalog-select',
+  'experience-review-target-select',
+  'experience-review-comment-select'
 ]);
 
 const modalAreas = new Set<ServiceCenterRoute['area']>([
   'order-notes-modal',
   'order-menu-notes-modal',
   'requirement-note-modal',
-  'support-rating-comment'
+  'support-rating-comment',
+  'experience-review-comment-modal'
 ]);
 
 export function serviceCenterInteractionKind(route: ServiceCenterRoute): ServiceCenterInteractionKind {

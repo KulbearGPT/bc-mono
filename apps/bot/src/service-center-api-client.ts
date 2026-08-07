@@ -31,6 +31,8 @@ import type {
   OrderLifecyclePanelSummary,
   CompletionRequestSummary,
   OrderCompletionSummary,
+  OrderExperienceReview,
+  OrderExperienceReviewCenter,
   SelectionPoolResult,
   SelectionApplicationResult,
   SelectionApplicationPage,
@@ -468,6 +470,50 @@ export class HttpBotApiClient implements BotApiClient {
       idempotencyKey,
       body: input
     });
+  }
+
+  public async getOrderExperienceReview(
+    orderId: string,
+    actor: BotActorContext
+  ): Promise<OrderExperienceReviewCenter> {
+    return this.request<OrderExperienceReviewCenter>(
+      `/api/v1/orders/${encodeURIComponent(orderId)}/experience-review`,
+      { method: 'GET', actor, validateAs: 'experience-review-center' }
+    );
+  }
+
+  public async createOrderExperienceRatings(
+    orderId: string,
+    input: { targetKeys: string[]; score: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderExperienceReview[]> {
+    return this.request<OrderExperienceReview[]>(`/api/v1/orders/${encodeURIComponent(orderId)}/experience-ratings`, {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input,
+      validateAs: 'experience-review-batch'
+    });
+  }
+
+  public async appendOrderExperienceReviewComment(
+    orderId: string,
+    reviewId: string,
+    input: { comment: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderExperienceReview> {
+    return this.request<OrderExperienceReview>(
+      `/api/v1/orders/${encodeURIComponent(orderId)}/experience-ratings/${encodeURIComponent(reviewId)}/comment`,
+      {
+        method: 'POST',
+        actor,
+        idempotencyKey,
+        body: input,
+        validateAs: 'experience-review'
+      }
+    );
   }
 
   public async syncDiscordPresence(

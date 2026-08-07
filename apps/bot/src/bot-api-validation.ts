@@ -1,5 +1,14 @@
 export type BotApiDataKind =
-  'order' | 'balance' | 'gift-panel' | 'gift-affordability' | 'gift-request' | 'selection-page' | 'bot-config';
+  | 'order'
+  | 'balance'
+  | 'gift-panel'
+  | 'gift-affordability'
+  | 'gift-request'
+  | 'selection-page'
+  | 'bot-config'
+  | 'experience-review-center'
+  | 'experience-review'
+  | 'experience-review-batch';
 
 export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
   const valid =
@@ -15,7 +24,13 @@ export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
               ? validGiftRequest(value)
               : kind === 'selection-page'
                 ? validSelectionPage(value)
-                : validBotConfig(value);
+                : kind === 'bot-config'
+                  ? validBotConfig(value)
+                  : kind === 'experience-review-center'
+                    ? validExperienceReviewCenter(value)
+                    : kind === 'experience-review'
+                      ? validExperienceReview(value)
+                      : Array.isArray(value) && value.length > 0 && value.every(validExperienceReview);
   if (!valid) throw new BotApiDataValidationError(kind);
   return value;
 }
@@ -126,6 +141,77 @@ function validBotConfig(value: unknown): boolean {
     Array.isArray(value.manageableFields) &&
     value.manageableFields.every(text)
   );
+}
+
+function validExperienceReviewCenter(value: unknown): boolean {
+  if (
+    !record(value) ||
+    !text(value.orderId) ||
+    !text(value.orderPublicId) ||
+    !dateTime(value.expiresAt) ||
+    typeof value.hasPublishableFiveStar !== 'boolean' ||
+    !Array.isArray(value.targets) ||
+    !(value.publication === null || validReviewPublication(value.publication))
+  )
+    return false;
+  const keys = new Set<string>();
+  return value.targets.every((target) => {
+    if (
+      !record(target) ||
+      !text(target.targetKey) ||
+      keys.has(target.targetKey) ||
+      !reviewTargetType(target.targetType) ||
+      !text(target.displayName)
+    )
+      return false;
+    keys.add(target.targetKey);
+    const review = target.review;
+    return (
+      review === null ||
+      (record(review) &&
+        validExperienceReview(review) &&
+        review.orderId === value.orderId &&
+        review.targetKey === target.targetKey &&
+        review.targetType === target.targetType)
+    );
+  });
+}
+
+function validExperienceReview(value: unknown): boolean {
+  return (
+    record(value) &&
+    text(value.id) &&
+    text(value.orderId) &&
+    text(value.targetKey) &&
+    reviewTargetType(value.targetType) &&
+    Number.isInteger(value.score) &&
+    Number(value.score) >= 1 &&
+    Number(value.score) <= 5 &&
+    dateTime(value.createdAt) &&
+    (value.orderParticipantId === null || text(value.orderParticipantId)) &&
+    (value.attributedStaffId === null || text(value.attributedStaffId)) &&
+    (value.comment === null || validExperienceReviewComment(value.comment))
+  );
+}
+
+function validExperienceReviewComment(value: unknown): boolean {
+  return record(value) && text(value.id) && text(value.comment) && value.comment.length <= 500 && dateTime(value.createdAt);
+}
+
+function validReviewPublication(value: unknown): boolean {
+  return (
+    record(value) &&
+    text(value.id) &&
+    text(value.orderId) &&
+    ['PENDING', 'PUBLISHED', 'FAILED'].includes(String(value.status)) &&
+    record(value.snapshot) &&
+    dateTime(value.consentedAt) &&
+    (value.publishedAt === null || dateTime(value.publishedAt))
+  );
+}
+
+function reviewTargetType(value: unknown): boolean {
+  return value === 'ORDER' || value === 'PLAYER' || value === 'SUPPORT';
 }
 
 function record(value: unknown): value is Record<string, unknown> {

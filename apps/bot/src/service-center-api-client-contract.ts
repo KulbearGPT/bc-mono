@@ -28,6 +28,8 @@ import type {
   OrderLifecyclePanelSummary,
   CompletionRequestSummary,
   OrderCompletionSummary,
+  OrderExperienceReview,
+  OrderExperienceReviewCenter,
   SelectionPoolResult,
   SelectionApplicationResult,
   SelectionApplicationPage,
@@ -171,6 +173,20 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<unknown>;
+  getOrderExperienceReview(orderId: string, actor: BotActorContext): Promise<OrderExperienceReviewCenter>;
+  createOrderExperienceRatings(
+    orderId: string,
+    input: { targetKeys: string[]; score: number },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderExperienceReview[]>;
+  appendOrderExperienceReviewComment(
+    orderId: string,
+    reviewId: string,
+    input: { comment: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderExperienceReview>;
   syncDiscordPresence(
     input: SyncDiscordPresenceRequest,
     actor: BotActorContext,

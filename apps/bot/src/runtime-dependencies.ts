@@ -14,6 +14,7 @@ export interface BotRuntimeDependencies {
   transcriptApi: OrderChannelTranscriptApi;
   roleSyncApi: HttpRoleSyncApiClient;
   giftContinuationSigningSecret: string;
+  reviewContinuationSigningSecret: string;
   roleMappingVersion: number;
   fetch: typeof fetch;
 }
@@ -22,6 +23,7 @@ export function createBotRuntimeDependencies(input: {
   apiBaseUrl: string;
   botServiceToken: string;
   giftContinuationSigningSecret?: string;
+  reviewContinuationSigningSecret?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
   roleMappingVersion?: string;
@@ -39,6 +41,9 @@ export function createBotRuntimeDependencies(input: {
     transport
   });
   const giftContinuationSigningSecret = input.giftContinuationSigningSecret?.trim() || input.botServiceToken.trim();
+  const reviewContinuationSigningSecret = input.reviewContinuationSigningSecret?.trim() || input.botServiceToken.trim();
+  if (input.reviewContinuationSigningSecret !== undefined && reviewContinuationSigningSecret.length < 32)
+    throw new Error('Review continuation signing secret must contain at least 32 characters.');
   return {
     transport,
     api: new HttpBotApiClient({ apiBaseUrl: input.apiBaseUrl, botServiceToken: input.botServiceToken, transport }),
@@ -64,6 +69,7 @@ export function createBotRuntimeDependencies(input: {
       transport
     }),
     giftContinuationSigningSecret,
+    reviewContinuationSigningSecret,
     roleMappingVersion: readRoleMappingVersion(input.roleMappingVersion ?? '0'),
     fetch: fetchImplementation
   };

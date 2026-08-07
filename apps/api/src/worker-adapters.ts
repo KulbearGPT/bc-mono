@@ -158,6 +158,9 @@ SELECT orders.id AS order_id,
           SELECT 1 FROM order_support_ratings support_rating
            WHERE support_rating.order_id=orders.id
         )) AS support_rating_eligible,
+       (orders.status='COMPLETED'
+        AND orders.completed_at IS NOT NULL
+        AND orders.completed_at+interval '24 hours'>=now()) AS experience_review_eligible,
        EXISTS (
          SELECT 1 FROM staff_tasks cancellation_task
           WHERE cancellation_task.order_id=orders.id
@@ -459,6 +462,9 @@ function mapProjection(row: Record<string, unknown>): OrderPanelProjection {
     currency: text(row.currency, 'currency').trim()
     ,...(typeof row.support_rating_eligible === 'boolean'
       ? { supportRatingEligible: row.support_rating_eligible }
+      : {})
+    ,...(typeof row.experience_review_eligible === 'boolean'
+      ? { experienceReviewEligible: row.experience_review_eligible }
       : {})
     ,...(typeof row.has_open_cancellation_assist === 'boolean'
       ? { hasOpenCancellationAssist: row.has_open_cancellation_assist }
@@ -987,12 +993,16 @@ function panelActionRows(projection: OrderPanelProjection): Array<Record<string,
     danger.push({ type: 2, style: 4, label: '取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` });
   if (actions.some((action) => action.key === 'CUSTOMER_REQUEST_CANCELLATION'))
     danger.push({ type: 2, style: 4, label: '申请取消订单', custom_id: `bc:order:${projection.orderId}:cancel:v${projection.version}` });
-  if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
+  if (projection.status === 'COMPLETED' && projection.experienceReviewEligible) {
+    utility.unshift({ type: 2, style: 2, label: '评价本次服务', custom_id: `bc:r:${projection.orderId}:o` });
+  } else if (projection.status === 'COMPLETED' && projection.supportRatingEligible) {
     primary.push({ type: 2, style: 1, label: '评价本次客服', custom_id: `bc:support-rating:${projection.orderId}:start` });
   }
   return [
     ...(primary.length ? [{ type: 1, components: primary.slice(0, 1) }] : []),
-    ...(utility.length ? [{ type: 1, components: utility.slice(0, 3) }] : []),
+    ...(utility.length
+      ? [{ type: 1, components: utility.slice(0, projection.experienceReviewEligible ? 5 : 3) }]
+      : []),
     ...(danger.length ? [{ type: 1, components: danger }] : [])
   ];
 }

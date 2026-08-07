@@ -82,6 +82,18 @@ describe('M5-US-02 PostgreSQL panel recovery', () => {
     await expect(pool.query(`SELECT action,reason FROM audit_logs WHERE action = 'QUEUE_PANEL_REPAIR'`))
       .resolves.toMatchObject({ rows: [{ action: 'QUEUE_PANEL_REPAIR', reason: 'PANEL_MESSAGE_DELETED' }] });
   });
+
+  test('derives the unified review entry window from completed order facts', async () => {
+    const panels = new PostgresOrderPanelProjectionStore(pool);
+    await pool.query(
+      `UPDATE orders SET status='COMPLETED',active_customer_slot_id=NULL,completed_at=now() WHERE id=$1`,
+      [orderId]
+    );
+    expect(await panels.getOrderPanelProjection(orderId)).toMatchObject({ experienceReviewEligible: true });
+
+    await pool.query(`UPDATE orders SET completed_at=now()-interval '24 hours 1 second' WHERE id=$1`, [orderId]);
+    expect(await panels.getOrderPanelProjection(orderId)).toMatchObject({ experienceReviewEligible: false });
+  });
 });
 
 function audit(): AuditRecord {

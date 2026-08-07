@@ -454,6 +454,56 @@ export interface OrderCompletionSummary {
   currency: string;
 }
 
+export type ExperienceReviewTargetType = 'ORDER' | 'PLAYER' | 'SUPPORT';
+
+export interface OrderExperienceReviewComment {
+  id: string;
+  comment: string;
+  createdAt: string;
+}
+
+export interface OrderExperienceReview {
+  id: string;
+  orderId: string;
+  targetKey: string;
+  targetType: ExperienceReviewTargetType;
+  orderParticipantId: string | null;
+  attributedStaffId: string | null;
+  score: number;
+  comment: OrderExperienceReviewComment | null;
+  createdAt: string;
+}
+
+export interface OrderExperienceReviewTarget {
+  targetKey: string;
+  targetType: ExperienceReviewTargetType;
+  displayName: string;
+  review: OrderExperienceReview | null;
+}
+
+export interface OrderReviewPublication {
+  id: string;
+  orderId: string;
+  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  snapshot: {
+    orderPublicId: string;
+    serviceDisplayName: string;
+    completedAt: string;
+    targets: Array<{ targetType: ExperienceReviewTargetType; displayName: string; score: 5 }>;
+  };
+  consentedAt: string;
+  publishedAt: string | null;
+}
+
+export interface OrderExperienceReviewCenter {
+  orderId: string;
+  orderPublicId: string;
+  expiresAt: string;
+  targets: OrderExperienceReviewTarget[];
+  hasPublishableFiveStar: boolean;
+  publication: OrderReviewPublication | null;
+}
+
 export interface SelectionPoolSummary {
   id: string;
   orderId: string;

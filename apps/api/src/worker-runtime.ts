@@ -135,6 +135,7 @@ export interface OrderPanelProjection {
   staffTaskChannelId?: string | null;
   staffRoleIds?: string[];
   supportRatingEligible?: boolean;
+  experienceReviewEligible?: boolean;
   hasOpenCancellationAssist?: boolean;
   selectionPool?: {
     id: string;
