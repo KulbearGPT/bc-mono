@@ -21,6 +21,7 @@ export const productionJobTypes = [
   "SELECTION_POOL_SYNC",
   "SUPPORT_RESPONSE_REMINDER",
   "SUPPORT_RESPONSE_OVERDUE",
+  "REVIEW_BROADCAST",
 ] as const satisfies readonly JobType[];
 
 export function createProductionHandlerMap(
@@ -37,6 +38,7 @@ export function createProductionHandlerMap(
     selectionPoolSync?: OutboxHandler;
     supportResponseReminder?: OutboxHandler;
     supportResponseOverdue?: OutboxHandler;
+    reviewBroadcast?: OutboxHandler;
   },
   options: { m6Enabled?: boolean } = {},
 ): ProductionHandlerMap {
@@ -54,6 +56,7 @@ export function createProductionHandlerMap(
     handlers.SELECTION_POOL_SYNC = input.selectionPoolSync;
   handlers.SUPPORT_RESPONSE_REMINDER = input.supportResponseReminder!;
   handlers.SUPPORT_RESPONSE_OVERDUE = input.supportResponseOverdue!;
+  handlers.REVIEW_BROADCAST = input.reviewBroadcast!;
   if (options.m6Enabled ?? true) {
     handlers.WEEKLY_REPORT_GENERATE = input.weeklyReportGenerate!;
     handlers.WEEKLY_REPORT_NOTIFY = input.weeklyReportNotify!;

@@ -1808,6 +1808,9 @@ model OrderSupportRating {
   @@map("order_support_ratings")
 }
 
+/// Immutable target-scoped score. The API derives targetKey and the optional foreign key from trusted order facts.
+/// Database migrations must add a CHECK matching targetType: ORDER has neither target FK, PLAYER has only
+/// orderParticipantId, and SUPPORT has only attributedStaffId. Application writes never update or delete this row.
 model OrderExperienceReview {
   id                 String                     @id @default(uuid()) @db.Uuid
   orderId            String                     @map("order_id") @db.Uuid
@@ -1832,6 +1835,7 @@ model OrderExperienceReview {
   @@map("order_experience_reviews")
 }
 
+/// Optional private append-only comment. It is deliberately separate so a failed or skipped comment cannot undo a score.
 model OrderExperienceReviewComment {
   id         String   @id @default(uuid()) @db.Uuid
   reviewId   String   @unique @map("review_id") @db.Uuid
@@ -1846,6 +1850,8 @@ model OrderExperienceReviewComment {
   @@map("order_experience_review_comments")
 }
 
+/// Explicit-consent, five-star-only immutable public snapshot. Delivery status may advance through append-only events;
+/// the snapshot itself is never regenerated from later private review changes.
 model OrderReviewPublication {
   id                 String                       @id @default(uuid()) @db.Uuid
   orderId            String                       @unique @map("order_id") @db.Uuid

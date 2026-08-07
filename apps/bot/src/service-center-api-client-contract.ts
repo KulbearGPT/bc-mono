@@ -30,6 +30,7 @@ import type {
   OrderCompletionSummary,
   OrderExperienceReview,
   OrderExperienceReviewCenter,
+  OrderReviewPublication,
   SelectionPoolResult,
   SelectionApplicationResult,
   SelectionApplicationPage,
@@ -187,6 +188,12 @@ export interface BotApiClient {
     actor: BotActorContext,
     idempotencyKey: string
   ): Promise<OrderExperienceReview>;
+  publishOrderFiveStarReview(
+    orderId: string,
+    input: { confirmation: 'PUBLISH_FIVE_STAR_SNAPSHOT' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ): Promise<OrderReviewPublication>;
   syncDiscordPresence(
     input: SyncDiscordPresenceRequest,
     actor: BotActorContext,

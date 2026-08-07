@@ -16,7 +16,8 @@ export type JobType =
   | "SELECTION_POOL_CLOSE"
   | "SELECTION_POOL_SYNC"
   | "SUPPORT_RESPONSE_REMINDER"
-  | "SUPPORT_RESPONSE_OVERDUE";
+  | "SUPPORT_RESPONSE_OVERDUE"
+  | "REVIEW_BROADCAST";
 
 export type JobStatus =
   "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "CANCELLED";
@@ -124,6 +125,7 @@ const deliveryJobTypes = new Set<JobType>([
   "SELECTION_POOL_SYNC",
   "SUPPORT_RESPONSE_REMINDER",
   "SUPPORT_RESPONSE_OVERDUE",
+  "REVIEW_BROADCAST",
 ]);
 
 export class OutboxError extends Error {

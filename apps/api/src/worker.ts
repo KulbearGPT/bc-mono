@@ -49,6 +49,10 @@ import {
   createSupportResponseReminderHandler,
 } from "./support-response-jobs.js";
 import { enqueuePeriodicRoleReconciliation } from "./access.js";
+import {
+  PostgresOrderReviewBroadcastStore,
+  createOrderReviewBroadcastHandler,
+} from "./order-review-broadcast.js";
 
 const READY_FILE = "/tmp/blackcat-worker-ready";
 const validation = validateRuntimeEnv(process.env, {
@@ -77,6 +81,7 @@ const panelStore = new PostgresOrderPanelProjectionStore(pool);
 const weeklyReportStore = new PostgresWeeklyReportStore(pool);
 const supportResponseStore = new PostgresSupportResponseJobStore(pool);
 const terminalChannelCleanupStore = new PostgresTerminalChannelCleanupStore(pool);
+const reviewBroadcastStore = new PostgresOrderReviewBroadcastStore(pool);
 const delivery = new DiscordRestDeliveryAdapter({
   botToken: discordToken,
   businessApiBaseUrl: validation.values.apiBaseUrl,
@@ -169,6 +174,10 @@ const runtime = new ProductionOutboxRuntime({
     }),
     supportResponseOverdue: createSupportResponseOverdueHandler({
       store: supportResponseStore,
+    }),
+    reviewBroadcast: createOrderReviewBroadcastHandler({
+      store: reviewBroadcastStore,
+      discord: delivery,
     }),
   }),
 });

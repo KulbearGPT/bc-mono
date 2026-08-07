@@ -119,6 +119,15 @@ export function buildOrderExperienceReviewMessage(
     });
   }
 
+  if (center.hasPublishableFiveStar && !center.publication) {
+    appendUtilityButton(components, {
+      type: 'BUTTON',
+      style: 'SECONDARY',
+      customId: `bc:r:${center.orderId}:v`,
+      label: '预览可公开的五星好评'
+    });
+  }
+
   const commentable = [...(page === 0 && orderTarget ? [orderTarget] : []), ...visibleTargets].filter(
     (target) => target.review && !target.review.comment
   );
@@ -187,6 +196,19 @@ export async function executeOrderExperienceReviewButton(input: {
   else await input.interaction.deferUpdate();
   try {
     let center = await input.api.getOrderExperienceReview(input.route.orderId, input.actor);
+    if (input.route.action === 'preview') {
+      await input.interaction.editReply(toDiscordUpdate(buildOrderReviewPublicationPreview(center)));
+      return;
+    }
+    if (input.route.action === 'publish') {
+      await input.api.publishOrderFiveStarReview(
+        input.route.orderId,
+        { confirmation: 'PUBLISH_FIVE_STAR_SNAPSHOT' },
+        input.actor,
+        buildDiscordIdempotencyKey('review:publication', input.interaction.id)
+      );
+      center = await input.api.getOrderExperienceReview(input.route.orderId, input.actor);
+    }
     if (input.route.action === 'overall') {
       await input.api.createOrderExperienceRatings(
         input.route.orderId,
@@ -224,6 +246,41 @@ export async function executeOrderExperienceReviewButton(input: {
   } catch (error) {
     await recoverReviewInteraction(input, error);
   }
+}
+
+export function buildOrderReviewPublicationPreview(center: OrderExperienceReviewCenter): MessageSpec {
+  const fiveStarTargets = center.targets.filter((target) => target.review?.score === 5);
+  if (!fiveStarTargets.length) throw new Error('No five-star review is available for publication preview.');
+  return {
+    title: `🌟 五星好评公开预览 · ${center.orderPublicId}`,
+    body: [
+      '公开消息只会包含下面这些五星事实；不会包含老板身份、1–4 星、留言、未评价对象、金额或内部信息。',
+      '',
+      ...fiveStarTargets.map((target) => `${targetLabel(target)} · ★★★★★`)
+    ].join('\n'),
+    visibility: 'EPHEMERAL',
+    tone: 'SUCCESS',
+    density: 'EPHEMERAL_FEEDBACK',
+    components: [
+      {
+        type: 'ACTION_ROW',
+        components: [
+          {
+            type: 'BUTTON',
+            style: 'PRIMARY',
+            customId: `bc:r:${center.orderId}:y`,
+            label: '同意公开五星好评'
+          },
+          {
+            type: 'BUTTON',
+            style: 'SECONDARY',
+            customId: `bc:r:${center.orderId}:n`,
+            label: '仅内部保存'
+          }
+        ]
+      }
+    ]
+  };
 }
 
 export async function executeOrderExperienceReviewSelect(input: {
@@ -332,6 +389,22 @@ function scoreRow(customId: (score: number) => string): MessageSpec['components'
       label: `${score} 星`
     }))
   };
+}
+
+function appendUtilityButton(
+  components: MessageSpec['components'],
+  button: Extract<NonNullable<MessageSpec['components']>[number], { type: 'ACTION_ROW' }>['components'][number]
+) {
+  const row = [...components]
+    .reverse()
+    .find(
+      (item) =>
+        item.type === 'ACTION_ROW' &&
+        item.components.length < 5 &&
+        item.components.every((component) => component.type === 'BUTTON')
+    );
+  if (row?.type === 'ACTION_ROW') row.components.push(button);
+  else components.push({ type: 'ACTION_ROW', components: [button] });
 }
 
 function buildReviewCommentModal(orderId: string, reviewId: string): ModalSpec {

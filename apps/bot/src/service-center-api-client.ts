@@ -2,6 +2,7 @@ import { BotApiTransport, BotApiTransportError } from './api-transport.js';
 import { BotApiDataValidationError, validateBotApiData, type BotApiDataKind } from './bot-api-validation.js';
 import { BotApiError } from './service-center-api-error.js';
 import { pagePath } from './service-center-api-utils.js';
+import { OrderExperienceReviewApiClient } from './service-center-api-client-order-reviews.js';
 import type {
   BotActorContext,
   OrderChannelSpec,
@@ -31,8 +32,6 @@ import type {
   OrderLifecyclePanelSummary,
   CompletionRequestSummary,
   OrderCompletionSummary,
-  OrderExperienceReview,
-  OrderExperienceReviewCenter,
   SelectionPoolResult,
   SelectionApplicationResult,
   SelectionApplicationPage,
@@ -45,6 +44,7 @@ import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from '
 
 export class HttpBotApiClient implements BotApiClient {
   private readonly transport: BotApiTransport;
+  private readonly orderReviews: OrderExperienceReviewApiClient;
 
   public constructor(input: {
     apiBaseUrl: string;
@@ -54,6 +54,7 @@ export class HttpBotApiClient implements BotApiClient {
     transport?: BotApiTransport;
   }) {
     this.transport = input.transport ?? new BotApiTransport(input);
+    this.orderReviews = new OrderExperienceReviewApiClient((path, request) => this.request(path, request));
   }
 
   public async createOrder(
@@ -472,14 +473,8 @@ export class HttpBotApiClient implements BotApiClient {
     });
   }
 
-  public async getOrderExperienceReview(
-    orderId: string,
-    actor: BotActorContext
-  ): Promise<OrderExperienceReviewCenter> {
-    return this.request<OrderExperienceReviewCenter>(
-      `/api/v1/orders/${encodeURIComponent(orderId)}/experience-review`,
-      { method: 'GET', actor, validateAs: 'experience-review-center' }
-    );
+  public getOrderExperienceReview(orderId: string, actor: BotActorContext) {
+    return this.orderReviews.getCenter(orderId, actor);
   }
 
   public async createOrderExperienceRatings(
@@ -487,14 +482,8 @@ export class HttpBotApiClient implements BotApiClient {
     input: { targetKeys: string[]; score: number },
     actor: BotActorContext,
     idempotencyKey: string
-  ): Promise<OrderExperienceReview[]> {
-    return this.request<OrderExperienceReview[]>(`/api/v1/orders/${encodeURIComponent(orderId)}/experience-ratings`, {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input,
-      validateAs: 'experience-review-batch'
-    });
+  ) {
+    return this.orderReviews.createRatings(orderId, input, actor, idempotencyKey);
   }
 
   public async appendOrderExperienceReviewComment(
@@ -503,17 +492,17 @@ export class HttpBotApiClient implements BotApiClient {
     input: { comment: string },
     actor: BotActorContext,
     idempotencyKey: string
-  ): Promise<OrderExperienceReview> {
-    return this.request<OrderExperienceReview>(
-      `/api/v1/orders/${encodeURIComponent(orderId)}/experience-ratings/${encodeURIComponent(reviewId)}/comment`,
-      {
-        method: 'POST',
-        actor,
-        idempotencyKey,
-        body: input,
-        validateAs: 'experience-review'
-      }
-    );
+  ) {
+    return this.orderReviews.appendComment(orderId, reviewId, input, actor, idempotencyKey);
+  }
+
+  public async publishOrderFiveStarReview(
+    orderId: string,
+    input: { confirmation: 'PUBLISH_FIVE_STAR_SNAPSHOT' },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ) {
+    return this.orderReviews.publish(orderId, input, actor, idempotencyKey);
   }
 
   public async syncDiscordPresence(

@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresOrderExperienceReviewStore } from '@blackcat/api/order-experience-reviews';
+import { PostgresOrderReviewBroadcastStore } from '@blackcat/api/order-review-broadcast';
 import type { AuditRecord } from '@blackcat/api/security';
 
 const execFile = promisify(execFileCallback);
@@ -124,6 +125,31 @@ describe('M21-US-02 PostgreSQL order experience reviews', () => {
         )
       ).rows[0].count
     ).toBe(1);
+    await pool.query(
+      `INSERT INTO guild_bot_configs(guild_id,version,config_json,updated_by_staff_id,updated_at)
+       VALUES($1,1,$2::jsonb,$3,$4)`,
+      [guildId, JSON.stringify({ review_broadcast_channel_id: '777777777777777778' }), staffId, context.now]
+    );
+    const broadcastStore = new PostgresOrderReviewBroadcastStore(pool);
+    expect(await broadcastStore.getPublication(publication.data.id)).toMatchObject({
+      id: publication.data.id,
+      orderId,
+      guildId,
+      status: 'PENDING',
+      snapshot: { targets: [{ targetType: 'ORDER', displayName: '订单整体', score: 5 }] }
+    });
+    expect(await broadcastStore.getBroadcastChannelId(guildId)).toBe('777777777777777778');
+    await broadcastStore.markPublished({
+      publicationId: publication.data.id,
+      channelId: '777777777777777778',
+      messageId: '666666666666666667',
+      publishedAt: context.now.toISOString()
+    });
+    expect(
+      (await pool.query(`SELECT status::text,broadcast_message_id FROM order_review_publications WHERE id=$1`, [
+        publication.data.id
+      ])).rows[0]
+    ).toEqual({ status: 'PUBLISHED', broadcast_message_id: '666666666666666667' });
     const businessFactsAfter = (
       await pool.query(
         `SELECT o.status::text,o.amount_minor,

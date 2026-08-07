@@ -13,6 +13,7 @@ export type ServiceCenterRoute =
     }
   | { area: 'support-rating-comment'; orderId: string; score: 1 | 2 }
   | { area: 'experience-review'; action: 'open'; orderId: string }
+  | { area: 'experience-review'; action: 'preview' | 'publish' | 'internal'; orderId: string }
   | { area: 'experience-review'; action: 'overall'; orderId: string; score: 1 | 2 | 3 | 4 | 5 }
   | {
       area: 'experience-review';

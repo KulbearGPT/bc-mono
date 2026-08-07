@@ -105,6 +105,36 @@ export class DiscordRestDeliveryAdapter implements DispatchOfferDiscordAdapter, 
     return { messageId: requiredString(response.id, 'message.id') };
   }
 
+  async upsertFiveStarReview(input: {
+    channelId: string;
+    dedupeKey: string;
+    notBefore: string;
+    existingMessageId: string | null;
+    message: Record<string, unknown>;
+  }): Promise<{ messageId: string }> {
+    let nonceKey = input.dedupeKey;
+    if (input.existingMessageId) {
+      try {
+        const response = await this.request(
+          `/channels/${encodeURIComponent(input.channelId)}/messages/${encodeURIComponent(input.existingMessageId)}`,
+          { method: 'PATCH', body: input.message }
+        );
+        return { messageId: requiredString(response.id, 'message.id') };
+      } catch (error) {
+        if (!(error instanceof DiscordDeliveryError) || error.status !== 404) throw error;
+        nonceKey = `${input.dedupeKey}:recover:${input.existingMessageId}`;
+      }
+    }
+    const nonce = stableNonce(nonceKey);
+    const recoveredMessageId = await this.findMessageByNonce(input.channelId, nonce, input.notBefore);
+    if (recoveredMessageId) return { messageId: recoveredMessageId };
+    const response = await this.request(`/channels/${encodeURIComponent(input.channelId)}/messages`, {
+      method: 'POST',
+      body: { ...input.message, nonce, enforce_nonce: true }
+    });
+    return { messageId: requiredString(response.id, 'message.id') };
+  }
+
   async updateMessage(input: { channelId: string; content: string; dedupeKey: string; notBefore: string }): Promise<{ messageId: string | null; updated: boolean }> {
     const nonce = stableNonce(input.dedupeKey);
     const messageId = await this.findMessageByNonce(input.channelId, nonce, input.notBefore);

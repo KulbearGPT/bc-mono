@@ -8,7 +8,8 @@ export type BotApiDataKind =
   | 'bot-config'
   | 'experience-review-center'
   | 'experience-review'
-  | 'experience-review-batch';
+  | 'experience-review-batch'
+  | 'review-publication';
 
 export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
   const valid =
@@ -30,7 +31,9 @@ export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
                     ? validExperienceReviewCenter(value)
                     : kind === 'experience-review'
                       ? validExperienceReview(value)
-                      : Array.isArray(value) && value.length > 0 && value.every(validExperienceReview);
+                      : kind === 'experience-review-batch'
+                        ? Array.isArray(value) && value.length > 0 && value.every(validExperienceReview)
+                        : validReviewPublication(value);
   if (!valid) throw new BotApiDataValidationError(kind);
   return value;
 }
@@ -195,19 +198,46 @@ function validExperienceReview(value: unknown): boolean {
 }
 
 function validExperienceReviewComment(value: unknown): boolean {
-  return record(value) && text(value.id) && text(value.comment) && value.comment.length <= 500 && dateTime(value.createdAt);
+  return (
+    record(value) && text(value.id) && text(value.comment) && value.comment.length <= 500 && dateTime(value.createdAt)
+  );
 }
 
 function validReviewPublication(value: unknown): boolean {
   return (
     record(value) &&
+    exactKeys(value, ['id', 'orderId', 'status', 'snapshot', 'consentedAt', 'publishedAt']) &&
     text(value.id) &&
     text(value.orderId) &&
     ['PENDING', 'PUBLISHED', 'FAILED'].includes(String(value.status)) &&
-    record(value.snapshot) &&
+    validReviewPublicationSnapshot(value.snapshot) &&
     dateTime(value.consentedAt) &&
     (value.publishedAt === null || dateTime(value.publishedAt))
   );
+}
+
+function validReviewPublicationSnapshot(value: unknown): boolean {
+  return (
+    record(value) &&
+    exactKeys(value, ['orderPublicId', 'serviceDisplayName', 'completedAt', 'targets']) &&
+    text(value.orderPublicId) &&
+    typeof value.serviceDisplayName === 'string' &&
+    dateTime(value.completedAt) &&
+    Array.isArray(value.targets) &&
+    value.targets.length > 0 &&
+    value.targets.every(
+      (target) =>
+        record(target) &&
+        exactKeys(target, ['targetType', 'displayName', 'score']) &&
+        reviewTargetType(target.targetType) &&
+        text(target.displayName) &&
+        target.score === 5
+    )
+  );
+}
+
+function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function reviewTargetType(value: unknown): boolean {

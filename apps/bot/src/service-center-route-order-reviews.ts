@@ -7,6 +7,14 @@ export function parseOrderExperienceReviewRoute(customId: string): ServiceCenter
   const open = new RegExp(`^bc:r:${uuid}:o$`, 'u').exec(customId);
   if (open) return { area: 'experience-review', action: 'open', orderId: open[1]! };
 
+  const publication = new RegExp(`^bc:r:${uuid}:([vyn])$`, 'u').exec(customId);
+  if (publication)
+    return {
+      area: 'experience-review',
+      action: publication[2] === 'v' ? 'preview' : publication[2] === 'y' ? 'publish' : 'internal',
+      orderId: publication[1]!
+    };
+
   const overall = new RegExp(`^bc:r:${uuid}:o([1-5])$`, 'u').exec(customId);
   if (overall)
     return {
