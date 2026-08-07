@@ -63,6 +63,7 @@ describe('M21-US-05 isolated external-UAT harness', () => {
     const script = await readFile('scripts/uat/m21-review-flow-uat.ts', 'utf8');
     const databaseScript = await readFile('scripts/uat/m21-review-flow-db.sh', 'utf8');
     const serviceScript = await readFile('scripts/uat/m21-review-flow-services.sh', 'utf8');
+    const runbook = await readFile('evidence/P0/M21-US-05/human-uat-runbook.md', 'utf8');
     expect(script).toContain("M21_UAT_CONFIRM !== 'USE_ISOLATED_REVIEW_UAT'");
     expect(script).toContain("BUSINESS_ENV !== 'SANDBOX'");
     expect(script).toContain("includes('_uat')");
@@ -83,6 +84,9 @@ describe('M21-US-05 isolated external-UAT harness', () => {
     expect(serviceScript).toContain('npm run start:web');
     expect(serviceScript).toContain('npm run start:worker');
     expect(serviceScript).toContain('npm run start:bot');
+    expect(runbook.indexOf('source "$M21_UAT_ENV_FILE"')).toBeLessThan(
+      runbook.indexOf('export DATABASE_URL="$M21_UAT_DATABASE_URL"')
+    );
   });
 
   test('seeds a trusted three-player/support fixture and verifies internal-save plus final privacy facts', async () => {
