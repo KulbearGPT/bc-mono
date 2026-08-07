@@ -28,12 +28,16 @@ for (const line of openapi.split(/\r?\n/u)) {
 }
 
 const missing = [...sourceOperations].filter((operation) => !contractOperations.has(operation)).sort();
-if (missing.length) {
-  process.stderr.write(`OpenAPI is missing ${missing.length} production route(s):\n${missing.join('\n')}\n`);
+const unregistered = [...contractOperations].filter((operation) => !sourceOperations.has(operation)).sort();
+if (missing.length || unregistered.length) {
+  if (missing.length)
+    process.stderr.write(`OpenAPI is missing ${missing.length} production route(s):\n${missing.join('\n')}\n`);
+  if (unregistered.length)
+    process.stderr.write(`Runtime is missing ${unregistered.length} OpenAPI route(s):\n${unregistered.join('\n')}\n`);
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `Route contract parity passed: ${sourceOperations.size} production operations are documented.\n`
+    `Bidirectional route contract parity passed: ${sourceOperations.size} production operations exactly match OpenAPI.\n`
   );
 }
 
@@ -46,6 +50,11 @@ function visit(node) {
       if (method && url && url.startsWith('/api/'))
         sourceOperations.add(`${method.toUpperCase()} ${normalizePath(url)}`);
     }
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'read') {
+    const [url] = node.arguments;
+    if (url && ts.isStringLiteralLike(url) && url.text.startsWith('/api/'))
+      sourceOperations.add(`GET ${normalizePath(url.text)}`);
   }
   ts.forEachChild(node, visit);
 }

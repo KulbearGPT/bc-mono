@@ -194,9 +194,16 @@ describe('M4-US-06 operational API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       requestId: 'req_audit_filter',
-      data: { items: [expect.objectContaining({ action: 'SELF_ACTION', requestId: 'req_SELF_ACTION' })], nextCursor: null }
+      data: { items: [expect.objectContaining({
+        action: 'SELF_ACTION', requestId: 'req_SELF_ACTION',
+        changes: [expect.objectContaining({ sequence: 1, beforeSnapshot: { internal: 'not exposed' }, afterSnapshot: { internal: 'not exposed' } })]
+      })], nextCursor: null }
     });
-    expect(response.body).not.toMatch(/actorStaffId|beforeSnapshot|afterSnapshot/);
+    expect(response.body).not.toMatch(/actorStaffId/);
+
+    const detail=await server.inject({method:'GET',url:'/api/v1/admin/audit-logs/00000000-0000-0000-0000-000000006601',headers:headers(staff.l4,{requestId:'req_audit_detail'})});
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json()).toMatchObject({requestId:'req_audit_detail',data:{id:'00000000-0000-0000-0000-000000006601',action:'SELF_ACTION',changes:[expect.objectContaining({sequence:1})]}});
   });
 
   test('lists failed jobs only for L2 or above and preserves the originating requestId in the error text', async () => {

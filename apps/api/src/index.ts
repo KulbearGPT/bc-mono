@@ -39,6 +39,7 @@ import { PostgresSelectionPoolStore } from './selection-pools.js';
 import { PostgresServicePackageStore } from './service-packages.js';
 import { PostgresSupportOperationsStore } from './support-operations.js';
 import { PostgresSupportRatingStore } from './support-response-rating.js';
+import { PostgresDomainApprovalStore } from './approvals.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -123,6 +124,8 @@ const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
     })
   : undefined;
 const accessStore = new PostgresAccessStore(databasePool);
+const botConfigStore = new PostgresBotConfigStore(databasePool);
+const approvalStore = new PostgresDomainApprovalStore(databasePool,{orderStore:adminOrderActionStore,giftStore,policyReader:operationsStore,botConfigStore,giftBroadcastChannelId});
 const discordBotToken = process.env.DISCORD_BOT_TOKEN?.trim();
 const botConfigValidationSecret = process.env.BOT_CONFIG_VALIDATION_SECRET?.trim();
 if (discordBotToken && (!botConfigValidationSecret || botConfigValidationSecret.length < 32)) {
@@ -265,8 +268,9 @@ const server = buildApiServer({
     store: operationsStore,
     guildId: dashboardOAuthConfig.guildId
   },
+  approvals: { store: approvalStore },
   botConfig: discordBotToken && botConfigValidationSecret ? {
-    store: new PostgresBotConfigStore(databasePool),
+    store: botConfigStore,
     discord: new DiscordHttpBotConfigAdapter(discordBotToken),
     validationSecret: botConfigValidationSecret
   } : undefined

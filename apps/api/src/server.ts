@@ -58,6 +58,7 @@ import {
   registerOperationsRoutes,
   type OperationsStore,
 } from "./operations.js";
+import { registerApprovalRoutes, type ApprovalStore } from "./approvals.js";
 import type { TransactionTimelineStore } from "./transaction-timeline.js";
 import type { DashboardMetricsStore } from "./dashboard-metrics.js";
 import {
@@ -221,6 +222,7 @@ export interface ApiServerOptions {
   };
   access?: { store: AccessStore; now?: () => Date };
   operations?: { store: OperationsStore; guildId?: string; now?: () => Date };
+  approvals?: { store: ApprovalStore; now?: () => Date };
   wallet?: {
     service: WalletApplicationService;
     accountStore?: Pick<AccountStore, "findByDiscord">;
@@ -490,6 +492,7 @@ export function buildApiServer(
   if (options.adminDirectory)
     registerAdminDirectoryRoutes(server, options.adminDirectory);
   if (options.operations) registerOperationsRoutes(server, options.operations);
+  if (options.approvals) registerApprovalRoutes(server, options.approvals);
   if (options.botConfig) registerBotConfigRoutes(server, options.botConfig);
   if (options.settlements) {
     if (!server.securityOptions)

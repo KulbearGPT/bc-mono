@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
+import { buildPrimaryAuditChange, normalizeAuditChanges, type AuditChangeInput } from './audit-changes.js';
 import {
   InMemoryAuditSink,
   insertPostgresAuditRecord,
@@ -29,7 +30,12 @@ export interface OperationsAuditRecord {
   outcome: AuditOutcome;
   reason: string | null;
   requestId: string;
+  idempotencyKey: string | null;
   approvalRequestId: string | null;
+  jobId: string | null;
+  triggerSource: string | null;
+  retryAttempt: number | null;
+  changes: Array<AuditChangeInput & { sequence: number }>;
   occurredAt: string;
 }
 
@@ -60,6 +66,7 @@ interface StagedWrite<T> { data: T; commit(auditRecord: AuditRecord, auditSink: 
 
 export interface OperationsStore extends PolicyReader {
   listAuditLogs(input: PageInput & { actorStaffId: string; actorLevel: StaffLevel; guildId: string | null; targetType?: string; targetId?: string }): Promise<Page<OperationsAuditRecord>> | Page<OperationsAuditRecord>;
+  getAuditLog(input: { auditLogId: string; actorStaffId: string; actorLevel: StaffLevel; guildId: string | null }): Promise<OperationsAuditRecord> | OperationsAuditRecord;
   listFailedJobs(input: PageInput & { actorLevel: StaffLevel; type?: JobType }): Promise<Page<OperationsJobRecord>> | Page<OperationsJobRecord>;
   retryJob(input: { jobId: string; expectedVersion: number; actorStaffId: string; now: Date }): Promise<StagedWrite<OperationsJobRecord>> | StagedWrite<OperationsJobRecord>;
   getPolicySettings(): Promise<PolicySettingRecord[]> | PolicySettingRecord[];
@@ -140,6 +147,12 @@ export class InMemoryOperationsStore implements OperationsStore, AuditSink {
       return withinScope && (!input.targetType || record.targetType === input.targetType) && (!input.targetId || record.targetId === input.targetId);
     }).map(mapAuditRecord);
     return page(visible, input, 'audit', (item) => [item.occurredAt, item.id]);
+  }
+
+  getAuditLog(input: { auditLogId: string; actorStaffId: string; actorLevel: StaffLevel; guildId: string | null }) {
+    const record = this.listAuditLogs({ ...input, cursor: null, limit: Math.max(1, this.audits.length) }).items.find((item) => item.id === input.auditLogId);
+    if (!record) throw new OperationsError('NOT_FOUND', 'Audit log was not found.');
+    return record;
   }
 
   listFailedJobs(input: PageInput & { actorLevel: StaffLevel; type?: JobType }) {
@@ -229,7 +242,8 @@ export class PostgresOperationsStore implements OperationsStore {
     const keys = decodeCursor(input.cursor, 'audit');
     const rows = await this.pool.query<AuditRow>(`SELECT audit.id, audit.actor_user_id, audit.actor_staff_id, audit.actor_level::text, audit.actor_source::text,
       audit.client_id, audit.interaction_id, audit.permission_code, audit.action, audit.target_type, audit.target_id, audit.outcome::text,
-      audit.reason, audit.request_id, audit.approval_request_id, audit.created_at
+      audit.reason, audit.request_id, audit.idempotency_key, audit.approval_request_id, audit.job_id,
+      audit.trigger_source, audit.retry_attempt, audit.created_at, ${auditChangesSelect}
       FROM audit_logs audit
       WHERE ($1::text = 'L4_ADMIN_OWNER'
         OR ($1::text = 'L3_OPERATIONS' AND audit.actor_staff_id IS NOT NULL
@@ -251,6 +265,29 @@ export class PostgresOperationsStore implements OperationsStore {
       AND ($6::timestamptz IS NULL OR (audit.created_at, audit.id) < ($6::timestamptz, $7::uuid))
       ORDER BY audit.created_at DESC, audit.id DESC LIMIT $8`, [input.actorLevel, input.actorStaffId, input.guildId, input.targetType ?? null, input.targetId ?? null, keys?.[0] ?? null, keys?.[1] ?? null, input.limit + 1, sensitiveAuditPermissionPrefixes.map((prefix) => `${prefix}%`)]);
     return pageFromRows(rows.rows.map(mapAuditRow), input, 'audit', (item) => [item.occurredAt, item.id]);
+  }
+
+  async getAuditLog(input: { auditLogId: string; actorStaffId: string; actorLevel: StaffLevel; guildId: string | null }) {
+    const rows = await this.pool.query<AuditRow>(`SELECT audit.id, audit.actor_user_id, audit.actor_staff_id, audit.actor_level::text, audit.actor_source::text,
+      audit.client_id, audit.interaction_id, audit.permission_code, audit.action, audit.target_type, audit.target_id, audit.outcome::text,
+      audit.reason, audit.request_id, audit.idempotency_key, audit.approval_request_id, audit.job_id,
+      audit.trigger_source, audit.retry_attempt, audit.created_at, ${auditChangesSelect}
+      FROM audit_logs audit
+      WHERE audit.id=$1::uuid AND ($2::text = 'L4_ADMIN_OWNER'
+        OR ($2::text = 'L3_OPERATIONS' AND audit.actor_staff_id IS NOT NULL
+          AND NOT (COALESCE(audit.permission_code,'') LIKE ANY($5::text[])))
+        OR ($2::text = 'L2_SUPERVISOR' AND audit.actor_staff_id IN (
+          SELECT team_staff.id FROM staff_accounts team_staff
+          WHERE team_staff.level IN ('L1_SUPPORT','L2_SUPERVISOR') AND team_staff.status = 'ACTIVE'
+          AND NOT (COALESCE(audit.permission_code,'') LIKE ANY($5::text[]))
+          AND EXISTS (SELECT 1 FROM discord_accounts team_discord
+            JOIN discord_accounts actor_discord ON actor_discord.guild_id=team_discord.guild_id
+            JOIN staff_accounts actor_staff ON actor_staff.user_id=actor_discord.user_id
+            WHERE team_discord.user_id=team_staff.user_id AND actor_staff.id=$3::uuid
+              AND ($4::text IS NULL OR actor_discord.guild_id=$4)))
+        OR audit.actor_staff_id=$3::uuid)`, [input.auditLogId,input.actorLevel,input.actorStaffId,input.guildId,sensitiveAuditPermissionPrefixes.map((prefix)=>`${prefix}%`)]);
+    if(!rows.rows[0])throw new OperationsError('NOT_FOUND','Audit log was not found.');
+    return mapAuditRow(rows.rows[0]);
   }
 
   async listFailedJobs(input: PageInput & { actorLevel: StaffLevel; type?: JobType }) {
@@ -370,6 +407,8 @@ export function registerOperationsRoutes(server: FastifyInstance, options: { sto
 
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/audit-logs', permission: 'audit.read', action: 'LIST_AUDIT_LOGS', targetType: 'audit_log', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
     handler: (request, actor) => { const staff = requireStaff(actor); return options.store.listAuditLogs({ ...pageQuery(request), actorStaffId: staff.staffId, actorLevel: staff.level, guildId: actor.guildId, targetType: queryText(request, 'targetType'), targetId: queryText(request, 'targetId') }); } });
+  registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/audit-logs/:auditLogId', permission: 'audit.read', action: 'GET_AUDIT_LOG', targetType: 'audit_log', targetId: (request) => param(request,'auditLogId'), acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
+    handler: (request, actor) => { const staff=requireStaff(actor);return options.store.getAuditLog({auditLogId:uuidParam(request,'auditLogId'),actorStaffId:staff.staffId,actorLevel:staff.level,guildId:actor.guildId}); } });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/jobs', permission: 'job.read', action: 'LIST_FAILED_JOBS', targetType: 'outbox_event', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
     handler: (request, actor) => { const staff = requireStaff(actor); return options.store.listFailedJobs({ ...pageQuery(request), actorLevel: staff.level, type: jobTypeQuery(request) }); } });
   registerSecureReadRoute(server, security, { method: 'GET', url: '/api/v1/admin/policy-settings', permission: 'policy.read', action: 'GET_POLICY_SETTINGS', targetType: 'policy_setting', acceptedSources: ['DASHBOARD', 'DISCORD_BOT'], mapError,
@@ -394,10 +433,13 @@ function assertRetryable(job: OutboxJob | undefined | null, expectedVersion: num
   if (job.version !== expectedVersion) throw new OperationsError('CONFLICT', 'Job version is stale.');
 }
 function assertPolicyKey(key: string) { if (!policyKeys.has(key)) throw new OperationsError('VALIDATION_ERROR', 'Policy key is not managed by the P0 settings surface.'); }
-function mapAuditRecord(record: AuditRecord): OperationsAuditRecord { return { id: record.id, actorId: record.actorId, actorLevel: record.actorLevel, actorSource: record.actorSource ?? 'UNKNOWN', clientId: record.clientId, interactionId: record.interactionId, permissionCode: record.permissionCode, action: record.action, targetType: record.targetType, targetId: record.targetId, outcome: record.outcome, reason: record.reason, requestId: record.requestId, approvalRequestId: record.approvalRequestId, occurredAt: record.occurredAt }; }
+function mapAuditRecord(record: AuditRecord): OperationsAuditRecord {
+  const inputChanges=record.changes?.length?record.changes:[buildPrimaryAuditChange({targetType:record.targetType,targetId:record.targetId,beforeSnapshot:record.beforeSnapshot,afterSnapshot:record.afterSnapshot})];
+  return { id: record.id, actorId: record.actorId, actorLevel: record.actorLevel, actorSource: record.actorSource ?? 'UNKNOWN', clientId: record.clientId, interactionId: record.interactionId, permissionCode: record.permissionCode, action: record.action, targetType: record.targetType, targetId: record.targetId, outcome: record.outcome, reason: record.reason, requestId: record.requestId, idempotencyKey:record.idempotencyKey??null,approvalRequestId: record.approvalRequestId,jobId:record.jobId??null,triggerSource:record.triggerSource??null,retryAttempt:record.retryAttempt??null,changes:normalizeAuditChanges(inputChanges).map((change,index)=>({...change,sequence:index+1})),occurredAt: record.occurredAt };
+}
 function mapJob(job: Pick<OutboxJob, 'id'|'type'|'status'|'attempts'|'lastError'|'runAfter'|'version'>): OperationsJobRecord { return { id: job.id, type: job.type, status: job.status, attempts: job.attempts, lastError: publicFailure(job.lastError), runAfter: job.runAfter, version: job.version }; }
 function jobSnapshot(job: Pick<OutboxJob, 'status'|'attempts'|'lastError'|'runAfter'|'version'>) { return { status: job.status, attempts: job.attempts, lastError: job.lastError, runAfter: job.runAfter, version: job.version }; }
-function mapAuditRow(row: AuditRow): OperationsAuditRecord { return { id: row.id, actorId: row.actor_user_id, actorLevel: row.actor_level, actorSource: row.actor_source, clientId: row.client_id, interactionId: row.interaction_id, permissionCode: row.permission_code ?? '', action: row.action, targetType: row.target_type, targetId: row.target_id, outcome: row.outcome, reason: row.reason, requestId: row.request_id, approvalRequestId: row.approval_request_id, occurredAt: iso(row.created_at) }; }
+function mapAuditRow(row: AuditRow): OperationsAuditRecord { return { id: row.id, actorId: row.actor_user_id, actorLevel: row.actor_level, actorSource: row.actor_source, clientId: row.client_id, interactionId: row.interaction_id, permissionCode: row.permission_code ?? '', action: row.action, targetType: row.target_type, targetId: row.target_id, outcome: row.outcome, reason: row.reason, requestId: row.request_id,idempotencyKey:row.idempotency_key,approvalRequestId: row.approval_request_id,jobId:row.job_id,triggerSource:row.trigger_source,retryAttempt:row.retry_attempt,changes:row.changes,occurredAt: iso(row.created_at) }; }
 function mapJobRow(row: JobRow): OperationsJobRecord { assertListedJobType(row.event_type); return { id: row.id, type: row.event_type, status: row.status, attempts: row.attempt_count, lastError: publicFailure(row.last_error), runAfter: iso(row.available_at), version: row.row_version }; }
 function mapPolicyRow(row: PolicyRow): PolicySettingRecord { const value = typeof row.value === 'number' ? row.value : Number(row.value); if (!Number.isSafeInteger(value) || value < 0) throw new OperationsError('VALIDATION_ERROR', 'Stored policy value is invalid.'); return { key: row.key, integerValue: value, currency: row.currency, version: row.version }; }
 function mapFullJobRow(row: FullJobRow): OutboxJob { assertJobType(row.event_type); return { id: row.id, type: row.event_type, status: row.status, payload: row.payload, aggregateType: row.aggregate_type, aggregateId: row.aggregate_id, dedupeKey: row.dedupe_key, attempts: row.attempt_count, maxAttempts: row.max_attempts, runAfter: iso(row.available_at), lockedAt: row.locked_at ? iso(row.locked_at) : null, lockedBy: row.locked_by, completedAt: row.completed_at ? iso(row.completed_at) : null, lastError: row.last_error, version: row.row_version, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) }; }
@@ -446,7 +488,11 @@ function iso(value:string|Date){return value instanceof Date?value.toISOString()
 function clone<T>(value:T):T{return JSON.parse(JSON.stringify(value)) as T;}
 async function inTransaction(pool:Pool,work:(client:PoolClient)=>Promise<void>){const client=await pool.connect();try{await client.query('BEGIN');await work(client);await client.query('COMMIT');}catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw error;}finally{client.release();}}
 
-interface AuditRow { id:string; actor_user_id:string|null; actor_staff_id:string|null; actor_level:StaffLevel|null; actor_source:ActorSource; client_id:string; interaction_id:string|null; permission_code:string|null; action:string; target_type:string; target_id:string; outcome:AuditOutcome; reason:string|null; request_id:string; approval_request_id:string|null; created_at:string|Date }
+interface AuditRow { id:string; actor_user_id:string|null; actor_staff_id:string|null; actor_level:StaffLevel|null; actor_source:ActorSource; client_id:string; interaction_id:string|null; permission_code:string|null; action:string; target_type:string; target_id:string; outcome:AuditOutcome; reason:string|null; request_id:string; idempotency_key:string|null;approval_request_id:string|null;job_id:string|null;trigger_source:string|null;retry_attempt:number|null;changes:Array<AuditChangeInput&{sequence:number}>;created_at:string|Date }
+const auditChangesSelect=`COALESCE((SELECT jsonb_agg(jsonb_build_object(
+  'sequence',change.sequence,'targetType',change.target_type,'targetId',change.target_id,'changeType',change.change_type::text,
+  'beforeSnapshot',change.before_snapshot,'afterSnapshot',change.after_snapshot,'changedFields',change.changed_fields) ORDER BY change.sequence)
+  FROM audit_log_changes change WHERE change.audit_log_id=audit.id),'[]'::jsonb) AS changes`;
 interface JobRow { id:string; event_type:string; status:JobStatus; attempt_count:number; last_error:string|null; available_at:string|Date; row_version:number }
 interface PolicyRow { key:string; version:number; value:unknown; currency:string|null }
 interface FullJobRow extends JobRow { aggregate_type:string; aggregate_id:string; dedupe_key:string; payload:unknown; max_attempts:number; locked_at:string|Date|null; locked_by:string|null; completed_at:string|Date|null; created_at:string|Date; updated_at:string|Date }

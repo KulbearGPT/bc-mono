@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -32,7 +32,9 @@ describe('M4-US-06 PostgreSQL operations', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_operations']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_operations', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    for (const directory of (await readdir('database/prisma/migrations')).sort()) {
+      await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_operations', '-v', 'ON_ERROR_STOP=1', '-f', join('database/prisma/migrations', directory, 'migration.sql')]);
+    }
     pool = new Pool({ host: root, port, database: 'blackcat_m4_operations' });
     await seed();
   }, 30_000);

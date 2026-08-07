@@ -13,6 +13,7 @@
     "./mfa": "./src/mfa.ts",
     "./access": "./src/access.ts",
     "./operations": "./src/operations.ts",
+    "./approvals": "./src/approvals.ts",
     "./authorization-policy": "./src/authorization-policy.ts",
     "./transaction-timeline": "./src/transaction-timeline.ts",
     "./dashboard-metrics": "./src/dashboard-metrics.ts",

@@ -128,7 +128,7 @@ export interface GiftStore {
     auditSink: AuditSink;
   }): Promise<void> | void;
   verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date; auditRecord?: AuditRecord; auditSink?: AuditSink }): Promise<GiftReviewResult> | GiftReviewResult;
-  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
+  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;approvalDecision?:GiftApprovalDecisionExecution }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
   commitApprovalDecision(input: GiftApprovalCommit): Promise<GiftApprovalCommitResult> | GiftApprovalCommitResult;
   getCaptureContext(giftRequestId: string): Promise<GiftCaptureContext> | GiftCaptureContext;
   findCapture(giftRequestId: string): Promise<GiftCaptureResult | null> | GiftCaptureResult | null;
@@ -150,6 +150,12 @@ export interface GiftTerminationCommit {
   terminalStatus: 'REJECTED' | 'WITHDRAWN' | 'EXPIRED'; reason: string;
   actorUserId?: string; actorStaffId?: string; now: Date;
   auditRecord?: AuditRecord; auditSink?: AuditSink;
+  approvalDecision?: GiftApprovalDecisionExecution;
+}
+
+export interface GiftApprovalDecisionExecution {
+  approvalRequestId:string;expectedApprovalVersion:number;payloadHash:string;targetVersion:number;
+  guildId:string;actorStaffId:string;actorLevel:StaffLevel;reason:string;now:Date;
 }
 
 export interface GiftTerminationResult {
@@ -215,6 +221,7 @@ export interface GiftApprovalCommit {
   now: Date;
   auditRecord: AuditRecord;
   auditSink: AuditSink;
+  approvalDecision?: GiftApprovalDecisionExecution;
 }
 
 export interface GiftApprovalCommitResult {
@@ -244,7 +251,7 @@ export interface GiftApprovalRecord {
   reason: string;
   expiresAt: string;
   createdAt: string;
-  status?: 'PENDING' | 'APPROVED';
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
 }
 
 export type GiftAuthorizationResult =
@@ -399,16 +406,18 @@ export class InMemoryGiftStore implements GiftStore {
     }
   }
 
-  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): GiftAuthorizationResult {
+  authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;approvalDecision?:GiftApprovalDecisionExecution }): GiftAuthorizationResult {
     const request = this.requireRequest(input.giftRequestId);
     const reservation = this.requireReservation(request.id);
     const task = this.staffTasks.find((candidate) => candidate.giftRequestId === request.id);
     if (request.status === 'PENDING_APPROVAL') {
-      const approval = this.approvals.find((candidate) => candidate.targetId === request.id && (candidate.status ?? 'PENDING') === 'PENDING');
+      const approval = this.approvals.find((candidate) => candidate.targetId === request.id && (candidate.status ?? 'PENDING') === 'PENDING'
+        && (!input.approvalDecision || candidate.id===input.approvalDecision.approvalRequestId));
       if (!approval || request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.requiredLevel)
         || Date.parse(approval.expiresAt) <= input.now.getTime()
         || approval.payloadSnapshot.verificationPayloadHash !== request.verificationPayloadHash
-        || approval.payloadHash !== hashStableJson(approval.payloadSnapshot)) {
+        || approval.payloadHash !== hashStableJson(approval.payloadSnapshot)
+        || input.approvalDecision && (approval.payloadHash!==input.approvalDecision.payloadHash||approval.targetVersion!==input.approvalDecision.targetVersion)) {
         throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
       }
       approval.status = 'APPROVED';
@@ -448,14 +457,14 @@ export class InMemoryGiftStore implements GiftStore {
     try {
       const existing = this.findCapture(input.giftRequestId);
       if (existing) {
-        await input.auditSink.append(input.auditRecord);
+        await input.auditSink.append({...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
         return { data: existing, statusCode: 200 };
       }
       let context = this.getCaptureContext(input.giftRequestId);
       if (context.request.status !== 'APPROVED') {
         const authorization = this.authorizeGift(input);
         if ('code' in authorization) {
-          await input.auditSink.append(input.auditRecord);
+          await input.auditSink.append({...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
           return { data: authorization, statusCode: 202 };
         }
         context = this.getCaptureContext(input.giftRequestId);
@@ -475,7 +484,7 @@ export class InMemoryGiftStore implements GiftStore {
         receiverDisplayName: context.receiverDisplayName,
         now: input.now
       });
-      await input.auditSink.append(input.auditRecord);
+      await input.auditSink.append({...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
       return { data: captured, statusCode: 200 };
     } catch (error) {
       restoreArray(this.requests, snapshots.requests);
@@ -515,16 +524,18 @@ export class InMemoryGiftStore implements GiftStore {
     if (input.actorUserId && request.senderId !== input.actorUserId) throw new GiftError('PERMISSION_DENIED','Only the sender can withdraw this gift request.');
     const reservationStatus = input.terminalStatus === 'EXPIRED' ? 'EXPIRED' : 'RELEASED';
     const task=this.staffTasks.find((candidate)=>candidate.giftRequestId===request.id);
-    const snapshots={request:clone(request),reservation:clone(reservation),task:task?clone(task):null};
+    const snapshots={request:clone(request),reservation:clone(reservation),task:task?clone(task):null,approvals:clone(this.approvals)};
     try {
       Object.assign(request,{status:input.terminalStatus,version:request.version+1,rejectedReason:input.reason,updatedAt:input.now.toISOString()});
       Object.assign(reservation,{status:reservationStatus,version:reservation.version+1,settledAt:input.now.toISOString(),updatedAt:input.now.toISOString()});
       if(task)Object.assign(task,{status:input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',version:task.version+1,updatedAt:input.now.toISOString()});
-      if(input.auditRecord&&input.auditSink)await input.auditSink.append(input.auditRecord);
+      if(!input.approvalDecision)for(const approval of this.approvals){if(approval.targetId===request.id&&(approval.status??'PENDING')==='PENDING')approval.status=input.terminalStatus==='EXPIRED'?'EXPIRED':'CANCELLED';}
+      if(input.auditRecord&&input.auditSink)await input.auditSink.append({...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
       return terminationResult(request,reservation,input.reason);
     } catch(error) {
       Object.assign(request,snapshots.request);Object.assign(reservation,snapshots.reservation);
       if(task&&snapshots.task)Object.assign(task,snapshots.task);
+      restoreArray(this.approvals,snapshots.approvals);
       throw error;
     }
   }
@@ -770,7 +781,7 @@ AND status = ANY($3::"FundReservationStatus"[])`,
     } finally { client.release(); }
   }
 
-  async authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds }): Promise<GiftAuthorizationResult> {
+  async authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;approvalDecision?:GiftApprovalDecisionExecution }): Promise<GiftAuthorizationResult> {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -786,19 +797,23 @@ AND status = ANY($3::"FundReservationStatus"[])`,
   private async authorizeGiftWithClient(client: PoolClient, input: {
     giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel;
     reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;
+    approvalDecision?:GiftApprovalDecisionExecution;
   }): Promise<GiftAuthorizationResult> {
     const snapshot = await loadGiftReviewSnapshot(client, { giftRequestId: input.giftRequestId });
     if (snapshot.request.status === 'PENDING_APPROVAL') {
-      const approvalResult = await client.query<{ id: string; required_level: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER'; payload_snapshot: Record<string, unknown>; payload_hash: string; expires_at: Date }>(
-        `SELECT id, required_level, payload_snapshot, payload_hash, expires_at FROM approval_requests
-         WHERE target_id = $1 AND action = 'GIFT_APPROVE' AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
-        [input.giftRequestId]
+      const approvalResult = await client.query<{ id: string; required_level: 'L3_OPERATIONS' | 'L4_ADMIN_OWNER'; target_version:number;row_version:number;payload_snapshot: Record<string, unknown>; payload_hash: string; expires_at: Date }>(
+        `SELECT id, required_level, target_version,row_version,payload_snapshot, payload_hash, expires_at FROM approval_requests
+         WHERE target_id = $1 AND action = 'GIFT_APPROVE' AND status = 'PENDING' AND ($2::uuid IS NULL OR id=$2) ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+        [input.giftRequestId,input.approvalDecision?.approvalRequestId??null]
       );
       const approval = approvalResult.rows[0];
       if (!approval || snapshot.request.version !== input.expectedVersion || levelRank(input.actorLevel) < levelRank(approval.required_level)
         || approval.expires_at.getTime() <= input.now.getTime()
         || approval.payload_snapshot.verificationPayloadHash !== snapshot.request.verificationPayloadHash
-        || approval.payload_hash !== hashStableJson(approval.payload_snapshot)) {
+        || approval.payload_hash !== hashStableJson(approval.payload_snapshot)
+        || input.approvalDecision&&(approval.row_version!==input.approvalDecision.expectedApprovalVersion
+          ||approval.target_version!==input.approvalDecision.targetVersion||approval.payload_hash!==input.approvalDecision.payloadHash
+          ||snapshot.guildId!==input.approvalDecision.guildId)) {
         throw new GiftError('EXECUTION_CREDENTIAL_STALE', 'Approval request changed or expired.');
       }
       await client.query(`UPDATE approval_requests SET status = 'APPROVED', row_version = row_version + 1, updated_at = $2 WHERE id = $1`, [approval.id, input.now]);
@@ -835,7 +850,7 @@ AND status = ANY($3::"FundReservationStatus"[])`,
       const existing = await client.query<GiftCaptureRow>(`${giftCaptureSelect}
 WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCEEDED' FOR UPDATE OF tx`, [input.giftRequestId]);
       if (existing.rows[0]) {
-        await insertPostgresAuditRecord(client, input.auditRecord);
+        await insertPostgresAuditRecord(client, {...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
         await client.query('COMMIT');
         return { data: mapGiftCaptureRow(existing.rows[0]), statusCode: 200 };
       }
@@ -875,7 +890,7 @@ WHERE sender.id = $1`, [snapshot.request.senderId, snapshot.request.receiverId])
         receiverDisplayName: names.rows[0].receiver_display_name,
         now: input.now
       });
-      await insertPostgresAuditRecord(client, input.auditRecord);
+      await insertPostgresAuditRecord(client, {...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
       await client.query('COMMIT');
       return { data: captured, statusCode: 200 };
     } catch (error) {
@@ -932,6 +947,10 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         ||!['PENDING_REVIEW','PENDING_APPROVAL','APPROVED'].includes(snapshot.request.status)||snapshot.reservation.status!=='ACTIVE')
         throw new GiftError('CONFLICT','Gift request or reservation cannot be released.');
       if(input.actorUserId&&snapshot.request.senderId!==input.actorUserId)throw new GiftError('PERMISSION_DENIED','Only the sender can withdraw this gift request.');
+      if(input.approvalDecision)await rejectStoredGiftApproval(client,input.approvalDecision,snapshot);
+      else await client.query(`UPDATE approval_requests SET status=$2::"ApprovalStatus",row_version=row_version+1,updated_at=$3
+        WHERE action='GIFT_APPROVE' AND target_type='GIFT_REQUEST' AND target_id=$1 AND status='PENDING'`,
+      [snapshot.request.id,input.terminalStatus==='EXPIRED'?'EXPIRED':'CANCELLED',input.now]);
       const reservationStatus=input.terminalStatus==='EXPIRED'?'EXPIRED':'RELEASED';const eventType=input.terminalStatus==='EXPIRED'?'EXPIRED':'RELEASED';
       await client.query(`INSERT INTO fund_reservation_events (id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_user_id,actor_staff_id,actor_source,reason_code,created_at)
         VALUES ($1,$2,$3,$4,'ACTIVE',$5,$6,$3,$7,$8,$9,$10,$11,$12)`,[deterministicUuid(`gift-reservation:${input.terminalStatus}:${snapshot.request.id}`),snapshot.reservation.id,
@@ -939,7 +958,7 @@ WHERE tx.gift_request_id = $1 AND tx.type = 'GIFT_CHARGE' AND tx.status = 'SUCCE
         input.actorStaffId?'DASHBOARD':input.actorUserId?'DISCORD_BOT':'SYSTEM_JOB',input.terminalStatus==='EXPIRED'?'ADMIN_CORRECTION':'USER_REQUEST',input.now]);
       await client.query('UPDATE gift_requests SET status=$2,row_version=row_version+1,rejected_reason=$3,updated_at=$4 WHERE id=$1',[snapshot.request.id,input.terminalStatus,input.reason,input.now]);
       await client.query(`UPDATE staff_tasks SET status=$2,row_version=row_version+1,resolved_by_staff_id=$3,resolved_at=$4,updated_at=$4 WHERE id=$1`,[snapshot.task.id,input.terminalStatus==='REJECTED'?'REJECTED':'CANCELLED',input.actorStaffId??null,input.now]);
-      if(input.auditRecord)await insertPostgresAuditRecord(client,input.auditRecord);
+      if(input.auditRecord)await insertPostgresAuditRecord(client,{...input.auditRecord,approvalRequestId:input.approvalDecision?.approvalRequestId??input.auditRecord.approvalRequestId});
       await client.query('COMMIT');
       return {giftRequestId:snapshot.request.id,status:input.terminalStatus,reason:input.reason,reservation:{reservationId:snapshot.reservation.id,status:reservationStatus,amountMinor:snapshot.reservation.amountMinor,releasedMinor:snapshot.reservation.amountMinor,currency:snapshot.reservation.currency,version:snapshot.reservation.version+1}};
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -1710,6 +1729,23 @@ async function insertGiftApproval(client: PoolClient, approval: GiftApprovalReco
     approval.payloadHash, approval.amountMinor, approval.currency, approval.requestedByStaffId, approval.requiredLevel,
     staffTaskId, approval.reason, new Date(approval.expiresAt), new Date(approval.createdAt)
   ]);
+}
+
+async function rejectStoredGiftApproval(client:PoolClient,input:GiftApprovalDecisionExecution,snapshot:{request:GiftRequestRecord;guildId:string|null}){
+  const rows=await client.query<{id:string;target_version:number;payload_snapshot:Record<string,unknown>;payload_hash:string;required_level:StaffLevel;status:string;row_version:number;expires_at:Date|string}>(`
+    SELECT id,target_version,payload_snapshot,payload_hash,required_level::text,status::text,row_version,expires_at
+    FROM approval_requests WHERE id=$1 AND action='GIFT_APPROVE' AND target_type='GIFT_REQUEST' AND target_id=$2 FOR UPDATE`,
+  [input.approvalRequestId,snapshot.request.id]);
+  const approval=rows.rows[0];
+  if(!approval||approval.status!=='PENDING'||approval.row_version!==input.expectedApprovalVersion
+    ||approval.target_version!==input.targetVersion||approval.payload_hash!==input.payloadHash
+    ||approval.payload_hash!==hashStableJson(approval.payload_snapshot)||snapshot.guildId!==input.guildId
+    ||new Date(approval.expires_at).getTime()<=input.now.getTime())throw new GiftError('EXECUTION_CREDENTIAL_STALE','Approval request changed or expired.');
+  if(levelRank(input.actorLevel)<levelRank(approval.required_level))throw new GiftError('PERMISSION_DENIED','Actor level is below the approval requirement.');
+  const updated=await client.query(`UPDATE approval_requests SET status='REJECTED',row_version=row_version+1,updated_at=$2 WHERE id=$1 AND status='PENDING' AND row_version=$3`,[approval.id,input.now,input.expectedApprovalVersion]);
+  if(updated.rowCount!==1)throw new GiftError('CONFLICT','Approval request changed before rejection.');
+  await client.query(`INSERT INTO approval_decisions(id,approval_request_id,decision,decided_by_staff_id,reason,target_version_checked,payload_hash_checked,decided_at)
+    VALUES(gen_random_uuid(),$1,'REJECT',$2,$3,$4,$5,$6)`,[approval.id,input.actorStaffId,input.reason,approval.target_version,approval.payload_hash,input.now]);
 }
 
 function toIso(value: Date | string): string {
