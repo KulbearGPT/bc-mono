@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresDashboardMetricsStore } from '@blackcat/api/dashboard-metrics';
+import { PostgresAccountStore } from '@blackcat/api/accounts';
 import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
@@ -31,6 +32,11 @@ describe('M4-US-09 PostgreSQL dashboard metrics',()=>{
   test('keeps L4 metrics inside the actor Guild so drilldowns use the same scope',async()=>{
     const summary=await new PostgresDashboardMetricsStore(pool).getSummary({actorStaffId:ids.staff,actorLevel:'L4_ADMIN_OWNER',guildId:'900000000000009000',now,timeZone:'Asia/Shanghai',currency:'CAT'});
     expect(summary.metrics).toEqual({todayOrderCount:3,inProgressOrderCount:1,pendingStaffTaskCount:3,completedOrderNetConsumptionMinor:8000,giftNetConsumptionMinor:2500,activeReservedMinor:7000,dispatchSuccessRateBps:5000,exceptionCount:2});
+  });
+
+  test('account aggregation reports only the unsettled remainder of an active hold',async()=>{
+    const reserved=await new PostgresAccountStore({pool}).sumActiveReservations({userId:ids.activeCustomer,currency:'CAT'});
+    expect(reserved).toBe(7000);
   });
 });
 

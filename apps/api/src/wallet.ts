@@ -9,6 +9,11 @@ import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
 import type { CustomerProfileScope } from './customer-profiles.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql
+} from './reservation-balance.js';
 import type { WalletBalanceDto, WalletEntryDto, WalletEntryPageDto, WalletEntryTypeDto } from '@blackcat/platform/api-contracts';
 
 export type WalletEntryType = WalletEntryTypeDto;
@@ -921,16 +926,17 @@ async function ensureWallet(client: PoolClient, userId: string, now: Date, lock 
 }
 
 async function readPostgresBalance(client: PoolClient, walletAccountId: string, version: number, now: Date): Promise<WalletBalance> {
+  const settlementJoin = reservationSettlementLateralSql('fr', 'settlement');
+  const remainingMinor = reservationRemainingMinorSql('fr', 'settlement');
   const result = await client.query<{ ledger: string; reserved: string }>(`
     SELECT
       COALESCE((SELECT sum(CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END)
         FROM wallet_entries WHERE wallet_account_id=$1),0)::text AS ledger,
-      COALESCE((SELECT sum(GREATEST(fr.amount_minor-COALESCE(ev.settled,0),0))
+      COALESCE((SELECT sum(${remainingMinor})
         FROM fund_reservations fr
-        LEFT JOIN LATERAL (SELECT sum(amount_minor) AS settled FROM fund_reservation_events
-          WHERE fund_reservation_id=fr.id AND event_type IN ('CAPTURED','RELEASED','EXPIRED')) ev ON true
+        ${settlementJoin}
         JOIN wallet_accounts wa ON wa.user_id=fr.user_id
-        WHERE wa.id=$1 AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')),0)::text AS reserved`, [walletAccountId]);
+        WHERE wa.id=$1 AND fr.status IN (${activeReservationStatuses.map(status => `'${status}'`).join(',')})),0)::text AS reserved`, [walletAccountId]);
   const ledgerBalanceMinor = Number(result.rows[0]?.ledger ?? 0);
   const reservedMinor = Number(result.rows[0]?.reserved ?? 0);
   return { ledgerBalanceMinor, reservedMinor, availableMinor: ledgerBalanceMinor - reservedMinor,

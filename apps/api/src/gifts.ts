@@ -20,6 +20,12 @@ import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
 import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql,
+  sumActiveReservationRemainders
+} from './reservation-balance.js';
 
 type GiftApprovalThresholds = { l2LimitMinor: number; l4FromMinor: number };
 
@@ -353,9 +359,10 @@ export class InMemoryGiftStore implements GiftStore {
     if (!catalog || catalog.status !== 'ACTIVE' || catalog.priceMinor !== first.request.priceMinor || catalog.currency !== first.request.currency) {
       throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
     }
-    const activeReservedMinor = this.reservations
-      .filter((reservation) => reservation.userId === first.request.senderId && reservation.currency === first.request.currency && ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED'].includes(reservation.status))
-      .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
+    const activeReservedMinor = sumActiveReservationRemainders(this.reservations, [], {
+      userId: first.request.senderId,
+      currency: first.request.currency
+    });
     const total = first.request.priceMinor * input.items.length;
     if (input.ledgerBalanceMinor - activeReservedMinor < total) {
       throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
@@ -692,10 +699,12 @@ WHERE versions.id = $1`, [id]);
         throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
       }
       const reserved = await client.query<{ amount: string }>(`
-SELECT COALESCE(SUM(amount_minor), 0)::text AS amount FROM fund_reservations
-WHERE user_id = $1 AND currency = $2
-AND status = ANY($3::"FundReservationStatus"[])`,
-      [first.request.senderId, first.request.currency, ['PENDING', 'ACTIVE', 'DISPUTED', 'PARTIALLY_SETTLED']]);
+SELECT COALESCE(SUM(${reservationRemainingMinorSql('reservation','settlement')}), 0)::text AS amount
+FROM fund_reservations reservation
+${reservationSettlementLateralSql('reservation','settlement')}
+WHERE reservation.user_id = $1 AND reservation.currency = $2
+AND reservation.status = ANY($3::"FundReservationStatus"[])`,
+      [first.request.senderId, first.request.currency, [...activeReservationStatuses]]);
       const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[first.request.senderId]);
       const ledger=wallet.rows[0]?await client.query<{amount:string}>(`SELECT COALESCE(SUM(CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END),0)::text amount FROM wallet_entries WHERE wallet_account_id=$1`,[wallet.rows[0].id]):{rows:[{amount:'0'}]};
       const totalAmountMinor = first.request.priceMinor * input.items.length;

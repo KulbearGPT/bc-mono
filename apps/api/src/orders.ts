@@ -33,6 +33,12 @@ import {
   buildOrderAvailableActions,
   type OrderAvailableAction,
 } from "./order-actions.js";
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql,
+  sumActiveReservationRemainders,
+} from "./reservation-balance.js";
 
 export type OrderStatus =
   | "DRAFT"
@@ -758,10 +764,11 @@ export class InMemoryOrderStore implements OrderStore {
     }
     assertCommitAvailableBalance({
       ledgerBalanceMinor: input.ledgerBalanceMinor,
-      activeReservedMinor: sumActiveReservedMinor(
-        this.reservations,
-        input.reservation,
-      ),
+      activeReservedMinor: sumActiveReservationRemainders(this.reservations, this.reservationEvents, {
+        userId: input.reservation.userId,
+        currency: input.reservation.currency,
+        excludeReservationId: input.reservation.id,
+      }),
       amountMinor: input.reservation.amountMinor,
     });
     this.orders[index] = clone(input.order);
@@ -1535,29 +1542,7 @@ const activeOrderStatuses = new Set<OrderStatus>([
   "EXCEPTION",
 ]);
 
-const activeFundReservationStatuses: FundReservationStatus[] = [
-  "PENDING",
-  "ACTIVE",
-  "DISPUTED",
-  "PARTIALLY_SETTLED",
-];
-
-function sumActiveReservedMinor(
-  reservations: FundReservationRecord[],
-  nextReservation: FundReservationRecord,
-): number {
-  return reservations.reduce((sum, reservation) => {
-    if (
-      reservation.userId === nextReservation.userId &&
-      reservation.currency === nextReservation.currency &&
-      reservation.id !== nextReservation.id &&
-      activeFundReservationStatuses.includes(reservation.status)
-    ) {
-      return sum + reservation.amountMinor;
-    }
-    return sum;
-  }, 0);
-}
+const activeFundReservationStatuses: FundReservationStatus[] = [...activeReservationStatuses];
 
 function assertCommitAvailableBalance(input: {
   ledgerBalanceMinor: number;
@@ -4123,12 +4108,13 @@ async function sumActiveReservedMinorForCommit(
 ): Promise<number> {
   const result = await client.query<{ reserved_minor: string }>(
     `
-SELECT COALESCE(SUM(amount_minor), 0)::text AS reserved_minor
-FROM fund_reservations
-WHERE user_id = $1
-  AND currency = $2
-  AND status = ANY($3::"FundReservationStatus"[])
-  AND id <> $4
+SELECT COALESCE(SUM(${reservationRemainingMinorSql("reservation", "settlement")}), 0)::text AS reserved_minor
+FROM fund_reservations reservation
+${reservationSettlementLateralSql("reservation", "settlement")}
+WHERE reservation.user_id = $1
+  AND reservation.currency = $2
+  AND reservation.status = ANY($3::"FundReservationStatus"[])
+  AND reservation.id <> $4
     `,
     [
       reservation.userId,
