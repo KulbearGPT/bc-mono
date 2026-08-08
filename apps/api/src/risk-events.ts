@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool } from 'pg';
-import type { ActorContext } from './security.js';
-import { registerSecureWriteRoute } from './security.js';
+import { registerSecureWriteRoute, type ActorContext } from './security.js';
 
 export type RiskEventType =
   | 'PLAYER_NO_SHOW'

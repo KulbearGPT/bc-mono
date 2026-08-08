@@ -630,7 +630,6 @@ export class OutboxWorker {
         results.push(completed);
       } catch (error) {
         const failedAt = this.now();
-        const message = error instanceof Error ? error.message : String(error);
         const retryDelayMs =
           retryAfterMs(error) ?? this.backoffForAttempt(job.attempts);
         const retryAt =

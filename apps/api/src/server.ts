@@ -13,11 +13,7 @@ import { registerCatalogRoutes, type ServiceCatalogStore } from "./catalog.js";
 import { registerAccountRoutes, type AccountStore } from "./accounts.js";
 import { registerOrderRoutes, type OrderStore } from "./orders.js";
 import { registerPlayerRoutes, type PlayerStore } from "./players.js";
-import {
-  registerDispatchRoutes,
-  type DispatchPlayerPool,
-  type DispatchStore,
-} from "./dispatch.js";
+import type { DispatchPlayerPool, DispatchStore } from "./dispatch.js";
 import {
   registerServiceLifecycleRoutes,
   type ServiceLifecycleStore,

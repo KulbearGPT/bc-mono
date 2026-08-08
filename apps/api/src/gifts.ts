@@ -12,9 +12,9 @@ import {
   insertPostgresAuditRecord,
   type ActorContext,
   type AuditRecord,
-  type AuditSink
+  type AuditSink,
+  type StaffLevel
 } from './security.js';
-import type { StaffLevel } from './security.js';
 import type { WalletFundingService, WalletBalance } from './wallet.js';
 import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';

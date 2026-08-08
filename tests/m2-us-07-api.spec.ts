@@ -102,6 +102,7 @@ function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerId: null,
     status: 'PENDING_DISPATCH',
     version: 3,
+    guildId: '999999999999999999',
     serviceCatalogId: '00000000-0000-0000-0000-00000000c701',
     catalogVersion: 1,
     game: 'VALORANT',

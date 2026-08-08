@@ -502,10 +502,6 @@ function mapAccountBindingRow(row: AccountBindingRow): AccountBindingRecord {
   };
 }
 
-function isUuid(value: string | null): boolean {
-  return Boolean(value?.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i));
-}
-
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }

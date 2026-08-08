@@ -9,9 +9,7 @@ import {
   registerSecureReadRoute,
   registerSecureWriteRoute,
   type ActorContext,
-  type AuditRecord,
-  type AuditSink,
-  type StaffLevel
+  type AuditRecord
 } from './security.js';
 
 export type WeeklyReportStatus = 'READY' | 'NEEDS_REVIEW';

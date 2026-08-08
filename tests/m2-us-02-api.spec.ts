@@ -217,11 +217,12 @@ describe('M2-US-02 dispatch domain and API', () => {
     });
   });
 
-  test('runtime API entrypoint wires Postgres dispatch stores into the unified API server', async () => {
+  test('runtime keeps legacy dispatch stores for history without re-registering retired first-wins routes', async () => {
     const serverSource = await readFile('apps/api/src/server.ts', 'utf8');
     const entrySource = await readFile('apps/api/src/index.ts', 'utf8');
 
-    expect(serverSource).toContain('registerDispatchRoutes');
+    expect(serverSource).not.toContain('registerDispatchRoutes(server');
+    expect(serverSource).toContain('Legacy first-wins dispatch stores remain readable for migration/history only.');
     expect(serverSource).toContain('dispatch?:');
     expect(entrySource).toContain("import { PostgresDispatchPlayerPool, PostgresDispatchStore } from './dispatch.js';");
     expect(entrySource).toContain('const dispatchStore = new PostgresDispatchStore({ pool: databasePool });');

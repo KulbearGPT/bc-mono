@@ -343,7 +343,6 @@ function buildPreferences(orders: CustomerProfileOrder[]) { const sorted = [...o
   preferredPlayerUserIds: frequency(sorted.map((item) => item.playerUserId)), lastOrderAt: sorted[0]?.createdAt ?? null }; }
 function frequency(values: Array<string | null>) { const counts = new Map<string, number>(); for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
   return [...counts].sort(([a, ac], [b, bc]) => bc - ac || a.localeCompare(b)).slice(0, 30).map(([value]) => value); }
-function maskExternal(provider: string, value: string) { return `${provider}:***${value.length > 4 ? value.slice(-4) : ''}`; }
 function page<T extends { id: string; createdAt: string }>(items: T[], cursor: string | null, limit: number, resource: string): Page<T> { const decoded = decodeCursor(cursor, resource);
   const start = decoded ? items.findIndex((item) => item.id === decoded.id && item.createdAt === decoded.createdAt) + 1 : 0;
   if (decoded && start === 0) throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.'); return pageFromSorted(items.slice(start), limit, resource); }

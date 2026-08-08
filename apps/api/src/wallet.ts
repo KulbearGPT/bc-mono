@@ -3,8 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import multipart from '@fastify/multipart';
 import { Readable } from 'node:stream';
-import type { StaffLevel } from './security.js';
-import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord } from './security.js';
+import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord, type StaffLevel } from './security.js';
 import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
@@ -866,7 +865,6 @@ function compareWalletEntryToCursor(item: WalletEntry, cursor: { id: string; occ
   return compareWalletEntries(item, cursor);
 }
 function requireIdempotencyKey(request: FastifyRequest): string { return String(request.headers['idempotency-key'] ?? ''); }
-function requireActorUser(actor: ActorContext): string { if (!actor.actorUserId) throw new WalletError('PERMISSION_DENIED', 'User actor is required.'); return actor.actorUserId; }
 function requireActorStaff(actor: ActorContext): string { if (!actor.actorStaffId) throw new WalletError('PERMISSION_DENIED', 'Staff actor is required.'); return actor.actorStaffId; }
 function requireActorLevel(actor: ActorContext): StaffLevel { if (!actor.actorLevel) throw new WalletError('PERMISSION_DENIED', 'Staff level is required.'); return actor.actorLevel; }
 async function requireWalletCustomerScope(scope: CustomerProfileScope | undefined, userId: string, actor: ActorContext): Promise<void> {

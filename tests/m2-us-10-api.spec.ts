@@ -22,7 +22,7 @@ function account(): AccountBindingRecord {
 
 function order(overrides: Partial<OrderRecord> = {}): OrderRecord {
   return {
-    id: orderId, publicId: 'P-A10', customerId: userId, playerId: null, status: 'PENDING_DISPATCH', version: 3,
+    id: orderId, publicId: 'P-A10', customerId: userId, playerId: null, status: 'PENDING_DISPATCH', version: 3, guildId,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 2, customerUnitPriceMinor: 6000, playerUnitPayoutMinor: 4200,
     amountMinor: 12000, playerEarningMinor: 8400, currency: 'CAT', notes: null,

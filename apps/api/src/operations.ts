@@ -75,9 +75,6 @@ export interface OperationsStore extends PolicyReader {
   queuePanelRepair(input: { orderId: string; guildId: string; generation: string; actorStaffId: string; now: Date }): Promise<StagedWrite<OperationsJobRecord>> | StagedWrite<OperationsJobRecord>;
 }
 
-const levelRank: Record<StaffLevel, number> = {
-  L1_SUPPORT: 1, L2_SUPERVISOR: 2, L3_OPERATIONS: 3, L4_ADMIN_OWNER: 4
-};
 const retryableJobTypes = new Set<JobType>([
   'GIFT_ANNOUNCEMENT', 'DISPATCH_START', 'DISPATCH_MESSAGE', 'CHANNEL_ARCHIVE', 'PANEL_SYNC',
   'ROLE_RECONCILIATION', 'SELECTION_POOL_SYNC', 'SUPPORT_RESPONSE_REMINDER', 'WEEKLY_REPORT_NOTIFY'

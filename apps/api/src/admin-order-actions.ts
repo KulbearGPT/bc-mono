@@ -1686,11 +1686,6 @@ function proportionalAmount(baseMinor: number, portionMinor: number, totalMinor:
   return Number((BigInt(baseMinor) * BigInt(portionMinor)) / BigInt(totalMinor));
 }
 
-function isUuid(value: string | null): value is string {
-  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value));
-}
-
-
 function requiredRefundLevel(amountMinor: number, thresholds: { l2LimitMinor: number; l4FromMinor: number } = { l2LimitMinor: 50_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
   return requiredLevelForAmount(amountMinor, thresholds);
 }

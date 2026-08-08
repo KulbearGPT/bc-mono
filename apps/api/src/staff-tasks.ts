@@ -1,8 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool } from 'pg';
-import type { ActorContext } from './security.js';
-import { registerSecureReadRoute, registerSecureWriteRoute } from './security.js';
+import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext } from './security.js';
 import type { OrderRecord, OrderStore } from './orders.js';
 import type { AccountStore } from './accounts.js';
 

@@ -876,8 +876,15 @@ function toAdminCatalog(record: ServiceCatalogRecord): AdminServiceCatalog {
 }
 
 function omitPlayerEarning(input: EstimateServiceResult): Omit<EstimateServiceResult, 'playerEarningMinor'> {
-  const { playerEarningMinor: _playerEarningMinor, ...publicEstimate } = input;
-  return publicEstimate;
+  return {
+    serviceCatalogId: input.serviceCatalogId,
+    catalogVersion: input.catalogVersion,
+    unitCount: input.unitCount,
+    billingUnitMinutes: input.billingUnitMinutes,
+    amountMinor: input.amountMinor,
+    currency: input.currency,
+    validUntil: input.validUntil
+  };
 }
 
 function readCatalogFilters(request: FastifyRequest): { game?: string; region?: string | null } {
@@ -1021,12 +1028,4 @@ function toNullableNumber(value: number | string | bigint | null): number | null
 
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
-}
-
-function isUuid(value: string | null): boolean {
-  return Boolean(value?.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i));
-}
-
-function isCursorUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }

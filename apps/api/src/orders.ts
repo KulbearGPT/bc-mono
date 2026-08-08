@@ -17,7 +17,6 @@ import type {
 } from "./catalog.js";
 import {
   buildFundReservationDraft,
-  resolveFundReservationMode,
   type FundReservationMode,
   type FundReservationStatus,
 } from "./funding.js";
@@ -2701,31 +2700,27 @@ export function registerOrderRoutes(
               "Order store cannot submit orders.",
             );
           }
-          try {
-            await options.orderStore.commitSubmit({
-              order: prepared.order,
-              expectedVersion: (request.body as SubmitOrderInput)
-                .expectedVersion,
-              ledgerBalanceMinor: prepared.ledgerBalanceMinor,
-              orderEvent: prepared.orderEvent,
-              reservation: prepared.reservation,
-              reservationEvent: prepared.reservationEvent,
-              externalTransactions: prepared.externalTransactions,
-              auditRecord: {
-                ...auditRecord,
-                beforeSnapshot: {
-                  orderId: prepared.order.id,
-                  expectedVersion: (request.body as SubmitOrderInput)
-                    .expectedVersion,
-                  status: "DRAFT",
-                },
-                afterSnapshot: buildSubmitAuditSnapshot(prepared),
+          await options.orderStore.commitSubmit({
+            order: prepared.order,
+            expectedVersion: (request.body as SubmitOrderInput)
+              .expectedVersion,
+            ledgerBalanceMinor: prepared.ledgerBalanceMinor,
+            orderEvent: prepared.orderEvent,
+            reservation: prepared.reservation,
+            reservationEvent: prepared.reservationEvent,
+            externalTransactions: prepared.externalTransactions,
+            auditRecord: {
+              ...auditRecord,
+              beforeSnapshot: {
+                orderId: prepared.order.id,
+                expectedVersion: (request.body as SubmitOrderInput)
+                  .expectedVersion,
+                status: "DRAFT",
               },
-              auditSink,
-            });
-          } catch (error) {
-            throw error;
-          }
+              afterSnapshot: buildSubmitAuditSnapshot(prepared),
+            },
+            auditSink,
+          });
         },
       };
     },
@@ -3291,33 +3286,6 @@ function toApiReservationSummary(
     status: reservation.status,
     version: reservation.version,
     expiresAt: reservation.expiresAt,
-  };
-}
-
-function toApiReservation(
-  reservation: FundReservationRecord,
-): FundReservationApiRecord {
-  return {
-    id: reservation.id,
-    sourceType: reservation.sourceType,
-    sourceId: reservation.orderId,
-    ownerUserId: reservation.userId,
-    amountMinor: reservation.amountMinor,
-    capturedMinor:
-      reservation.status === "CAPTURED" ? reservation.amountMinor : 0,
-    releasedMinor:
-      reservation.status === "RELEASED" || reservation.status === "EXPIRED"
-        ? reservation.amountMinor
-        : 0,
-    currency: reservation.currency,
-    status: reservation.status,
-    backend: reservation.mode,
-    walletHoldReferenceDisplay: null,
-    idempotencyKey: reservation.idempotencyKey,
-    version: reservation.version,
-    expiresAt: reservation.expiresAt,
-    createdAt: reservation.createdAt,
-    updatedAt: reservation.updatedAt,
   };
 }
 
