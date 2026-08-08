@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const receiptMediaTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
@@ -11,6 +11,7 @@ export class ReceiptStorageError extends Error {}
 export interface ReceiptStorage {
   put(input: { body: AsyncIterable<Uint8Array>; mediaType: ReceiptMediaType; originalFileName: string }): Promise<{ storageKey: string; byteSize: number; sha256: string }>;
   open(storageKey: string): Promise<AsyncIterable<Uint8Array>>;
+  remove(storageKey: string): Promise<void>;
 }
 
 export class PrivateFileReceiptStorage implements ReceiptStorage {
@@ -37,8 +38,17 @@ export class PrivateFileReceiptStorage implements ReceiptStorage {
   }
 
   async open(storageKey: string): Promise<AsyncIterable<Uint8Array>> {
-    if (!/^[0-9a-f-]{36}$/iu.test(storageKey)) throw new ReceiptStorageError('Invalid storage key.');
+    assertStorageKey(storageKey);
     const body = await readFile(join(this.root, storageKey));
     return (async function* () { yield body; })();
   }
+
+  async remove(storageKey: string): Promise<void> {
+    assertStorageKey(storageKey);
+    await rm(join(this.root, storageKey), { force: true });
+  }
+}
+
+function assertStorageKey(storageKey: string): void {
+  if (!/^[0-9a-f-]{36}$/iu.test(storageKey)) throw new ReceiptStorageError('Invalid storage key.');
 }

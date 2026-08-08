@@ -234,6 +234,7 @@ type StagedSecureWrite = {
   data: unknown;
   statusCode?: number;
   commit: (successAuditRecord: AuditRecord) => Promise<void> | void;
+  abort?: () => Promise<void> | void;
 };
 
 const authenticatedActorPermissions = new Set([
@@ -1341,6 +1342,7 @@ export function registerSecureWriteRoute(
           await appendAudit(auditSink, successAuditInput);
         }
       } catch (error) {
+        await abortStagedWrite(stagedWrite);
         const mappedError = route.mapError?.(error);
         if (mappedError) {
           return failReservedRequest(
@@ -1706,11 +1708,20 @@ function normalizeHandlerResult(result: unknown): {
   data: unknown;
   statusCode?: number;
   commit?: (successAuditRecord: AuditRecord) => Promise<void> | void;
+  abort?: () => Promise<void> | void;
 } {
   if (isStagedSecureWrite(result)) {
     return result;
   }
   return { data: result };
+}
+
+async function abortStagedWrite(stagedWrite: { abort?: () => Promise<void> | void }): Promise<void> {
+  try {
+    await stagedWrite.abort?.();
+  } catch {
+    // Preserve the original write failure; cleanup remains safe to retry out of band.
+  }
 }
 
 function isStagedSecureWrite(result: unknown): result is StagedSecureWrite {

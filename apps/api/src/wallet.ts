@@ -769,15 +769,24 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
         const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
         let evidenceType = ''; let evidenceId = ''; let stored: { storageKey: string; byteSize: number; sha256: string } | null = null;
         let mediaType = ''; let originalFileName = '';
-        for await (const part of request.parts()) {
-          if (part.type === 'field') { if (part.fieldname === 'evidenceType') evidenceType = String(part.value); if (part.fieldname === 'evidenceId') evidenceId = String(part.value); continue; }
-          mediaType = part.mimetype; originalFileName = part.filename;
-          stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
+        try {
+          for await (const part of request.parts()) {
+            if (part.type === 'field') { if (part.fieldname === 'evidenceType') evidenceType = String(part.value); if (part.fieldname === 'evidenceId') evidenceId = String(part.value); continue; }
+            mediaType = part.mimetype; originalFileName = part.filename;
+            stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
+          }
+          if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
+          const input = { userId, evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
+            originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
+          const result = await (options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input));
+          if (isStagedReceiptWrite(result)) {
+            return { ...result, abort: () => options.receiptStorage!.remove(stored!.storageKey) };
+          }
+          return result;
+        } catch (error) {
+          if (stored) await options.receiptStorage!.remove(stored.storageKey);
+          throw error;
         }
-        if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
-        const input = { userId, evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
-          originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
-        return options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input);
       }
     });
     registerSecureReadRoute(server, server.securityOptions, {
@@ -795,6 +804,11 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
       }
     });
   }
+}
+
+function isStagedReceiptWrite(value: unknown): value is { data: ReceiptAttachmentMetadata; commit: (audit: AuditRecord) => Promise<void> } {
+  return Boolean(value && typeof value === 'object' && 'data' in value && 'commit' in value
+    && typeof (value as { commit?: unknown }).commit === 'function');
 }
 
 function fundingBody(request: FastifyRequest, timestamp: 'paidAt' | 'refundedAt') {
