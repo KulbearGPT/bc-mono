@@ -29,11 +29,14 @@ describe('API review readiness contract',()=>{
   test('keeps the data contract explicit about legacy columns without treating them as customer actions',()=>{
     const schema=read('outputs/P0开发交付包/03-数据模型/schema.prisma');
     const constraints=read('outputs/P0开发交付包/03-数据模型/状态枚举与约束.md');
+    const openapi=read('outputs/P0开发交付包/02-API/openapi.yaml');
     expect(schema).toContain('Legacy history-only event; current APIs never emit customer readiness.');
     expect(schema).toContain('Legacy aggregate compatibility column; current customer actions never write it.');
     expect(constraints).toContain('所有当前有效 `order_participants.ready_at` 均非空');
     expect(constraints).not.toContain('requires both parties ready');
     expect(constraints).not.toContain('customer_ready_at IS NOT NULL AND player_ready_at IS NOT NULL');
+    expect(openapi).not.toContain('two-sided readiness');
+    expect(openapi).toContain('every current ACTIVE player confirms readiness');
   });
 
   test('removes customer readiness controls and two-party copy from published prototypes',()=>{
@@ -52,6 +55,7 @@ describe('API review readiness contract',()=>{
       'Discord陪玩业务Bot最小原型设计开发文档.html',
       'P0开发交付包/01-UIUX/Discord与Dashboard交互原型.html',
       'P0开发交付包/01-UIUX/界面文案清单.csv',
+      'P0开发交付包/02-API/openapi.yaml',
       'P0开发交付包/03-数据模型/schema.prisma',
       'P0开发交付包/03-数据模型/数据模型与ERD.html',
       'P0开发交付包/03-数据模型/状态枚举与约束.md',

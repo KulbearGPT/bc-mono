@@ -6,16 +6,20 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresOrderParticipantStore } from '@blackcat/api/order-participants';
-import { PostgresServiceLifecycleStore, confirmOrder } from '@blackcat/api/service-lifecycle';
+import { PostgresServiceLifecycleStore, confirmOrder, setOrderReadiness } from '@blackcat/api/service-lifecycle';
 
 const execFile = promisify(execFileCallback);
 const database = 'blackcat_m10_lifecycle';
 const guildId = '999999999999999999';
 const customerId = '00000000-0000-0000-0000-000000104001';
+const readinessCustomerId = '00000000-0000-0000-0000-000000104048';
+const guardCustomerId = '00000000-0000-0000-0000-000000104049';
 const customerDiscordId = '111111111111111111';
 const staffUserId = '00000000-0000-0000-0000-000000104002';
 const staffId = '00000000-0000-0000-0000-000000104003';
 const orderId = '00000000-0000-0000-0000-000000104004';
+const readinessOrderId = '00000000-0000-0000-0000-000000104040';
+const guardOrderId = '00000000-0000-0000-0000-000000104041';
 const catalogId = '00000000-0000-0000-0000-000000104005';
 const reservationId = '00000000-0000-0000-0000-000000104006';
 const walletId = '00000000-0000-0000-0000-000000104007';
@@ -31,7 +35,7 @@ describe('M10-US-04 PostgreSQL multi-player capture', () => {
     root = await mkdtemp(join(tmpdir(), 'blackcat-m10-lifecycle-'));
     data = join(root, 'data');
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
+    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root} -c listen_addresses=''`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), database]);
     for (const migration of (await readdir('database/prisma/migrations')).sort()) {
       await execFile('psql', ['-h', root, '-p', String(port), '-d', database, '-v', 'ON_ERROR_STOP=1', '-f', `database/prisma/migrations/${migration}/migration.sql`]);
@@ -110,13 +114,55 @@ describe('M10-US-04 PostgreSQL multi-player capture', () => {
       now
     })).rejects.toThrowError(expect.objectContaining({ code: 'BUSINESS_RULE_ERROR' }));
   });
+
+  test('starts from all active participant facts without writing customer readiness', async () => {
+    const lifecycle = new PostgresServiceLifecycleStore({ pool });
+    const first = await setOrderReadiness({
+      store: lifecycle, orderId: readinessOrderId, expectedVersion: 4, readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111121' }, now
+    });
+    expect(first).toMatchObject({ status: 'ACCEPTED', readiness: { allActivePlayersReady: false } });
+    const started = await setOrderReadiness({
+      store: lifecycle, orderId: readinessOrderId, expectedVersion: 5, readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111122' }, now: new Date(now.getTime() + 1_000)
+    });
+    expect(started).toMatchObject({ status: 'IN_SERVICE', readiness: { allActivePlayersReady: true } });
+    const facts = await pool.query(
+      `SELECT status::text,row_version,customer_ready_at,player_ready_at,service_started_at FROM orders WHERE id=$1`,
+      [readinessOrderId]
+    );
+    expect(facts.rows[0]).toMatchObject({ status: 'IN_SERVICE', row_version: 6, customer_ready_at: null });
+    expect(facts.rows[0].player_ready_at).not.toBeNull();
+    expect(facts.rows[0].service_started_at).not.toBeNull();
+  });
+
+  test('database guard rejects legacy aggregate timestamps when an active participant is still unready', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO order_events(id,order_id,sequence,event_type,from_status,to_status,actor_source,payload,created_at)
+        VALUES(gen_random_uuid(),$1,1,'SERVICE_STARTED','ACCEPTED','IN_SERVICE','SYSTEM_JOB','{}',now())`,
+        [guardOrderId]
+      );
+      await expect(client.query(
+        `UPDATE orders SET status='IN_SERVICE',customer_ready_at=now(),player_ready_at=now(),service_started_at=now(),row_version=row_version+1,updated_at=now() WHERE id=$1`,
+        [guardOrderId]
+      )).rejects.toThrow(/all active order participants ready/);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+    const facts = await pool.query(`SELECT status::text,customer_ready_at,service_started_at FROM orders WHERE id=$1`, [guardOrderId]);
+    expect(facts.rows[0]).toEqual({ status: 'ACCEPTED', customer_ready_at: null, service_started_at: null });
+  });
 });
 
 function playerId(index: number) { return `00000000-0000-0000-0000-${String(104100 + index).padStart(12, '0')}`; }
 function participantId(index: number) { return `00000000-0000-0000-0000-${String(104200 + index).padStart(12, '0')}`; }
 
 async function seed() {
-  const users = Array.from({ length: 9 }, (_, index) => `('${playerId(index + 1)}','陪玩猫${index + 1}','ACTIVE',1,now(),now())`).join(',');
+  const users = Array.from({ length: 13 }, (_, index) => `('${playerId(index + 1)}','陪玩猫${index + 1}','ACTIVE',1,now(),now())`).join(',');
   const participants = Array.from({ length: 9 }, (_, index) => {
     const number = index + 1;
     const readyAt = number === 9 ? 'NULL' : 'now()';
@@ -124,9 +170,11 @@ async function seed() {
   }).join(',');
   await pool.query(`
     INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES
-      ('${customerId}','老板猫','ACTIVE',1,now(),now()),('${staffUserId}','店长猫','ACTIVE',1,now(),now()),${users};
+      ('${customerId}','老板猫','ACTIVE',1,now(),now()),('${readinessCustomerId}','准备老板猫','ACTIVE',1,now(),now()),('${guardCustomerId}','守卫老板猫','ACTIVE',1,now(),now()),('${staffUserId}','店长猫','ACTIVE',1,now(),now()),${users};
     INSERT INTO discord_accounts(id,user_id,guild_id,discord_user_id,username,created_at,updated_at) VALUES
-      ('00000000-0000-0000-0000-000000104008','${customerId}','${guildId}','${customerDiscordId}','老板猫#1024',now(),now());
+      ('00000000-0000-0000-0000-000000104008','${customerId}','${guildId}','${customerDiscordId}','老板猫#1024',now(),now()),
+      ('00000000-0000-0000-0000-000000104042','${playerId(10)}','${guildId}','111111111111111121','陪玩猫10#1024',now(),now()),
+      ('00000000-0000-0000-0000-000000104043','${playerId(11)}','${guildId}','111111111111111122','陪玩猫11#1024',now(),now());
     INSERT INTO staff_accounts(id,user_id,level,status,role_source,permissions_version,created_at,updated_at) VALUES
       ('${staffId}','${staffUserId}','L2_SUPERVISOR','ACTIVE','MANUAL',1,now(),now());
     INSERT INTO service_offerings(id,code,game_code,game_name,service_code,service_name,region_code,created_at,updated_at) VALUES
@@ -134,7 +182,9 @@ async function seed() {
     INSERT INTO service_catalog_versions(id,service_offering_id,version,status,billing_unit_minutes,minimum_units,customer_unit_price_minor,player_unit_payout_minor,default_player_payout_bps,currency,created_by_staff_id,created_at) VALUES
       ('${catalogId}','00000000-0000-0000-0000-000000104009',1,'ACTIVE',60,1,100,50,5000,'CAT','${staffId}',now());
     INSERT INTO orders(id,public_id,customer_id,player_id,active_customer_slot_id,active_player_slot_id,status,row_version,amount_minor,expected_player_earning_minor,currency,guild_id,channel_id,panel_message_id,customer_ready_at,player_ready_at,service_started_at,completion_requested_at,confirmation_due_at,created_at,updated_at) VALUES
-      ('${orderId}','P-M10-CAPTURE','${customerId}','${playerId(1)}','${customerId}','${playerId(1)}','PENDING_CONFIRMATION',9,900,450,'CAT','${guildId}','222222222222222222','333333333333333333',now(),now(),now(),now(),now()+interval '30 minutes',now(),now());
+      ('${orderId}','P-M10-CAPTURE','${customerId}','${playerId(1)}','${customerId}','${playerId(1)}','PENDING_CONFIRMATION',9,900,450,'CAT','${guildId}','222222222222222222','333333333333333333',now(),now(),now(),now(),now()+interval '30 minutes',now(),now()),
+      ('${readinessOrderId}','P-M10-READY','${readinessCustomerId}','${playerId(10)}','${readinessCustomerId}','${playerId(10)}','ACCEPTED',4,200,100,'CAT','${guildId}','222222222222222223','333333333333333334',NULL,NULL,NULL,NULL,NULL,now(),now()),
+      ('${guardOrderId}','P-M10-GUARD','${guardCustomerId}','${playerId(12)}','${guardCustomerId}','${playerId(12)}','ACCEPTED',4,200,100,'CAT','${guildId}','222222222222222224','333333333333333335',NULL,NULL,NULL,NULL,NULL,now(),now());
     INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at) VALUES
       ('${walletId}','${customerId}','CAT','ACTIVE',1,now(),now());
     INSERT INTO wallet_entries(id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at) VALUES
@@ -143,6 +193,10 @@ async function seed() {
       ('${reservationId}','${customerId}','ORDER','${orderId}','LOCAL_RESERVATION',900,'CAT','ACTIVE',3,'m10-us-04:seed:reservation',now()+interval '30 minutes',now(),now(),now());
     INSERT INTO fund_reservation_events(id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_source,created_at) VALUES
       ('00000000-0000-0000-0000-000000104012','${reservationId}',1,'CREATED',NULL,'ACTIVE',900,1,'m10-us-04:seed:reservation:event','SYSTEM_JOB',now());
-    INSERT INTO order_participants(id,order_id,player_id,service_catalog_version_id,status,row_version,player_display_name_snapshot,game_code_snapshot,game_display_name_snapshot,service_code_snapshot,service_display_name_snapshot,region_code_snapshot,region_display_name_snapshot,billing_unit_minutes_snapshot,unit_count,customer_unit_price_minor_snapshot,line_price_minor,compensation_type_snapshot,compensation_value_snapshot,compensation_source,expected_earning_minor,ready_at,added_by_staff_id,created_at,updated_at) VALUES ${participants};
+    INSERT INTO order_participants(id,order_id,player_id,service_catalog_version_id,status,row_version,player_display_name_snapshot,game_code_snapshot,game_display_name_snapshot,service_code_snapshot,service_display_name_snapshot,region_code_snapshot,region_display_name_snapshot,billing_unit_minutes_snapshot,unit_count,customer_unit_price_minor_snapshot,line_price_minor,compensation_type_snapshot,compensation_value_snapshot,compensation_source,expected_earning_minor,ready_at,added_by_staff_id,created_at,updated_at) VALUES ${participants},
+      ('00000000-0000-0000-0000-000000104044','${readinessOrderId}','${playerId(10)}','${catalogId}','ACTIVE',1,'陪玩猫10','DELTA','三角洲行动','TECH','技术护航','NA','美服',60,1,100,100,'PERCENT_BPS',5000,'CATALOG_DEFAULT',50,NULL,'${staffId}',now(),now()),
+      ('00000000-0000-0000-0000-000000104045','${readinessOrderId}','${playerId(11)}','${catalogId}','ACTIVE',1,'陪玩猫11','DELTA','三角洲行动','CHAT','聊天陪伴','NA','美服',60,1,100,100,'PERCENT_BPS',5000,'CATALOG_DEFAULT',50,NULL,'${staffId}',now(),now()),
+      ('00000000-0000-0000-0000-000000104046','${guardOrderId}','${playerId(12)}','${catalogId}','ACTIVE',1,'陪玩猫12','DELTA','三角洲行动','TECH','技术护航','NA','美服',60,1,100,100,'PERCENT_BPS',5000,'CATALOG_DEFAULT',50,now(),'${staffId}',now(),now()),
+      ('00000000-0000-0000-0000-000000104047','${guardOrderId}','${playerId(13)}','${catalogId}','ACTIVE',1,'陪玩猫13','DELTA','三角洲行动','CHAT','聊天陪伴','NA','美服',60,1,100,100,'PERCENT_BPS',5000,'CATALOG_DEFAULT',50,NULL,'${staffId}',now(),now());
   `);
 }

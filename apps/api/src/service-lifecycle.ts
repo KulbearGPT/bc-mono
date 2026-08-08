@@ -6,7 +6,8 @@ import { registerSecureWriteRoute } from './security.js';
 import { calculateReferralCommissionMinor, createEligibleReferralCommission } from './referrals.js';
 import { buildOrderAvailableActions, type OrderAvailableAction } from './order-actions.js';
 
-export type LifecycleOrderStatus = 'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
+export type LifecycleOrderStatus =
+  'ACCEPTED' | 'IN_SERVICE' | 'PENDING_CONFIRMATION' | 'COMPLETED' | 'CANCELLED' | 'EXCEPTION';
 export type ReadinessValue = 'READY' | 'NOT_READY';
 export type OrderParticipantRole = 'CUSTOMER' | 'PLAYER';
 
@@ -110,25 +111,23 @@ export interface CompletionTimeoutResult {
 
 export type ReadinessTimeoutResult =
   | {
-    outcome: 'ESCALATED';
-    orderId: string;
-    status: 'ACCEPTED';
-    version: number;
-    readiness: {
-      customer: ReadinessValue;
-      player: ReadinessValue;
-      participants: Array<{ participantId: string; displayName: string; readiness: ReadinessValue }>;
-      allActivePlayersReady: boolean;
-    };
-    staffTask: ServiceLifecycleStaffTask;
-  }
+      outcome: 'ESCALATED';
+      orderId: string;
+      status: 'ACCEPTED';
+      version: number;
+      readiness: {
+        participants: Array<{ participantId: string; displayName: string; readiness: ReadinessValue }>;
+        allActivePlayersReady: boolean;
+      };
+      staffTask: ServiceLifecycleStaffTask;
+    }
   | {
-    outcome: 'SKIPPED';
-    orderId: string;
-    status: LifecycleOrderStatus;
-    version: number;
-    staffTask: null;
-  };
+      outcome: 'SKIPPED';
+      orderId: string;
+      status: LifecycleOrderStatus;
+      version: number;
+      staffTask: null;
+    };
 
 export interface OrderCompletionResult {
   orderId: string;
@@ -172,11 +171,17 @@ export interface ServiceLifecycleStore {
     orderId: string;
     now: Date;
   }): Promise<CompletionTimeoutResult> | CompletionTimeoutResult;
-  commitReadinessTimeout(input: { orderId: string; now: Date }): Promise<ReadinessTimeoutResult> | ReadinessTimeoutResult;
+  commitReadinessTimeout(input: {
+    orderId: string;
+    now: Date;
+  }): Promise<ReadinessTimeoutResult> | ReadinessTimeoutResult;
 }
 
 export interface ServiceLifecycleQueryClient {
-  query<Row = Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: Row[]; rowCount?: number | null }>;
+  query<Row = Record<string, unknown>>(
+    sql: string,
+    values?: unknown[]
+  ): Promise<{ rows: Row[]; rowCount?: number | null }>;
 }
 
 export interface ServiceLifecycleTransactionClient extends ServiceLifecycleQueryClient {
@@ -236,9 +241,11 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
   }
 
   resolveDiscordUser(input: { guildId: string; discordUserId: string }): string | null {
-    return this.discordAccounts.find((account) => {
-      return account.guildId === input.guildId && account.discordUserId === input.discordUserId;
-    })?.userId ?? null;
+    return (
+      this.discordAccounts.find((account) => {
+        return account.guildId === input.guildId && account.discordUserId === input.discordUserId;
+      })?.userId ?? null
+    );
   }
 
   commitReadiness(input: {
@@ -264,28 +271,25 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     if (actorRole !== 'PLAYER') {
       throw new ServiceLifecycleError('PERMISSION_DENIED', 'Customers do not submit readiness.');
     }
+    const participantsBeforeUpdate = order.participants ?? [];
     const readyAt = input.readiness === 'READY' ? input.now.toISOString() : null;
-    const participant = order.participants?.find((item) => item.playerId === input.actorUserId);
-    if (order.participants?.length && !participant) {
+    const participant = participantsBeforeUpdate.find((item) => item.playerId === input.actorUserId);
+    if (!participant) {
       throw new ServiceLifecycleError('PERMISSION_DENIED', 'Actor is not an active player on this order.');
     }
-    const participants = order.participants?.map((item) => item.id === participant?.id
-      ? { ...item, readyAt, version: item.version + 1 }
-      : item);
-    const allPlayersReady = participants?.every((item) => Boolean(item.readyAt)) ?? false;
+    const participants = participantsBeforeUpdate.map((item) =>
+      item.id === participant.id ? { ...item, readyAt, version: item.version + 1 } : item
+    );
+    const allPlayersReady = participants.every((item) => Boolean(item.readyAt));
     const updated: ServiceLifecycleOrderRecord = {
       ...order,
       version: order.version + 1,
-      customerReadyAt: participants?.length
-        ? (allPlayersReady ? order.customerReadyAt ?? input.now.toISOString() : order.customerReadyAt)
-        : readyAt,
-      playerReadyAt: participants?.length
-        ? (allPlayersReady ? input.now.toISOString() : null)
-        : readyAt,
+      customerReadyAt: order.customerReadyAt,
+      playerReadyAt: allPlayersReady ? input.now.toISOString() : null,
       participants,
       updatedAt: input.now.toISOString()
     };
-    if (participants?.length ? allPlayersReady : updated.customerReadyAt && updated.playerReadyAt) {
+    if (allPlayersReady) {
       updated.status = 'IN_SERVICE';
       updated.serviceStartedAt = input.now.toISOString();
     }
@@ -360,8 +364,11 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     if (actorRole !== 'CUSTOMER') {
       throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
     }
-    if (order.participants?.some((participant) => !participant.readyAt)) {
-      throw new ServiceLifecycleError('CONFLICT', 'Every active player must be ready before completion can be captured.');
+    if (!order.participants?.length || order.participants.some((participant) => !participant.readyAt)) {
+      throw new ServiceLifecycleError(
+        'CONFLICT',
+        'Every active player must be ready before completion can be captured.'
+      );
     }
     const updated: ServiceLifecycleOrderRecord = {
       ...order,
@@ -371,29 +378,24 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
     };
     this.orders[index] = updated;
     this.consumptionEntries.push({ orderId: order.id, amountMinor: order.amountMinor, currency: order.currency });
-    if (order.participants?.length) {
-      for (const participant of order.participants) {
-        this.playerEarnings.push({
-          orderId: order.id,
-          orderParticipantId: participant.id,
-          playerUserId: participant.playerId,
-          amountMinor: participant.expectedEarningMinor,
-          currency: order.currency
-        });
-      }
-    } else {
+    for (const participant of order.participants) {
       this.playerEarnings.push({
         orderId: order.id,
-        playerUserId: order.playerId,
-        amountMinor: order.playerEarningMinor,
+        orderParticipantId: participant.id,
+        playerUserId: participant.playerId,
+        amountMinor: participant.expectedEarningMinor,
         currency: order.currency
       });
     }
-    for (const attribution of (input.referralsEnabled !== false ? this.referralAttributions : []).filter((candidate) => {
-      return candidate.referredUserId === order.customerId
-        && candidate.currency === order.currency
-        && candidate.eligibleOrderSpend;
-    })) {
+    for (const attribution of (input.referralsEnabled !== false ? this.referralAttributions : []).filter(
+      (candidate) => {
+        return (
+          candidate.referredUserId === order.customerId &&
+          candidate.currency === order.currency &&
+          candidate.eligibleOrderSpend
+        );
+      }
+    )) {
       const amountMinor = calculateReferralCommissionMinor({
         baseAmountMinor: order.amountMinor,
         fixedAmountMinor: attribution.fixedAmountMinor,
@@ -474,9 +476,8 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
     }
     const participants = order.participants ?? [];
-    const allActivePlayersReady = participants.length > 0
-      ? participants.every((participant) => Boolean(participant.readyAt))
-      : Boolean(order.customerReadyAt && order.playerReadyAt);
+    const allActivePlayersReady =
+      participants.length > 0 && participants.every((participant) => Boolean(participant.readyAt));
     if (allActivePlayersReady) {
       return { outcome: 'SKIPPED', orderId: order.id, status: order.status, version: order.version, staffTask: null };
     }
@@ -500,8 +501,6 @@ export class InMemoryServiceLifecycleStore implements ServiceLifecycleStore {
       status: 'ACCEPTED',
       version: current.version,
       readiness: {
-        customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
-        player: current.playerReadyAt ? 'READY' : 'NOT_READY',
         participants: participants.map((participant) => ({
           participantId: participant.id,
           displayName: participant.displayName,
@@ -584,145 +583,82 @@ LIMIT 1
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
       const participants = await loadActiveLifecycleParticipants(transactionClient, input.orderId, true);
-      if (participants.length > 0) {
-        const participant = participants.find((candidate) => candidate.playerId === input.actorUserId);
-        if (!participant) {
-          throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only an active player on this order can confirm readiness.');
-        }
-        const readyAt = readinessTimestamp(input.readiness, input.now);
-        const updatedParticipant = await transactionClient.query<{ row_version: number }>(
-          `UPDATE order_participants
+      const participant = participants.find((candidate) => candidate.playerId === input.actorUserId);
+      if (!participant) {
+        throw new ServiceLifecycleError(
+          'PERMISSION_DENIED',
+          'Only an active player on this order can confirm readiness.'
+        );
+      }
+      const readyAt = readinessTimestamp(input.readiness, input.now);
+      const updatedParticipant = await transactionClient.query<{ row_version: number }>(
+        `UPDATE order_participants
            SET ready_at=$3,row_version=row_version+1,updated_at=$4
            WHERE id=$1 AND row_version=$2 AND status='ACTIVE'
            RETURNING row_version`,
-          [participant.id, participant.version, readyAt, input.now.toISOString()]
-        );
-        if (!updatedParticipant.rows[0]) {
-          throw new ServiceLifecycleError('CONFLICT', 'Order participant version is stale.');
-        }
-        participant.readyAt = readyAt;
-        participant.version = updatedParticipant.rows[0].row_version;
-        await insertOrderParticipantReadinessEvent(transactionClient, {
-          orderId: input.orderId,
-          orderParticipantId: participant.id,
-          participantVersion: participant.version,
-          orderVersion: current.version + 1,
-          actorUserId: input.actorUserId,
-          readiness: input.readiness,
-          now: input.now
-        });
-        const shouldStart = participants.every((candidate) => Boolean(candidate.readyAt));
-        const sequence = await nextOrderEventSequence(transactionClient, input.orderId);
-        await insertOrderEvent(transactionClient, {
-          orderId: input.orderId,
-          sequence,
-          eventType: 'PLAYER_READY_CONFIRMED',
-          fromStatus: current.status,
-          toStatus: current.status,
-          actorUserId: input.actorUserId,
-          now: input.now,
-          payload: { readiness: input.readiness, actorRole: 'PLAYER', orderParticipantId: participant.id }
-        });
-        if (shouldStart) {
-          await insertOrderEvent(transactionClient, {
-            orderId: input.orderId,
-            sequence: sequence + 1,
-            eventType: 'SERVICE_STARTED',
-            fromStatus: 'ACCEPTED',
-            toStatus: 'IN_SERVICE',
-            actorUserId: input.actorUserId,
-            now: input.now,
-            payload: { activeParticipantIds: participants.map((candidate) => candidate.id) }
-          });
-        }
-        const updated = await transactionClient.query<ServiceLifecycleOrderRow>(
-          `UPDATE orders
-           SET status=CASE WHEN $4 THEN 'IN_SERVICE'::"OrderStatus" ELSE status END,
-               row_version=row_version+1,
-               customer_ready_at=CASE WHEN $4 THEN COALESCE(customer_ready_at,$3) ELSE customer_ready_at END,
-               player_ready_at=CASE WHEN $4 THEN $3 ELSE NULL END,
-               service_started_at=CASE WHEN $4 THEN COALESCE(service_started_at,$3) ELSE service_started_at END,
-               updated_at=$3
-           WHERE id=$1 AND status='ACCEPTED' AND row_version=$2
-           RETURNING *`,
-          [input.orderId, input.expectedVersion, input.now.toISOString(), shouldStart]
-        );
-        const row = updated.rows[0];
-        if (!row) {
-          throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
-        }
-        await insertLifecyclePanelSync(transactionClient, {
-          orderId: input.orderId, version: row.row_version, kind: 'ORDER_READINESS_CHANNEL_SYNC', now: input.now
-        });
-        await transactionClient.query('COMMIT');
-        return toReadinessResult({ ...mapOrderRow(row), participants }, 'PLAYER', participants);
+        [participant.id, participant.version, readyAt, input.now.toISOString()]
+      );
+      if (!updatedParticipant.rows[0]) {
+        throw new ServiceLifecycleError('CONFLICT', 'Order participant version is stale.');
       }
-      const actorRole = requireParticipantRole(current, input.actorUserId);
-      if (actorRole !== 'PLAYER') {
-        throw new ServiceLifecycleError('PERMISSION_DENIED', 'Customers do not submit readiness.');
-      }
-      const nextPlayerReadyAt = readinessTimestamp(input.readiness, input.now);
-      const nextCustomerReadyAt = nextPlayerReadyAt;
-      const shouldStart = Boolean(nextPlayerReadyAt);
-      const readyEventType = 'PLAYER_READY_CONFIRMED';
-      const readySequence = await nextOrderEventSequence(transactionClient, input.orderId);
+      participant.readyAt = readyAt;
+      participant.version = updatedParticipant.rows[0].row_version;
+      await insertOrderParticipantReadinessEvent(transactionClient, {
+        orderId: input.orderId,
+        orderParticipantId: participant.id,
+        participantVersion: participant.version,
+        orderVersion: current.version + 1,
+        actorUserId: input.actorUserId,
+        readiness: input.readiness,
+        now: input.now
+      });
+      const shouldStart = participants.every((candidate) => Boolean(candidate.readyAt));
+      const sequence = await nextOrderEventSequence(transactionClient, input.orderId);
       await insertOrderEvent(transactionClient, {
         orderId: input.orderId,
-        sequence: readySequence,
-        eventType: readyEventType,
+        sequence,
+        eventType: 'PLAYER_READY_CONFIRMED',
         fromStatus: current.status,
         toStatus: current.status,
         actorUserId: input.actorUserId,
         now: input.now,
-        payload: { readiness: input.readiness, actorRole }
+        payload: { readiness: input.readiness, actorRole: 'PLAYER', orderParticipantId: participant.id }
       });
       if (shouldStart) {
         await insertOrderEvent(transactionClient, {
           orderId: input.orderId,
-          sequence: readySequence + 1,
+          sequence: sequence + 1,
           eventType: 'SERVICE_STARTED',
           fromStatus: 'ACCEPTED',
           toStatus: 'IN_SERVICE',
           actorUserId: input.actorUserId,
           now: input.now,
-          payload: {
-            customerReadyAt: nextCustomerReadyAt,
-            playerReadyAt: nextPlayerReadyAt
-          }
+          payload: { activeParticipantIds: participants.map((candidate) => candidate.id) }
         });
       }
       const updated = await transactionClient.query<ServiceLifecycleOrderRow>(
-        `
-UPDATE orders
-SET status = CASE WHEN $6 THEN 'IN_SERVICE'::"OrderStatus" ELSE status END,
-    row_version = row_version + 1,
-    customer_ready_at = $3,
-    player_ready_at = $4,
-    service_started_at = CASE WHEN $6 THEN COALESCE(service_started_at, $5) ELSE service_started_at END,
-    updated_at = $5
-WHERE id = $1
-  AND status = 'ACCEPTED'
-  AND row_version = $2
-RETURNING *
-        `,
-        [
-          input.orderId,
-          input.expectedVersion,
-          nextCustomerReadyAt,
-          nextPlayerReadyAt,
-          input.now.toISOString(),
-          shouldStart
-        ]
+        `UPDATE orders
+           SET status=CASE WHEN $4 THEN 'IN_SERVICE'::"OrderStatus" ELSE status END,
+               row_version=row_version+1,
+               player_ready_at=CASE WHEN $4 THEN $3::timestamptz ELSE NULL END,
+               service_started_at=CASE WHEN $4 THEN COALESCE(service_started_at,$3::timestamptz) ELSE service_started_at END,
+               updated_at=$3::timestamptz
+           WHERE id=$1 AND status='ACCEPTED' AND row_version=$2
+           RETURNING *`,
+        [input.orderId, input.expectedVersion, input.now.toISOString(), shouldStart]
       );
       const row = updated.rows[0];
       if (!row) {
         throw new ServiceLifecycleError('CONFLICT', 'Order version is stale.');
       }
       await insertLifecyclePanelSync(transactionClient, {
-        orderId: input.orderId, version: row.row_version, kind: 'ORDER_READINESS_CHANNEL_SYNC', now: input.now
+        orderId: input.orderId,
+        version: row.row_version,
+        kind: 'ORDER_READINESS_CHANNEL_SYNC',
+        now: input.now
       });
       await transactionClient.query('COMMIT');
-      return toReadinessResult(mapOrderRow(row), actorRole);
+      return toReadinessResult({ ...mapOrderRow(row), participants }, 'PLAYER', participants);
     } catch (error) {
       await transactionClient.query('ROLLBACK').catch(() => undefined);
       throw mapPostgresLifecycleError(error);
@@ -798,9 +734,15 @@ RETURNING *
          ) VALUES (
            gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
          ) ON CONFLICT DO NOTHING`,
-        [input.orderId, `completion-request:${input.orderId}:v${row.row_version}:panel`, JSON.stringify({
-          kind: 'ORDER_COMPLETION_REQUESTED_CHANNEL_SYNC', orderId: input.orderId
-        }), input.now.toISOString()]
+        [
+          input.orderId,
+          `completion-request:${input.orderId}:v${row.row_version}:panel`,
+          JSON.stringify({
+            kind: 'ORDER_COMPLETION_REQUESTED_CHANNEL_SYNC',
+            orderId: input.orderId
+          }),
+          input.now.toISOString()
+        ]
       );
       await transactionClient.query('COMMIT');
       return {
@@ -849,11 +791,18 @@ RETURNING *
       if (actorRole !== 'CUSTOMER') {
         throw new ServiceLifecycleError('PERMISSION_DENIED', 'Only the customer can confirm completion.');
       }
-      if (current.participants.some((participant) => !participant.readyAt)) {
-        throw new ServiceLifecycleError('CONFLICT', 'Every active player must be ready before completion can be captured.');
+      if (current.participants.length === 0 || current.participants.some((participant) => !participant.readyAt)) {
+        throw new ServiceLifecycleError(
+          'CONFLICT',
+          'Every active player must be ready before completion can be captured.'
+        );
       }
       const reservation = await requireActiveOrderReservation(transactionClient, input.orderId);
-      await insertOrderWalletCapture(transactionClient, { reservation, idempotencyKey: `${input.idempotencyKey}:wallet`, now: input.now });
+      await insertOrderWalletCapture(transactionClient, {
+        reservation,
+        idempotencyKey: `${input.idempotencyKey}:wallet`,
+        now: input.now
+      });
       await insertFundReservationCaptureEvent(transactionClient, {
         reservation,
         sequence: await nextReservationEventSequence(transactionClient, reservation.id),
@@ -873,12 +822,8 @@ RETURNING *
         idempotencyKey: `${input.idempotencyKey}:consumption`,
         now: input.now
       });
-      if (current.participants.length > 0) {
-        for (const participant of current.participants) {
-          await insertParticipantPlayerEarning(transactionClient, { order: current, participant, now: input.now });
-        }
-      } else {
-        await insertPlayerEarning(transactionClient, { order: current, now: input.now });
+      for (const participant of current.participants) {
+        await insertParticipantPlayerEarning(transactionClient, { order: current, participant, now: input.now });
       }
       if (input.referralsEnabled !== false) {
         await insertEligibleReferralCommission(transactionClient, {
@@ -928,9 +873,15 @@ RETURNING *
          ) VALUES (
            gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
          ) ON CONFLICT DO NOTHING`,
-        [input.orderId, `order-completed:${input.orderId}:v${row.row_version}:panel`, JSON.stringify({
-          kind: 'ORDER_COMPLETED_CHANNEL_SYNC', orderId: input.orderId
-        }), input.now.toISOString()]
+        [
+          input.orderId,
+          `order-completed:${input.orderId}:v${row.row_version}:panel`,
+          JSON.stringify({
+            kind: 'ORDER_COMPLETED_CHANNEL_SYNC',
+            orderId: input.orderId
+          }),
+          input.now.toISOString()
+        ]
       );
       await enqueueTerminalChannelArchive(transactionClient, {
         orderId: input.orderId,
@@ -976,7 +927,10 @@ RETURNING *
       }
       const staffTask = await insertOrGetCompletionReviewTask(transactionClient, { order: current, now: input.now });
       await insertLifecyclePanelSync(transactionClient, {
-        orderId: current.id, version: current.version, kind: 'ORDER_COMPLETION_TIMEOUT_CHANNEL_SYNC', now: input.now
+        orderId: current.id,
+        version: current.version,
+        kind: 'ORDER_COMPLETION_TIMEOUT_CHANNEL_SYNC',
+        now: input.now
       });
       await transactionClient.query('COMMIT');
       return {
@@ -1005,28 +959,49 @@ RETURNING *
       }
       if (isLifecycleAutomationPaused(current)) {
         await transactionClient.query('COMMIT');
-        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
+        return {
+          outcome: 'SKIPPED',
+          orderId: current.id,
+          status: current.status,
+          version: current.version,
+          staffTask: null
+        };
       }
       if (current.status !== 'ACCEPTED') {
         await transactionClient.query('COMMIT');
-        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
+        return {
+          outcome: 'SKIPPED',
+          orderId: current.id,
+          status: current.status,
+          version: current.version,
+          staffTask: null
+        };
       }
       if (!current.readinessDueAt || Date.parse(current.readinessDueAt) > input.now.getTime()) {
         throw new ServiceLifecycleError('CONFLICT', 'Readiness is not overdue.');
       }
       const participants = await loadActiveLifecycleParticipants(transactionClient, current.id, true);
-      const allActivePlayersReady = participants.length > 0
-        ? participants.every((participant) => Boolean(participant.readyAt))
-        : Boolean(current.customerReadyAt && current.playerReadyAt);
+      const allActivePlayersReady =
+        participants.length > 0 && participants.every((participant) => Boolean(participant.readyAt));
       if (allActivePlayersReady) {
         await transactionClient.query('COMMIT');
-        return { outcome: 'SKIPPED', orderId: current.id, status: current.status, version: current.version, staffTask: null };
+        return {
+          outcome: 'SKIPPED',
+          orderId: current.id,
+          status: current.status,
+          version: current.version,
+          staffTask: null
+        };
       }
       const existingEvent = await transactionClient.query<{ id: string }>(
         `SELECT id FROM order_events WHERE order_id = $1 AND event_type = 'READINESS_TIMED_OUT' LIMIT 1`,
         [current.id]
       );
-      const staffTask = await insertOrGetReadinessTask(transactionClient, { order: current, participants, now: input.now });
+      const staffTask = await insertOrGetReadinessTask(transactionClient, {
+        order: current,
+        participants,
+        now: input.now
+      });
       let version = current.version;
       if (!existingEvent.rows[0]) {
         await insertOrderEvent(transactionClient, {
@@ -1040,8 +1015,6 @@ RETURNING *
           now: input.now,
           payload: {
             readinessDueAt: current.readinessDueAt,
-            customerReady: Boolean(current.customerReadyAt),
-            playerReady: Boolean(current.playerReadyAt),
             readinessParticipants: participants.map((participant) => ({
               participantId: participant.id,
               displayName: participant.displayName,
@@ -1057,7 +1030,10 @@ RETURNING *
         version = updated.rows[0]?.row_version ?? current.version;
       }
       await insertLifecyclePanelSync(transactionClient, {
-        orderId: current.id, version, kind: 'ORDER_READINESS_TIMEOUT_CHANNEL_SYNC', now: input.now
+        orderId: current.id,
+        version,
+        kind: 'ORDER_READINESS_TIMEOUT_CHANNEL_SYNC',
+        now: input.now
       });
       await transactionClient.query('COMMIT');
       return {
@@ -1066,8 +1042,6 @@ RETURNING *
         status: 'ACCEPTED',
         version,
         readiness: {
-          customer: current.customerReadyAt ? 'READY' : 'NOT_READY',
-          player: current.playerReadyAt ? 'READY' : 'NOT_READY',
           participants: participants.map((participant) => ({
             participantId: participant.id,
             displayName: participant.displayName,
@@ -1088,16 +1062,28 @@ RETURNING *
   }
 }
 
-async function insertOrderWalletCapture(client: ServiceLifecycleQueryClient, input: {
-  reservation: ServiceLifecycleReservationRow; idempotencyKey: string; now: Date;
-}): Promise<void> {
-  const wallet=await client.query<{id:string}>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE',[input.reservation.user_id]);
-  if(!wallet.rows[0])throw new ServiceLifecycleError('CONFLICT','Customer wallet was not found.');
-  await client.query(`INSERT INTO wallet_entries
+async function insertOrderWalletCapture(
+  client: ServiceLifecycleQueryClient,
+  input: {
+    reservation: ServiceLifecycleReservationRow;
+    idempotencyKey: string;
+    now: Date;
+  }
+): Promise<void> {
+  const wallet = await client.query<{ id: string }>('SELECT id FROM wallet_accounts WHERE user_id=$1 FOR UPDATE', [
+    input.reservation.user_id
+  ]);
+  if (!wallet.rows[0]) throw new ServiceLifecycleError('CONFLICT', 'Customer wallet was not found.');
+  await client.query(
+    `INSERT INTO wallet_entries
     (id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
     VALUES (gen_random_uuid(),$1,'ORDER_CAPTURE_DEBIT','DEBIT',$2,'CAT','FUND_RESERVATION',$3,$4,$5,$5)`,
-    [wallet.rows[0].id,input.reservation.amount_minor,input.reservation.id,input.idempotencyKey,input.now]);
-  await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1',[wallet.rows[0].id,input.now]);
+    [wallet.rows[0].id, input.reservation.amount_minor, input.reservation.id, input.idempotencyKey, input.now]
+  );
+  await client.query('UPDATE wallet_accounts SET row_version=row_version+1,updated_at=$2 WHERE id=$1', [
+    wallet.rows[0].id,
+    input.now
+  ]);
 }
 
 export async function setOrderReadiness(input: {
@@ -1202,7 +1188,10 @@ export async function rejectLegacyStartService(input: {
   actor: { guildId: string; discordUserId: string };
 }): Promise<never> {
   await requireActorUser(input.store, input.actor);
-  throw new ServiceLifecycleError('PERMISSION_DENIED', 'Single-party service start is disabled; use readiness instead.');
+  throw new ServiceLifecycleError(
+    'PERMISSION_DENIED',
+    'Single-party service start is disabled; use readiness instead.'
+  );
 }
 
 export function registerServiceLifecycleRoutes(
@@ -1318,7 +1307,10 @@ export function registerServiceLifecycleRoutes(
   });
 }
 
-async function requireActorUser(store: ServiceLifecycleStore, actor: { guildId: string; discordUserId: string }): Promise<string> {
+async function requireActorUser(
+  store: ServiceLifecycleStore,
+  actor: { guildId: string; discordUserId: string }
+): Promise<string> {
   const actorUserId = await store.resolveDiscordUser(actor);
   if (!actorUserId) {
     throw new ServiceLifecycleError('PERMISSION_DENIED', 'Actor is not bound to an order participant.');
@@ -1330,13 +1322,20 @@ function requireParticipantRole(order: ServiceLifecycleOrderRecord, actorUserId:
   if (actorUserId === order.customerId) {
     return 'CUSTOMER';
   }
-  if (actorUserId === order.playerId || order.participants?.some((participant)=>participant.playerId===actorUserId)) {
+  if (
+    actorUserId === order.playerId ||
+    order.participants?.some((participant) => participant.playerId === actorUserId)
+  ) {
     return 'PLAYER';
   }
   throw new ServiceLifecycleError('PERMISSION_DENIED', 'Actor is not a participant of this order.');
 }
 
-function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderParticipantRole,participants:ServiceLifecycleParticipant[]=order.participants??[]): OrderReadinessResult {
+function toReadinessResult(
+  order: ServiceLifecycleOrderRecord,
+  actorRole: OrderParticipantRole,
+  participants: ServiceLifecycleParticipant[] = order.participants ?? []
+): OrderReadinessResult {
   return {
     orderId: order.id,
     publicId: order.publicId,
@@ -1345,8 +1344,14 @@ function toReadinessResult(order: ServiceLifecycleOrderRecord, actorRole: OrderP
     actorRole,
     availableActions: buildOrderAvailableActions({ status: order.status, role: actorRole }),
     readiness: {
-      participants:participants.map((participant)=>({participantId:participant.id,playerId:participant.playerId,displayName:participant.displayName,readiness:participant.readyAt?'READY':'NOT_READY'})),
-      allActivePlayersReady:participants.length>0?participants.every((participant)=>Boolean(participant.readyAt)):Boolean(order.customerReadyAt&&order.playerReadyAt),
+      participants: participants.map((participant) => ({
+        participantId: participant.id,
+        playerId: participant.playerId,
+        displayName: participant.displayName,
+        readiness: participant.readyAt ? 'READY' : 'NOT_READY'
+      })),
+      allActivePlayersReady:
+        participants.length > 0 && participants.every((participant) => Boolean(participant.readyAt)),
       readyDeadlineAt: order.readinessDueAt,
       startedAt: order.serviceStartedAt,
       staffTaskId: null
@@ -1411,7 +1416,7 @@ function orderIdParam(request: FastifyRequest): string {
 
 function idempotencyKey(request: FastifyRequest): string {
   const value = request.headers['idempotency-key'];
-  return Array.isArray(value) ? value[0] ?? '' : value ?? '';
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
 function mapLifecycleError(error: unknown): { statusCode: number; code: string; message: string } | null {
@@ -1430,9 +1435,15 @@ function mapLifecycleError(error: unknown): { statusCode: number; code: string; 
   return { statusCode: 422, code: error.code, message: error.message };
 }
 
-async function insertLifecyclePanelSync(client: ServiceLifecycleQueryClient, input: {
-  orderId: string; version: number; kind: string; now: Date;
-}): Promise<void> {
+async function insertLifecyclePanelSync(
+  client: ServiceLifecycleQueryClient,
+  input: {
+    orderId: string;
+    version: number;
+    kind: string;
+    now: Date;
+  }
+): Promise<void> {
   await client.query(
     `INSERT INTO outbox_events (
        id,event_type,aggregate_type,aggregate_id,order_id,dedupe_key,payload,status,
@@ -1440,13 +1451,22 @@ async function insertLifecyclePanelSync(client: ServiceLifecycleQueryClient, inp
      ) VALUES (
        gen_random_uuid(),'PANEL_SYNC','order',$1,$1,$2,$3::jsonb,'PENDING',1,0,8,$4,$4,$4
      ) ON CONFLICT DO NOTHING`,
-    [input.orderId, `order-panel:${input.kind}:${input.orderId}:v${input.version}`, JSON.stringify({
-      kind: input.kind, orderId: input.orderId
-    }), input.now.toISOString()]
+    [
+      input.orderId,
+      `order-panel:${input.kind}:${input.orderId}:v${input.version}`,
+      JSON.stringify({
+        kind: input.kind,
+        orderId: input.orderId
+      }),
+      input.now.toISOString()
+    ]
   );
 }
 
-async function lockOrder(client: ServiceLifecycleQueryClient, orderId: string): Promise<ServiceLifecycleOrderRecord | null> {
+async function lockOrder(
+  client: ServiceLifecycleQueryClient,
+  orderId: string
+): Promise<ServiceLifecycleOrderRecord | null> {
   const result = await client.query<ServiceLifecycleOrderRow>(
     `
 SELECT *
@@ -1536,8 +1556,10 @@ function readinessTimestamp(readiness: ReadinessValue, now: Date): string | null
 }
 
 function isLifecycleAutomationPaused(order: ServiceLifecycleOrderRecord): boolean {
-  return order.automationState === 'PAUSED'
-    && (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === 'LIFECYCLE');
+  return (
+    order.automationState === 'PAUSED' &&
+    (!order.automationScope || order.automationScope === 'ALL' || order.automationScope === 'LIFECYCLE')
+  );
 }
 
 function mapPostgresLifecycleError(error: unknown): unknown {
@@ -1564,7 +1586,13 @@ async function insertOrderEvent(
   input: {
     orderId: string;
     sequence: number;
-    eventType: 'CUSTOMER_READY_CONFIRMED' | 'PLAYER_READY_CONFIRMED' | 'READINESS_TIMED_OUT' | 'SERVICE_STARTED' | 'COMPLETION_REQUESTED' | 'COMPLETED';
+    eventType:
+      | 'CUSTOMER_READY_CONFIRMED'
+      | 'PLAYER_READY_CONFIRMED'
+      | 'READINESS_TIMED_OUT'
+      | 'SERVICE_STARTED'
+      | 'COMPLETION_REQUESTED'
+      | 'COMPLETED';
     fromStatus: LifecycleOrderStatus;
     toStatus: LifecycleOrderStatus;
     actorUserId: string | null;
@@ -1620,7 +1648,10 @@ FOR UPDATE
   return row;
 }
 
-async function nextReservationEventSequence(client: ServiceLifecycleQueryClient, reservationId: string): Promise<number> {
+async function nextReservationEventSequence(
+  client: ServiceLifecycleQueryClient,
+  reservationId: string
+): Promise<number> {
   const result = await client.query<{ next_sequence: string }>(
     `
 SELECT (COALESCE(MAX(sequence), 0) + 1)::text AS next_sequence
@@ -1741,38 +1772,6 @@ RETURNING id
   return result.rows[0]!.id;
 }
 
-async function insertPlayerEarning(
-  client: ServiceLifecycleQueryClient,
-  input: {
-    order: ServiceLifecycleOrderRecord;
-    now: Date;
-  }
-): Promise<void> {
-  await client.query(
-    `
-INSERT INTO player_earnings (
-  id, order_id, player_user_id, base_units, unit_payout_minor, amount_minor,
-  currency, status, row_version, confirmed_by_staff_id, confirmed_at, paid_at,
-  created_at, updated_at
-)
-VALUES (
-  gen_random_uuid(), $1, $2, $3, $4, $5,
-  $6, 'PENDING', 1, NULL, NULL, NULL,
-  $7, $7
-)
-    `,
-    [
-      input.order.id,
-      input.order.playerId,
-      input.order.unitCount ?? 1,
-      input.order.playerUnitPayoutMinor ?? input.order.playerEarningMinor,
-      input.order.playerEarningMinor,
-      input.order.currency,
-      input.now.toISOString()
-    ]
-  );
-}
-
 async function insertParticipantPlayerEarning(
   client: ServiceLifecycleQueryClient,
   input: { order: ServiceLifecycleOrderRecord; participant: ServiceLifecycleParticipant; now: Date }
@@ -1805,9 +1804,14 @@ async function insertEligibleReferralCommission(
     now: Date;
   }
 ): Promise<void> {
-  await createEligibleReferralCommission(client,{referredUserId:input.order.customerId,
-    sourceConsumptionEntryId:input.consumptionEntryId,baseAmountMinor:input.order.amountMinor,
-    currency:input.order.currency,source:'ORDER',now:input.now});
+  await createEligibleReferralCommission(client, {
+    referredUserId: input.order.customerId,
+    sourceConsumptionEntryId: input.consumptionEntryId,
+    baseAmountMinor: input.order.amountMinor,
+    currency: input.order.currency,
+    source: 'ORDER',
+    now: input.now
+  });
 }
 
 async function insertOrGetCompletionReviewTask(
@@ -1843,23 +1847,21 @@ VALUES (
 ON CONFLICT (public_id) DO NOTHING
 RETURNING id, public_id, type, reason_code, status
     `,
-    [
-      publicId,
-      input.order.id,
-      input.order.voiceChannelId,
-      JSON.stringify(contextSnapshot),
-      input.now.toISOString()
-    ]
+    [publicId, input.order.id, input.order.voiceChannelId, JSON.stringify(contextSnapshot), input.now.toISOString()]
   );
-  const row = inserted.rows[0] ?? (await client.query<ServiceLifecycleStaffTaskRow>(
-    `
+  const row =
+    inserted.rows[0] ??
+    (
+      await client.query<ServiceLifecycleStaffTaskRow>(
+        `
 SELECT id, public_id, type, reason_code, status
 FROM staff_tasks
 WHERE public_id = $1
 LIMIT 1
     `,
-    [publicId]
-  )).rows[0];
+        [publicId]
+      )
+    ).rows[0];
   if (!row) {
     throw new ServiceLifecycleError('CONFLICT', 'Could not create completion review task.');
   }
@@ -1878,8 +1880,6 @@ async function insertOrGetReadinessTask(
     channelId: input.order.channelId,
     voiceChannelId: input.order.voiceChannelId,
     readinessDueAt: input.order.readinessDueAt,
-    customerReady: Boolean(input.order.customerReadyAt),
-    playerReady: Boolean(input.order.playerReadyAt),
     readinessParticipants: input.participants.map((participant) => ({
       participantId: participant.id,
       displayName: participant.displayName,
@@ -1903,18 +1903,16 @@ VALUES (
 ON CONFLICT (public_id) DO NOTHING
 RETURNING id, public_id, type, reason_code, status
     `,
-    [
-      publicId,
-      input.order.id,
-      input.order.voiceChannelId,
-      JSON.stringify(contextSnapshot),
-      input.now.toISOString()
-    ]
+    [publicId, input.order.id, input.order.voiceChannelId, JSON.stringify(contextSnapshot), input.now.toISOString()]
   );
-  const row = inserted.rows[0] ?? (await client.query<ServiceLifecycleStaffTaskRow>(
-    `SELECT id, public_id, type, reason_code, status FROM staff_tasks WHERE public_id = $1 LIMIT 1`,
-    [publicId]
-  )).rows[0];
+  const row =
+    inserted.rows[0] ??
+    (
+      await client.query<ServiceLifecycleStaffTaskRow>(
+        `SELECT id, public_id, type, reason_code, status FROM staff_tasks WHERE public_id = $1 LIMIT 1`,
+        [publicId]
+      )
+    ).rows[0];
   if (!row) {
     throw new ServiceLifecycleError('CONFLICT', 'Could not create readiness support task.');
   }
@@ -2003,7 +2001,6 @@ interface ServiceLifecycleReservationRow {
   status: 'ACTIVE';
   row_version: number;
 }
-
 
 interface ServiceLifecycleStaffTaskRow {
   id: string;
