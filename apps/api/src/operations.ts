@@ -96,7 +96,7 @@ const l3VisibleJobTypes = new Set<JobType>([
 ]);
 const policyKeys = new Set([
   'L2_GIFT_APPROVAL_LIMIT_MINOR', 'L2_REFUND_LIMIT_MINOR', 'L4_DIRECT_EXECUTION_THRESHOLD_MINOR',
-  'DISPATCH_TIMEOUT_MINUTES', 'PLAYER_START_GRACE_MINUTES', 'CUSTOMER_NO_SHOW_REVIEW_MINUTES',
+  'PLAYER_START_GRACE_MINUTES', 'CUSTOMER_NO_SHOW_REVIEW_MINUTES',
   'ORDER_CONFIRMATION_TIMEOUT_MINUTES', 'GIFT_REVIEW_REMINDER_MINUTES',
   'PROMOTER_FIRST_PURCHASE_FIXED_MINOR', 'PROMOTER_FIRST_PURCHASE_RATE_BPS',
   'PLAYER_LIFETIME_ORDER_RATE_BPS', 'PLAYER_LIFETIME_GIFT_RATE_BPS', 'STEP_UP_VALIDITY_MINUTES'
@@ -175,9 +175,9 @@ export class InMemoryOperationsStore implements OperationsStore, AuditSink {
     };
   }
 
-  getPolicySettings() { return clone(this.settings).sort((left, right) => left.key.localeCompare(right.key)); }
+  getPolicySettings() { return clone(this.settings).filter((setting) => policyKeys.has(setting.key)).sort((left, right) => left.key.localeCompare(right.key)); }
 
-  getPolicyInteger(key: string, fallback: number) { return this.settings.find((setting) => setting.key === key)?.integerValue ?? fallback; }
+  getPolicyInteger(key: string, fallback: number) { return policyKeys.has(key) ? this.settings.find((setting) => setting.key === key)?.integerValue ?? fallback : fallback; }
 
   updatePolicySetting(input: { key: string; expectedVersion: number; integerValue: number; currency: string | null; actorStaffId: string; now: Date }): StagedWrite<PolicySettingRecord> {
     assertPolicyKey(input.key);
@@ -306,10 +306,11 @@ export class PostgresOperationsStore implements OperationsStore {
 
   async getPolicySettings() {
     const rows = await this.pool.query<PolicyRow>(`SELECT key,version,value,currency FROM policy_setting_versions WHERE active_setting_key IS NOT NULL ORDER BY key`);
-    return rows.rows.map(mapPolicyRow);
+    return rows.rows.map(mapPolicyRow).filter((setting) => policyKeys.has(setting.key));
   }
 
   async getPolicyInteger(key: string, fallback: number) {
+    if (!policyKeys.has(key)) return fallback;
     const rows = await this.pool.query<{ value: unknown }>(`SELECT value FROM policy_setting_versions WHERE active_setting_key=$1`, [key]);
     const value = Number(rows.rows[0]?.value);
     return Number.isSafeInteger(value) ? value : fallback;

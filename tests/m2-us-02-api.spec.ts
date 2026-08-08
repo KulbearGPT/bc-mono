@@ -217,17 +217,14 @@ describe('M2-US-02 dispatch domain and API', () => {
     });
   });
 
-  test('runtime keeps legacy dispatch stores for history without re-registering retired first-wins routes', async () => {
+  test('runtime leaves legacy dispatch tables as history without wiring stores or first-wins routes', async () => {
     const serverSource = await readFile('apps/api/src/server.ts', 'utf8');
     const entrySource = await readFile('apps/api/src/index.ts', 'utf8');
 
     expect(serverSource).not.toContain('registerDispatchRoutes(server');
-    expect(serverSource).toContain('Legacy first-wins dispatch stores remain readable for migration/history only.');
-    expect(serverSource).toContain('dispatch?:');
-    expect(entrySource).toContain("import { PostgresDispatchPlayerPool, PostgresDispatchStore } from './dispatch.js';");
-    expect(entrySource).toContain('const dispatchStore = new PostgresDispatchStore({ pool: databasePool });');
-    expect(entrySource).toContain('const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });');
-    expect(entrySource).toMatch(/dispatch:\s*{\s*orderStore,\s*dispatchStore,\s*playerPool:\s*dispatchPlayerPool,/s);
+    expect(serverSource).toContain('Legacy first-wins tables remain migration/history facts only');
+    expect(serverSource).not.toContain('dispatch?:');
+    expect(entrySource).not.toMatch(/PostgresDispatchStore|PostgresDispatchPlayerPool|dispatchStore|dispatchPlayerPool/);
   });
 
   test('dispatch timeout marks only the current attempt timed out and keeps order pending dispatch', async () => {

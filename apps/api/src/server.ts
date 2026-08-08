@@ -13,7 +13,6 @@ import { registerCatalogRoutes, type ServiceCatalogStore } from "./catalog.js";
 import { registerAccountRoutes, type AccountStore } from "./accounts.js";
 import { registerOrderRoutes, type OrderStore } from "./orders.js";
 import { registerPlayerRoutes, type PlayerStore } from "./players.js";
-import type { DispatchPlayerPool, DispatchStore } from "./dispatch.js";
 import {
   registerServiceLifecycleRoutes,
   type ServiceLifecycleStore,
@@ -152,14 +151,6 @@ export interface ApiServerOptions {
   };
   businessTags?: { store: BusinessTagStore; now?: () => Date };
   playerCompensation?: { store: PlayerCompensationStore; now?: () => Date };
-  dispatch?: {
-    orderStore: OrderStore;
-    dispatchStore: DispatchStore;
-    playerPool: DispatchPlayerPool;
-    dispatchChannelId: string;
-    now?: () => Date;
-    compensationStore?: PlayerCompensationStore;
-  };
   serviceLifecycle?: {
     store: ServiceLifecycleStore;
     now?: () => Date;
@@ -393,8 +384,8 @@ export function buildApiServer(
     registerPlayerRoutes(server, options.player);
   }
 
-  // Legacy first-wins dispatch stores remain readable for migration/history only.
-  // Candidate-pool routes are the sole production assignment API.
+  // Legacy first-wins tables remain migration/history facts only; no runtime
+  // store or route is wired. Candidate-pool routes are the sole assignment API.
 
   if (options.serviceLifecycle) {
     if (!server.securityOptions) {

@@ -350,6 +350,7 @@ export class InMemoryBotConfigStore implements BotConfigStore {
   }
 
   stageUpdate(input: BotConfigUpdateInput): StagedBotConfigWrite {
+    assertMutableChanges(input.changes);
     const current = this.snapshots.get(input.guildId);
     assertCurrentVersion(current, input.expectedVersion);
     const previousValues = pickValues(
@@ -410,6 +411,7 @@ export class PostgresBotConfigStore implements BotConfigStore {
   async stageUpdate(
     input: BotConfigUpdateInput,
   ): Promise<StagedBotConfigWrite> {
+    assertMutableChanges(input.changes);
     const current = await this.get(input.guildId);
     assertCurrentVersion(current, input.expectedVersion);
     const previousValues = pickValues(
@@ -555,6 +557,7 @@ export function registerBotConfigRoutes(
         );
       return {
         ...snapshot,
+        values: pickValues(snapshot.values, [...currentFields]),
         manageableFields: actor.actorLevel
           ? manageableFields(actor.actorLevel)
           : [],
@@ -758,8 +761,6 @@ const notificationRoleFields = [
   "operations_notification_role_id",
 ] as const;
 const integerRules = {
-  dispatch_timeout_minutes: [1, 30],
-  dispatch_max_rounds: [1, 5],
   readiness_timeout_minutes: [1, 30],
   completion_confirmation_minutes: [5, 120],
   gift_review_reminder_minutes: [1, 60],
@@ -777,8 +778,12 @@ const operationalFields = [
   "gift_broadcast_template",
   ...booleanFields,
 ] as const;
-const allFields = [...operationalFields, ...securityRoleFields] as const;
-export type BotConfigFieldName = (typeof allFields)[number];
+const currentFields = [...operationalFields, ...securityRoleFields] as const;
+export type BotConfigFieldName =
+  | (typeof currentFields)[number]
+  | "dispatch_timeout_minutes"
+  | "dispatch_max_rounds"
+  | "auto_dispatch_enabled";
 type ChangeRequest = {
   guildId: string;
   expectedVersion: number;
@@ -788,7 +793,7 @@ type ChangeRequest = {
 type UpdateRequest = ChangeRequest & { validationToken: string };
 
 function manageableFields(level: StaffLevel): BotConfigFieldName[] {
-  return level === "L4_ADMIN_OWNER" ? [...allFields] : [...operationalFields];
+  return level === "L4_ADMIN_OWNER" ? [...currentFields] : [...operationalFields];
 }
 function requiredPermissionsFor(changes: BotConfigValues) {
   return Object.keys(changes).some((field) =>
@@ -945,13 +950,21 @@ function parseChanges(value: unknown): BotConfigValues {
   const keys = Object.keys(input);
   if (
     !keys.length ||
-    keys.some((key) => !(allFields as readonly string[]).includes(key))
+    keys.some((key) => !(currentFields as readonly string[]).includes(key))
   )
     throw validation("changes");
   const result: BotConfigValues = {};
   for (const key of keys as BotConfigFieldName[])
     result[key] = parseField(key, input[key]);
   return result;
+}
+function assertMutableChanges(changes: BotConfigValues) {
+  const keys = Object.keys(changes);
+  if (
+    !keys.length ||
+    keys.some((key) => !(currentFields as readonly string[]).includes(key))
+  )
+    throw validation("changes");
 }
 function parseField(field: BotConfigFieldName, value: unknown): BotConfigValue {
   if (

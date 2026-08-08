@@ -84,7 +84,7 @@ function fixture() {
     ],
     settings: [
       setting('L2_GIFT_APPROVAL_LIMIT_MINOR', 200_000, 'CAT'),
-      setting('DISPATCH_TIMEOUT_MINUTES', 5, null)
+      setting('PLAYER_START_GRACE_MINUTES', 5, null)
     ],
     repairableOrders: [{ id: repairOrderId, guildId, panelMessageId: '900000000000006701', version: 8 }]
   });
@@ -406,7 +406,7 @@ describe('M4-US-06 operational API', () => {
       data: {
         items: expect.arrayContaining([
           { key: 'L2_GIFT_APPROVAL_LIMIT_MINOR', integerValue: 200_000, currency: 'CAT', version: 1 },
-          { key: 'DISPATCH_TIMEOUT_MINUTES', integerValue: 5, currency: null, version: 1 }
+          { key: 'PLAYER_START_GRACE_MINUTES', integerValue: 5, currency: null, version: 1 }
         ])
       }
     });
@@ -414,7 +414,7 @@ describe('M4-US-06 operational API', () => {
 
   test('requires L3, step-up, reason, and optimistic version for append-only policy updates', async () => {
     const { server, store } = fixture();
-    const url = '/api/v1/admin/policy-settings/DISPATCH_TIMEOUT_MINUTES';
+    const url = '/api/v1/admin/policy-settings/PLAYER_START_GRACE_MINUTES';
     const payload = { expectedVersion: 1, integerValue: 7, currency: null, reasonCode: 'P0_POLICY_CONFIRMATION' };
 
     const l2 = await server.inject({ method: 'PUT', url, headers: headers(staff.l2, { key: 'policy:update:l2-denied', stepUp: true }), payload });
@@ -446,11 +446,11 @@ describe('M4-US-06 operational API', () => {
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({
       requestId: 'req_policy_update',
-      data: { key: 'DISPATCH_TIMEOUT_MINUTES', integerValue: 7, currency: null, version: 2 }
+      data: { key: 'PLAYER_START_GRACE_MINUTES', integerValue: 7, currency: null, version: 2 }
     });
     expect(stale.statusCode).toBe(409);
     expect(stale.json()).toMatchObject({ requestId: 'req_policy_stale', error: { code: 'CONFLICT' } });
-    expect(store.getPolicyHistory('DISPATCH_TIMEOUT_MINUTES')).toEqual([
+    expect(store.getPolicyHistory('PLAYER_START_GRACE_MINUTES')).toEqual([
       expect.objectContaining({ integerValue: 5, version: 1 }),
       expect.objectContaining({ integerValue: 7, version: 2 })
     ]);
@@ -474,7 +474,7 @@ describe('M4-US-06 operational API', () => {
 
   test('rejects unknown fields and mismatched policy units before persistence', async () => {
     const { server, store } = fixture();
-    const invalid = await server.inject({ method: 'PUT', url: '/api/v1/admin/policy-settings/DISPATCH_TIMEOUT_MINUTES',
+    const invalid = await server.inject({ method: 'PUT', url: '/api/v1/admin/policy-settings/PLAYER_START_GRACE_MINUTES',
       headers: headers(staff.l3, { key: 'policy:invalid:semantic', stepUp: true }),
       payload: { expectedVersion: 1, integerValue: 7, currency: 'CAT', reasonCode: 'P0_POLICY_CONFIRMATION', arbitrarySql: 'DROP TABLE audit_logs' } });
     const wrongCurrency = await server.inject({ method: 'PUT', url: '/api/v1/admin/policy-settings/L2_GIFT_APPROVAL_LIMIT_MINOR',
@@ -482,7 +482,7 @@ describe('M4-US-06 operational API', () => {
       payload: { expectedVersion: 1, integerValue: 250_000, currency: null, reasonCode: 'P0_POLICY_CONFIRMATION' } });
     expect(invalid.statusCode).toBe(400);
     expect(wrongCurrency.statusCode).toBe(400);
-    expect(store.getPolicyHistory('DISPATCH_TIMEOUT_MINUTES')).toHaveLength(1);
+    expect(store.getPolicyHistory('PLAYER_START_GRACE_MINUTES')).toHaveLength(1);
     expect(store.getPolicyHistory('L2_GIFT_APPROVAL_LIMIT_MINOR')).toHaveLength(1);
   });
 });
