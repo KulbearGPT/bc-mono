@@ -289,6 +289,16 @@ enum GiftRequestStatus {
   REVERSED
 }
 
+enum GiftRequestOrigin {
+  ORDER
+  STANDALONE
+}
+
+enum GiftSenderVisibility {
+  PUBLIC
+  ANONYMOUS
+}
+
 enum FundReservationSourceType {
   ORDER
   GIFT
@@ -924,6 +934,20 @@ model GuildOnboardingMessage {
 
   @@unique([guildId, channelId])
   @@map("guild_onboarding_messages")
+}
+
+/// Durable projection for the Bot-managed standalone gift entry message per Guild.
+model GuildGiftEntryMessage {
+  guildId          String   @id @map("guild_id") @db.VarChar(32)
+  channelId        String   @map("channel_id") @db.VarChar(32)
+  messageId        String?  @map("message_id") @db.VarChar(32)
+  renderedVersion  Int      @default(1) @map("rendered_version")
+  lastEnsuredAt    DateTime @map("last_ensured_at") @db.Timestamptz(3)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([guildId, channelId])
+  @@map("guild_gift_entry_messages")
 }
 
 /// Append-only companion review history; PlayerProfile stores only the current projection.
@@ -1971,7 +1995,10 @@ model GiftCatalogVersion {
 model GiftRequest {
   id                        String            @id @default(uuid()) @db.Uuid
   publicId                  String            @unique @map("public_id") @db.VarChar(30)
-  orderId                   String            @map("order_id") @db.Uuid
+  guildId                   String            @map("guild_id") @db.VarChar(32)
+  origin                    GiftRequestOrigin @default(ORDER)
+  senderVisibility          GiftSenderVisibility @default(PUBLIC) @map("sender_visibility")
+  orderId                   String?           @map("order_id") @db.Uuid
   orderParticipantId        String?           @map("order_participant_id") @db.Uuid
   giftCatalogVersionId      String            @map("gift_catalog_version_id") @db.Uuid
   senderId                  String            @map("sender_id") @db.Uuid
@@ -2001,7 +2028,7 @@ model GiftRequest {
   createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                 DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  order               Order                @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order               Order?               @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   orderParticipant    OrderParticipant?     @relation(fields: [orderParticipantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   giftCatalogVersion  GiftCatalogVersion   @relation(fields: [giftCatalogVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sender              User                 @relation("GiftSender", fields: [senderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2019,6 +2046,8 @@ model GiftRequest {
   @@index([receiverId, createdAt])
   @@index([status, createdAt])
   @@index([status, expiresAt])
+  @@index([guildId, createdAt])
+  @@index([origin, createdAt])
   @@index([orderId, createdAt])
   @@index([orderParticipantId, createdAt])
   @@index([createdAt, id], map: "gift_requests_created_at_id_idx")
