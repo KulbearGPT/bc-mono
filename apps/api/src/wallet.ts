@@ -3,12 +3,16 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import multipart from '@fastify/multipart';
 import { Readable } from 'node:stream';
-import type { StaffLevel } from './security.js';
-import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord } from './security.js';
+import { insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type AuditRecord, type StaffLevel } from './security.js';
 import { levelRank } from './authorization-policy.js';
 import type { ReceiptMediaType, ReceiptStorage } from './receipt-storage.js';
 import { decodeBoundKeysetCursor, encodeBoundKeysetCursor } from './signed-cursor.js';
 import type { CustomerProfileScope } from './customer-profiles.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql
+} from './reservation-balance.js';
 import type { WalletBalanceDto, WalletEntryDto, WalletEntryPageDto, WalletEntryTypeDto } from '@blackcat/platform/api-contracts';
 
 export type WalletEntryType = WalletEntryTypeDto;
@@ -764,15 +768,24 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
         const userId = userTarget(request); await requireWalletCustomerScope(options.customerScope, userId, actor);
         let evidenceType = ''; let evidenceId = ''; let stored: { storageKey: string; byteSize: number; sha256: string } | null = null;
         let mediaType = ''; let originalFileName = '';
-        for await (const part of request.parts()) {
-          if (part.type === 'field') { if (part.fieldname === 'evidenceType') evidenceType = String(part.value); if (part.fieldname === 'evidenceId') evidenceId = String(part.value); continue; }
-          mediaType = part.mimetype; originalFileName = part.filename;
-          stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
+        try {
+          for await (const part of request.parts()) {
+            if (part.type === 'field') { if (part.fieldname === 'evidenceType') evidenceType = String(part.value); if (part.fieldname === 'evidenceId') evidenceId = String(part.value); continue; }
+            mediaType = part.mimetype; originalFileName = part.filename;
+            stored = await options.receiptStorage!.put({ body: part.file, mediaType: mediaType as ReceiptMediaType, originalFileName });
+          }
+          if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
+          const input = { userId, evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
+            originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
+          const result = await (options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input));
+          if (isStagedReceiptWrite(result)) {
+            return { ...result, abort: () => options.receiptStorage!.remove(stored!.storageKey) };
+          }
+          return result;
+        } catch (error) {
+          if (stored) await options.receiptStorage!.remove(stored.storageKey);
+          throw error;
         }
-        if ((evidenceType !== 'TOP_UP' && evidenceType !== 'CASH_REFUND_DEBIT') || !isUuid(evidenceId) || !stored) throw new WalletError('VALIDATION_ERROR', 'evidenceType, evidenceId and file are required.');
-        const input = { userId, evidenceType: evidenceType as 'TOP_UP' | 'CASH_REFUND_DEBIT', evidenceId, stored, mediaType: mediaType as ReceiptMediaType,
-          originalFileName, actorStaffId: requireActorStaff(actor), now: now() };
-        return options.service.stageCreateReceiptAttachment?.(input) ?? options.service.createReceiptAttachment(input);
       }
     });
     registerSecureReadRoute(server, server.securityOptions, {
@@ -790,6 +803,11 @@ export function registerWalletRoutes(server: FastifyInstance, options: { service
       }
     });
   }
+}
+
+function isStagedReceiptWrite(value: unknown): value is { data: ReceiptAttachmentMetadata; commit: (audit: AuditRecord) => Promise<void> } {
+  return Boolean(value && typeof value === 'object' && 'data' in value && 'commit' in value
+    && typeof (value as { commit?: unknown }).commit === 'function');
 }
 
 function fundingBody(request: FastifyRequest, timestamp: 'paidAt' | 'refundedAt') {
@@ -847,7 +865,6 @@ function compareWalletEntryToCursor(item: WalletEntry, cursor: { id: string; occ
   return compareWalletEntries(item, cursor);
 }
 function requireIdempotencyKey(request: FastifyRequest): string { return String(request.headers['idempotency-key'] ?? ''); }
-function requireActorUser(actor: ActorContext): string { if (!actor.actorUserId) throw new WalletError('PERMISSION_DENIED', 'User actor is required.'); return actor.actorUserId; }
 function requireActorStaff(actor: ActorContext): string { if (!actor.actorStaffId) throw new WalletError('PERMISSION_DENIED', 'Staff actor is required.'); return actor.actorStaffId; }
 function requireActorLevel(actor: ActorContext): StaffLevel { if (!actor.actorLevel) throw new WalletError('PERMISSION_DENIED', 'Staff level is required.'); return actor.actorLevel; }
 async function requireWalletCustomerScope(scope: CustomerProfileScope | undefined, userId: string, actor: ActorContext): Promise<void> {
@@ -921,16 +938,17 @@ async function ensureWallet(client: PoolClient, userId: string, now: Date, lock 
 }
 
 async function readPostgresBalance(client: PoolClient, walletAccountId: string, version: number, now: Date): Promise<WalletBalance> {
+  const settlementJoin = reservationSettlementLateralSql('fr', 'settlement');
+  const remainingMinor = reservationRemainingMinorSql('fr', 'settlement');
   const result = await client.query<{ ledger: string; reserved: string }>(`
     SELECT
       COALESCE((SELECT sum(CASE WHEN direction='CREDIT' THEN amount_minor ELSE -amount_minor END)
         FROM wallet_entries WHERE wallet_account_id=$1),0)::text AS ledger,
-      COALESCE((SELECT sum(GREATEST(fr.amount_minor-COALESCE(ev.settled,0),0))
+      COALESCE((SELECT sum(${remainingMinor})
         FROM fund_reservations fr
-        LEFT JOIN LATERAL (SELECT sum(amount_minor) AS settled FROM fund_reservation_events
-          WHERE fund_reservation_id=fr.id AND event_type IN ('CAPTURED','RELEASED','EXPIRED')) ev ON true
+        ${settlementJoin}
         JOIN wallet_accounts wa ON wa.user_id=fr.user_id
-        WHERE wa.id=$1 AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')),0)::text AS reserved`, [walletAccountId]);
+        WHERE wa.id=$1 AND fr.status IN (${activeReservationStatuses.map(status => `'${status}'`).join(',')})),0)::text AS reserved`, [walletAccountId]);
   const ledgerBalanceMinor = Number(result.rows[0]?.ledger ?? 0);
   const reservedMinor = Number(result.rows[0]?.reserved ?? 0);
   return { ledgerBalanceMinor, reservedMinor, availableMinor: ledgerBalanceMinor - reservedMinor,

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import { InMemoryAuditSink, insertPostgresAuditRecord, registerSecureReadRoute, registerSecureWriteRoute, type AuditRecord, type AuditSink, type ActorContext } from './security.js';
-import type { OrderRequirementRecord, RequirementCatalog } from './order-requirements.js';
+import type { OrderRequirementRecord } from './order-requirements.js';
 import { decodeAdminCollectionCursor, paginateAdminCollection, parseAdminCollectionSort, type CursorBinding, type SortDirection } from './admin-collection-sort.js';
 
 export type OrderCompositionMode = 'PACKAGE_DEFAULT' | 'CUSTOMIZED';

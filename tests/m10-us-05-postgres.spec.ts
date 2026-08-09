@@ -44,7 +44,7 @@ describe('M10-US-05 PostgreSQL multi-recipient gifts', () => {
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  test('atomically creates nine receiver-derived gift, reservation, task and expiry facts', async () => {
+  test('atomically creates nine gifts using the remainder of a partially settled existing hold', async () => {
     const store = new PostgresGiftStore(pool);
     const items = Array.from({ length: 9 }, (_, index) => giftItem(index + 1, 'success'));
     await store.commitCreateBatch({ items, ledgerBalanceMinor: 100_000, expectedOrderVersion: 7,
@@ -135,5 +135,10 @@ async function seed() {
       ('00000000-0000-0000-0000-000000105010','${customerId}','CAT','ACTIVE',1,now(),now());
     INSERT INTO wallet_entries(id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at) VALUES
       ('00000000-0000-0000-0000-000000105011','00000000-0000-0000-0000-000000105010','TOP_UP_CREDIT','CREDIT',100000,'CAT','TOP_UP','00000000-0000-0000-0000-000000105012','m10-us-05:seed:credit',now(),now());
+    INSERT INTO fund_reservations(id,user_id,source_type,order_id,mode,amount_minor,currency,status,row_version,idempotency_key,created_at,updated_at) VALUES
+      ('00000000-0000-0000-0000-000000105013','${customerId}','ORDER','${orderId}','LOCAL_RESERVATION',99000,'CAT','PARTIALLY_SETTLED',2,'m10-us-05:seed:partial',now(),now());
+    INSERT INTO fund_reservation_events(id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_source,created_at) VALUES
+      ('00000000-0000-0000-0000-000000105014','00000000-0000-0000-0000-000000105013',1,'CREATED',NULL,'ACTIVE',99000,1,'m10-us-05:seed:partial:created','SYSTEM_JOB',now()),
+      ('00000000-0000-0000-0000-000000105015','00000000-0000-0000-0000-000000105013',2,'CAPTURED','ACTIVE','PARTIALLY_SETTLED',1500,2,'m10-us-05:seed:partial:captured','SYSTEM_JOB',now());
   `);
 }

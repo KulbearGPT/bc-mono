@@ -377,6 +377,7 @@ function acceptedOrder(overrides: Partial<OrderRecord> = {}): OrderRecord {
     playerId: '00000000-0000-0000-0000-00000000a002',
     status: 'ACCEPTED',
     version: 4,
+    guildId,
     serviceCatalogId: '00000000-0000-0000-0000-00000000c001',
     catalogVersion: 3,
     game: 'VALORANT',

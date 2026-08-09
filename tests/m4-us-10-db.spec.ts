@@ -69,15 +69,15 @@ describe('M4-US-10 PostgreSQL Bot configuration', () => {
 
   test('AT-CFG-007 rejects stale staged commits without an event or audit', async () => {
     const store = new PostgresBotConfigStore(pool);
-    const stale = await store.stageUpdate({ guildId, expectedVersion: 2, changes: { auto_dispatch_enabled: false }, reason: 'Stale change.', actorStaffId: staffId, source: 'DISCORD_BOT', now: new Date(now.getTime() + 1000), eventId: '00000000-0000-0000-0000-000000020005' });
-    const winner = await store.stageUpdate({ guildId, expectedVersion: 2, changes: { dispatch_timeout_minutes: 10 }, reason: 'Winning change.', actorStaffId: staffId, source: 'DISCORD_BOT', now: new Date(now.getTime() + 2000), eventId: '00000000-0000-0000-0000-000000020006' });
+    const stale = await store.stageUpdate({ guildId, expectedVersion: 2, changes: { new_orders_enabled: false }, reason: 'Stale change.', actorStaffId: staffId, source: 'DISCORD_BOT', now: new Date(now.getTime() + 1000), eventId: '00000000-0000-0000-0000-000000020005' });
+    const winner = await store.stageUpdate({ guildId, expectedVersion: 2, changes: { readiness_timeout_minutes: 10 }, reason: 'Winning change.', actorStaffId: staffId, source: 'DISCORD_BOT', now: new Date(now.getTime() + 2000), eventId: '00000000-0000-0000-0000-000000020006' });
     await winner.commit({ ...audit, id: '00000000-0000-0000-0000-000000020007', requestId: 'req_m4_us_10_winner' }, unreachableAuditSink);
     await expect(stale.commit({ ...audit, id: '00000000-0000-0000-0000-000000020008', requestId: 'req_m4_us_10_stale' }, unreachableAuditSink)).rejects.toMatchObject({ code: 'CONFIG_VERSION_CONFLICT' });
     const facts = await pool.query(`SELECT
       (SELECT count(*)::int FROM guild_bot_config_events WHERE id='00000000-0000-0000-0000-000000020005') stale_events,
       (SELECT count(*)::int FROM audit_logs WHERE request_id='req_m4_us_10_stale') stale_audits`);
     expect(facts.rows[0]).toEqual({ stale_events: 0, stale_audits: 0 });
-    expect(await store.get(guildId)).toMatchObject({ version: 3, values: { auto_dispatch_enabled: true, dispatch_timeout_minutes: 10 } });
+    expect(await store.get(guildId)).toMatchObject({ version: 3, values: { auto_dispatch_enabled: true, readiness_timeout_minutes: 10 } });
   });
 });
 

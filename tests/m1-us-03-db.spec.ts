@@ -161,6 +161,40 @@ SELECT
     await store.commitUpdate({order:updated,event:orderEvent({eventType:'CHANNEL_LINKED',fromStatus:'DRAFT',toStatus:'DRAFT',sequence:updated.version,payload:{recovered:true}}),expectedVersion:current!.version,auditRecord:auditRecord('RECOVER_ORDER_CHANNEL','order.update'),auditSink:new InMemoryAuditSink()});
     await expect(store.findById(updated.id)).resolves.toMatchObject({version:updated.version,channelSpec:updated.channelSpec});
   });
+
+  test('uses the remaining amount of a partially settled hold when submitting another order',async()=>{
+    const userId='00000000-0000-0000-0000-00000000a002';const oldOrderId='00000000-0000-0000-0000-00000000b010';const nextOrderId='00000000-0000-0000-0000-00000000b011';
+    const oldReservationId='00000000-0000-0000-0000-00000000b012';const nextReservationId='00000000-0000-0000-0000-00000000b013';
+    await pool.query(`INSERT INTO users(id,display_name,updated_at)VALUES('${userId}','Partial Hold Customer','${now.toISOString()}');
+      INSERT INTO wallet_accounts(id,user_id,currency,status,row_version,created_at,updated_at)VALUES('00000000-0000-0000-0000-00000000b014','${userId}','CAT','ACTIVE',1,'${now.toISOString()}','${now.toISOString()}');
+      INSERT INTO wallet_entries(id,wallet_account_id,entry_type,direction,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
+      VALUES('00000000-0000-0000-0000-00000000b015','00000000-0000-0000-0000-00000000b014','TOP_UP_CREDIT','CREDIT',13000,'CAT','TOP_UP','00000000-0000-0000-0000-00000000b016','partial:topup','${now.toISOString()}','${now.toISOString()}');
+      INSERT INTO orders(id,public_id,customer_id,status,row_version,currency,amount_minor,guild_id,completed_at,created_at,updated_at)
+      VALUES('${oldOrderId}','P-OLD-PARTIAL','${userId}','COMPLETED',3,'CAT',10000,'900000000000001002','${now.toISOString()}','${now.toISOString()}','${now.toISOString()}');
+      INSERT INTO fund_reservations(id,user_id,source_type,order_id,mode,amount_minor,currency,status,row_version,idempotency_key,created_at,updated_at)
+      VALUES('${oldReservationId}','${userId}','ORDER','${oldOrderId}','LOCAL_RESERVATION',10000,'CAT','PARTIALLY_SETTLED',2,'partial:old','${now.toISOString()}','${now.toISOString()}');
+      INSERT INTO fund_reservation_events(id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,idempotency_key,actor_source,created_at)VALUES
+      ('00000000-0000-0000-0000-00000000b017','${oldReservationId}',1,'CREATED',NULL,'ACTIVE',10000,1,'partial:old:created','SYSTEM_JOB','${now.toISOString()}'),
+      ('00000000-0000-0000-0000-00000000b018','${oldReservationId}',2,'CAPTURED','ACTIVE','PARTIALLY_SETTLED',3000,2,'partial:old:captured','SYSTEM_JOB','${now.toISOString()}');
+      INSERT INTO orders(id,public_id,customer_id,active_customer_slot_id,status,row_version,service_catalog_version_id,catalog_version,game_code_snapshot,service_code_snapshot,region_code_snapshot,billing_unit_minutes,unit_count,
+        customer_unit_price_minor,player_unit_payout_minor,amount_minor,expected_player_earning_minor,currency,guild_id,channel_id,panel_message_id,created_at,updated_at)
+      VALUES('${nextOrderId}','P-NEXT-PARTIAL','${userId}','${userId}','DRAFT',1,'00000000-0000-0000-0000-00000000c001',3,'VALORANT','ENTERTAINMENT','NA',60,1,6000,4200,6000,4200,'CAT','900000000000001002','120000000000000011','120000000000000012','${now.toISOString()}','${now.toISOString()}')`);
+    const store=new PostgresOrderStore({pool});const submitted=draftOrder({id:nextOrderId,publicId:'P-NEXT-PARTIAL',customerId:userId,status:'PENDING_DISPATCH',version:2,
+      serviceCatalogId:'00000000-0000-0000-0000-00000000c001',catalogVersion:3,game:'VALORANT',service:'ENTERTAINMENT',region:'NA',billingUnitMinutes:60,unitCount:1,
+      customerUnitPriceMinor:6000,playerUnitPayoutMinor:4200,amountMinor:6000,playerEarningMinor:4200,channelSpec:{channelId:'120000000000000011',panelMessageId:'120000000000000012',voiceChannelId:null}});
+    const reservation={id:nextReservationId,userId,sourceType:'ORDER' as const,orderId:nextOrderId,mode:'LOCAL_RESERVATION' as const,provider:null,providerHoldRef:null,
+      amountMinor:6000,currency:'CAT' as const,status:'ACTIVE' as const,version:1,idempotencyKey:'partial:next',expiresAt:new Date(now.getTime()+30*60_000).toISOString(),activatedAt:now.toISOString(),settledAt:null,createdAt:now.toISOString(),updatedAt:now.toISOString()};
+    await store.commitSubmit({order:submitted,expectedVersion:1,ledgerBalanceMinor:13_000,reservation,
+      reservationEvent:{id:'00000000-0000-0000-0000-00000000b019',fundReservationId:nextReservationId,sequence:1,eventType:'CREATED',fromStatus:null,toStatus:'ACTIVE',amountMinor:6000,
+        reservationVersion:1,idempotencyKey:'partial:next:created',actorUserId:userId,actorStaffId:null,actorSource:'DISCORD_BOT',reasonCode:null,createdAt:now.toISOString()},
+      orderEvent:{id:'00000000-0000-0000-0000-00000000b020',orderId:nextOrderId,sequence:1,eventType:'SUBMITTED',fromStatus:'DRAFT',toStatus:'PENDING_DISPATCH',actorUserId:userId,
+        actorStaffId:null,actorSource:'DISCORD_BOT',interactionId:'120000000000000013',payload:{},createdAt:now.toISOString()},externalTransactions:[],
+      auditRecord:{...auditRecord('SUBMIT_PARTIAL_ORDER','order.submit'),id:'00000000-0000-0000-0000-00000000b021',targetId:nextOrderId},auditSink:new InMemoryAuditSink()});
+    await expect(store.findById(nextOrderId)).resolves.toMatchObject({status:'PENDING_DISPATCH',version:2});
+    const reserved=await pool.query(`SELECT sum(GREATEST(fr.amount_minor-COALESCE(events.settled,0),0))::int total FROM fund_reservations fr
+      LEFT JOIN LATERAL(SELECT sum(amount_minor) settled FROM fund_reservation_events WHERE fund_reservation_id=fr.id AND event_type IN ('CAPTURED','RELEASED','EXPIRED'))events ON true WHERE fr.user_id=$1 AND fr.status IN('ACTIVE','PARTIALLY_SETTLED')`,[userId]);
+    expect(reserved.rows[0]?.total).toBe(13_000);
+  });
 });
 
 async function seedCustomerAndCatalog(): Promise<void> {

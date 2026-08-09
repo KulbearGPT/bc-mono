@@ -3,6 +3,11 @@ import type { Pool } from 'pg';
 import type { WalletFundingService } from './wallet.js';
 import { registerSecureReadRoute, registerSecureWriteRoute, type ActorContext, type StaffLevel } from './security.js';
 import { decodeKeysetCursor, encodeKeysetCursor } from './signed-cursor.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql
+} from './reservation-balance.js';
 
 export type CustomerProfileWindow = 'DAYS_30' | 'DAYS_90' | 'ALL';
 export type CustomerProfileConsumptionType = 'ORDER' | 'GIFT' | 'REFUND_REVERSAL' | 'ADMIN_CORRECTION';
@@ -214,20 +219,22 @@ export class PostgresCustomerProfileStore implements CustomerProfileStore {
   }
 
   async sumActiveReservations(input: { userId: string; currency: string; guildId?: string }): Promise<number> {
-    const result = await this.pool.query(`SELECT COALESCE(sum(GREATEST(fr.amount_minor-COALESCE(events.settled_minor,0),0)),0) total
-      FROM fund_reservations fr LEFT JOIN LATERAL (
-        SELECT sum(CASE WHEN event_type IN ('CAPTURED','RELEASED','EXPIRED') THEN amount_minor ELSE 0 END) settled_minor
-        FROM fund_reservation_events WHERE fund_reservation_id=fr.id
-      ) events ON true WHERE fr.user_id=$1 AND fr.currency=$2 AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')
+    const settlementJoin = reservationSettlementLateralSql('fr', 'settlement');
+    const remainingMinor = reservationRemainingMinorSql('fr', 'settlement');
+    const result = await this.pool.query(`SELECT COALESCE(sum(${remainingMinor}),0) total
+      FROM fund_reservations fr ${settlementJoin}
+      WHERE fr.user_id=$1 AND fr.currency=$2 AND fr.status IN (${activeReservationStatuses.map(status => `'${status}'`).join(',')})
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM orders scoped_order LEFT JOIN gift_requests scoped_gift ON scoped_gift.order_id=scoped_order.id
         WHERE scoped_order.guild_id=$3 AND (fr.order_id=scoped_order.id OR fr.gift_request_id=scoped_gift.id)))`,
     [input.userId, input.currency, input.guildId ?? null]);
     return safeInteger(result.rows[0]?.total ?? 0);
   }
   async countActiveReservations(input: { userId: string; currency?: string; guildId?: string }): Promise<number> {
-    const result = await this.pool.query(`SELECT count(*)::int total FROM fund_reservations fr
+    const settlementJoin = reservationSettlementLateralSql('fr', 'settlement');
+    const remainingMinor = reservationRemainingMinorSql('fr', 'settlement');
+    const result = await this.pool.query(`SELECT count(*)::int total FROM fund_reservations fr ${settlementJoin}
       WHERE fr.user_id=$1 AND ($2::text IS NULL OR fr.currency=$2)
-      AND fr.status IN ('PENDING','ACTIVE','DISPUTED','PARTIALLY_SETTLED')
+      AND fr.status IN (${activeReservationStatuses.map(status => `'${status}'`).join(',')}) AND ${remainingMinor}>0
       AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM orders scoped_order LEFT JOIN gift_requests scoped_gift ON scoped_gift.order_id=scoped_order.id
         WHERE scoped_order.guild_id=$3 AND (fr.order_id=scoped_order.id OR fr.gift_request_id=scoped_gift.id)))`,
       [input.userId, input.currency ?? null, input.guildId ?? null]);
@@ -336,7 +343,6 @@ function buildPreferences(orders: CustomerProfileOrder[]) { const sorted = [...o
   preferredPlayerUserIds: frequency(sorted.map((item) => item.playerUserId)), lastOrderAt: sorted[0]?.createdAt ?? null }; }
 function frequency(values: Array<string | null>) { const counts = new Map<string, number>(); for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
   return [...counts].sort(([a, ac], [b, bc]) => bc - ac || a.localeCompare(b)).slice(0, 30).map(([value]) => value); }
-function maskExternal(provider: string, value: string) { return `${provider}:***${value.length > 4 ? value.slice(-4) : ''}`; }
 function page<T extends { id: string; createdAt: string }>(items: T[], cursor: string | null, limit: number, resource: string): Page<T> { const decoded = decodeCursor(cursor, resource);
   const start = decoded ? items.findIndex((item) => item.id === decoded.id && item.createdAt === decoded.createdAt) + 1 : 0;
   if (decoded && start === 0) throw new CustomerProfileError('VALIDATION_ERROR', 'cursor is invalid.'); return pageFromSorted(items.slice(start), limit, resource); }

@@ -1,5 +1,10 @@
 import type { Pool } from 'pg';
 import type { StaffLevel } from './security.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql
+} from './reservation-balance.js';
 
 export interface DashboardMetricFacts {
   todayOrderCount: number;
@@ -71,6 +76,9 @@ export class PostgresDashboardMetricsStore implements DashboardMetricsStore {
   }
 }
 
+const dashboardReservationSettlementJoin = reservationSettlementLateralSql('fr', 'settlement');
+const dashboardReservationRemainingMinor = reservationRemainingMinorSql('fr', 'settlement');
+
 const dashboardFactsSql = `
 WITH visible_orders AS (
   SELECT o.* FROM orders o
@@ -91,13 +99,10 @@ WITH visible_orders AS (
     OR ($2::text='L1_SUPPORT' AND st.claimed_by_staff_id=$1::uuid)
   )
 ), reservation_remainders AS (
-  SELECT fr.id,fr.order_id,GREATEST(fr.amount_minor
-    - COALESCE(sum(fre.amount_minor) FILTER (WHERE fre.event_type='CAPTURED'),0)
-    - COALESCE(sum(fre.amount_minor) FILTER (WHERE fre.event_type IN ('RELEASED','EXPIRED')),0),0) AS remaining_minor
+  SELECT fr.id,fr.order_id,${dashboardReservationRemainingMinor} AS remaining_minor
   FROM fund_reservations fr JOIN visible_orders vo ON vo.id=fr.order_id
-  LEFT JOIN fund_reservation_events fre ON fre.fund_reservation_id=fr.id
-  WHERE fr.currency=$6::text AND fr.status IN ('ACTIVE','DISPUTED','PARTIALLY_SETTLED')
-  GROUP BY fr.id
+  ${dashboardReservationSettlementJoin}
+  WHERE fr.currency=$6::text AND fr.status IN (${activeReservationStatuses.map(status => `'${status}'`).join(',')})
 ), exception_keys AS (
   SELECT 'order:'||vo.id::text AS key FROM visible_orders vo WHERE vo.status='EXCEPTION'
   UNION

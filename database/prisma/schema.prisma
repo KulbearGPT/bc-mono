@@ -187,6 +187,7 @@ enum OrderEventType {
   DISPATCH_STARTED
   DISPATCH_TIMED_OUT
   ACCEPTED
+  /// Legacy history-only event; current APIs never emit customer readiness.
   CUSTOMER_READY_CONFIRMED
   PLAYER_READY_CONFIRMED
   READINESS_RESET
@@ -1372,6 +1373,7 @@ model Order {
   submittedAt                DateTime?   @map("submitted_at") @db.Timestamptz(3)
   acceptedAt                 DateTime?   @map("accepted_at") @db.Timestamptz(3)
   readinessDueAt             DateTime?   @map("readiness_due_at") @db.Timestamptz(3)
+  /// Legacy aggregate compatibility column; current customer actions never write it.
   customerReadyAt            DateTime?   @map("customer_ready_at") @db.Timestamptz(3)
   playerReadyAt              DateTime?   @map("player_ready_at") @db.Timestamptz(3)
   serviceStartedAt           DateTime?   @map("service_started_at") @db.Timestamptz(3)

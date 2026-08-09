@@ -6,6 +6,12 @@ import {
 import { CustomerProfileError, consumptionGuildPredicate, type CustomerProfileStore, type CustomerStatistics } from './customer-profiles.js';
 import { decodeKeysetCursor, encodeKeysetCursor, type CursorScope } from './signed-cursor.js';
 import type { WalletFundingService } from './wallet.js';
+import {
+  activeReservationStatuses,
+  reservationRemainingMinorSql,
+  reservationSettlementLateralSql,
+  sumActiveReservationRemainders
+} from './reservation-balance.js';
 
 type UserStatus = 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
 type ReservationStatus = 'PENDING' | 'ACTIVE' | 'DISPUTED' | 'PARTIALLY_SETTLED' | 'CAPTURED' | 'RELEASED' | 'EXPIRED' | 'FAILED';
@@ -27,6 +33,7 @@ export interface FundReservationBalanceRecord {
   amountMinor: number;
   currency: string;
   status: ReservationStatus;
+  settledMinor?: number;
 }
 
 export interface CurrentUserResult {
@@ -155,11 +162,8 @@ export class InMemoryAccountStore implements AccountStore {
 
   async sumActiveReservations(input: { userId: string; currency: string }): Promise<number> {
     const reservations = this.reservationSource ? this.reservationSource() : this.reservations;
-    return reservations
-      .filter((reservation) => reservation.userId === input.userId)
-      .filter((reservation) => reservation.currency === input.currency)
-      .filter((reservation) => activeReservationStatuses.has(reservation.status))
-      .reduce((sum, reservation) => sum + reservation.amountMinor, 0);
+    return sumActiveReservationRemainders(reservations,reservations.flatMap((reservation)=>reservation.settledMinor
+      ? [{fundReservationId:reservation.id,eventType:'CAPTURED',amountMinor:reservation.settledMinor}]:[]),input);
   }
 
   async listConsumptions(input: { userId: string; guildId: string; cursor: PageCursor | null; limit: number }): Promise<ConsumptionPageResult> {
@@ -256,13 +260,14 @@ LIMIT 1
   async sumActiveReservations(input: { userId: string; currency: string }): Promise<number> {
     const result = await this.client.query<{ reserved_minor: string | number | bigint | null }>(
       `
-SELECT COALESCE(SUM(amount_minor), 0) AS reserved_minor
-FROM fund_reservations
-WHERE user_id = $1
-  AND currency = $2
-  AND status = ANY($3::"FundReservationStatus"[])
+SELECT COALESCE(SUM(${reservationRemainingMinorSql('reservation','settlement')}), 0) AS reserved_minor
+FROM fund_reservations reservation
+${reservationSettlementLateralSql('reservation','settlement')}
+WHERE reservation.user_id = $1
+  AND reservation.currency = $2
+  AND reservation.status = ANY($3::"FundReservationStatus"[])
       `,
-      [input.userId, input.currency, Array.from(activeReservationStatuses)]
+      [input.userId, input.currency, [...activeReservationStatuses]]
     );
     return Number(result.rows[0]?.reserved_minor ?? 0);
   }
@@ -420,13 +425,6 @@ export function registerAccountRoutes(
   });
 }
 
-const activeReservationStatuses = new Set<ReservationStatus>([
-  'PENDING',
-  'ACTIVE',
-  'DISPUTED',
-  'PARTIALLY_SETTLED'
-]);
-
 async function requireCurrentBinding(store: AccountStore, actor: ActorContext): Promise<AccountBindingRecord> {
   const actorIds = requireDiscordActor(actor);
   const binding = await store.findByDiscord(actorIds);
@@ -502,10 +500,6 @@ function mapAccountBindingRow(row: AccountBindingRow): AccountBindingRecord {
     discordUserId: row.discord_user_id,
     boundAt: toIsoString(row.bound_at)
   };
-}
-
-function isUuid(value: string | null): boolean {
-  return Boolean(value?.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i));
 }
 
 function toIsoString(value: Date | string): string {

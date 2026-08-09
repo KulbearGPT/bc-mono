@@ -711,6 +711,7 @@ describe('M4-US-04 amount policy integration', () => {
     });
     expect(executed.statusCode).toBe(200);
     expect(executed.json()).toMatchObject({ data: { amountMinor: 50100, status: 'SUCCEEDED', orderStatus: 'COMPLETED' } });
+    expect(fixture.orderStore.approvalRequests[0]).toMatchObject({ status: 'CANCELLED', rowVersion: 2 });
 
     const exceedsRemaining = await fixture.server.inject({
       method: 'POST',

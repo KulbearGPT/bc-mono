@@ -131,18 +131,22 @@ function refreshOrderControl(orderId: string): ComponentSpec {
   };
 }
 
+function addCompletedReviewControl(order: OrderLifecyclePanelSummary, utility: ComponentSpec[]): void {
+  if (order.status !== 'COMPLETED' || order.actorRole !== 'CUSTOMER') return;
+  utility.push({
+    type: 'BUTTON',
+    style: 'SECONDARY',
+    customId: `bc:r:${order.orderId}:o`,
+    label: '评价本次服务'
+  });
+}
+
 function lifecycleActionRows(order: OrderLifecyclePanelSummary, giftsEnabled: boolean): MessageSpec['components'] {
   const actions = (order.availableActions ?? []).filter((action) => action.enabled && action.role === order.actorRole);
   const primary: ComponentSpec[] = [];
   const utility: ComponentSpec[] = [];
   const danger: ComponentSpec[] = [];
-  if (order.status === 'COMPLETED' && order.actorRole === 'CUSTOMER')
-    utility.push({
-      type: 'BUTTON',
-      style: 'SECONDARY',
-      customId: `bc:r:${order.orderId}:o`,
-      label: '评价本次服务'
-    });
+  addCompletedReviewControl(order, utility);
   for (const action of actions) {
     if (action.key === 'PLAYER_SET_READINESS')
       primary.push({

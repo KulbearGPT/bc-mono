@@ -1,6 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { StaffDirectoryQueryClient } from './security.js';
 import {
   buildTotpProvisioningUri,
   decryptSecret,
@@ -16,6 +15,7 @@ import {
   type DashboardSessionResolver,
   type StaffAccount,
   type StaffDirectory,
+  type StaffDirectoryQueryClient,
   type StaffLevel
 } from './security.js';
 import type { PolicyReader } from './operations.js';

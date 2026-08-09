@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -32,7 +32,9 @@ describe('M4-US-06 PostgreSQL operations', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_operations']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_operations', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
+    for (const directory of (await readdir('database/prisma/migrations')).sort()) {
+      await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_operations', '-v', 'ON_ERROR_STOP=1', '-f', join('database/prisma/migrations', directory, 'migration.sql')]);
+    }
     pool = new Pool({ host: root, port, database: 'blackcat_m4_operations' });
     await seed();
   }, 30_000);
@@ -88,17 +90,17 @@ describe('M4-US-06 PostgreSQL operations', () => {
 
   test('appends policy versions atomically and rejects stale concurrent updates', async () => {
     const store = new PostgresOperationsStore(pool);
-    const first = await store.updatePolicySetting({ key: 'DISPATCH_TIMEOUT_MINUTES', expectedVersion: 0, integerValue: 5, currency: null, actorStaffId: ids.l3Staff, now });
-    await first.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'DISPATCH_TIMEOUT_MINUTES' }), new InMemoryAuditSink());
-    const stale = await store.updatePolicySetting({ key: 'DISPATCH_TIMEOUT_MINUTES', expectedVersion: 1, integerValue: 7, currency: null, actorStaffId: ids.l3Staff, now });
-    const winner = await store.updatePolicySetting({ key: 'DISPATCH_TIMEOUT_MINUTES', expectedVersion: 1, integerValue: 9, currency: null, actorStaffId: ids.l3Staff, now });
+    const first = await store.updatePolicySetting({ key: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES', expectedVersion: 0, integerValue: 5, currency: null, actorStaffId: ids.l3Staff, now });
+    await first.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES' }), new InMemoryAuditSink());
+    const stale = await store.updatePolicySetting({ key: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES', expectedVersion: 1, integerValue: 7, currency: null, actorStaffId: ids.l3Staff, now });
+    const winner = await store.updatePolicySetting({ key: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES', expectedVersion: 1, integerValue: 9, currency: null, actorStaffId: ids.l3Staff, now });
     const results = await Promise.allSettled([
-      stale.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'DISPATCH_TIMEOUT_MINUTES' }), new InMemoryAuditSink()),
-      winner.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'DISPATCH_TIMEOUT_MINUTES' }), new InMemoryAuditSink())
+      stale.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES' }), new InMemoryAuditSink()),
+      winner.commit(audit({ action: 'UPDATE_POLICY_SETTING', targetId: 'CUSTOMER_NO_SHOW_REVIEW_MINUTES' }), new InMemoryAuditSink())
     ]);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
-    const versions = await pool.query(`SELECT version,value,active_setting_key FROM policy_setting_versions WHERE key='DISPATCH_TIMEOUT_MINUTES' ORDER BY version`);
+    const versions = await pool.query(`SELECT version,value,active_setting_key FROM policy_setting_versions WHERE key='CUSTOMER_NO_SHOW_REVIEW_MINUTES' ORDER BY version`);
     expect(versions.rows).toHaveLength(2);
     expect(versions.rows.map((row) => row.version)).toEqual([1, 2]);
     expect(versions.rows.filter((row) => row.active_setting_key)).toHaveLength(1);

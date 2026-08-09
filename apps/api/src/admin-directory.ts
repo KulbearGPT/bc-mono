@@ -565,12 +565,7 @@ function projectOrderListItem(item:AdminOrderListItem,customerDisplayName:string
   return {...item,customerDisplayName:item.customerDisplayName??customerDisplayName,playerDisplayNames:item.playerDisplayNames??playerDisplayNames,serviceSummary:item.serviceSummary??(services.join('；')||legacyService)};
 }
 function timeKey(value: string) { return new Date(value).toISOString(); }
-function orderCursorKeys(item: AdminOrderListItem) { return [timeKey(item.createdAt), item.id]; }
-function userCursorKeys(item: AdminUserRecord) { return [item.id]; }
 function consumptionCursorKeys(item: AdminConsumptionRecord) { return [timeKey(item.occurredAt), item.id]; }
-function playerCursorKeys(item: AdminPlayerRecord) { return [item.playerId]; }
-function giftCatalogCursorKeys(item: AdminGiftCatalogRecord) { return [timeKey(item.createdAt), item.id]; }
-function giftRequestCursorKeys(item: AdminGiftRequestRecord) { return [timeKey(item.createdAt), item.id]; }
 function isDatabaseUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
 
 const userSelect = `SELECT u.id, u.display_name, u.status::text, u.row_version, u.created_at, u.updated_at, da.discord_user_id, da.username AS discord_username, active_order.id AS active_order_id,

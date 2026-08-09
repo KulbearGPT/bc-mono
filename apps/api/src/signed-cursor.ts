@@ -1,13 +1,14 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export type CursorScope = 'customer-orders' | 'account-consumptions' | 'account-commissions' | 'weekly-reports' | 'wallet-entries';
+export type CursorScope = 'customer-orders' | 'account-consumptions' | 'account-commissions' | 'weekly-reports' | 'wallet-entries' | 'approval-requests';
 
 const scopeCodes: Record<CursorScope, number> = {
   'customer-orders': 1,
   'account-consumptions': 2,
   'account-commissions': 3,
   'weekly-reports': 4,
-  'wallet-entries': 5
+  'wallet-entries': 5,
+  'approval-requests': 6
 };
 const version = 1;
 const keysetKind = 1;

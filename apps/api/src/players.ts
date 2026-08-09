@@ -1198,21 +1198,6 @@ function parseStatusBody(body: unknown): {
   };
 }
 
-function parseTagsBody(body: unknown): {
-  expectedVersion: number;
-  gameTags: string[];
-  serviceTags: string[];
-  reasonCode: string;
-} {
-  const input = objectBody(body);
-  return {
-    expectedVersion: positiveInteger(input.expectedVersion, "expectedVersion"),
-    gameTags: tags(input.gameTags, "gameTags"),
-    serviceTags: tags(input.serviceTags, "serviceTags"),
-    reasonCode: stringValue(input.reasonCode, "reasonCode"),
-  };
-}
-
 function objectBody(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new PlayerError(

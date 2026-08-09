@@ -6,7 +6,6 @@ import { PostgresServiceCatalogStore } from './catalog.js';
 import { PostgresAccountStore } from './accounts.js';
 import { PostgresOrderStore } from './orders.js';
 import { PostgresPlayerStore } from './players.js';
-import { PostgresDispatchPlayerPool, PostgresDispatchStore } from './dispatch.js';
 import { PostgresServiceLifecycleStore } from './service-lifecycle.js';
 import { PostgresStaffTaskStore } from './staff-tasks.js';
 import { PostgresRiskEventStore } from './risk-events.js';
@@ -40,6 +39,7 @@ import { PostgresServicePackageStore } from './service-packages.js';
 import { PostgresSupportOperationsStore } from './support-operations.js';
 import { PostgresSupportRatingStore } from './support-response-rating.js';
 import { PostgresOrderExperienceReviewStore } from './order-experience-reviews.js';
+import { PostgresDomainApprovalStore } from './approvals.js';
 import { createPilotFeaturePolicy } from './pilot-features.js';
 import { fileURLToPath } from 'node:url';
 
@@ -88,8 +88,6 @@ const orderParticipantStore = new PostgresOrderParticipantStore(databasePool);
 const orderRequirementStore = new PostgresOrderRequirementStore(databasePool);
 const selectionPoolStore = new PostgresSelectionPoolStore(databasePool);
 const servicePackageStore = new PostgresServicePackageStore(databasePool);
-const dispatchStore = new PostgresDispatchStore({ pool: databasePool });
-const dispatchPlayerPool = new PostgresDispatchPlayerPool({ pool: databasePool });
 const serviceLifecycleStore = new PostgresServiceLifecycleStore({ pool: databasePool });
 const staffTaskStore = new PostgresStaffTaskStore({ pool: databasePool });
 const riskEventStore = new PostgresRiskEventStore({ pool: databasePool });
@@ -102,7 +100,6 @@ const weeklyReportStore = new PostgresWeeklyReportStore(databasePool);
 const customerProfileStore = new PostgresCustomerProfileStore(databasePool);
 const settlementStore = new PostgresSettlementStore(databasePool);
 const walletStore = new PostgresWalletStore({ pool: databasePool });
-const dispatchChannelId = process.env.DISPATCH_CHANNEL_ID?.trim() || '000000000000000000';
 const giftBroadcastChannelId = process.env.GIFT_BROADCAST_CHANNEL_ID?.trim() || '000000000000000000';
 const dashboardOAuthConfig = {
   clientId: process.env.DISCORD_OAUTH_CLIENT_ID?.trim(),
@@ -125,6 +122,8 @@ const dashboardAuthStore = Object.values(dashboardOAuthConfig).every(Boolean)
     })
   : undefined;
 const accessStore = new PostgresAccessStore(databasePool);
+const botConfigStore = new PostgresBotConfigStore(databasePool);
+const approvalStore = new PostgresDomainApprovalStore(databasePool,{orderStore:adminOrderActionStore,giftStore,policyReader:operationsStore,botConfigStore,giftBroadcastChannelId});
 const discordBotToken = process.env.DISCORD_BOT_TOKEN?.trim();
 const botConfigValidationSecret = process.env.BOT_CONFIG_VALIDATION_SECRET?.trim();
 if (discordBotToken && (!botConfigValidationSecret || botConfigValidationSecret.length < 32)) {
@@ -171,13 +170,6 @@ const server = buildApiServer({
   player: {
     store: playerStore,
     businessTags: businessTagStore
-  },
-  dispatch: {
-    orderStore,
-    dispatchStore,
-    playerPool: dispatchPlayerPool,
-    dispatchChannelId,
-    compensationStore:playerCompensationStore
   },
   serviceLifecycle: {
     store: serviceLifecycleStore
@@ -270,8 +262,9 @@ const server = buildApiServer({
     store: operationsStore,
     guildId: dashboardOAuthConfig.guildId
   },
+  approvals: { store: approvalStore },
   botConfig: discordBotToken && botConfigValidationSecret ? {
-    store: new PostgresBotConfigStore(databasePool),
+    store: botConfigStore,
     discord: new DiscordHttpBotConfigAdapter(discordBotToken),
     validationSecret: botConfigValidationSecret
   } : undefined

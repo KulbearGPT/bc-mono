@@ -42,7 +42,7 @@ describe('M2-US-04 service lifecycle API', () => {
     expect(store.orders[0]).toMatchObject({ status: 'ACCEPTED', version: 4, playerReadyAt: null });
   });
 
-  test('setOrderReadiness rejects customers and lets the assigned player start a legacy order', async () => {
+  test('setOrderReadiness rejects customers and starts only from the active participant fact', async () => {
     const store = buildStore();
 
     await expect(setOrderReadiness({ store, orderId, expectedVersion: 4, readiness: 'READY',
@@ -75,7 +75,7 @@ describe('M2-US-04 service lifecycle API', () => {
       version: 5,
       actorRole: 'PLAYER',
       readiness: {
-        participants: [],
+        participants: [expect.objectContaining({ playerId, readiness: 'READY' })],
         allActivePlayersReady: true,
         startedAt: new Date(now.getTime() + 60_000).toISOString()
       }
@@ -83,7 +83,7 @@ describe('M2-US-04 service lifecycle API', () => {
     expect(store.orders[0]).toMatchObject({
       status: 'IN_SERVICE',
       version: 5,
-      customerReadyAt: new Date(now.getTime() + 60_000).toISOString(),
+      customerReadyAt: null,
       playerReadyAt: new Date(now.getTime() + 60_000).toISOString(),
       serviceStartedAt: new Date(now.getTime() + 60_000).toISOString()
     });
@@ -132,7 +132,7 @@ describe('M2-US-04 service lifecycle API', () => {
         status: 'IN_SERVICE',
         actorRole: 'PLAYER',
         enabledFeatures: ['CORE_ORDER'],
-        readiness: { participants: [], allActivePlayersReady: true }
+        readiness: { participants: [expect.objectContaining({ playerId, readiness: 'READY' })], allActivePlayersReady: true }
       }
     });
     expect(auditSink.records).toEqual(
@@ -454,6 +454,17 @@ function buildStore(
         completionRequestedAt: null,
         confirmationDueAt: null,
         updatedAt: now.toISOString(),
+        participants: [{
+          id: '00000000-0000-0000-0000-00000000b402',
+          playerId,
+          displayName: '陪玩猫',
+          readyAt: overrides.status === 'PENDING_CONFIRMATION' || overrides.status === 'IN_SERVICE' ? now.toISOString() : null,
+          unitCount: 2,
+          expectedEarningMinor: 8400,
+          customerUnitPriceMinor: 6000,
+          linePriceMinor: 12000,
+          version: 1
+        }],
         ...overrides
       }
     ],

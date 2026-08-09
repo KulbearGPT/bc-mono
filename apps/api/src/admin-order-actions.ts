@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import crypto from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { Currency } from './catalog.js';
-import type { ActorContext, AuditRecord } from './security.js';
+import { insertPostgresAuditRecord, registerSecureWriteRoute, type ActorContext, type AuditRecord } from './security.js';
 import {
   PostgresOrderStore,
   type ExternalTransactionMirrorRecord,
@@ -11,7 +11,6 @@ import {
   type OrderRecord,
   type OrderStore
 } from './orders.js';
-import { insertPostgresAuditRecord, registerSecureWriteRoute } from './security.js';
 import type { PolicyReader } from './operations.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
 import { enqueueTerminalChannelArchive } from './order-channel-cleanup.js';
@@ -160,10 +159,23 @@ interface ApprovalCommitInput {
   auditRecord: AuditRecord;
 }
 
+export interface ApprovalDecisionExecution {
+  approvalRequestId: string;
+  expectedApprovalVersion: number;
+  payloadHash: string;
+  targetVersion: number;
+  guildId: string;
+  actorStaffId: string;
+  actorLevel: StaffLevel;
+  reason: string;
+  now: Date;
+}
+
 interface RefundCommitInput {
   order: OrderRecord;
   refund: RefundPersistenceRecord;
   auditRecord: AuditRecord;
+  approvalDecision?: ApprovalDecisionExecution;
 }
 
 interface ResolutionCommitInput {
@@ -183,6 +195,7 @@ interface ResolutionCommitInput {
   } | null;
   event: OrderEventRecord;
   auditRecord: AuditRecord;
+  approvalDecision?: ApprovalDecisionExecution;
 }
 
 interface ReassignmentCommitInput {
@@ -204,6 +217,7 @@ export async function refundOrder(input: {
   idempotencyKey: string;
   now: Date;
   approvalThresholds?: { l2LimitMinor: number; l4FromMinor: number };
+  approvalDecision?: ApprovalDecisionExecution;
 }): Promise<AdminStagedWrite<RefundOrderResult | ApprovalPendingResult>> {
   if (input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L1 support cannot execute refunds.');
@@ -285,7 +299,7 @@ export async function refundOrder(input: {
   });
   return {
     data,
-    commit: (auditRecord) => commitRefund(input.orderStore, { order, refund: refundRecord, auditRecord })
+    commit: (auditRecord) => commitRefund(input.orderStore, { order, refund: refundRecord, auditRecord, approvalDecision: input.approvalDecision })
   };
 }
 
@@ -303,6 +317,7 @@ export async function resolveOrder(input: {
   idempotencyKey: string;
   now: Date;
   approvalThresholds?: { l2LimitMinor: number; l4FromMinor: number };
+  approvalDecision?: ApprovalDecisionExecution;
 }): Promise<AdminStagedWrite<OrderResolutionResult | ApprovalPendingResult>> {
   if (!input.actor.actorStaffId || input.staffLevel === 'L1_SUPPORT') {
     throw new AdminOrderActionError('PERMISSION_DENIED', 'L2 or higher staff is required to resolve orders.');
@@ -436,7 +451,8 @@ export async function resolveOrder(input: {
             releaseMinor: input.refund.amountMinor
           },
       event,
-      auditRecord
+      auditRecord,
+      approvalDecision: input.approvalDecision
     })
   };
 }
@@ -735,19 +751,24 @@ LIMIT 1
 
   commitRefund(input: RefundCommitInput): Promise<void> {
     return this.withTransaction(async (client) => {
+      if(input.approvalDecision)await approveStoredOrderDecision(client,input.approvalDecision,'REFUND_EXECUTE',input.order.id);
+      else await cancelSupersededOrderApprovals(client,'REFUND_EXECUTE',input.order.id,input.order.version,new Date(input.refund.createdAt));
       await lockOrderVersion(client, input.order.id, input.order.version);
       await insertRefundAndCorrections(client, {
         order: input.order,
         refund: input.refund,
         desiredPlayerEarningMinor: null,
-        resolutionId: null
+        resolutionId: null,
+        approvalRequestId: input.approvalDecision?.approvalRequestId ?? null
       });
-      await insertAdminAuditRecord(client, input.auditRecord);
+      await insertAdminAuditRecord(client, { ...input.auditRecord, approvalRequestId: input.approvalDecision?.approvalRequestId ?? input.auditRecord.approvalRequestId });
     });
   }
 
   commitResolution(input: ResolutionCommitInput): Promise<void> {
     return this.withTransaction(async (client) => {
+      if(input.approvalDecision)await approveStoredOrderDecision(client,input.approvalDecision,'ORDER_RESOLVE',input.originalOrder.id);
+      else await cancelSupersededOrderApprovals(client,'ORDER_RESOLVE',input.originalOrder.id,input.originalOrder.version,new Date(input.resolution.createdAt));
       if (input.preChargeSettlement) {
         await settlePreChargeReservation(client, {
           order: input.originalOrder,
@@ -790,7 +811,7 @@ INSERT INTO order_resolutions (
 )
 VALUES (
   $1, $2, $3::"OrderStatus", $4::"ResolutionReasonCode", $5,
-  $6, $7, $8, $9, NULL, $10, $11, $12
+  $6, $7, $8, $9, $10, $11, $12, $13
 )
         `,
         [
@@ -803,6 +824,7 @@ VALUES (
           input.resolution.currency,
           input.resolution.evidenceNote,
           input.resolution.resolvedByStaffId,
+          input.approvalDecision?.approvalRequestId ?? null,
           input.resolution.orderVersionSnapshot,
           input.resolution.idempotencyKey,
           new Date(input.resolution.createdAt)
@@ -813,7 +835,8 @@ VALUES (
           order: input.originalOrder,
           refund: input.refund,
           desiredPlayerEarningMinor: input.resolution.playerEarningMinor,
-          resolutionId: input.resolution.resolutionId
+          resolutionId: input.resolution.resolutionId,
+          approvalRequestId: input.approvalDecision?.approvalRequestId ?? null
         });
       } else {
         await insertEarningResolutionAdjustment(client, {
@@ -835,7 +858,7 @@ VALUES (
         createdAt: input.resolution.createdAt
       });
       await insertAdminOrderEvent(client, input.event);
-      await insertAdminAuditRecord(client, input.auditRecord);
+      await insertAdminAuditRecord(client, { ...input.auditRecord, approvalRequestId: input.approvalDecision?.approvalRequestId ?? input.auditRecord.approvalRequestId });
       await insertAdminOrderPanelSync(client, {
         orderId: input.updatedOrder.id, version: input.updatedOrder.version,
         kind: 'ORDER_RESOLVED_CHANNEL_SYNC', now: new Date(input.updatedOrder.updatedAt)
@@ -936,6 +959,7 @@ function commitRefund(store: AdminRefundOrderStore, input: RefundCommitInput): P
     return store.commitRefund(input);
   }
   const refunds = store.refunds ?? (store.refunds = []);
+  if (!input.approvalDecision) cancelInMemoryOrderApprovals(store, 'REFUND_EXECUTE', input.order.id, input.order.version);
   const alreadyRefundedMinor = refunds.reduce((total, refund) => {
     return refund.sourceTransactionId === input.refund.sourceTransaction.id
       && (refund.status === 'PENDING' || refund.status === 'SUCCEEDED')
@@ -958,6 +982,7 @@ function commitResolution(store: AdminRefundOrderStore, input: ResolutionCommitI
   if (store.commitResolution) {
     return store.commitResolution(input);
   }
+  if (!input.approvalDecision) cancelInMemoryOrderApprovals(store, 'ORDER_RESOLVE', input.originalOrder.id, input.originalOrder.version);
   commitOrderReplacement(store, input.updatedOrder);
   store.resolutions?.push({ ...input.resolution });
   const earningReversalMinor = Math.max(0, input.originalOrder.playerEarningMinor - input.resolution.playerEarningMinor);
@@ -1068,9 +1093,48 @@ async function lockOrderVersion(client: OrderQueryClient, orderId: string, versi
   }
 }
 
+async function approveStoredOrderDecision(client: OrderQueryClient, input: ApprovalDecisionExecution,
+  action: 'REFUND_EXECUTE'|'ORDER_RESOLVE', orderId: string): Promise<void> {
+  const result=await client.query<{id:string;action:string;target_version:number;payload_snapshot:Record<string,unknown>;payload_hash:string;required_level:StaffLevel;status:string;row_version:number;expires_at:Date|string;guild_id:string}>(`
+    SELECT approval.id,approval.action::text,approval.target_version,approval.payload_snapshot,approval.payload_hash,
+      approval.required_level::text,approval.status::text,approval.row_version,approval.expires_at,orders.guild_id
+    FROM approval_requests approval JOIN orders ON orders.id=approval.target_id
+    WHERE approval.id=$1 AND approval.target_type='ORDER' AND approval.target_id=$2 FOR UPDATE OF approval`,
+  [input.approvalRequestId,orderId]);
+  const row=result.rows[0];
+  if(!row)throw new AdminOrderActionError('NOT_FOUND','Approval request was not found.');
+  if(row.action!==action||row.status!=='PENDING'||row.row_version!==input.expectedApprovalVersion
+    ||row.target_version!==input.targetVersion||row.payload_hash!==input.payloadHash
+    ||stablePayloadHash(row.payload_snapshot)!==row.payload_hash||row.guild_id!==input.guildId
+    ||new Date(row.expires_at).getTime()<=input.now.getTime())
+    throw new AdminOrderActionError('CONFLICT','Approval request changed or expired.');
+  if(levelRank(input.actorLevel)<levelRank(row.required_level))throw new AdminOrderActionError('PERMISSION_DENIED','Actor level is below the approval requirement.');
+  const updated=await client.query(`UPDATE approval_requests SET status='APPROVED',row_version=row_version+1,updated_at=$2 WHERE id=$1 AND status='PENDING' AND row_version=$3`,[row.id,input.now,input.expectedApprovalVersion]);
+  if(updated.rowCount!==1)throw new AdminOrderActionError('CONFLICT','Approval request changed before execution.');
+  await client.query(`INSERT INTO approval_decisions(id,approval_request_id,decision,decided_by_staff_id,reason,target_version_checked,payload_hash_checked,decided_at)
+    VALUES(gen_random_uuid(),$1,'APPROVE',$2,$3,$4,$5,$6)`,[row.id,input.actorStaffId,input.reason,row.target_version,row.payload_hash,input.now]);
+}
+
+async function cancelSupersededOrderApprovals(client:OrderQueryClient,action:'REFUND_EXECUTE'|'ORDER_RESOLVE',orderId:string,targetVersion:number,now:Date):Promise<void>{
+  await client.query(`UPDATE approval_requests SET status='CANCELLED',row_version=row_version+1,updated_at=$4
+    WHERE action=$1::"ApprovalAction" AND target_type='ORDER' AND target_id=$2 AND target_version=$3 AND status='PENDING'`,
+  [action,orderId,targetVersion,now]);
+}
+
+function cancelInMemoryOrderApprovals(store:AdminRefundOrderStore,action:'REFUND_EXECUTE'|'ORDER_RESOLVE',orderId:string,targetVersion:number):void{
+  for(const approval of store.approvalRequests??[]){
+    if(approval.action===action&&approval.targetId===orderId&&approval.targetVersion===targetVersion&&approval.status==='PENDING'){
+      approval.status='CANCELLED';approval.rowVersion=Number(approval.rowVersion??1)+1;
+    }
+  }
+}
+
+function stablePayloadHash(value:unknown):string{return crypto.createHash('sha256').update(JSON.stringify(sortPayload(value))).digest('hex');}
+function sortPayload(value:unknown):unknown{if(Array.isArray(value))return value.map(sortPayload);if(!value||typeof value!=='object')return value;return Object.fromEntries(Object.entries(value as Record<string,unknown>).sort(([left],[right])=>left.localeCompare(right)).map(([key,item])=>[key,sortPayload(item)]));}
+
 async function insertApprovalRequest(client: OrderQueryClient, approval: ApprovalRecord): Promise<void> {
   const payloadJson = JSON.stringify(approval.payloadSnapshot);
-  const payloadHash = crypto.createHash('sha256').update(payloadJson).digest('hex');
+  const payloadHash = stablePayloadHash(approval.payloadSnapshot);
   await client.query(
     `
 INSERT INTO approval_requests (
@@ -1328,6 +1392,7 @@ async function insertRefundAndCorrections(client: OrderQueryClient, input: {
   refund: RefundPersistenceRecord;
   desiredPlayerEarningMinor: number | null;
   resolutionId: string | null;
+  approvalRequestId: string | null;
 }): Promise<void> {
   const refund = input.refund;
   if(refund.currency!=='CAT')throw new AdminOrderActionError('BUSINESS_RULE_VIOLATION','Refunds must use CAT.');
@@ -1338,17 +1403,17 @@ async function insertRefundAndCorrections(client: OrderQueryClient, input: {
     `
 INSERT INTO refunds (
   id, public_id, provider, source_external_transaction_id, beneficiary_user_id,
-  order_id, order_resolution_id, requested_by_staff_id, external_refund_ref,
+  order_id, order_resolution_id, approval_request_id, requested_by_staff_id, external_refund_ref,
   idempotency_key, amount_minor, currency, status, reason_code, reason_note,
   requested_at, settled_at, created_at, updated_at
 )
 VALUES (
   $1, $2, $3, $4, $5,
-  $6, $7, $8, $9,
-  $10, $11, $12, $13::"RefundStatus", $14::"ResolutionReasonCode", $15,
-  $16::timestamptz,
-  CASE WHEN $13::"RefundStatus" = 'SUCCEEDED' THEN $16::timestamptz ELSE NULL END,
-  $16::timestamptz, $16::timestamptz
+  $6, $7, $8, $9, $10,
+  $11, $12, $13, $14::"RefundStatus", $15::"ResolutionReasonCode", $16,
+  $17::timestamptz,
+  CASE WHEN $14::"RefundStatus" = 'SUCCEEDED' THEN $17::timestamptz ELSE NULL END,
+  $17::timestamptz, $17::timestamptz
 )
     `,
     [
@@ -1359,6 +1424,7 @@ VALUES (
       refund.beneficiaryUserId,
       refund.orderId,
       refund.orderResolutionId,
+      input.approvalRequestId,
       refund.requestedByStaffId,
       refund.externalRefundRef,
       refund.idempotencyKey,
@@ -1619,11 +1685,6 @@ function proportionalAmount(baseMinor: number, portionMinor: number, totalMinor:
   }
   return Number((BigInt(baseMinor) * BigInt(portionMinor)) / BigInt(totalMinor));
 }
-
-function isUuid(value: string | null): value is string {
-  return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value));
-}
-
 
 function requiredRefundLevel(amountMinor: number, thresholds: { l2LimitMinor: number; l4FromMinor: number } = { l2LimitMinor: 50_000, l4FromMinor: 500_000 }): 'L2_SUPERVISOR' | 'L3_OPERATIONS' | 'L4_ADMIN_OWNER' {
   return requiredLevelForAmount(amountMinor, thresholds);
