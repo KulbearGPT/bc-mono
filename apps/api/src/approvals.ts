@@ -615,7 +615,7 @@ FROM approval_requests approval
 JOIN LATERAL (
   SELECT orders.guild_id FROM orders WHERE approval.target_type='ORDER' AND orders.id=approval.target_id
   UNION ALL
-  SELECT orders.guild_id FROM gift_requests gift JOIN orders ON orders.id=gift.order_id WHERE approval.target_type='GIFT_REQUEST' AND gift.id=approval.target_id
+  SELECT gift.guild_id FROM gift_requests gift WHERE approval.target_type='GIFT_REQUEST' AND gift.id=approval.target_id
 ) scope ON true`;
 
 function bind<T>(staged: Staged<T>): Staged<T> {

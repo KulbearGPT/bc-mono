@@ -46,7 +46,10 @@ export interface GiftCatalogRecord {
 export interface GiftRequestRecord {
   id: string;
   publicId: string;
-  orderId: string;
+  guildId?: string;
+  origin?: 'ORDER' | 'STANDALONE';
+  senderVisibility?: 'PUBLIC' | 'ANONYMOUS';
+  orderId: string | null;
   participantId?: string | null;
   giftCatalogVersionId: string;
   senderId: string;
@@ -82,14 +85,15 @@ export interface GiftStaffTaskRecord {
   reasonCode: 'GIFT_REQUESTED';
   status: 'OPEN' | 'CLAIMED' | 'VERIFIED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'RESOLVED' | 'CANCELLED';
   version: number;
-  orderId: string;
+  orderId: string | null;
   giftRequestId: string;
   claimedBy?: string | null;
   voiceChannelId: string | null;
   contextSnapshot: {
-    orderId: string;
-    orderPublicId: string;
-    channelId: string;
+    source?: 'ORDER' | 'STANDALONE';
+    orderId: string | null;
+    orderPublicId: string | null;
+    channelId: string | null;
     voiceChannelId: string | null;
     senderId: string;
     receiverId: string;
@@ -112,13 +116,15 @@ export interface GiftReservationRecord extends FundReservationDraft {
 export interface GiftStore {
   listActiveCatalog(): Promise<GiftCatalogRecord[]> | GiftCatalogRecord[];
   findCatalogVersion(id: string): Promise<GiftCatalogRecord | null> | GiftCatalogRecord | null;
+  listStandaloneRecipients(input: { guildId: string }): Promise<StandaloneGiftRecipientRecord[]> | StandaloneGiftRecipientRecord[];
+  findStandaloneRecipient(input: { guildId: string; playerProfileId: string }): Promise<StandaloneGiftRecipientRecord | null> | StandaloneGiftRecipientRecord | null;
   findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): Promise<GiftRecipientRecord[]> | GiftRecipientRecord[];
   commitCreate(input: {
     request: GiftRequestRecord;
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -127,7 +133,8 @@ export interface GiftStore {
   commitCreateBatch(input: {
     items: Array<{ request: GiftRequestRecord; reservation: GiftReservationRecord; staffTask: GiftStaffTaskRecord }>;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
+    standalonePlayerProfileId?: string;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -149,6 +156,16 @@ export interface GiftRecipientRecord {
   participantId: string;
   playerId: string;
   displayName: string;
+}
+
+export interface StandaloneGiftRecipientRecord {
+  playerProfileId: string;
+  userId: string;
+  displayName: string;
+  guildId: string;
+  discordUserId: string;
+  reviewStatus: 'ACTIVE' | 'PENDING_REVIEW' | 'REJECTED' | 'PAUSED' | 'SUSPENDED';
+  userStatus: 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
 }
 
 export interface GiftTerminationCommit {
@@ -296,6 +313,7 @@ export class InMemoryGiftStore implements GiftStore {
   private readonly displayNames: Record<string, string>;
   private readonly guildIdsByOrder:Record<string,string>;
   private readonly orderParticipants: GiftRecipientRecord[];
+  private readonly standaloneRecipients: StandaloneGiftRecipientRecord[];
 
   constructor(input: {
     catalog?: GiftCatalogRecord[];
@@ -305,6 +323,7 @@ export class InMemoryGiftStore implements GiftStore {
     displayNames?: Record<string, string>;
     guildIdsByOrder?:Record<string,string>;
     orderParticipants?: GiftRecipientRecord[];
+    standaloneRecipients?: StandaloneGiftRecipientRecord[];
   } = {}) {
     this.catalog = clone(input.catalog ?? []);
     this.requests = clone(input.requests ?? []);
@@ -313,6 +332,7 @@ export class InMemoryGiftStore implements GiftStore {
     this.displayNames = clone(input.displayNames ?? {});
     this.guildIdsByOrder=clone(input.guildIdsByOrder??{});
     this.orderParticipants=clone(input.orderParticipants??[]);
+    this.standaloneRecipients=clone(input.standaloneRecipients??[]);
   }
 
   listActiveCatalog(): GiftCatalogRecord[] {
@@ -322,6 +342,16 @@ export class InMemoryGiftStore implements GiftStore {
   findCatalogVersion(id: string): GiftCatalogRecord | null {
     const item = this.catalog.find((candidate) => candidate.id === id);
     return item ? clone(item) : null;
+  }
+
+  listStandaloneRecipients(input: { guildId: string }): StandaloneGiftRecipientRecord[] {
+    return clone(this.standaloneRecipients.filter((recipient) => recipient.guildId === input.guildId
+      && recipient.reviewStatus === 'ACTIVE' && recipient.userStatus === 'ACTIVE' && recipient.discordUserId.length > 0));
+  }
+
+  findStandaloneRecipient(input: { guildId: string; playerProfileId: string }): StandaloneGiftRecipientRecord | null {
+    return this.listStandaloneRecipients({ guildId: input.guildId })
+      .find((recipient) => recipient.playerProfileId === input.playerProfileId) ?? null;
   }
 
   findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): GiftRecipientRecord[] {
@@ -334,7 +364,7 @@ export class InMemoryGiftStore implements GiftStore {
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -346,7 +376,8 @@ export class InMemoryGiftStore implements GiftStore {
   async commitCreateBatch(input: {
     items: Array<{ request: GiftRequestRecord; reservation: GiftReservationRecord; staffTask: GiftStaffTaskRecord }>;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
+    standalonePlayerProfileId?: string;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -366,6 +397,14 @@ export class InMemoryGiftStore implements GiftStore {
     const total = first.request.priceMinor * input.items.length;
     if (input.ledgerBalanceMinor - activeReservedMinor < total) {
       throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.');
+    }
+    if ((first.request.origin ?? 'ORDER') === 'STANDALONE') {
+      const recipient = input.standalonePlayerProfileId
+        ? this.findStandaloneRecipient({ guildId: input.expectedGuildId ?? '', playerProfileId: input.standalonePlayerProfileId })
+        : null;
+      if (input.items.length !== 1 || !recipient || recipient.userId !== first.request.receiverId) {
+        throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+      }
     }
     const lengths={requests:this.requests.length,reservations:this.reservations.length,staffTasks:this.staffTasks.length,expiryJobs:this.expiryJobs.length};
     try {
@@ -508,7 +547,7 @@ export class InMemoryGiftStore implements GiftStore {
   getCaptureContext(giftRequestId: string): GiftCaptureContext {
     const request = this.requireRequest(giftRequestId);
     const reservation = this.requireReservation(giftRequestId);
-    return clone({ request, reservation, guildId:this.guildIdsByOrder[request.orderId]??null,
+    return clone({ request, reservation, guildId:request.guildId ?? (request.orderId ? this.guildIdsByOrder[request.orderId] : null) ?? null,
       senderDisplayName: this.displayNames[request.senderId] ?? request.senderId,
       receiverDisplayName: this.displayNames[request.receiverId] ?? request.receiverId });
   }
@@ -627,6 +666,19 @@ WHERE versions.id = $1`, [id]);
     return result.rows[0] ? mapGiftCatalogRow(result.rows[0]) : null;
   }
 
+  async listStandaloneRecipients(input: { guildId: string }): Promise<StandaloneGiftRecipientRecord[]> {
+    const result = await this.pool.query<StandaloneGiftRecipientRow>(standaloneGiftRecipientSelect + `
+WHERE da.guild_id=$1 AND pp.review_status='ACTIVE' AND u.status='ACTIVE'
+ORDER BY lower(u.display_name),pp.id`, [input.guildId]);
+    return result.rows.map(mapStandaloneGiftRecipientRow);
+  }
+
+  async findStandaloneRecipient(input: { guildId: string; playerProfileId: string }): Promise<StandaloneGiftRecipientRecord | null> {
+    const result = await this.pool.query<StandaloneGiftRecipientRow>(standaloneGiftRecipientSelect + `
+WHERE da.guild_id=$1 AND pp.id=$2 AND pp.review_status='ACTIVE' AND u.status='ACTIVE'`, [input.guildId, input.playerProfileId]);
+    return result.rows[0] ? mapStandaloneGiftRecipientRow(result.rows[0]) : null;
+  }
+
   async findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): Promise<GiftRecipientRecord[]> {
     const result = await this.pool.query<{ id: string; player_id: string; player_display_name_snapshot: string }>(
       `SELECT id,player_id,player_display_name_snapshot FROM order_participants
@@ -641,7 +693,7 @@ WHERE versions.id = $1`, [id]);
     reservation: GiftReservationRecord;
     staffTask: GiftStaffTaskRecord;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -653,7 +705,8 @@ WHERE versions.id = $1`, [id]);
   async commitCreateBatch(input: {
     items: Array<{ request: GiftRequestRecord; reservation: GiftReservationRecord; staffTask: GiftStaffTaskRecord }>;
     ledgerBalanceMinor: number;
-    expectedOrderVersion: number;
+    expectedOrderVersion?: number;
+    standalonePlayerProfileId?: string;
     expectedGuildId?: string;
     now: Date;
     auditRecord: AuditRecord;
@@ -665,30 +718,40 @@ WHERE versions.id = $1`, [id]);
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${first.request.senderId}:${first.request.currency}`]);
-      const order = await client.query<{ customer_id: string; guild_id: string; status: string; completed_at: Date | null; row_version: number }>(
-        `SELECT customer_id,guild_id,status,completed_at,row_version FROM orders WHERE id=$1 FOR UPDATE`,
-        [first.request.orderId]
-      );
-      const currentOrder = order.rows[0];
-      const completedWithinWindow = currentOrder?.status === 'COMPLETED' && currentOrder.completed_at
-        && input.now.getTime() - currentOrder.completed_at.getTime() <= 24 * 60 * 60_000;
-      if (!currentOrder || currentOrder.customer_id !== first.request.senderId
-        || (input.expectedGuildId !== undefined && currentOrder.guild_id !== input.expectedGuildId)
-        || currentOrder.row_version !== input.expectedOrderVersion
-        || (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(currentOrder.status) && !completedWithinWindow)) {
-        throw new GiftError('CONFLICT', 'Order changed; refresh before retrying.');
-      }
-      const participantIds = input.items.map((item) => item.request.participantId).filter((id): id is string => Boolean(id));
-      if (participantIds.length !== input.items.length || new Set(participantIds).size !== input.items.length) {
-        throw new GiftError('VALIDATION_ERROR', 'Gift recipients must be distinct active order participants.');
-      }
-      const recipients = await client.query<{ id: string; player_id: string }>(
-        `SELECT id,player_id FROM order_participants WHERE order_id=$1 AND status='ACTIVE' AND id=ANY($2::uuid[]) FOR SHARE`,
-        [first.request.orderId, participantIds]
-      );
-      const receiverByParticipant = new Map(recipients.rows.map((row) => [row.id, row.player_id]));
-      if (recipients.rows.length !== input.items.length || input.items.some((item) => receiverByParticipant.get(item.request.participantId!) !== item.request.receiverId)) {
-        throw new GiftError('CONFLICT', 'One or more gift recipients changed; refresh before retrying.');
+      if ((first.request.origin ?? 'ORDER') === 'STANDALONE') {
+        const recipient = input.standalonePlayerProfileId ? await client.query<{ user_id: string }>(`
+          SELECT pp.user_id FROM player_profiles pp JOIN users u ON u.id=pp.user_id
+          JOIN discord_accounts da ON da.user_id=pp.user_id AND da.guild_id=$1
+          WHERE pp.id=$2 AND pp.review_status='ACTIVE' AND u.status='ACTIVE' FOR SHARE OF pp,u`,
+        [input.expectedGuildId, input.standalonePlayerProfileId]) : { rows: [] };
+        if (input.items.length !== 1 || !input.expectedGuildId || first.request.guildId !== input.expectedGuildId
+          || first.request.orderId !== null || first.request.participantId != null
+          || recipient.rows[0]?.user_id !== first.request.receiverId) {
+          throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+        }
+      } else {
+        const order = await client.query<{ customer_id: string; guild_id: string; status: string; completed_at: Date | null; row_version: number }>(
+          `SELECT customer_id,guild_id,status,completed_at,row_version FROM orders WHERE id=$1 FOR UPDATE`, [first.request.orderId]);
+        const currentOrder = order.rows[0];
+        const completedWithinWindow = currentOrder?.status === 'COMPLETED' && currentOrder.completed_at
+          && input.now.getTime() - currentOrder.completed_at.getTime() <= 24 * 60 * 60_000;
+        if (!currentOrder || currentOrder.customer_id !== first.request.senderId
+          || (input.expectedGuildId !== undefined && currentOrder.guild_id !== input.expectedGuildId)
+          || currentOrder.row_version !== input.expectedOrderVersion
+          || (!['ACCEPTED', 'IN_SERVICE', 'PENDING_CONFIRMATION'].includes(currentOrder.status) && !completedWithinWindow)) {
+          throw new GiftError('CONFLICT', 'Order changed; refresh before retrying.');
+        }
+        const participantIds = input.items.map((item) => item.request.participantId).filter((id): id is string => Boolean(id));
+        if (participantIds.length !== input.items.length || new Set(participantIds).size !== input.items.length) {
+          throw new GiftError('VALIDATION_ERROR', 'Gift recipients must be distinct active order participants.');
+        }
+        const recipients = await client.query<{ id: string; player_id: string }>(
+          `SELECT id,player_id FROM order_participants WHERE order_id=$1 AND status='ACTIVE' AND id=ANY($2::uuid[]) FOR SHARE`,
+          [first.request.orderId, participantIds]);
+        const receiverByParticipant = new Map(recipients.rows.map((row) => [row.id, row.player_id]));
+        if (recipients.rows.length !== input.items.length || input.items.some((item) => receiverByParticipant.get(item.request.participantId!) !== item.request.receiverId)) {
+          throw new GiftError('CONFLICT', 'One or more gift recipients changed; refresh before retrying.');
+        }
       }
       const catalog = await client.query<{ status: string; version: number; price_minor: string; currency: string }>(
         `SELECT status,version,price_minor,currency FROM gift_catalog_versions WHERE id = $1 FOR SHARE`, [first.request.giftCatalogVersionId]);
@@ -713,10 +776,11 @@ AND reservation.status = ANY($3::"FundReservationStatus"[])`,
       }
       for (const item of input.items) {
         await client.query(`INSERT INTO gift_requests (
-          id,public_id,order_id,order_participant_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,
+          id,public_id,guild_id,origin,sender_visibility,order_id,order_participant_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,
           gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,expires_at,created_at,updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDING_REVIEW',1,$8,$9,$10,$11,$12,$13,$14,$14)`, [
-          item.request.id,item.request.publicId,item.request.orderId,item.request.participantId,item.request.giftCatalogVersionId,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING_REVIEW',1,$11,$12,$13,$14,$15,$16,$17,$17)`, [
+          item.request.id,item.request.publicId,item.request.guildId ?? input.expectedGuildId,item.request.origin ?? 'ORDER',
+          item.request.senderVisibility ?? 'PUBLIC',item.request.orderId,item.request.participantId,item.request.giftCatalogVersionId,
           item.request.senderId,item.request.receiverId,item.request.giftCodeSnapshot,item.request.giftNameSnapshot,
           item.request.priceMinor,item.request.currency,item.request.broadcastTemplateSnapshot,new Date(item.request.expiresAt),new Date(item.request.createdAt)
         ]);
@@ -1091,6 +1155,30 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
   });
 
   registerSecureReadRoute(server, security, {
+    method: 'GET', url: '/api/v1/gift-center', permission: 'gift.request', action: 'GET_STANDALONE_GIFT_CENTER', targetType: 'gift_center',
+    acceptedSources: ['DISCORD_BOT'],
+    handler: async (_request, actor) => getStandaloneGiftCenter({ ...options, actor, now: now() }),
+    mapError: mapGiftError
+  });
+
+  registerSecureReadRoute(server, security, {
+    method: 'POST', url: '/api/v1/gift-center/affordability', permission: 'gift.request',
+    action: 'CHECK_STANDALONE_GIFT_AFFORDABILITY', targetType: 'gift_center', acceptedSources: ['DISCORD_BOT'],
+    handler: async (request, actor) => checkStandaloneGiftAffordability({ ...options, actor,
+      body: parseStandaloneGiftSelectionBody(request.body), now: now() }),
+    mapError: mapGiftError
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST', url: '/api/v1/gift-center/gift-requests', permission: 'gift.request',
+    action: 'CREATE_STANDALONE_GIFT_REQUEST', targetType: 'gift_center', acceptedSources: ['DISCORD_BOT'], successStatusCode: 201,
+    handler: async (request, actor) => prepareStandaloneGiftRequest({ ...options, actor,
+      body: parseStandaloneGiftRequestBody(request.body), idempotencyKey: request.headers['idempotency-key'] as string,
+      auditSink, now: now() }),
+    fingerprintBody: (request) => parseStandaloneGiftRequestBody(request.body), mapError: mapGiftError
+  });
+
+  registerSecureReadRoute(server, security, {
     method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request',
     action: 'CHECK_GIFT_AFFORDABILITY', targetType: 'order', targetId: giftOrderIdParam,
     acceptedSources: ['DISCORD_BOT'],
@@ -1315,6 +1403,115 @@ export async function listGifts(input: {
   };
 }
 
+export async function getStandaloneGiftCenter(input: {
+  store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
+  actor: ActorContext; now: Date;
+}) {
+  const binding = await requireBinding(input.accountStore, input.actor);
+  const [balance, recipients, catalog] = await Promise.all([
+    input.walletFunding.getBalance({ userId: binding.userId, now: input.now }),
+    input.store.listStandaloneRecipients({ guildId: binding.guildId }),
+    input.store.listActiveCatalog()
+  ]);
+  const items = catalog.filter((item) => item.currency === 'CAT');
+  return {
+    recipients: recipients.map((recipient) => ({ playerProfileId: recipient.playerProfileId, displayName: recipient.displayName })),
+    balance,
+    items: items.map((item) => ({ id: item.id, code: item.code, name: item.name, version: item.version,
+      priceMinor: item.priceMinor, currency: item.currency, affordable: item.priceMinor <= balance.availableMinor }))
+  };
+}
+
+export async function checkStandaloneGiftAffordability(input: {
+  store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
+  actor: ActorContext; body: { playerProfileId: string; giftCatalogVersionId: string }; now: Date;
+}) {
+  const binding = await requireBinding(input.accountStore, input.actor);
+  const [recipient, catalog, balance] = await Promise.all([
+    input.store.findStandaloneRecipient({ guildId: binding.guildId, playerProfileId: input.body.playerProfileId }),
+    input.store.findCatalogVersion(input.body.giftCatalogVersionId),
+    input.walletFunding.getBalance({ userId: binding.userId, now: input.now })
+  ]);
+  if (!recipient) throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+  if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  if (catalog.currency !== balance.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
+  const shortfallMinor = Math.max(0, catalog.priceMinor - balance.availableMinor);
+  return {
+    playerProfileId: recipient.playerProfileId, giftCatalogVersionId: catalog.id, catalogVersion: catalog.version,
+    priceMinor: catalog.priceMinor, recipientCount: 1, totalPriceMinor: catalog.priceMinor,
+    ledgerBalanceMinor: balance.ledgerBalanceMinor, reservedMinor: balance.reservedMinor,
+    availableMinor: balance.availableMinor, shortfallMinor, currency: balance.currency, calculatedAt: balance.calculatedAt,
+    stale: false as const, canAfford: shortfallMinor === 0, topUpInstructions: '联系客服并提交付款 receipt。'
+  };
+}
+
+async function prepareStandaloneGiftRequest(input: {
+  store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
+  actor: ActorContext; auditSink: AuditSink;
+  body: { playerProfileId: string; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number; anonymous: boolean };
+  idempotencyKey: string; now: Date;
+}) {
+  const binding = await requireBinding(input.accountStore, input.actor);
+  const [recipient, catalog, balance] = await Promise.all([
+    input.store.findStandaloneRecipient({ guildId: binding.guildId, playerProfileId: input.body.playerProfileId }),
+    input.store.findCatalogVersion(input.body.giftCatalogVersionId),
+    input.walletFunding.getBalance({ userId: binding.userId, now: input.now })
+  ]);
+  if (!recipient) throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+  if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  if (catalog.version !== input.body.expectedCatalogVersion || catalog.priceMinor !== input.body.expectedPriceMinor) {
+    throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
+  }
+  if (catalog.currency !== 'CAT' || balance.currency !== catalog.currency) {
+    throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
+  }
+  if (balance.availableMinor < catalog.priceMinor) {
+    const availableMinor = Math.max(0, balance.availableMinor);
+    throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.', [
+      { field: 'availableMinor', reason: String(availableMinor) },
+      { field: 'shortfallMinor', reason: String(catalog.priceMinor - availableMinor) },
+      { field: 'topUpAction', reason: 'CONTACT_SUPPORT_WITH_RECEIPT' }
+    ]);
+  }
+  const requestId = deterministicUuid(`gift-request:${binding.userId}:${binding.guildId}:standalone:${input.idempotencyKey}`);
+  const expiresAt = new Date(input.now.getTime() + 30 * 60_000).toISOString();
+  const request: GiftRequestRecord = {
+    id: requestId, publicId: `G-${requestId.slice(0, 8).toUpperCase()}`, guildId: binding.guildId,
+    origin: 'STANDALONE', senderVisibility: input.body.anonymous ? 'ANONYMOUS' : 'PUBLIC', orderId: null, participantId: null,
+    giftCatalogVersionId: catalog.id, senderId: binding.userId, receiverId: recipient.userId,
+    status: 'PENDING_REVIEW', version: 1, giftCodeSnapshot: catalog.code, giftNameSnapshot: catalog.name,
+    priceMinor: catalog.priceMinor, currency: catalog.currency, broadcastTemplateSnapshot: catalog.broadcastTemplate,
+    expiresAt, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+  };
+  const draft = buildFundReservationDraft({ businessSource: { type: 'GIFT', referenceId: request.id }, userId: binding.userId,
+    provider: null, mode: 'LOCAL_RESERVATION', amountMinor: catalog.priceMinor, currency: 'CAT',
+    idempotencyKey: `${input.idempotencyKey}:recipient:1`, ttlMinutes: 30, now: input.now });
+  const reservation: GiftReservationRecord = { ...draft, sourceType: 'GIFT', orderId: null, giftRequestId: request.id,
+    status: 'ACTIVE', version: 2, providerHoldRef: null, activatedAt: input.now.toISOString() };
+  const staffTask: GiftStaffTaskRecord = {
+    id: deterministicUuid(`gift-task:${request.id}`), publicId: `T-GIFT-${request.publicId.slice(2)}`,
+    type: 'GIFT_REVIEW', reasonCode: 'GIFT_REQUESTED', status: 'OPEN', version: 1, orderId: null,
+    giftRequestId: request.id, voiceChannelId: null,
+    contextSnapshot: { source: 'STANDALONE', orderId: null, orderPublicId: null, channelId: null, voiceChannelId: null,
+      senderId: binding.userId, receiverId: recipient.userId, giftCode: catalog.code, giftName: catalog.name,
+      priceMinor: catalog.priceMinor, currency: catalog.currency, reservationId: reservation.id },
+    createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+  };
+  return {
+    data: { origin: 'STANDALONE', senderVisibility: request.senderVisibility, orderId: null,
+      playerProfileId: recipient.playerProfileId, receiverId: recipient.userId, id: request.id, publicId: request.publicId,
+      status: request.status, expiresAt, gift: { code: catalog.code, name: catalog.name, priceMinor: catalog.priceMinor, currency: catalog.currency },
+      reservation: { id: reservation.id, status: reservation.status, amountMinor: reservation.amountMinor, currency: reservation.currency, expiresAt },
+      staffTask: { id: staffTask.id, publicId: staffTask.publicId, type: staffTask.type, status: staffTask.status },
+      balance: { ...balance, reservedMinor: balance.reservedMinor + catalog.priceMinor,
+        availableMinor: balance.ledgerBalanceMinor - balance.reservedMinor - catalog.priceMinor } },
+    statusCode: 201,
+    commit: (auditRecord: AuditRecord) => input.store.commitCreateBatch({ items: [{ request, reservation, staffTask }],
+      standalonePlayerProfileId: recipient.playerProfileId, ledgerBalanceMinor: balance.ledgerBalanceMinor,
+      expectedGuildId: binding.guildId, now: input.now, auditRecord, auditSink: input.auditSink })
+  };
+}
+
 export interface GiftAffordabilityResult {
   giftCatalogVersionId: string; catalogVersion: number; priceMinor: number; recipientCount: number; totalPriceMinor: number;
   ledgerBalanceMinor: number; reservedMinor: number; availableMinor: number; shortfallMinor: number;
@@ -1388,7 +1585,8 @@ async function prepareGiftRequest(input: {
     const recipient = recipientById.get(participantId)!;
     const requestId = deterministicUuid(`gift-request:${binding.userId}:${order.id}:${input.idempotencyKey}:${participantId}`);
     const request: GiftRequestRecord = {
-      id: requestId, publicId: `G-${requestId.slice(0, 8).toUpperCase()}`, orderId: order.id, participantId,
+      id: requestId, publicId: `G-${requestId.slice(0, 8).toUpperCase()}`, guildId: binding.guildId,
+      origin: 'ORDER', senderVisibility: 'PUBLIC', orderId: order.id, participantId,
       giftCatalogVersionId: catalog.id, senderId: binding.userId, receiverId: recipient.playerId,
       status: 'PENDING_REVIEW', version: 1, giftCodeSnapshot: catalog.code, giftNameSnapshot: catalog.name,
       priceMinor: catalog.priceMinor, currency: catalog.currency, broadcastTemplateSnapshot: catalog.broadcastTemplate,
@@ -1403,7 +1601,7 @@ async function prepareGiftRequest(input: {
       id: deterministicUuid(`gift-task:${request.id}`), publicId: `T-GIFT-${request.publicId.slice(2)}`,
       type: 'GIFT_REVIEW', reasonCode: 'GIFT_REQUESTED', status: 'OPEN', version: 1,
       orderId: order.id, giftRequestId: request.id, voiceChannelId: order.channelSpec.voiceChannelId,
-      contextSnapshot: { orderId: order.id, orderPublicId: order.publicId, channelId: order.channelSpec.channelId,
+      contextSnapshot: { source: 'ORDER', orderId: order.id, orderPublicId: order.publicId, channelId: order.channelSpec.channelId,
         voiceChannelId: order.channelSpec.voiceChannelId, senderId: binding.userId, receiverId: recipient.playerId,
         giftCode: catalog.code, giftName: catalog.name, priceMinor: catalog.priceMinor, currency: catalog.currency, reservationId: reservation.id },
       createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
@@ -1471,6 +1669,28 @@ function parseGiftAffordabilityBody(value: unknown) {
     throw new GiftError('VALIDATION_ERROR', 'giftCatalogVersionId and participantIds are required.');
   }
   return { giftCatalogVersionId: body.giftCatalogVersionId, participantIds: body.participantIds as string[] };
+}
+
+function parseStandaloneGiftSelectionBody(value: unknown) {
+  const body = value as Record<string, unknown>;
+  if (!body || typeof body.playerProfileId !== 'string' || typeof body.giftCatalogVersionId !== 'string'
+    || Object.keys(body).some((key) => !['playerProfileId', 'giftCatalogVersionId'].includes(key))) {
+    throw new GiftError('VALIDATION_ERROR', 'playerProfileId and giftCatalogVersionId are required.');
+  }
+  return { playerProfileId: body.playerProfileId, giftCatalogVersionId: body.giftCatalogVersionId };
+}
+
+function parseStandaloneGiftRequestBody(value: unknown) {
+  const body = value as Record<string, unknown>;
+  if (!body || typeof body.playerProfileId !== 'string' || typeof body.giftCatalogVersionId !== 'string'
+    || !Number.isSafeInteger(body.expectedCatalogVersion) || !Number.isSafeInteger(body.expectedPriceMinor)
+    || typeof body.anonymous !== 'boolean'
+    || Object.keys(body).some((key) => !['playerProfileId', 'giftCatalogVersionId', 'expectedCatalogVersion', 'expectedPriceMinor', 'anonymous'].includes(key))) {
+    throw new GiftError('VALIDATION_ERROR', 'Current player, catalog version, price, and anonymous selection are required.');
+  }
+  return { playerProfileId: body.playerProfileId, giftCatalogVersionId: body.giftCatalogVersionId,
+    expectedCatalogVersion: body.expectedCatalogVersion as number, expectedPriceMinor: body.expectedPriceMinor as number,
+    anonymous: body.anonymous };
 }
 
 function parseVerifyBody(value: unknown) {
@@ -1588,13 +1808,14 @@ function buildGiftApproval(request: GiftRequestRecord, actorStaffId: string, req
 
 function buildGiftAnnouncementJob(request: GiftRequestRecord, broadcastChannelId: string,
   senderDisplayName: string, receiverDisplayName: string, now: Date): OutboxJob {
+  const publicSenderName = request.senderVisibility === 'ANONYMOUS' ? '匿名老板' : senderDisplayName;
   return {
     id: deterministicUuid(`gift-announcement:${request.id}`), type: 'GIFT_ANNOUNCEMENT', status: 'PENDING',
     payload: {
       giftRequestId: request.id,
       channelId: broadcastChannelId,
       content: request.broadcastTemplateSnapshot
-        .replaceAll('{sender_name}', senderDisplayName)
+        .replaceAll('{sender_name}', publicSenderName)
         .replaceAll('{receiver_name}', receiverDisplayName)
         .replaceAll('{gift_name}', request.giftNameSnapshot)
     },
@@ -1681,12 +1902,12 @@ interface GiftCaptureRow {
 
 async function loadGiftReviewSnapshot(client: PoolClient, selector: { taskId?: string; giftRequestId?: string }) {
   const result = await client.query<GiftReviewRow>(`
-SELECT gr.id AS gr_id, gr.public_id, gr.order_id, gr.order_participant_id, gr.gift_catalog_version_id, gr.sender_id, gr.receiver_id,
+SELECT gr.id AS gr_id, gr.public_id, gr.guild_id,gr.origin,gr.sender_visibility,gr.order_id, gr.order_participant_id, gr.gift_catalog_version_id, gr.sender_id, gr.receiver_id,
   gr.status AS gr_status, gr.row_version AS gr_version, gr.gift_code_snapshot, gr.gift_name_snapshot,
   gr.price_minor, gr.currency, gr.broadcast_template_snapshot, gr.verified_by_staff_id, gr.verified_at,
   gr.verification_note, gr.verification_payload_hash, gr.execution_credential_expires_at,
   gr.approved_by_staff_id, gr.approved_at, gr.rejected_reason, gr.expires_at AS gr_expires_at,
-  gr.created_at AS gr_created_at, gr.updated_at AS gr_updated_at, o.guild_id,
+  gr.created_at AS gr_created_at, gr.updated_at AS gr_updated_at,
   fr.id AS fr_id, fr.user_id AS fr_user_id, fr.mode AS fr_mode, fr.provider, fr.provider_hold_ref,
   fr.amount_minor AS fr_amount_minor, fr.currency AS fr_currency, fr.status AS fr_status,
   fr.row_version AS fr_version, fr.idempotency_key, fr.expires_at AS fr_expires_at,
@@ -1694,7 +1915,6 @@ SELECT gr.id AS gr_id, gr.public_id, gr.order_id, gr.order_participant_id, gr.gi
   st.id AS st_id, st.public_id AS st_public_id, st.status AS st_status, st.row_version AS st_version,
   st.claimed_by_staff_id, st.voice_channel_id, st.context_snapshot, st.created_at AS st_created_at, st.updated_at AS st_updated_at
 FROM gift_requests gr
-JOIN orders o ON o.id=gr.order_id
 JOIN fund_reservations fr ON fr.gift_request_id = gr.id
 JOIN staff_tasks st ON st.gift_request_id = gr.id
 WHERE ${selector.taskId ? 'st.id = $1' : 'gr.id = $1'}
@@ -1702,7 +1922,8 @@ FOR UPDATE OF gr, fr, st`, [selector.taskId ?? selector.giftRequestId]);
   const row = result.rows[0];
   if (!row) throw new GiftError('NOT_FOUND', 'Gift review record was not found.');
   const request: GiftRequestRecord = {
-    id: row.gr_id, publicId: row.public_id, orderId: row.order_id, participantId: row.order_participant_id,
+    id: row.gr_id, publicId: row.public_id, guildId: row.guild_id ?? undefined, origin: row.origin,
+    senderVisibility: row.sender_visibility, orderId: row.order_id, participantId: row.order_participant_id,
     giftCatalogVersionId: row.gift_catalog_version_id,
     senderId: row.sender_id, receiverId: row.receiver_id, status: row.gr_status, version: row.gr_version,
     giftCodeSnapshot: row.gift_code_snapshot, giftNameSnapshot: row.gift_name_snapshot, priceMinor: Number(row.price_minor),
@@ -1766,7 +1987,8 @@ function nullableIso(value: Date | string | null): string | null {
 }
 
 interface GiftReviewRow {
-  gr_id: string; public_id: string; order_id: string; order_participant_id: string | null; gift_catalog_version_id: string; sender_id: string; receiver_id: string;
+  gr_id: string; public_id: string; order_id: string | null; order_participant_id: string | null; gift_catalog_version_id: string; sender_id: string; receiver_id: string;
+  origin: 'ORDER' | 'STANDALONE'; sender_visibility: 'PUBLIC' | 'ANONYMOUS';
   gr_status: GiftRequestRecord['status']; gr_version: number; gift_code_snapshot: string; gift_name_snapshot: string;
   price_minor: string | number | bigint; currency: string; broadcast_template_snapshot: string;
   verified_by_staff_id: string | null; verified_at: Date | string | null; verification_note: string | null;
@@ -1791,6 +2013,20 @@ function mapGiftCatalogRow(row: GiftCatalogRow): GiftCatalogRecord {
 interface GiftCatalogRow {
   id: string; gift_catalog_item_id: string; code: string; version: number; status: GiftCatalogStatus;
   name: string; price_minor: string | number | bigint; currency: string; broadcast_template: string;
+}
+
+const standaloneGiftRecipientSelect = `SELECT pp.id AS player_profile_id,pp.user_id,u.display_name,da.guild_id,da.discord_user_id,
+  pp.review_status::text AS review_status,u.status::text AS user_status
+FROM player_profiles pp JOIN users u ON u.id=pp.user_id JOIN discord_accounts da ON da.user_id=pp.user_id `;
+
+interface StandaloneGiftRecipientRow {
+  player_profile_id: string; user_id: string; display_name: string; guild_id: string; discord_user_id: string;
+  review_status: StandaloneGiftRecipientRecord['reviewStatus']; user_status: StandaloneGiftRecipientRecord['userStatus'];
+}
+
+function mapStandaloneGiftRecipientRow(row: StandaloneGiftRecipientRow): StandaloneGiftRecipientRecord {
+  return { playerProfileId: row.player_profile_id, userId: row.user_id, displayName: row.display_name,
+    guildId: row.guild_id, discordUserId: row.discord_user_id, reviewStatus: row.review_status, userStatus: row.user_status };
 }
 
 function clone<T>(value: T): T {

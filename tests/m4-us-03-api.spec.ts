@@ -70,7 +70,7 @@ describe('M4-US-03 admin directory API', () => {
     expect(outputContract).toMatch(/operationId: listAdminUsers[\s\S]*?x-required-permissions: \[user\.read\]\n\s+x-minimum-staff-level: L2_SUPERVISOR/);
     expect(outputContract).toMatch(/operationId: listAdminUserConsumptions[\s\S]*?x-minimum-staff-level: L2_SUPERVISOR/);
     expect(outputContract).toMatch(/AdminConsumptionMirrorType:\n\s+type: string\n\s+enum: \[ORDER, GIFT, REFUND_REVERSAL, ADMIN_CORRECTION\]/);
-    expect(outputContract).toMatch(/AdminGiftRequest:[\s\S]*?required: \[id, publicId, orderId, orderPublicId[\s\S]*?rowVersion: \{\$ref: '#\/components\/schemas\/Version'\}/);
+    expect(outputContract).toMatch(/AdminGiftRequest:[\s\S]*?required: \[id, publicId, guildId, origin, senderVisibility, orderId, orderPublicId[\s\S]*?orderId: \{type: \[string, 'null'\], format: uuid\}[\s\S]*?rowVersion: \{\$ref: '#\/components\/schemas\/Version'\}/);
     expect(outputContract).toMatch(/GiftCatalogItemResponse:[\s\S]*?example: \{requestId: req_gift_catalog, data: \{id: [^,]+, code: [^,]+, name: [^,]+, priceMinor: \d+, currency: CAT, enabled: true, version: 1, broadcastTemplate: [^,]+, createdAt: '[^']+'\}\}/);
     expect(productionEntry).toContain('auditSink: new PostgresAuditSink({ client: databasePool })');
     expect(productionEntry).not.toContain('auditSink: new InMemoryAuditSink()');

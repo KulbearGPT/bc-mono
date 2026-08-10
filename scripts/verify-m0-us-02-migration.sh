@@ -138,25 +138,27 @@ psql_db -qAtc "
 "
 
 expect_sql_failure "active-slot-mismatch-rejected" "
-  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, updated_at)
+  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, guild_id, updated_at)
   VALUES (
     '00000000-0000-0000-0000-000000000100',
     'P-BAD-SLOT',
     '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000002',
     'DRAFT',
+    '900000000000000001',
     now()
   );
 "
 
 psql_db -qAtc "
-  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, updated_at)
+  INSERT INTO orders (id, public_id, customer_id, active_customer_slot_id, status, guild_id, updated_at)
   VALUES (
     '00000000-0000-0000-0000-000000000101',
     'P-VALID',
     '00000000-0000-0000-0000-000000000001',
     '00000000-0000-0000-0000-000000000001',
     'DRAFT',
+    '900000000000000001',
     now()
   );
 "

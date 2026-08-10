@@ -7,8 +7,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresAdminDirectoryStore } from '@blackcat/api/admin-directory';
 import { InMemoryAuditSink, PostgresAuditSink, type AuditRecord } from '@blackcat/api/security';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
 const execFile = promisify(execFileCallback);
+const guildId = '900000000000004300';
 const ids = {
   staff: '00000000-0000-0000-0000-000000004301',
   customer: '00000000-0000-0000-0000-000000004302',
@@ -34,8 +36,7 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
     await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
     await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_admin_directory']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_admin_directory', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_admin_directory', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000013_business_tags/migration.sql']);
+    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m4_admin_directory' });
     pool = new Pool({ host: root, port, database: 'blackcat_m4_admin_directory' });
     await seed();
   }, 30_000);
@@ -73,8 +74,8 @@ describe('M4-US-03 PostgreSQL admin directory', () => {
     const absent = await store.listPlayers({ cursor: null, limit: 10, reviewStatus: 'PENDING_REVIEW' });
     const consumptions = await store.listUserConsumptions({ cursor: null, limit: 10, userId: ids.customer, type: 'ORDER' });
     const corrections = await store.listUserConsumptions({ cursor: null, limit: 10, userId: ids.customer, type: 'ADMIN_CORRECTION' });
-    const giftRequests = await store.listGiftRequests({ cursor: null, limit: 10, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
-    const giftRequest = await store.getGiftRequest({ giftRequestId: ids.giftRequest, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS' });
+    const giftRequests = await store.listGiftRequests({ cursor: null, limit: 10, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS', guildId });
+    const giftRequest = await store.getGiftRequest({ giftRequestId: ids.giftRequest, actorStaffId: ids.staff, actorLevel: 'L3_OPERATIONS', guildId });
     const giftCatalog = await store.getGiftCatalog(ids.gift);
     expect(players.items).toEqual([expect.objectContaining({ playerId: ids.playerProfile, userId: ids.player, displayName: 'Player', activeOrderId: ids.order, gameTagDetails: expect.any(Array), serviceTagDetails: expect.any(Array), languageTagDetails: expect.any(Array), version: 1 })]);
     expect(absent.items).toEqual([]);

@@ -94,7 +94,7 @@ WITH visible_orders AS (
   LEFT JOIN gift_requests gr ON gr.id=st.gift_request_id
   LEFT JOIN orders gift_order ON gift_order.id=gr.order_id
   WHERE st.status IN ('OPEN','CLAIMED','VERIFIED','PENDING_APPROVAL')
-    AND COALESCE(direct_order.guild_id,gift_order.guild_id,st.context_snapshot->>'guildId')=$3::text AND (
+    AND COALESCE(direct_order.guild_id,gr.guild_id,gift_order.guild_id,st.context_snapshot->>'guildId')=$3::text AND (
     $2::text IN ('L2_SUPERVISOR','L3_OPERATIONS','L4_ADMIN_OWNER')
     OR ($2::text='L1_SUPPORT' AND st.claimed_by_staff_id=$1::uuid)
   )
@@ -122,8 +122,10 @@ SELECT
     FROM consumption_entries ce JOIN visible_orders vo ON vo.id=ce.order_id
     WHERE vo.completed_at >= $4::timestamptz AND vo.completed_at < $5::timestamptz AND ce.currency=$6::text) AS completed_order_net_consumption_minor,
   (SELECT COALESCE(sum(CASE ce.direction WHEN 'DEBIT' THEN ce.amount_minor ELSE -ce.amount_minor END),0)
-    FROM consumption_entries ce JOIN gift_requests gr ON gr.id=ce.gift_request_id JOIN visible_orders vo ON vo.id=gr.order_id
-    WHERE ce.occurred_at >= $4::timestamptz AND ce.occurred_at < $5::timestamptz AND ce.currency=$6::text) AS gift_net_consumption_minor,
+    FROM consumption_entries ce JOIN gift_requests gr ON gr.id=ce.gift_request_id
+    WHERE gr.guild_id=$3::text AND ($2::text IN ('L2_SUPERVISOR','L3_OPERATIONS','L4_ADMIN_OWNER') OR EXISTS (
+      SELECT 1 FROM staff_tasks st WHERE st.gift_request_id=gr.id AND st.claimed_by_staff_id=$1::uuid))
+      AND ce.occurred_at >= $4::timestamptz AND ce.occurred_at < $5::timestamptz AND ce.currency=$6::text) AS gift_net_consumption_minor,
   (SELECT COALESCE(sum(remaining_minor),0) FROM reservation_remainders) AS active_reserved_minor,
   (SELECT count(*) FILTER (WHERE da.status='ACCEPTED') FROM dispatch_attempts da JOIN visible_orders vo ON vo.id=da.order_id
     WHERE da.started_at >= $4::timestamptz AND da.started_at < $5::timestamptz AND da.status NOT IN ('PENDING','CANCELLED')) AS dispatch_accepted_count,
