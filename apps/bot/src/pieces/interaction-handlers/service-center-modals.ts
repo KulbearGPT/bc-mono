@@ -23,10 +23,7 @@ export default class ServiceCenterModalHandler extends InteractionHandler {
     return serviceCenterInteractionKind(route) === 'modal' ? this.some(route) : this.none();
   }
 
-  public override async run(
-    interaction: Interaction,
-    parsedData?: ModalRoute
-  ): Promise<void> {
+  public override async run(interaction: Interaction, parsedData?: ModalRoute): Promise<void> {
     if (!interaction.isModalSubmit() || !parsedData || !interaction.guildId) return;
     const actor = buildBotActorContext(interaction);
     if (!actor) return;

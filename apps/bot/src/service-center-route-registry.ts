@@ -20,6 +20,7 @@ const buttonAreas = new Set<ServiceCenterRoute['area']>([
   'profile',
   'reports',
   'gift',
+  'standalone-gift',
   'gift-recipient-page',
   'support-rating',
   'experience-review'
@@ -32,6 +33,8 @@ const selectAreas = new Set<ServiceCenterRoute['area']>([
   'order-game-select',
   'gift-recipient-select',
   'gift-catalog-select',
+  'standalone-gift-recipient-select',
+  'standalone-gift-catalog-select',
   'experience-review-target-select',
   'experience-review-comment-select'
 ]);

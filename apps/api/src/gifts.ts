@@ -18,7 +18,7 @@ import {
 import type { WalletFundingService, WalletBalance } from './wallet.js';
 import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
-import { resolveBotConfigString, type BotConfigStore } from './bot-config.js';
+import { resolveBotConfigBoolean, resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
 import {
   activeReservationStatuses,
@@ -1405,9 +1405,10 @@ export async function listGifts(input: {
 
 export async function getStandaloneGiftCenter(input: {
   store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
-  actor: ActorContext; now: Date;
+  actor: ActorContext; now: Date; botConfigStore?: BotConfigStore;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, binding.guildId);
   const [balance, recipients, catalog] = await Promise.all([
     input.walletFunding.getBalance({ userId: binding.userId, now: input.now }),
     input.store.listStandaloneRecipients({ guildId: binding.guildId }),
@@ -1424,9 +1425,10 @@ export async function getStandaloneGiftCenter(input: {
 
 export async function checkStandaloneGiftAffordability(input: {
   store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
-  actor: ActorContext; body: { playerProfileId: string; giftCatalogVersionId: string }; now: Date;
+  actor: ActorContext; body: { playerProfileId: string; giftCatalogVersionId: string }; now: Date; botConfigStore?: BotConfigStore;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, binding.guildId);
   const [recipient, catalog, balance] = await Promise.all([
     input.store.findStandaloneRecipient({ guildId: binding.guildId, playerProfileId: input.body.playerProfileId }),
     input.store.findCatalogVersion(input.body.giftCatalogVersionId),
@@ -1449,9 +1451,10 @@ async function prepareStandaloneGiftRequest(input: {
   store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
   actor: ActorContext; auditSink: AuditSink;
   body: { playerProfileId: string; giftCatalogVersionId: string; expectedCatalogVersion: number; expectedPriceMinor: number; anonymous: boolean };
-  idempotencyKey: string; now: Date;
+  idempotencyKey: string; now: Date; botConfigStore?: BotConfigStore;
 }) {
   const binding = await requireBinding(input.accountStore, input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, binding.guildId);
   const [recipient, catalog, balance] = await Promise.all([
     input.store.findStandaloneRecipient({ guildId: binding.guildId, playerProfileId: input.body.playerProfileId }),
     input.store.findCatalogVersion(input.body.giftCatalogVersionId),
@@ -1510,6 +1513,11 @@ async function prepareStandaloneGiftRequest(input: {
       standalonePlayerProfileId: recipient.playerProfileId, ledgerBalanceMinor: balance.ledgerBalanceMinor,
       expectedGuildId: binding.guildId, now: input.now, auditRecord, auditSink: input.auditSink })
   };
+}
+
+async function requireStandaloneGiftEnabled(store: BotConfigStore | undefined, guildId: string) {
+  if (!await resolveBotConfigBoolean(store, guildId, 'gift_requests_enabled', true))
+    throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift requests are currently paused.');
 }
 
 export interface GiftAffordabilityResult {

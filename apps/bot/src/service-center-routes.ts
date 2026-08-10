@@ -156,6 +156,10 @@ export type ServiceCenterRoute =
       cursor?: string;
     }
   | { area: 'reports'; action: 'list'; cursor?: string }
+  | { area: 'standalone-gift'; action: 'open' | 'back' }
+  | { area: 'standalone-gift'; action: 'refresh' | 'confirm-public' | 'confirm-anonymous'; token: string }
+  | { area: 'standalone-gift-recipient-select' }
+  | { area: 'standalone-gift-catalog-select' }
   | { area: 'gift'; action: 'open'; orderId: string; expectedVersion: number }
   | {
       area: 'gift';

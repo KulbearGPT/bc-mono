@@ -4,6 +4,9 @@ export type BotApiDataKind =
   | 'gift-panel'
   | 'gift-affordability'
   | 'gift-request'
+  | 'standalone-gift-center'
+  | 'standalone-gift-affordability'
+  | 'standalone-gift-request'
   | 'selection-page'
   | 'bot-config'
   | 'experience-review-center'
@@ -23,17 +26,23 @@ export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
             ? validGiftAffordability(value)
             : kind === 'gift-request'
               ? validGiftRequest(value)
-              : kind === 'selection-page'
-                ? validSelectionPage(value)
-                : kind === 'bot-config'
-                  ? validBotConfig(value)
-                  : kind === 'experience-review-center'
-                    ? validExperienceReviewCenter(value)
-                    : kind === 'experience-review'
-                      ? validExperienceReview(value)
-                      : kind === 'experience-review-batch'
-                        ? Array.isArray(value) && value.length > 0 && value.every(validExperienceReview)
-                        : validReviewPublication(value);
+              : kind === 'standalone-gift-center'
+                ? validStandaloneGiftCenter(value)
+                : kind === 'standalone-gift-affordability'
+                  ? validStandaloneGiftAffordability(value)
+                  : kind === 'standalone-gift-request'
+                    ? validStandaloneGiftRequest(value)
+                    : kind === 'selection-page'
+                      ? validSelectionPage(value)
+                      : kind === 'bot-config'
+                        ? validBotConfig(value)
+                        : kind === 'experience-review-center'
+                          ? validExperienceReviewCenter(value)
+                          : kind === 'experience-review'
+                            ? validExperienceReview(value)
+                            : kind === 'experience-review-batch'
+                              ? Array.isArray(value) && value.length > 0 && value.every(validExperienceReview)
+                              : validReviewPublication(value);
   if (!valid) throw new BotApiDataValidationError(kind);
   return value;
 }
@@ -115,6 +124,61 @@ function validGiftRequest(value: unknown): boolean {
     Number(value.recipientCount) > 0 &&
     Array.isArray(value.items) &&
     value.items.length === value.recipientCount
+  );
+}
+
+function validStandaloneGiftCenter(value: unknown): boolean {
+  return (
+    record(value) &&
+    Array.isArray(value.recipients) &&
+    value.recipients.every((item) => record(item) && uuid(item.playerProfileId) && text(item.displayName)) &&
+    Array.isArray(value.items) &&
+    value.items.every(
+      (item) =>
+        record(item) &&
+        uuid(item.id) &&
+        text(item.code) &&
+        text(item.name) &&
+        positive(item.version) &&
+        nonNegativeMinor(item.priceMinor) &&
+        item.currency === 'CAT' &&
+        typeof item.affordable === 'boolean'
+    ) &&
+    validBalance(value.balance)
+  );
+}
+
+function validStandaloneGiftAffordability(value: unknown): boolean {
+  return (
+    validGiftAffordability(value) &&
+    record(value) &&
+    uuid(value.playerProfileId) &&
+    uuid(value.giftCatalogVersionId) &&
+    value.recipientCount === 1
+  );
+}
+
+function validStandaloneGiftRequest(value: unknown): boolean {
+  return (
+    record(value) &&
+    value.origin === 'STANDALONE' &&
+    ['PUBLIC', 'ANONYMOUS'].includes(String(value.senderVisibility)) &&
+    value.orderId === null &&
+    uuid(value.playerProfileId) &&
+    uuid(value.receiverId) &&
+    uuid(value.id) &&
+    text(value.publicId) &&
+    value.status === 'PENDING_REVIEW' &&
+    dateTime(value.expiresAt) &&
+    record(value.gift) &&
+    text(value.gift.name) &&
+    nonNegativeMinor(value.gift.priceMinor) &&
+    value.gift.currency === 'CAT' &&
+    record(value.reservation) &&
+    uuid(value.reservation.id) &&
+    nonNegativeMinor(value.reservation.amountMinor) &&
+    value.reservation.currency === 'CAT' &&
+    validBalance(value.balance)
   );
 }
 
@@ -250,6 +314,10 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function text(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function uuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value);
 }
 
 function positive(value: unknown): value is number {

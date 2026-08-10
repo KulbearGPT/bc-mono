@@ -6,6 +6,7 @@ import { RoleSyncApiError, reconcileDiscordGuilds } from './role-sync.js';
 import { BotReadinessState, initializeBotRuntime, type BotRuntimeTask } from './runtime.js';
 import { reconcileSelectionReactionCards } from './selection-reactions.js';
 import type { BotRuntimeDependencies } from './runtime-dependencies.js';
+import { ensureStandaloneGiftEntryMessage } from './standalone-gifts.js';
 
 interface RuntimeLogger {
   info(value: unknown): void;
@@ -70,6 +71,16 @@ export async function initializeLiveBotRuntime(input: {
         guildId: guild.id,
         ...result
       });
+    }),
+    ...guilds.map((guild): BotRuntimeTask => async () => {
+      const channelId = botConfigCache.get(guild.id)?.values.gift_entry_channel_id;
+      if (typeof channelId !== 'string' || !channelId) return;
+      const result = await ensureStandaloneGiftEntryMessage({
+        guild,
+        channelId,
+        api: input.dependencies.onboardingApi
+      });
+      input.logger.info({ event: 'bot.gift_entry_message.ensured', guildId: guild.id, ...result });
     })
   ];
   const backgroundTasks = guilds.map((guild): BotRuntimeTask => async () => {

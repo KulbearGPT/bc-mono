@@ -85,6 +85,19 @@ export class HttpOnboardingApiClient {
       idempotencyKey: `onboarding-message:${value.guildId}:${value.channelId}:${value.messageId ?? 'none'}:v${value.renderedVersion}`
     });
   }
+  async getGiftEntryMessage(guildId: string) {
+    return this.request<OnboardingMessageProjection | null>(
+      `/api/v1/internal/gift-entry-message?guildId=${encodeURIComponent(guildId)}`,
+      { method: 'GET' }
+    );
+  }
+  async saveGiftEntryMessage(value: Omit<OnboardingMessageProjection, 'updatedAt'>) {
+    return this.request<OnboardingMessageProjection>('/api/v1/internal/gift-entry-message', {
+      method: 'PUT',
+      body: value,
+      idempotencyKey: `gift-entry-message:${value.guildId}:${value.channelId}:${value.messageId ?? 'none'}:v${value.renderedVersion}`
+    });
+  }
   async listRoleTasks(guildId: string) {
     return this.request<DiscordProductRoleTask[]>(
       `/api/v1/internal/product-role-tasks?guildId=${encodeURIComponent(guildId)}`,

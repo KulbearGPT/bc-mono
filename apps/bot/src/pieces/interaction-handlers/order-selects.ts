@@ -25,6 +25,7 @@ import {
 } from '../../gifts.js';
 import { formatUnexpectedBotResult, formatUserFacingError } from '../../user-facing-error.js';
 import { executeOrderExperienceReviewSelect } from '../../order-experience-review-interactions.js';
+import { executeStandaloneGiftSelect } from '../../standalone-gifts.js';
 
 export default class OrderSelectHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -41,10 +42,26 @@ export default class OrderSelectHandler extends InteractionHandler {
 
   public override async run(interaction: Interaction, parsedData?: ServiceCenterRoute): Promise<void> {
     if (
+      interaction.isStringSelectMenu() &&
+      parsedData &&
+      (parsedData.area === 'standalone-gift-recipient-select' || parsedData.area === 'standalone-gift-catalog-select')
+    ) {
+      const actor = buildBotActorContext(interaction);
+      if (!actor) return;
+      const dependencies = getBotRuntimeDependencies();
+      await executeStandaloneGiftSelect({
+        interaction,
+        route: parsedData,
+        actor,
+        api: dependencies.api,
+        secret: dependencies.giftContinuationSigningSecret
+      });
+      return;
+    }
+    if (
       isSupportedSelect(interaction) &&
       parsedData &&
-      (parsedData.area === 'experience-review-target-select' ||
-        parsedData.area === 'experience-review-comment-select')
+      (parsedData.area === 'experience-review-target-select' || parsedData.area === 'experience-review-comment-select')
     ) {
       const actor = buildBotActorContext(interaction);
       if (!actor) return;

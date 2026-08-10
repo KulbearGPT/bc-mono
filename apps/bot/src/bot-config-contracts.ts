@@ -8,6 +8,7 @@ export const botConfigChannelFields = [
   'player_workbench_channel_id',
   'gift_review_channel_id',
   'gift_broadcast_channel_id',
+  'gift_entry_channel_id',
   'review_broadcast_channel_id',
   'staff_task_channel_id',
   'operations_alert_channel_id'

@@ -9,6 +9,7 @@ import { buildCurrentUserCommissionsMessage } from '../../service-center-profile
 import { serviceCenterInteractionKind } from '../../service-center-route-registry.js';
 import { executeSupportRatingButton } from '../../service-center-support-interactions.js';
 import { executeOrderExperienceReviewButton } from '../../order-experience-review-interactions.js';
+import { executeStandaloneGiftButton } from '../../standalone-gifts.js';
 import {
   buildOrderNotesModal,
   buildRequirementNoteModal,
@@ -91,6 +92,7 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
 
   private async dispatch(interaction: Interaction, route?: ServiceCenterRoute): Promise<void> {
     if (!interaction.isButton() || !route || route.area === 'unknown') return;
+    if (route.area === 'standalone-gift') return this.dispatchStandaloneGift(interaction, route);
     if (accountRouteAreas.has(route.area)) return this.dispatchAccountRoute(interaction, route);
     if (entryRouteAreas.has(route.area)) return this.dispatchEntryRoute(interaction, route);
     if (editorRouteAreas.has(route.area)) return this.dispatchEditorRoute(interaction, route);
@@ -189,6 +191,22 @@ export default class ServiceCenterButtonHandler extends InteractionHandler {
       }
       return;
     }
+  }
+
+  private async dispatchStandaloneGift(
+    interaction: ButtonInteraction,
+    route: Extract<ServiceCenterRoute, { area: 'standalone-gift' }>
+  ) {
+    const actor = actorFromInteraction(interaction);
+    if (!actor) return void (await guildRequired(interaction, '赠送礼物'));
+    const dependencies = getBotRuntimeDependencies();
+    await executeStandaloneGiftButton({
+      interaction,
+      route,
+      actor,
+      api: dependencies.api,
+      secret: () => dependencies.giftContinuationSigningSecret
+    });
   }
 
   private async dispatchEntryRoute(interaction: ButtonInteraction, parsedData: ServiceCenterRoute): Promise<void> {

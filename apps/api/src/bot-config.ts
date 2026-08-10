@@ -184,7 +184,9 @@ export class DiscordHttpBotConfigAdapter implements BotConfigDiscordAdapter {
       const permissions = await this.channelPermissions(input.guildId, channel);
       const required = category
         ? [PERMISSION_VIEW_CHANNEL, PERMISSION_MANAGE_CHANNELS]
-        : [PERMISSION_VIEW_CHANNEL, PERMISSION_SEND_MESSAGES];
+        : input.field === "gift_entry_channel_id"
+          ? [PERMISSION_VIEW_CHANNEL, PERMISSION_SEND_MESSAGES, PERMISSION_EMBED_LINKS, PERMISSION_MANAGE_MESSAGES]
+          : [PERMISSION_VIEW_CHANNEL, PERMISSION_SEND_MESSAGES];
       if (!required.every((flag) => (permissions & flag) === flag))
         return invalidObject(
           "MISSING_BOT_PERMISSION",
@@ -744,6 +746,7 @@ const channelFields = [
   "player_workbench_channel_id",
   "gift_review_channel_id",
   "gift_broadcast_channel_id",
+  "gift_entry_channel_id",
   "review_broadcast_channel_id",
   "staff_task_channel_id",
   "operations_alert_channel_id",
@@ -1298,6 +1301,8 @@ interface DiscordChannel {
 const PERMISSION_MANAGE_CHANNELS = 1n << 4n,
   PERMISSION_VIEW_CHANNEL = 1n << 10n,
   PERMISSION_SEND_MESSAGES = 1n << 11n,
+  PERMISSION_MANAGE_MESSAGES = 1n << 13n,
+  PERMISSION_EMBED_LINKS = 1n << 14n,
   PERMISSION_MANAGE_ROLES = 1n << 28n,
   PERMISSION_ADMINISTRATOR = 1n << 3n,
   ALL_DISCORD_PERMISSIONS = (1n << 53n) - 1n;

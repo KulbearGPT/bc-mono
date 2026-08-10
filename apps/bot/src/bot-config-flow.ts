@@ -488,6 +488,7 @@ function fieldLabel(field: BotConfigManageableField): string {
     player_workbench_channel_id: '陪玩工作台频道',
     gift_review_channel_id: '礼物审核频道',
     gift_broadcast_channel_id: '礼物播报频道',
+    gift_entry_channel_id: '独立送礼入口频道',
     review_broadcast_channel_id: '好评展示频道',
     staff_task_channel_id: '客服任务频道',
     operations_alert_channel_id: '运营告警频道',

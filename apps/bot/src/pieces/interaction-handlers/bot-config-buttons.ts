@@ -8,9 +8,15 @@ import {
   type Interaction
 } from 'discord.js';
 import { buildBotActorContext } from '../../actor-context.js';
-import { parseBotConfigCustomId, toDiscordBotConfigReply, type BotConfigActorContext } from '../../bot-config.js';
+import {
+  botConfigCache,
+  parseBotConfigCustomId,
+  toDiscordBotConfigReply,
+  type BotConfigActorContext
+} from '../../bot-config.js';
 import { getBotRuntimeDependencies } from '../../runtime-dependencies.js';
 import { formatUserFacingError } from '../../user-facing-error.js';
+import { ensureStandaloneGiftEntryMessage } from '../../standalone-gifts.js';
 
 export default class BotConfigButtonHandler extends InteractionHandler {
   public constructor(context: InteractionHandler.LoaderContext) {
@@ -40,7 +46,8 @@ export default class BotConfigButtonHandler extends InteractionHandler {
       return;
     }
     try {
-      const botConfigFlow = getBotRuntimeDependencies().botConfigFlow;
+      const dependencies = getBotRuntimeDependencies();
+      const botConfigFlow = dependencies.botConfigFlow;
       if (route.operation === 'input') {
         const input = botConfigFlow.describeTextInput(actor, route.sessionId);
         await interaction.showModal(
@@ -74,7 +81,29 @@ export default class BotConfigButtonHandler extends InteractionHandler {
                   `discord:bot-config:validate:${interaction.id}`
                 )
               : botConfigFlow.cancel(actor, route.sessionId);
-      const rendered = toDiscordBotConfigReply(reply);
+      let rendered = toDiscordBotConfigReply(reply);
+      if (route.operation === 'confirm' && interaction.guild) {
+        const channelId = botConfigCache.get(interaction.guild.id)?.values.gift_entry_channel_id;
+        if (typeof channelId === 'string' && channelId) {
+          try {
+            await ensureStandaloneGiftEntryMessage({
+              guild: interaction.guild,
+              channelId,
+              api: dependencies.onboardingApi
+            });
+          } catch (error) {
+            interaction.client.logger.error({
+              event: 'bot.gift_entry_message.config_reconcile_failed',
+              guildId: interaction.guild.id,
+              error
+            });
+            rendered = {
+              ...rendered,
+              content: `${rendered.content}\n⚠️ 配置已保存，但送礼常驻卡暂未更新；请检查 Bot 频道权限。`
+            };
+          }
+        }
+      }
       await interaction.editReply({ content: rendered.content, components: rendered.components });
     } catch (error) {
       interaction.client.logger.error({

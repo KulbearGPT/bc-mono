@@ -3,6 +3,7 @@ import { BotApiDataValidationError, validateBotApiData, type BotApiDataKind } fr
 import { BotApiError } from './service-center-api-error.js';
 import { pagePath } from './service-center-api-utils.js';
 import { OrderExperienceReviewApiClient } from './service-center-api-client-order-reviews.js';
+import { GiftApiClient } from './service-center-api-client-gifts.js';
 import type {
   BotActorContext,
   OrderChannelSpec,
@@ -40,11 +41,11 @@ import type {
   SelectionReactionCard
 } from './service-center-api-contracts.js';
 import type { BotApiClient } from './service-center-api-client-contract.js';
-import type { GiftAffordabilityResult, GiftPanelData, GiftRequestResult } from './gifts.js';
 
 export class HttpBotApiClient implements BotApiClient {
   private readonly transport: BotApiTransport;
   private readonly orderReviews: OrderExperienceReviewApiClient;
+  private readonly gifts: GiftApiClient;
 
   public constructor(input: {
     apiBaseUrl: string;
@@ -55,6 +56,7 @@ export class HttpBotApiClient implements BotApiClient {
   }) {
     this.transport = input.transport ?? new BotApiTransport(input);
     this.orderReviews = new OrderExperienceReviewApiClient((path, request) => this.request(path, request));
+    this.gifts = new GiftApiClient((path, request) => this.request(path, request));
   }
 
   public async createOrder(
@@ -253,48 +255,15 @@ export class HttpBotApiClient implements BotApiClient {
     return this.request<CurrentUserOrderPage>(pagePath('/api/v1/me/orders', cursor, limit), { method: 'GET', actor });
   }
 
-  public async listGifts(orderId: string, actor: BotActorContext): Promise<GiftPanelData> {
-    return this.request<GiftPanelData>(`/api/v1/gifts?orderId=${encodeURIComponent(orderId)}`, {
-      method: 'GET',
-      actor,
-      validateAs: 'gift-panel'
-    });
-  }
-
-  public async checkGiftAffordability(
-    orderId: string,
-    giftCatalogVersionId: string,
-    participantIds: string[],
-    actor: BotActorContext
-  ): Promise<GiftAffordabilityResult> {
-    return this.request<GiftAffordabilityResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-affordability`, {
-      method: 'POST',
-      actor,
-      body: { giftCatalogVersionId, participantIds },
-      validateAs: 'gift-affordability'
-    });
-  }
-
-  public async createOrderGiftRequest(
-    orderId: string,
-    input: {
-      expectedOrderVersion: number;
-      giftCatalogVersionId: string;
-      participantIds: string[];
-      expectedCatalogVersion: number;
-      expectedPriceMinor: number;
-    },
-    actor: BotActorContext,
-    idempotencyKey: string
-  ): Promise<GiftRequestResult> {
-    return this.request<GiftRequestResult>(`/api/v1/orders/${encodeURIComponent(orderId)}/gift-requests`, {
-      method: 'POST',
-      actor,
-      idempotencyKey,
-      body: input,
-      validateAs: 'gift-request'
-    });
-  }
+  public listGifts: BotApiClient['listGifts'] = (...args) => this.gifts.listOrder(...args);
+  public checkGiftAffordability: BotApiClient['checkGiftAffordability'] = (...args) => this.gifts.checkOrder(...args);
+  public createOrderGiftRequest: BotApiClient['createOrderGiftRequest'] = (...args) => this.gifts.createOrder(...args);
+  public getStandaloneGiftCenter: BotApiClient['getStandaloneGiftCenter'] = (...args) =>
+    this.gifts.getStandaloneCenter(...args);
+  public checkStandaloneGiftAffordability: BotApiClient['checkStandaloneGiftAffordability'] = (...args) =>
+    this.gifts.checkStandalone(...args);
+  public createStandaloneGiftRequest: BotApiClient['createStandaloneGiftRequest'] = (...args) =>
+    this.gifts.createStandalone(...args);
 
   public async createOrderAppeal(
     orderId: string,

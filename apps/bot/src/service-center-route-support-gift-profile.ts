@@ -5,6 +5,22 @@ export function parseSupportGiftProfileRoute(customId: string): ServiceCenterRou
 }
 
 function parseSupportGiftRoute(customId: string): ServiceCenterRoute | null {
+  if (customId === 'bc:g2:o') return { area: 'standalone-gift', action: 'open' };
+  if (customId === 'bc:g2:b') return { area: 'standalone-gift', action: 'back' };
+  if (customId === 'bc:g2:r') return { area: 'standalone-gift-recipient-select' };
+  if (customId === 'bc:g2:g') return { area: 'standalone-gift-catalog-select' };
+  const standaloneGiftAction = /^bc:g2:([fpa]):(s1_[A-Za-z0-9_-]{80})$/u.exec(customId);
+  if (standaloneGiftAction)
+    return {
+      area: 'standalone-gift',
+      action:
+        standaloneGiftAction[1] === 'f'
+          ? 'refresh'
+          : standaloneGiftAction[1] === 'p'
+            ? 'confirm-public'
+            : 'confirm-anonymous',
+      token: standaloneGiftAction[2]!
+    };
   const ratingStart = /^bc:support-rating:([0-9a-f-]{36}):start$/u.exec(customId);
   if (ratingStart)
     return {

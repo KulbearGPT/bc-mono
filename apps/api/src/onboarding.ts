@@ -46,6 +46,8 @@ export interface OnboardingStore {
   stageCompanionApplication(input: OnboardingInput): Promise<Staged<CompanionApplicationResult>> | Staged<CompanionApplicationResult>;
   getMessage(guildId: string): Promise<OnboardingMessageProjection | null> | OnboardingMessageProjection | null;
   stageSaveMessage(input: OnboardingMessageProjection & { now: Date }): Promise<Staged<OnboardingMessageProjection>> | Staged<OnboardingMessageProjection>;
+  getGiftEntryMessage(guildId: string): Promise<OnboardingMessageProjection | null> | OnboardingMessageProjection | null;
+  stageSaveGiftEntryMessage(input: OnboardingMessageProjection & { now: Date }): Promise<Staged<OnboardingMessageProjection>> | Staged<OnboardingMessageProjection>;
   listRoleTasks?(guildId: string): Promise<DiscordProductRoleTaskProjection[]> | DiscordProductRoleTaskProjection[];
   stageCompleteRoleTask?(input: { taskId: string; applied: boolean; errorCode: string | null; now: Date }): Promise<Staged<{ taskId: string; status: 'APPLIED' | 'FAILED' }>> | Staged<{ taskId: string; status: 'APPLIED' | 'FAILED' }>;
 }
@@ -62,6 +64,7 @@ export class InMemoryOnboardingStore implements OnboardingStore {
   readonly applications = new Map<string, CompanionApplicationResult>();
   readonly audits: AuditRecord[] = [];
   readonly messages = new Map<string, OnboardingMessageProjection>();
+  readonly giftEntryMessages = new Map<string, OnboardingMessageProjection>();
 
   constructor(private readonly roles: { playerRoleId: string; companionApplicantRoleId?: string | null }) {}
 
@@ -84,6 +87,11 @@ export class InMemoryOnboardingStore implements OnboardingStore {
     const data = { guildId: input.guildId, channelId: input.channelId, messageId: input.messageId, renderedVersion: input.renderedVersion, updatedAt: input.now.toISOString() };
     return { data, commit: (audit) => { this.messages.set(input.guildId, structuredClone(data)); this.audits.push(structuredClone(audit)); } };
   }
+  getGiftEntryMessage(guildId: string) { return structuredClone(this.giftEntryMessages.get(guildId) ?? null); }
+  stageSaveGiftEntryMessage(input: OnboardingMessageProjection & { now: Date }): Staged<OnboardingMessageProjection> {
+    const data = messageProjection(input);
+    return { data, commit: (audit) => { this.giftEntryMessages.set(input.guildId, structuredClone(data)); this.audits.push(structuredClone(audit)); } };
+  }
 }
 
 export class PostgresOnboardingStore implements OnboardingStore {
@@ -93,6 +101,12 @@ export class PostgresOnboardingStore implements OnboardingStore {
     const result = await this.pool.query<{ guild_id:string;channel_id:string;message_id:string|null;rendered_version:number;updated_at:Date|string }>(
       'SELECT guild_id,channel_id,message_id,rendered_version,updated_at FROM guild_onboarding_messages WHERE guild_id=$1', [guildId]);
     const row=result.rows[0];return row?{guildId:row.guild_id,channelId:row.channel_id,messageId:row.message_id,renderedVersion:row.rendered_version,updatedAt:new Date(row.updated_at).toISOString()}:null;
+  }
+
+  async getGiftEntryMessage(guildId: string): Promise<OnboardingMessageProjection | null> {
+    const result = await this.pool.query<{ guild_id:string;channel_id:string;message_id:string|null;rendered_version:number;updated_at:Date|string }>(
+      'SELECT guild_id,channel_id,message_id,rendered_version,updated_at FROM guild_gift_entry_messages WHERE guild_id=$1', [guildId]);
+    return result.rows[0] ? mapMessageProjection(result.rows[0]) : null;
   }
 
   async listRoleTasks(guildId: string): Promise<DiscordProductRoleTaskProjection[]> {
@@ -120,6 +134,16 @@ export class PostgresOnboardingStore implements OnboardingStore {
     const data={guildId:input.guildId,channelId:input.channelId,messageId:input.messageId,renderedVersion:input.renderedVersion,updatedAt:input.now.toISOString()};
     return {data,commit:async(audit)=>{const client=await this.pool.connect();try{await client.query('BEGIN');
       await client.query(`INSERT INTO guild_onboarding_messages(guild_id,channel_id,message_id,rendered_version,last_ensured_at,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$5,$5) ON CONFLICT (guild_id) DO UPDATE SET channel_id=EXCLUDED.channel_id,message_id=EXCLUDED.message_id,
+        rendered_version=EXCLUDED.rendered_version,last_ensured_at=EXCLUDED.last_ensured_at,updated_at=EXCLUDED.updated_at`,
+        [input.guildId,input.channelId,input.messageId,input.renderedVersion,input.now]);await insertPostgresAuditRecord(client,audit);await client.query('COMMIT');
+      }catch(error){await client.query('ROLLBACK').catch(()=>undefined);throw error;}finally{client.release();}}};
+  }
+
+  async stageSaveGiftEntryMessage(input: OnboardingMessageProjection & { now: Date }): Promise<Staged<OnboardingMessageProjection>> {
+    const data=messageProjection(input);
+    return {data,commit:async(audit)=>{const client=await this.pool.connect();try{await client.query('BEGIN');
+      await client.query(`INSERT INTO guild_gift_entry_messages(guild_id,channel_id,message_id,rendered_version,last_ensured_at,created_at,updated_at)
         VALUES ($1,$2,$3,$4,$5,$5,$5) ON CONFLICT (guild_id) DO UPDATE SET channel_id=EXCLUDED.channel_id,message_id=EXCLUDED.message_id,
         rendered_version=EXCLUDED.rendered_version,last_ensured_at=EXCLUDED.last_ensured_at,updated_at=EXCLUDED.updated_at`,
         [input.guildId,input.channelId,input.messageId,input.renderedVersion,input.now]);await insertPostgresAuditRecord(client,audit);await client.query('COMMIT');
@@ -237,6 +261,16 @@ export function registerOnboardingRoutes(server: FastifyInstance, options: { sto
       if(!Number.isSafeInteger(input.renderedVersion)||input.renderedVersion<1)throw new OnboardingError('VALIDATION_ERROR','renderedVersion is invalid.');
       return options.store.stageSaveMessage(input);}
   });
+  registerSecureReadRoute(server, server.securityOptions, {
+    method:'GET',url:'/api/v1/internal/gift-entry-message',permission:'onboarding.message.manage',action:'GET_GIFT_ENTRY_MESSAGE',targetType:'guild_gift_entry_message',
+    acceptedSources:['DISCORD_BOT'],allowServiceActor:true,targetId:(request)=>String((request.query as Record<string,unknown>).guildId??'unknown'),mapError,
+    handler:(request)=>options.store.getGiftEntryMessage(requireSnowflake((request.query as Record<string,unknown>).guildId,'guildId'))
+  });
+  registerSecureWriteRoute(server, server.securityOptions, {
+    method:'PUT',url:'/api/v1/internal/gift-entry-message',permission:'onboarding.message.manage',action:'SAVE_GIFT_ENTRY_MESSAGE',targetType:'guild_gift_entry_message',
+    acceptedSources:['DISCORD_BOT'],allowServiceActor:true,targetId:(request)=>String((request.body as Record<string,unknown>)?.guildId??'unknown'),mapError,
+    handler:(request)=>options.store.stageSaveGiftEntryMessage(parseMessageInput(request.body,now()))
+  });
   if (options.store.listRoleTasks && options.store.stageCompleteRoleTask) {
     registerSecureReadRoute(server, server.securityOptions, {
       method:'GET',url:'/api/v1/internal/product-role-tasks',permission:'onboarding.message.manage',action:'LIST_PRODUCT_ROLE_TASKS',targetType:'discord_product_role_task',
@@ -255,6 +289,24 @@ export function registerOnboardingRoutes(server: FastifyInstance, options: { sto
         return options.store.stageCompleteRoleTask!({taskId:String((request.params as Record<string,unknown>).taskId),applied,errorCode,now:now()});}
     });
   }
+}
+
+function parseMessageInput(value: unknown, now: Date): OnboardingMessageProjection & { now: Date } {
+  const body=value as Record<string,unknown>;
+  const input={guildId:requireSnowflake(body?.guildId,'guildId'),channelId:requireSnowflake(body?.channelId,'channelId'),
+    messageId:body?.messageId===null?null:requireSnowflake(body?.messageId,'messageId'),renderedVersion:Number(body?.renderedVersion),updatedAt:'',now};
+  if(!Number.isSafeInteger(input.renderedVersion)||input.renderedVersion<1)throw new OnboardingError('VALIDATION_ERROR','renderedVersion is invalid.');
+  return input;
+}
+
+function messageProjection(input: OnboardingMessageProjection & { now: Date }): OnboardingMessageProjection {
+  return {guildId:input.guildId,channelId:input.channelId,messageId:input.messageId,
+    renderedVersion:input.renderedVersion,updatedAt:input.now.toISOString()};
+}
+
+function mapMessageProjection(row: { guild_id:string;channel_id:string;message_id:string|null;rendered_version:number;updated_at:Date|string }): OnboardingMessageProjection {
+  return {guildId:row.guild_id,channelId:row.channel_id,messageId:row.message_id,
+    renderedVersion:row.rendered_version,updatedAt:new Date(row.updated_at).toISOString()};
 }
 
 function parseInput(request: FastifyRequest, actor: ActorContext, now: Date): OnboardingInput {
