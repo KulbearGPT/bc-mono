@@ -37,6 +37,7 @@
     "format:bot": "prettier --write apps/bot/src",
     "format:bot:check": "prettier --check apps/bot/src",
     "test:bot": "node scripts/run-bot-tests.mjs",
+    "test:gift:non-ui": "vitest run tests/m22-us-06-*.spec.ts",
     "quality:bot": "npm run lint:bot && npm run format:bot:check && npm run typecheck -w @blackcat/bot && npm run build && npm run pieces -w @blackcat/bot && npm run test:bot"
   },
   "engines": {
