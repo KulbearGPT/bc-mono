@@ -103,6 +103,22 @@ describe('M22-US-02 standalone and anonymous gift API', () => {
     expect(forged.statusCode).toBe(400);
   });
 
+  test('GTA-S-005 refreshes after funding and creates only on final confirmation', async () => {
+    const { server, store, walletFunding } = fixture({ balance: 4_000 });
+    const check = () => server.inject({ method: 'POST', url: '/api/v1/gift-center/affordability', headers: headers(),
+      payload: { playerProfileId, giftCatalogVersionId: catalog().id } });
+    expect((await check()).json().data).toMatchObject({ canAfford: false, shortfallMinor: 1_200 });
+    expect(store.requests).toHaveLength(0);
+    walletFunding.ledgerBalanceMinor = 10_000;
+    expect((await check()).json().data).toMatchObject({ canAfford: true, shortfallMinor: 0, availableMinor: 10_000 });
+    expect(store.requests).toHaveLength(0);
+    const created = await server.inject({ method: 'POST', url: '/api/v1/gift-center/gift-requests',
+      headers: headers('gift:m22:funded-confirmation'), payload: { playerProfileId,
+        giftCatalogVersionId: catalog().id, expectedCatalogVersion: 3, expectedPriceMinor: 5_200, anonymous: false } });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(store.requests).toHaveLength(1);
+  });
+
   test('creates one order-independent anonymous request and derives its receiver', async () => {
     const { server, store } = fixture();
     const response = await server.inject({

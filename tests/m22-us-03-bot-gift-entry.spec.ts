@@ -218,7 +218,7 @@ describe('M22-US-03 Discord standalone gift entry', () => {
       { playerProfileId, giftCatalogVersionId, catalogVersion: 2, priceMinor: 5_200 },
       actor,
       secret,
-      new Date('2026-08-13T18:00:00.000Z')
+      new Date()
     );
     expect(readStandaloneGiftContinuationToken(token, actor, secret, new Date('2026-08-13T18:10:00.000Z'))).toEqual({
       playerProfileId,
@@ -265,7 +265,7 @@ describe('M22-US-03 Discord standalone gift entry', () => {
       { playerProfileId, giftCatalogVersionId, catalogVersion: 2, priceMinor: 5_200 },
       actor,
       secret,
-      new Date('2026-08-13T18:00:00.000Z')
+      new Date()
     );
     const create = vi.fn(async () => ({
       origin: 'STANDALONE',

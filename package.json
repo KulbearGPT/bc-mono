@@ -37,7 +37,7 @@
     "format:bot": "prettier --write apps/bot/src",
     "format:bot:check": "prettier --check apps/bot/src",
     "test:bot": "node scripts/run-bot-tests.mjs",
-    "test:gift:non-ui": "vitest run tests/m22-us-06-*.spec.ts",
+    "test:gift:non-ui": "vitest run tests/m22-us-06-*.spec.ts tests/m22-us-02-standalone-gift-api.spec.ts tests/m22-us-03-bot-gift-entry.spec.ts tests/m22-us-04-staff-gift-assist-api.spec.ts tests/m22-us-04-staff-gift-assist-postgres.spec.ts tests/m22-us-04-staff-gift-assist-bot.spec.ts tests/m6-us-06-api.spec.ts tests/m10-us-05-postgres.spec.ts tests/m3-us-02-api.spec.ts tests/m3-us-02-db.spec.ts tests/m3-us-06-api.spec.ts tests/m20-us-06-gift-component-protocol.spec.ts",
     "quality:bot": "npm run lint:bot && npm run format:bot:check && npm run typecheck -w @blackcat/bot && npm run build && npm run pieces -w @blackcat/bot && npm run test:bot"
   },
   "engines": {

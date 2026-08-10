@@ -163,6 +163,22 @@ describe('M3-US-02 gift review and authorization', () => {
     expect(l4.store.captures).toHaveLength(1);
   });
 
+  test.each([200001, 499999])('GTA-L-003 authorizes the L3 amount boundary %i only with step-up', async (priceMinor) => {
+    const blocked = fixture('L3_OPERATIONS', priceMinor, { verified: true, stepUp: false });
+    const denied = await blocked.server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`,
+      headers: headers(`gift:approve:l3-boundary:${priceMinor}:blocked`),
+      payload: { expectedVersion: 2, reason: 'Boundary verification without step-up.' } });
+    expect(denied.statusCode).toBe(428);
+    expect(blocked.store.captures).toHaveLength(0);
+
+    const allowed = fixture('L3_OPERATIONS', priceMinor, { verified: true, stepUp: true });
+    const approved = await allowed.server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/approve`,
+      headers: headers(`gift:approve:l3-boundary:${priceMinor}:allowed`),
+      payload: { expectedVersion: 2, reason: 'Boundary verification with recent step-up.' } });
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(allowed.store.captures).toHaveLength(1);
+  });
+
   test('rejects a verified request with a reason and never captures or broadcasts', async () => {
     const { server, store } = fixture('L2_SUPERVISOR', 200000, { verified: true });
     const response = await server.inject({ method: 'POST', url: `/api/v1/admin/gift-requests/${giftRequestId}/reject`, headers: headers('gift:reject:3410'),

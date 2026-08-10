@@ -60,12 +60,13 @@ function fixture(input: { balance?: number; staffLevel?: StaffAccount['level']; 
       staffDirectory: { resolveByDiscord: () => actor }
     }
   });
+  const walletFunding = new TestWalletFunding(input.balance ?? 20_000);
   registerGiftRoutes(server, {
     store, orderStore: new InMemoryOrderStore(), accountStore,
-    walletFunding: new TestWalletFunding(input.balance ?? 20_000),
+    walletFunding,
     broadcastChannelId: '900000000000024099', now: () => now
   });
-  return { server, store, audit, actor };
+  return { server, store, audit, actor, walletFunding };
 }
 
 function headers(idempotencyKey?: string) {
@@ -157,7 +158,9 @@ describe('M22-US-04 mode-B staff-assisted gift API', () => {
     const challenge = await createChallenge(server);
     const body = { playerProfileId, giftCatalogVersionId: gift.id, expectedCatalogVersion: 2, expectedPriceMinor: 6_600,
       anonymous: false, authorizationReason: '老板明确要求客服辅助送礼', totpCode: '123456' };
-    expect((await server.inject({ method: 'POST', url: `/api/v1/admin/gift-assist/challenges/${challenge.id}/gift-requests`, headers: headers('gift:assist:first:1'), payload: body })).statusCode).toBe(201);
+    const first = await server.inject({ method: 'POST', url: `/api/v1/admin/gift-assist/challenges/${challenge.id}/gift-requests`, headers: headers('gift:assist:first:1'), payload: body });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().data).toMatchObject({ initiatorMode: 'STAFF_ASSISTED', senderVisibility: 'PUBLIC' });
     expect((await server.inject({ method: 'POST', url: `/api/v1/admin/gift-assist/challenges/${challenge.id}/gift-requests`, headers: headers('gift:assist:replay:2'), payload: body })).statusCode).toBe(409);
     expect(store.requests).toHaveLength(1);
     expect(store.reservations).toHaveLength(1);
@@ -170,5 +173,26 @@ describe('M22-US-04 mode-B staff-assisted gift API', () => {
     const response = await server.inject({ method: 'GET', url: `/api/v1/admin/gift-assist/challenges/${challenge.id}`, headers: headers() });
     expect(response.statusCode).toBe(409);
     expect(store.requests).toHaveLength(0);
+  });
+
+  test('GTA-A-009 refreshes the bound customer wallet after funding before final confirmation', async () => {
+    const { server, store, walletFunding } = fixture({ balance: 5_000 });
+    const challenge = await createChallenge(server);
+    const check = () => server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-assist/challenges/${challenge.id}/affordability`, headers: headers(),
+      payload: { playerProfileId, giftCatalogVersionId: gift.id } });
+    expect((await check()).json().data).toMatchObject({ canAfford: false, shortfallMinor: 1_600 });
+    expect(store.requests).toHaveLength(0);
+    walletFunding.ledgerBalanceMinor = 10_000;
+    expect((await check()).json().data).toMatchObject({ canAfford: true, shortfallMinor: 0, availableMinor: 10_000 });
+    const created = await server.inject({ method: 'POST',
+      url: `/api/v1/admin/gift-assist/challenges/${challenge.id}/gift-requests`,
+      headers: headers('gift:assist:funded:confirmation'), payload: {
+        playerProfileId, giftCatalogVersionId: gift.id, expectedCatalogVersion: 2, expectedPriceMinor: 6_600,
+        anonymous: false, authorizationReason: '老板充值后确认由客服辅助送礼', totpCode: '123456'
+      } });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(store.requests).toHaveLength(1);
+    expect(store.reservations).toHaveLength(1);
   });
 });

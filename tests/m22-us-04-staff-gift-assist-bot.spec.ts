@@ -133,7 +133,7 @@ describe('M22-US-04 Discord staff-assisted gift mode B', () => {
   });
 
   test('submits anonymous mode, reason and TOTP without client-selected sender or receiver IDs', async () => {
-    const token = createStaffGiftAssistToken(continuation, actor, secret, now);
+    const token = createStaffGiftAssistToken(continuation, actor, secret, new Date());
     const createGift = vi.fn(async () => created());
     const interaction = {
       guildId,

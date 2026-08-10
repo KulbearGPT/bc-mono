@@ -24,6 +24,7 @@ describe('M22-US-06 isolated gift automation fixture contract', () => {
       staffTasks: 0,
       consumptions: 0,
       announcementJobs: 0,
+      expiryJobs: 0,
       audits: 0
     });
   }, 30_000);

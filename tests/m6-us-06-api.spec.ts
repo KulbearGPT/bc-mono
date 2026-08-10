@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { buildApiServer } from '@blackcat/api/server';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
 import { InMemoryAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
-import { InMemoryOrderStore, type OrderRecord } from '@blackcat/api/orders';
+import { InMemoryOrderStore, type OrderRecord, type OrderStatus } from '@blackcat/api/orders';
 import { InMemoryGiftStore, registerGiftRoutes, type GiftCatalogRecord } from '@blackcat/api/gifts';
 import { TestWalletFunding } from './support/wallet-fixture';
 
@@ -22,7 +22,8 @@ function catalog(overrides: Partial<GiftCatalogRecord> = {}): GiftCatalogRecord 
   };
 }
 
-function fixture(input: { balance?: number; orderGuildId?: string; participantCount?: number } = {}) {
+function fixture(input: { balance?: number; orderGuildId?: string; participantCount?: number;
+  orderStatus?: OrderStatus; completedAt?: string | null } = {}) {
   const participantIds = Array.from({ length: input.participantCount ?? 1 }, (_, index) => index === 0
     ? participantId : `00000000-0000-0000-0000-${String(6606 + index).padStart(12, '0')}`);
   const giftStore = new InMemoryGiftStore({ catalog: [catalog()], orderParticipants: participantIds.map((id, index) => ({
@@ -34,12 +35,13 @@ function fixture(input: { balance?: number; orderGuildId?: string; participantCo
     { id: 'r-other-guild', userId: customerId, amountMinor: 9_000, currency: 'CAT', status: 'ACTIVE' as const }
   ];
   const orderStore = new InMemoryOrderStore({ orders: [{
-    id: orderId, publicId: 'P-6601', customerId, playerId, guildId: input.orderGuildId ?? guildId, status: 'IN_SERVICE', version: 7,
+    id: orderId, publicId: 'P-6601', customerId, playerId, guildId: input.orderGuildId ?? guildId,
+    status: input.orderStatus ?? 'IN_SERVICE', version: 7,
     serviceCatalogId: null, catalogVersion: null, game: 'VALORANT', service: 'ENTERTAINMENT', region: 'NA',
     billingUnitMinutes: 60, unitCount: 1, customerUnitPriceMinor: 6_000, playerUnitPayoutMinor: 4_200,
     amountMinor: 6_000, playerEarningMinor: 4_200, currency: 'CAT', notes: null,
     channelSpec: { channelId: '900000000000006620', panelMessageId: '900000000000006621', voiceChannelId: '900000000000006622' },
-    createdAt: now.toISOString(), updatedAt: now.toISOString()
+    createdAt: now.toISOString(), updatedAt: now.toISOString(), completedAt: input.completedAt ?? null
   } satisfies OrderRecord] });
   const binding: AccountBindingRecord = {
     userId: customerId, displayName: '小林', userStatus: 'ACTIVE', userVersion: 1,
@@ -82,6 +84,70 @@ function expectZeroWrites(store: InMemoryGiftStore, existingReservations = 0) {
 }
 
 describe('M6-US-06 gift affordability API', () => {
+  test.each([
+    ['ACCEPTED', null], ['IN_SERVICE', null], ['PENDING_CONFIRMATION', null],
+    ['COMPLETED', new Date(now.getTime() - 24 * 60 * 60_000).toISOString()]
+  ] satisfies Array<[OrderStatus, string | null]>)('GTA-O-001 permits order gifts in the %s eligibility window', async (orderStatus, completedAt) => {
+    const state = fixture({ balance: 20_000, orderStatus, completedAt });
+    const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers(`gift:m22-us-06:eligible:${orderStatus}`), payload: { expectedOrderVersion: 7,
+        participantIds: [participantId], giftCatalogVersionId: catalog().id,
+        expectedCatalogVersion: 4, expectedPriceMinor: 8_800 } });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(state.giftStore.requests).toHaveLength(1);
+  });
+
+  test.each([
+    ['COMPLETED', new Date(now.getTime() - 24 * 60 * 60_000 - 1).toISOString()],
+    ['CANCELLED', null], ['EXCEPTION', null]
+  ] satisfies Array<[OrderStatus, string | null]>)('GTA-O-002 rejects order gifts outside the %s eligibility window', async (orderStatus, completedAt) => {
+    const state = fixture({ balance: 20_000, orderStatus, completedAt });
+    const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers(`gift:m22-us-06:closed:${orderStatus}`), payload: { expectedOrderVersion: 7,
+        participantIds: [participantId], giftCatalogVersionId: catalog().id,
+        expectedCatalogVersion: 4, expectedPriceMinor: 8_800 } });
+    expect(response.statusCode).toBe(409);
+    expectZeroWrites(state.giftStore);
+  });
+
+  test('GTA-O-008 rejects anonymous order-gift input because order gifts remain public', async () => {
+    const state = fixture({ balance: 20_000 });
+    const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers('gift:m22-us-06:order-anonymous'), payload: { expectedOrderVersion: 7,
+        participantIds: [participantId], giftCatalogVersionId: catalog().id,
+        expectedCatalogVersion: 4, expectedPriceMinor: 8_800, anonymous: true } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expectZeroWrites(state.giftStore);
+  });
+
+  test.each([1, 2, 9, 26])('GTA-O-003 creates one atomic gift fact per each of %i selected participants', async (participantCount) => {
+    const state = fixture({ balance: 300_000, participantCount });
+    const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers(`gift:m22-us-06:participant-count:${participantCount}`), payload: { expectedOrderVersion: 7,
+        participantIds: [...state.participantIds, state.participantIds[0]], giftCatalogVersionId: catalog().id,
+        expectedCatalogVersion: 4, expectedPriceMinor: 8_800 } });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json().data).toMatchObject({ recipientCount: participantCount, totalAmountMinor: 8_800 * participantCount });
+    expect(state.giftStore.requests).toHaveLength(participantCount);
+    expect(state.giftStore.reservations).toHaveLength(participantCount);
+    expect(state.giftStore.staffTasks).toHaveLength(participantCount);
+  });
+
+  test('GTA-O-007 replays the same order-gift intent without duplicate reservations', async () => {
+    const state = fixture({ balance: 100_000, participantCount: 2 });
+    const payload = { expectedOrderVersion: 7, participantIds: state.participantIds,
+      giftCatalogVersionId: catalog().id, expectedCatalogVersion: 4, expectedPriceMinor: 8_800 };
+    const first = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers('gift:m22-us-06:order-replay'), payload });
+    const replay = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers('gift:m22-us-06:order-replay'), payload });
+    expect([first.statusCode, replay.statusCode]).toEqual([201, 201]);
+    expect(replay.json().data.items.map((item: { id: string }) => item.id))
+      .toEqual(first.json().data.items.map((item: { id: string }) => item.id));
+    expect(state.giftStore.reservations).toHaveLength(2);
+  });
+
   test('deduplicates nine selected participants and creates every gift fact atomically', async () => {
     const state = fixture({ balance: 100_000, participantCount: 9 });
     const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
