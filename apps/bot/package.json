@@ -7,6 +7,7 @@
     "./bot-config": "./src/bot-config.ts",
     "./gifts": "./src/gifts.ts",
     "./standalone-gifts": "./src/standalone-gifts.ts",
+    "./staff-assisted-gifts": "./src/staff-assisted-gifts.ts",
     "./piece-manifest": "./src/piece-manifest.ts",
     "./role-sync": "./src/role-sync.ts",
     "./service-center": "./src/service-center.ts",

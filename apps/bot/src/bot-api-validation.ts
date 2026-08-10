@@ -7,6 +7,8 @@ export type BotApiDataKind =
   | 'standalone-gift-center'
   | 'standalone-gift-affordability'
   | 'standalone-gift-request'
+  | 'staff-gift-assist-challenge'
+  | 'staff-assisted-gift-request'
   | 'selection-page'
   | 'bot-config'
   | 'experience-review-center'
@@ -32,17 +34,21 @@ export function validateBotApiData<T>(kind: BotApiDataKind, value: T): T {
                   ? validStandaloneGiftAffordability(value)
                   : kind === 'standalone-gift-request'
                     ? validStandaloneGiftRequest(value)
-                    : kind === 'selection-page'
-                      ? validSelectionPage(value)
-                      : kind === 'bot-config'
-                        ? validBotConfig(value)
-                        : kind === 'experience-review-center'
-                          ? validExperienceReviewCenter(value)
-                          : kind === 'experience-review'
-                            ? validExperienceReview(value)
-                            : kind === 'experience-review-batch'
-                              ? Array.isArray(value) && value.length > 0 && value.every(validExperienceReview)
-                              : validReviewPublication(value);
+                    : kind === 'staff-gift-assist-challenge'
+                      ? validStaffGiftAssistChallenge(value)
+                      : kind === 'staff-assisted-gift-request'
+                        ? validStaffAssistedGiftRequest(value)
+                        : kind === 'selection-page'
+                          ? validSelectionPage(value)
+                          : kind === 'bot-config'
+                            ? validBotConfig(value)
+                            : kind === 'experience-review-center'
+                              ? validExperienceReviewCenter(value)
+                              : kind === 'experience-review'
+                                ? validExperienceReview(value)
+                                : kind === 'experience-review-batch'
+                                  ? Array.isArray(value) && value.length > 0 && value.every(validExperienceReview)
+                                  : validReviewPublication(value);
   if (!valid) throw new BotApiDataValidationError(kind);
   return value;
 }
@@ -179,6 +185,30 @@ function validStandaloneGiftRequest(value: unknown): boolean {
     nonNegativeMinor(value.reservation.amountMinor) &&
     value.reservation.currency === 'CAT' &&
     validBalance(value.balance)
+  );
+}
+
+function validStaffGiftAssistChallenge(value: unknown): boolean {
+  return (
+    validStandaloneGiftCenter(value) &&
+    record(value) &&
+    uuid(value.id) &&
+    record(value.customer) &&
+    text(value.customer.displayName) &&
+    Number.isInteger(value.failedAttempts) &&
+    Number(value.failedAttempts) >= 0 &&
+    Number(value.failedAttempts) <= 5 &&
+    dateTime(value.expiresAt)
+  );
+}
+
+function validStaffAssistedGiftRequest(value: unknown): boolean {
+  return (
+    validStandaloneGiftRequest(value) &&
+    record(value) &&
+    value.initiatorMode === 'STAFF_ASSISTED' &&
+    uuid(value.assistedByStaffId) &&
+    uuid(value.giftAssistChallengeId)
   );
 }
 

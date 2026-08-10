@@ -5,6 +5,10 @@ import type {
   StandaloneGiftCenterData,
   StandaloneGiftRequestData
 } from './standalone-gifts.js';
+import type {
+  StaffAssistedGiftRequestData,
+  StaffGiftAssistChallengeData
+} from './service-center-api-client-staff-gift-contract.js';
 
 type GiftRequest = <T>(
   path: string,
@@ -19,7 +23,9 @@ type GiftRequest = <T>(
       | 'gift-request'
       | 'standalone-gift-center'
       | 'standalone-gift-affordability'
-      | 'standalone-gift-request';
+      | 'standalone-gift-request'
+      | 'staff-gift-assist-challenge'
+      | 'staff-assisted-gift-request';
   }
 ) => Promise<T>;
 
@@ -99,5 +105,68 @@ export class GiftApiClient {
       body: input,
       validateAs: 'standalone-gift-request'
     });
+  }
+
+  createStaffAssistChallenge(
+    input: { customerDiscordUserId: string; authorizationChannelId: string; authorizationMessageId: string },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ) {
+    return this.request<StaffGiftAssistChallengeData>('/api/v1/admin/gift-assist/challenges', {
+      method: 'POST',
+      actor,
+      idempotencyKey,
+      body: input,
+      validateAs: 'staff-gift-assist-challenge'
+    });
+  }
+
+  getStaffAssistChallenge(challengeId: string, actor: BotActorContext) {
+    return this.request<StaffGiftAssistChallengeData>(
+      `/api/v1/admin/gift-assist/challenges/${encodeURIComponent(challengeId)}`,
+      {
+        method: 'GET',
+        actor,
+        validateAs: 'staff-gift-assist-challenge'
+      }
+    );
+  }
+
+  checkStaffAssist(challengeId: string, playerProfileId: string, giftCatalogVersionId: string, actor: BotActorContext) {
+    return this.request<StandaloneGiftAffordabilityData>(
+      `/api/v1/admin/gift-assist/challenges/${encodeURIComponent(challengeId)}/affordability`,
+      {
+        method: 'POST',
+        actor,
+        body: { playerProfileId, giftCatalogVersionId },
+        validateAs: 'standalone-gift-affordability'
+      }
+    );
+  }
+
+  createStaffAssisted(
+    challengeId: string,
+    input: {
+      playerProfileId: string;
+      giftCatalogVersionId: string;
+      expectedCatalogVersion: number;
+      expectedPriceMinor: number;
+      anonymous: boolean;
+      authorizationReason: string;
+      totpCode: string;
+    },
+    actor: BotActorContext,
+    idempotencyKey: string
+  ) {
+    return this.request<StaffAssistedGiftRequestData>(
+      `/api/v1/admin/gift-assist/challenges/${encodeURIComponent(challengeId)}/gift-requests`,
+      {
+        method: 'POST',
+        actor,
+        idempotencyKey,
+        body: input,
+        validateAs: 'staff-assisted-gift-request'
+      }
+    );
   }
 }

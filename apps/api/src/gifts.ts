@@ -20,6 +20,7 @@ import { createEligibleReferralCommission } from './referrals.js';
 import type { PolicyReader } from './operations.js';
 import { resolveBotConfigBoolean, resolveBotConfigString, type BotConfigStore } from './bot-config.js';
 import { requiredLevelForAmount } from './authorization-policy.js';
+import { decryptSecret, verifyTotp } from './mfa.js';
 import {
   activeReservationStatuses,
   reservationRemainingMinorSql,
@@ -49,6 +50,9 @@ export interface GiftRequestRecord {
   guildId?: string;
   origin?: 'ORDER' | 'STANDALONE';
   senderVisibility?: 'PUBLIC' | 'ANONYMOUS';
+  initiatorMode?: 'CUSTOMER_SELF' | 'STAFF_ASSISTED';
+  assistedByStaffId?: string | null;
+  giftAssistChallengeId?: string | null;
   orderId: string | null;
   participantId?: string | null;
   giftCatalogVersionId: string;
@@ -91,6 +95,12 @@ export interface GiftStaffTaskRecord {
   voiceChannelId: string | null;
   contextSnapshot: {
     source?: 'ORDER' | 'STANDALONE';
+    initiatorMode?: 'CUSTOMER_SELF' | 'STAFF_ASSISTED';
+    assistedByStaffId?: string | null;
+    giftAssistChallengeId?: string | null;
+    authorizationChannelId?: string | null;
+    authorizationMessageId?: string | null;
+    authorizationReason?: string | null;
     orderId: string | null;
     orderPublicId: string | null;
     channelId: string | null;
@@ -118,6 +128,8 @@ export interface GiftStore {
   findCatalogVersion(id: string): Promise<GiftCatalogRecord | null> | GiftCatalogRecord | null;
   listStandaloneRecipients(input: { guildId: string }): Promise<StandaloneGiftRecipientRecord[]> | StandaloneGiftRecipientRecord[];
   findStandaloneRecipient(input: { guildId: string; playerProfileId: string }): Promise<StandaloneGiftRecipientRecord | null> | StandaloneGiftRecipientRecord | null;
+  findStaffGiftAssistChallenge(input: { id: string; actorStaffId: string; guildId: string; permissionsVersion: number; now: Date }): Promise<StaffGiftAssistChallengeRecord | null> | StaffGiftAssistChallengeRecord | null;
+  commitCreateStaffGiftAssistChallenge(input: { challenge: StaffGiftAssistChallengeRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void> | void;
   findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): Promise<GiftRecipientRecord[]> | GiftRecipientRecord[];
   commitCreate(input: {
     request: GiftRequestRecord;
@@ -129,6 +141,7 @@ export interface GiftStore {
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> | void;
   commitCreateBatch(input: {
     items: Array<{ request: GiftRequestRecord; reservation: GiftReservationRecord; staffTask: GiftStaffTaskRecord }>;
@@ -139,6 +152,7 @@ export interface GiftStore {
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> | void;
   verifyTask(input: { taskId: string; expectedVersion: number; actorStaffId: string; verificationMethod: string; notes: string; now: Date; auditRecord?: AuditRecord; auditSink?: AuditSink }): Promise<GiftReviewResult> | GiftReviewResult;
   authorizeGift(input: { giftRequestId: string; expectedVersion: number; actorStaffId: string; actorLevel: StaffLevel; reason: string; now: Date; approvalThresholds?: GiftApprovalThresholds;approvalDecision?:GiftApprovalDecisionExecution }): Promise<GiftAuthorizationResult> | GiftAuthorizationResult;
@@ -166,6 +180,34 @@ export interface StandaloneGiftRecipientRecord {
   discordUserId: string;
   reviewStatus: 'ACTIVE' | 'PENDING_REVIEW' | 'REJECTED' | 'PAUSED' | 'SUSPENDED';
   userStatus: 'ACTIVE' | 'PAUSED' | 'SUSPENDED' | 'DISABLED';
+}
+
+export interface StaffGiftAssistChallengeRecord {
+  id: string;
+  guildId: string;
+  staffAccountId: string;
+  staffDiscordUserId: string;
+  permissionsVersion: number;
+  customerUserId: string;
+  customerDiscordUserId: string;
+  customerDisplayName: string;
+  authorizationChannelId: string;
+  authorizationMessageId: string;
+  authorizationReason: string | null;
+  failedAttempts: number;
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface StaffGiftAssistFinalization {
+  challengeId: string;
+  actorStaffId: string;
+  actorDiscordUserId: string;
+  permissionsVersion: number;
+  authorizationReason: string;
+  totpCode: string;
 }
 
 export interface GiftTerminationCommit {
@@ -291,6 +333,8 @@ export class GiftError extends Error {
     | 'GIFT_NOT_AVAILABLE'
     | 'GIFT_CATALOG_CHANGED'
     | 'EXECUTION_CREDENTIAL_STALE'
+    | 'MFA_REQUIRED'
+    | 'MFA_INVALID'
     | 'INSUFFICIENT_AVAILABLE_BALANCE';
 
   constructor(code: GiftError['code'], message: string, readonly details: Array<{ field: string; reason: string }> = []) {
@@ -310,10 +354,12 @@ export class InMemoryGiftStore implements GiftStore {
   readonly broadcasts: OutboxJob[] = [];
   readonly expiryJobs: OutboxJob[] = [];
   readonly approvals: GiftApprovalRecord[] = [];
+  readonly staffGiftAssistChallenges: StaffGiftAssistChallengeRecord[];
   private readonly displayNames: Record<string, string>;
   private readonly guildIdsByOrder:Record<string,string>;
   private readonly orderParticipants: GiftRecipientRecord[];
   private readonly standaloneRecipients: StandaloneGiftRecipientRecord[];
+  private readonly staffTotpCodes: Record<string, string>;
 
   constructor(input: {
     catalog?: GiftCatalogRecord[];
@@ -324,6 +370,8 @@ export class InMemoryGiftStore implements GiftStore {
     guildIdsByOrder?:Record<string,string>;
     orderParticipants?: GiftRecipientRecord[];
     standaloneRecipients?: StandaloneGiftRecipientRecord[];
+    staffGiftAssistChallenges?: StaffGiftAssistChallengeRecord[];
+    staffTotpCodes?: Record<string, string>;
   } = {}) {
     this.catalog = clone(input.catalog ?? []);
     this.requests = clone(input.requests ?? []);
@@ -333,6 +381,8 @@ export class InMemoryGiftStore implements GiftStore {
     this.guildIdsByOrder=clone(input.guildIdsByOrder??{});
     this.orderParticipants=clone(input.orderParticipants??[]);
     this.standaloneRecipients=clone(input.standaloneRecipients??[]);
+    this.staffGiftAssistChallenges=clone(input.staffGiftAssistChallenges??[]);
+    this.staffTotpCodes=clone(input.staffTotpCodes??{});
   }
 
   listActiveCatalog(): GiftCatalogRecord[] {
@@ -354,6 +404,24 @@ export class InMemoryGiftStore implements GiftStore {
       .find((recipient) => recipient.playerProfileId === input.playerProfileId) ?? null;
   }
 
+  findStaffGiftAssistChallenge(input: { id: string; actorStaffId: string; guildId: string; permissionsVersion: number; now: Date }): StaffGiftAssistChallengeRecord | null {
+    const challenge = this.staffGiftAssistChallenges.find((candidate) => candidate.id === input.id);
+    if (!challenge) return null;
+    if (challenge.staffAccountId !== input.actorStaffId || challenge.guildId !== input.guildId
+      || challenge.permissionsVersion !== input.permissionsVersion || challenge.consumedAt
+      || Date.parse(challenge.expiresAt) <= input.now.getTime() || challenge.failedAttempts >= 5) {
+      throw new GiftError('CONFLICT', 'Gift assist challenge changed, expired, or was already consumed.');
+    }
+    return clone(challenge);
+  }
+
+  async commitCreateStaffGiftAssistChallenge(input: { challenge: StaffGiftAssistChallengeRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void> {
+    if (this.staffGiftAssistChallenges.some((candidate) => candidate.id === input.challenge.id)) return;
+    this.staffGiftAssistChallenges.push(clone(input.challenge));
+    try { await input.auditSink.append(input.auditRecord); }
+    catch (error) { this.staffGiftAssistChallenges.pop(); throw error; }
+  }
+
   findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): GiftRecipientRecord[] {
     const selected = new Set(input.participantIds);
     return clone(this.orderParticipants.filter((participant) => selected.size === 0 || selected.has(participant.participantId)));
@@ -369,6 +437,7 @@ export class InMemoryGiftStore implements GiftStore {
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> {
     return this.commitCreateBatch({ ...input, items: [{ request: input.request, reservation: input.reservation, staffTask: input.staffTask }] });
   }
@@ -382,10 +451,34 @@ export class InMemoryGiftStore implements GiftStore {
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> {
     const first = input.items[0];
     if (!first) throw new GiftError('VALIDATION_ERROR', 'At least one gift recipient is required.');
     if (input.items.every((item) => this.requests.some((request) => request.id === item.request.id))) return;
+    const assistChallenge = input.staffAssist
+      ? this.staffGiftAssistChallenges.find((candidate) => candidate.id === input.staffAssist!.challengeId)
+      : undefined;
+    if (input.staffAssist) {
+      if (!assistChallenge || assistChallenge.staffAccountId !== input.staffAssist.actorStaffId
+        || assistChallenge.staffDiscordUserId !== input.staffAssist.actorDiscordUserId
+        || assistChallenge.permissionsVersion !== input.staffAssist.permissionsVersion
+        || assistChallenge.guildId !== input.expectedGuildId || assistChallenge.customerUserId !== first.request.senderId
+        || assistChallenge.consumedAt || Date.parse(assistChallenge.expiresAt) <= input.now.getTime()
+        || assistChallenge.failedAttempts >= 5 || first.request.initiatorMode !== 'STAFF_ASSISTED'
+        || first.request.assistedByStaffId !== input.staffAssist.actorStaffId
+        || first.request.giftAssistChallengeId !== input.staffAssist.challengeId) {
+        throw new GiftError('CONFLICT', 'Gift assist challenge changed, expired, or was already consumed.');
+      }
+      if (!this.staffTotpCodes[input.staffAssist.actorStaffId]) {
+        throw new GiftError('MFA_REQUIRED', 'The current staff account must enroll TOTP before assisting a gift.');
+      }
+      if (this.staffTotpCodes[input.staffAssist.actorStaffId] !== input.staffAssist.totpCode) {
+        assistChallenge.failedAttempts += 1;
+        assistChallenge.updatedAt = input.now.toISOString();
+        throw new GiftError('MFA_INVALID', 'The TOTP code is invalid.');
+      }
+    }
     const catalog = this.catalog.find((item) => item.id === first.request.giftCatalogVersionId);
     if (!catalog || catalog.status !== 'ACTIVE' || catalog.priceMinor !== first.request.priceMinor || catalog.currency !== first.request.currency) {
       throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
@@ -407,15 +500,22 @@ export class InMemoryGiftStore implements GiftStore {
       }
     }
     const lengths={requests:this.requests.length,reservations:this.reservations.length,staffTasks:this.staffTasks.length,expiryJobs:this.expiryJobs.length};
+    const challengeSnapshot=assistChallenge ? clone(assistChallenge) : null;
     try {
       this.requests.push(...input.items.map((item) => clone(item.request)));
       this.reservations.push(...input.items.map((item) => clone(item.reservation)));
       this.staffTasks.push(...input.items.map((item) => clone(item.staffTask)));
       this.expiryJobs.push(...input.items.map((item) => buildGiftExpiryJob(item.request)));
+      if (assistChallenge && input.staffAssist) {
+        assistChallenge.authorizationReason = input.staffAssist.authorizationReason;
+        assistChallenge.consumedAt = input.now.toISOString();
+        assistChallenge.updatedAt = input.now.toISOString();
+      }
       await input.auditSink.append(input.auditRecord);
     } catch(error) {
       this.requests.splice(lengths.requests);this.reservations.splice(lengths.reservations);
       this.staffTasks.splice(lengths.staffTasks);this.expiryJobs.splice(lengths.expiryJobs);
+      if (assistChallenge && challengeSnapshot) Object.assign(assistChallenge, challengeSnapshot);
       throw error;
     }
   }
@@ -643,7 +743,7 @@ export class InMemoryGiftStore implements GiftStore {
 }
 
 export class PostgresGiftStore implements GiftStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly mfaEncryptionKey = process.env.DASHBOARD_MFA_ENCRYPTION_KEY?.trim() ?? '') {}
 
   async listActiveCatalog(): Promise<GiftCatalogRecord[]> {
     const result = await this.pool.query<GiftCatalogRow>(`
@@ -679,6 +779,52 @@ WHERE da.guild_id=$1 AND pp.id=$2 AND pp.review_status='ACTIVE' AND u.status='AC
     return result.rows[0] ? mapStandaloneGiftRecipientRow(result.rows[0]) : null;
   }
 
+  async findStaffGiftAssistChallenge(input: { id: string; actorStaffId: string; guildId: string; permissionsVersion: number; now: Date }): Promise<StaffGiftAssistChallengeRecord | null> {
+    const result = await this.pool.query<StaffGiftAssistChallengeRow>(staffGiftAssistChallengeSelect + `
+WHERE challenge.id=$1 AND challenge.staff_account_id=$2 AND challenge.guild_id=$3`, [input.id, input.actorStaffId, input.guildId]);
+    const challenge = result.rows[0] ? mapStaffGiftAssistChallengeRow(result.rows[0]) : null;
+    if (!challenge) return null;
+    if (challenge.permissionsVersion !== input.permissionsVersion || challenge.consumedAt
+      || Date.parse(challenge.expiresAt) <= input.now.getTime() || challenge.failedAttempts >= 5) {
+      throw new GiftError('CONFLICT', 'Gift assist challenge changed, expired, or was already consumed.');
+    }
+    return challenge;
+  }
+
+  async commitCreateStaffGiftAssistChallenge(input: { challenge: StaffGiftAssistChallengeRecord; auditRecord: AuditRecord; auditSink: AuditSink }): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const trusted = await client.query<{ staff_ok: boolean; customer_ok: boolean }>(`
+SELECT EXISTS (
+  SELECT 1 FROM staff_accounts staff JOIN discord_accounts discord ON discord.user_id=staff.user_id
+  WHERE staff.id=$1 AND staff.status='ACTIVE' AND staff.permissions_version=$2
+    AND discord.guild_id=$3 AND discord.discord_user_id=$4
+) AS staff_ok,
+EXISTS (
+  SELECT 1 FROM users customer JOIN discord_accounts discord ON discord.user_id=customer.id
+  WHERE customer.id=$5 AND customer.status='ACTIVE' AND discord.guild_id=$3 AND discord.discord_user_id=$6
+) AS customer_ok`, [input.challenge.staffAccountId, input.challenge.permissionsVersion, input.challenge.guildId,
+        input.challenge.staffDiscordUserId, input.challenge.customerUserId, input.challenge.customerDiscordUserId]);
+      if (!trusted.rows[0]?.staff_ok || !trusted.rows[0]?.customer_ok) {
+        throw new GiftError('CONFLICT', 'Staff or customer binding changed before challenge creation.');
+      }
+      await client.query(`INSERT INTO staff_gift_assist_challenges (
+        id,guild_id,staff_account_id,staff_discord_user_id,permissions_version,customer_user_id,customer_discord_user_id,
+        authorization_channel_id,authorization_message_id,authorization_reason,failed_attempts,expires_at,consumed_at,created_at,updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,0,$10,NULL,$11,$11)
+      ON CONFLICT (id) DO NOTHING`, [input.challenge.id,input.challenge.guildId,input.challenge.staffAccountId,
+        input.challenge.staffDiscordUserId,input.challenge.permissionsVersion,input.challenge.customerUserId,
+        input.challenge.customerDiscordUserId,input.challenge.authorizationChannelId,input.challenge.authorizationMessageId,
+        new Date(input.challenge.expiresAt),new Date(input.challenge.createdAt)]);
+      await insertPostgresAuditRecord(client, input.auditRecord);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+
   async findActiveOrderParticipants(input: { orderId: string; participantIds: string[] }): Promise<GiftRecipientRecord[]> {
     const result = await this.pool.query<{ id: string; player_id: string; player_display_name_snapshot: string }>(
       `SELECT id,player_id,player_display_name_snapshot FROM order_participants
@@ -698,6 +844,7 @@ WHERE da.guild_id=$1 AND pp.id=$2 AND pp.review_status='ACTIVE' AND u.status='AC
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> {
     return this.commitCreateBatch({ ...input, items: [{ request: input.request, reservation: input.reservation, staffTask: input.staffTask }] });
   }
@@ -711,13 +858,64 @@ WHERE da.guild_id=$1 AND pp.id=$2 AND pp.review_status='ACTIVE' AND u.status='AC
     now: Date;
     auditRecord: AuditRecord;
     auditSink: AuditSink;
+    staffAssist?: StaffGiftAssistFinalization;
   }): Promise<void> {
     const first = input.items[0];
     if (!first) throw new GiftError('VALIDATION_ERROR', 'At least one gift recipient is required.');
     const client = await this.pool.connect();
+    let transactionCommitted = false;
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${first.request.senderId}:${first.request.currency}`]);
+      if (input.staffAssist) {
+        const assist = input.staffAssist;
+        const result = await client.query<{
+          staff_account_id: string; staff_discord_user_id: string; permissions_version: number;
+          customer_user_id: string; customer_discord_user_id: string; guild_id: string;
+          failed_attempts: number; expires_at: Date; consumed_at: Date | null; secret_ciphertext: string | null;
+          staff_status: string; current_permissions_version: number; customer_status: string;
+          staff_binding_ok: boolean; customer_binding_ok: boolean;
+        }>(`SELECT challenge.staff_account_id,challenge.staff_discord_user_id,challenge.permissions_version,
+          challenge.customer_user_id,challenge.customer_discord_user_id,challenge.guild_id,challenge.failed_attempts,
+          challenge.expires_at,challenge.consumed_at,credential.secret_ciphertext,staff.status::text AS staff_status,
+          staff.permissions_version AS current_permissions_version,customer.status::text AS customer_status,
+          EXISTS (SELECT 1 FROM discord_accounts d WHERE d.user_id=staff.user_id AND d.guild_id=challenge.guild_id
+            AND d.discord_user_id=challenge.staff_discord_user_id) AS staff_binding_ok,
+          EXISTS (SELECT 1 FROM discord_accounts d WHERE d.user_id=customer.id AND d.guild_id=challenge.guild_id
+            AND d.discord_user_id=challenge.customer_discord_user_id) AS customer_binding_ok
+        FROM staff_gift_assist_challenges challenge
+        JOIN staff_accounts staff ON staff.id=challenge.staff_account_id
+        JOIN users customer ON customer.id=challenge.customer_user_id
+        LEFT JOIN staff_mfa_credentials credential ON credential.staff_account_id=staff.id AND credential.method='TOTP'
+        WHERE challenge.id=$1 FOR UPDATE OF challenge`, [assist.challengeId]);
+        const challenge = result.rows[0];
+        if (!challenge || challenge.staff_account_id !== assist.actorStaffId
+          || challenge.staff_discord_user_id !== assist.actorDiscordUserId
+          || challenge.permissions_version !== assist.permissionsVersion
+          || challenge.current_permissions_version !== assist.permissionsVersion
+          || challenge.guild_id !== input.expectedGuildId || challenge.customer_user_id !== first.request.senderId
+          || challenge.staff_status !== 'ACTIVE' || challenge.customer_status !== 'ACTIVE'
+          || !challenge.staff_binding_ok || !challenge.customer_binding_ok || challenge.consumed_at
+          || challenge.expires_at.getTime() <= input.now.getTime() || challenge.failed_attempts >= 5
+          || first.request.initiatorMode !== 'STAFF_ASSISTED'
+          || first.request.assistedByStaffId !== assist.actorStaffId
+          || first.request.giftAssistChallengeId !== assist.challengeId) {
+          throw new GiftError('CONFLICT', 'Gift assist challenge changed, expired, or was already consumed.');
+        }
+        if (!challenge.secret_ciphertext || !this.mfaEncryptionKey) {
+          throw new GiftError('MFA_REQUIRED', 'The current staff account must enroll TOTP before assisting a gift.');
+        }
+        let validProof = false;
+        try { validProof = verifyTotp(assist.totpCode, decryptSecret(challenge.secret_ciphertext, this.mfaEncryptionKey), input.now); }
+        catch { throw new GiftError('MFA_REQUIRED', 'The staff TOTP credential could not be verified.'); }
+        if (!validProof) {
+          await client.query(`UPDATE staff_gift_assist_challenges SET failed_attempts=failed_attempts+1,updated_at=$2
+            WHERE id=$1`, [assist.challengeId,input.now]);
+          await client.query('COMMIT');
+          transactionCommitted = true;
+          throw new GiftError('MFA_INVALID', 'The TOTP code is invalid.');
+        }
+      }
       if ((first.request.origin ?? 'ORDER') === 'STANDALONE') {
         const recipient = input.standalonePlayerProfileId ? await client.query<{ user_id: string }>(`
           SELECT pp.user_id FROM player_profiles pp JOIN users u ON u.id=pp.user_id
@@ -776,11 +974,13 @@ AND reservation.status = ANY($3::"FundReservationStatus"[])`,
       }
       for (const item of input.items) {
         await client.query(`INSERT INTO gift_requests (
-          id,public_id,guild_id,origin,sender_visibility,order_id,order_participant_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,
+          id,public_id,guild_id,origin,sender_visibility,initiator_mode,assisted_by_staff_id,gift_assist_challenge_id,
+          order_id,order_participant_id,gift_catalog_version_id,sender_id,receiver_id,status,row_version,
           gift_code_snapshot,gift_name_snapshot,price_minor,currency,broadcast_template_snapshot,expires_at,created_at,updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING_REVIEW',1,$11,$12,$13,$14,$15,$16,$17,$17)`, [
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'PENDING_REVIEW',1,$14,$15,$16,$17,$18,$19,$20,$20)`, [
           item.request.id,item.request.publicId,item.request.guildId ?? input.expectedGuildId,item.request.origin ?? 'ORDER',
-          item.request.senderVisibility ?? 'PUBLIC',item.request.orderId,item.request.participantId,item.request.giftCatalogVersionId,
+          item.request.senderVisibility ?? 'PUBLIC',item.request.initiatorMode ?? 'CUSTOMER_SELF',item.request.assistedByStaffId ?? null,
+          item.request.giftAssistChallengeId ?? null,item.request.orderId,item.request.participantId,item.request.giftCatalogVersionId,
           item.request.senderId,item.request.receiverId,item.request.giftCodeSnapshot,item.request.giftNameSnapshot,
           item.request.priceMinor,item.request.currency,item.request.broadcastTemplateSnapshot,new Date(item.request.expiresAt),new Date(item.request.createdAt)
         ]);
@@ -794,21 +994,24 @@ AND reservation.status = ANY($3::"FundReservationStatus"[])`,
         ]);
         await client.query(`INSERT INTO fund_reservation_events (
         id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,
-        idempotency_key,actor_user_id,actor_source,created_at
-      ) VALUES ($1,$2,1,'CREATED',NULL,'PENDING',$3,1,$4,$5,'DISCORD_BOT',$6)`, [
-          crypto.randomUUID(),item.reservation.id,item.reservation.amountMinor,`${item.reservation.idempotencyKey}:created`,item.request.senderId,new Date(item.request.createdAt)
+        idempotency_key,actor_user_id,actor_staff_id,actor_source,created_at
+      ) VALUES ($1,$2,1,'CREATED',NULL,'PENDING',$3,1,$4,$5,$6,'DISCORD_BOT',$7)`, [
+          crypto.randomUUID(),item.reservation.id,item.reservation.amountMinor,`${item.reservation.idempotencyKey}:created`,
+          input.staffAssist ? null : item.request.senderId,input.staffAssist?.actorStaffId ?? null,new Date(item.request.createdAt)
         ]);
         await client.query(`INSERT INTO fund_reservation_events (
         id,fund_reservation_id,sequence,event_type,from_status,to_status,amount_minor,reservation_version,
-        idempotency_key,actor_user_id,actor_source,created_at
-      ) VALUES ($1,$2,2,'ACTIVATED','PENDING','ACTIVE',0,2,$3,$4,'DISCORD_BOT',$5)`, [
-          crypto.randomUUID(),item.reservation.id,`${item.reservation.idempotencyKey}:activated`,item.request.senderId,new Date(item.request.createdAt)
+        idempotency_key,actor_user_id,actor_staff_id,actor_source,created_at
+      ) VALUES ($1,$2,2,'ACTIVATED','PENDING','ACTIVE',0,2,$3,$4,$5,'DISCORD_BOT',$6)`, [
+          crypto.randomUUID(),item.reservation.id,`${item.reservation.idempotencyKey}:activated`,
+          input.staffAssist ? null : item.request.senderId,input.staffAssist?.actorStaffId ?? null,new Date(item.request.createdAt)
         ]);
         await client.query(`INSERT INTO staff_tasks (
-        id,public_id,type,reason_code,status,row_version,order_id,gift_request_id,voice_channel_id,
+        id,public_id,type,reason_code,status,row_version,order_id,gift_request_id,created_by_staff_id,voice_channel_id,
         context_snapshot,created_at,updated_at
-      ) VALUES ($1,$2,'GIFT_REVIEW','GIFT_REQUESTED','OPEN',1,$3,$4,$5,$6::jsonb,$7,$7)`, [
-          item.staffTask.id,item.staffTask.publicId,item.staffTask.orderId,item.staffTask.giftRequestId,item.staffTask.voiceChannelId,
+      ) VALUES ($1,$2,'GIFT_REVIEW','GIFT_REQUESTED','OPEN',1,$3,$4,$5,$6,$7::jsonb,$8,$8)`, [
+          item.staffTask.id,item.staffTask.publicId,item.staffTask.orderId,item.staffTask.giftRequestId,
+          input.staffAssist?.actorStaffId ?? null,item.staffTask.voiceChannelId,
           JSON.stringify(item.staffTask.contextSnapshot),new Date(item.staffTask.createdAt)
         ]);
         const expiryJob=buildGiftExpiryJob(item.request);
@@ -816,10 +1019,17 @@ AND reservation.status = ANY($3::"FundReservationStatus"[])`,
         VALUES ($1,'GIFT_EXPIRY','GIFT_REQUEST',$2,$2,$3,$4::jsonb,'PENDING',1,0,$5,$6,$7,$7)`,[expiryJob.id,item.request.id,expiryJob.dedupeKey,
           JSON.stringify(expiryJob.payload),expiryJob.maxAttempts,new Date(expiryJob.runAfter),new Date(expiryJob.createdAt)]);
       }
+      if (input.staffAssist) {
+        const consumed = await client.query(`UPDATE staff_gift_assist_challenges
+          SET authorization_reason=$2,consumed_at=$3,updated_at=$3
+          WHERE id=$1 AND consumed_at IS NULL`, [input.staffAssist.challengeId,input.staffAssist.authorizationReason,input.now]);
+        if (consumed.rowCount !== 1) throw new GiftError('CONFLICT', 'Gift assist challenge was already consumed.');
+      }
       await insertPostgresAuditRecord(client, input.auditRecord);
       await client.query('COMMIT');
+      transactionCommitted = true;
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
+      if (!transactionCommitted) await client.query('ROLLBACK').catch(() => undefined);
       throw error;
     } finally {
       client.release();
@@ -1178,6 +1388,44 @@ export function registerGiftRoutes(server: FastifyInstance, options: {
     fingerprintBody: (request) => parseStandaloneGiftRequestBody(request.body), mapError: mapGiftError
   });
 
+  registerSecureWriteRoute(server, security, {
+    method: 'POST', url: '/api/v1/admin/gift-assist/challenges', permission: 'gift.assist',
+    action: 'CREATE_STAFF_GIFT_ASSIST_CHALLENGE', targetType: 'staff_gift_assist_challenge',
+    acceptedSources: ['DISCORD_BOT'], successStatusCode: 201,
+    handler: async (request, actor) => prepareStaffGiftAssistChallenge({ ...options, actor,
+      body: parseStaffGiftAssistChallengeBody(request.body), idempotencyKey: request.headers['idempotency-key'] as string,
+      auditSink, now: now() }),
+    fingerprintBody: (request) => parseStaffGiftAssistChallengeBody(request.body), mapError: mapGiftError
+  });
+
+  registerSecureReadRoute(server, security, {
+    method: 'GET', url: '/api/v1/admin/gift-assist/challenges/:giftAssistChallengeId', permission: 'gift.assist',
+    action: 'GET_STAFF_GIFT_ASSIST_CHALLENGE', targetType: 'staff_gift_assist_challenge', targetId: giftAssistChallengeIdParam,
+    acceptedSources: ['DISCORD_BOT'],
+    handler: async (request, actor) => getStaffGiftAssistChallenge({ ...options, actor,
+      challengeId: giftAssistChallengeIdParam(request), now: now() }), mapError: mapGiftError
+  });
+
+  registerSecureReadRoute(server, security, {
+    method: 'POST', url: '/api/v1/admin/gift-assist/challenges/:giftAssistChallengeId/affordability', permission: 'gift.assist',
+    action: 'CHECK_STAFF_GIFT_ASSIST_AFFORDABILITY', targetType: 'staff_gift_assist_challenge', targetId: giftAssistChallengeIdParam,
+    acceptedSources: ['DISCORD_BOT'],
+    handler: async (request, actor) => checkStaffGiftAssistAffordability({ ...options, actor,
+      challengeId: giftAssistChallengeIdParam(request), body: parseStandaloneGiftSelectionBody(request.body), now: now() }),
+    mapError: mapGiftError
+  });
+
+  registerSecureWriteRoute(server, security, {
+    method: 'POST', url: '/api/v1/admin/gift-assist/challenges/:giftAssistChallengeId/gift-requests', permission: 'gift.assist',
+    action: 'CREATE_STAFF_ASSISTED_GIFT_REQUEST', targetType: 'staff_gift_assist_challenge', targetId: giftAssistChallengeIdParam,
+    acceptedSources: ['DISCORD_BOT'], successStatusCode: 201,
+    successReason: (request) => parseStaffAssistedGiftRequestBody(request.body).authorizationReason,
+    handler: async (request, actor) => prepareStaffAssistedGiftRequest({ ...options, actor,
+      challengeId: giftAssistChallengeIdParam(request), body: parseStaffAssistedGiftRequestBody(request.body),
+      idempotencyKey: request.headers['idempotency-key'] as string, auditSink, now: now() }),
+    fingerprintBody: (request) => parseStaffAssistedGiftRequestBody(request.body), mapError: mapGiftError
+  });
+
   registerSecureReadRoute(server, security, {
     method: 'POST', url: '/api/v1/orders/:orderId/gift-affordability', permission: 'gift.request',
     action: 'CHECK_GIFT_AFFORDABILITY', targetType: 'order', targetId: giftOrderIdParam,
@@ -1515,6 +1763,171 @@ async function prepareStandaloneGiftRequest(input: {
   };
 }
 
+async function prepareStaffGiftAssistChallenge(input: {
+  store: GiftStore; accountStore: AccountStore; walletFunding: WalletFundingService;
+  actor: ActorContext; auditSink: AuditSink; botConfigStore?: BotConfigStore;
+  body: { customerDiscordUserId: string; authorizationChannelId: string; authorizationMessageId: string };
+  idempotencyKey: string; now: Date;
+}) {
+  const staff = requireStaffGiftActor(input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, staff.guildId);
+  const customer = await input.accountStore.findByDiscord({ guildId: staff.guildId, discordUserId: input.body.customerDiscordUserId });
+  if (!customer || customer.userStatus !== 'ACTIVE') throw new GiftError('NOT_FOUND', 'An active same-Guild customer was not found.');
+  const id = deterministicUuid(`gift-assist:${staff.staffId}:${staff.guildId}:${input.idempotencyKey}`);
+  const challenge: StaffGiftAssistChallengeRecord = {
+    id, guildId: staff.guildId, staffAccountId: staff.staffId, staffDiscordUserId: staff.discordUserId,
+    permissionsVersion: staff.permissionsVersion, customerUserId: customer.userId,
+    customerDiscordUserId: customer.discordUserId, customerDisplayName: customer.displayName,
+    authorizationChannelId: input.body.authorizationChannelId, authorizationMessageId: input.body.authorizationMessageId,
+    authorizationReason: null, failedAttempts: 0, expiresAt: new Date(input.now.getTime() + 10 * 60_000).toISOString(),
+    consumedAt: null, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+  };
+  const center = await buildStaffGiftAssistCenter({ ...input, challenge, now: input.now });
+  return {
+    data: center, statusCode: 201,
+    commit: (auditRecord: AuditRecord) => input.store.commitCreateStaffGiftAssistChallenge({ challenge, auditRecord, auditSink: input.auditSink })
+  };
+}
+
+async function getStaffGiftAssistChallenge(input: {
+  store: GiftStore; walletFunding: WalletFundingService; actor: ActorContext;
+  challengeId: string; now: Date; botConfigStore?: BotConfigStore;
+}) {
+  const staff = requireStaffGiftActor(input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, staff.guildId);
+  const challenge = await input.store.findStaffGiftAssistChallenge({ id: input.challengeId, actorStaffId: staff.staffId,
+    guildId: staff.guildId, permissionsVersion: staff.permissionsVersion, now: input.now });
+  if (!challenge) throw new GiftError('NOT_FOUND', 'Gift assist challenge was not found.');
+  return buildStaffGiftAssistCenter({ ...input, challenge, now: input.now });
+}
+
+async function buildStaffGiftAssistCenter(input: {
+  store: GiftStore; walletFunding: WalletFundingService; challenge: StaffGiftAssistChallengeRecord; now: Date;
+}) {
+  const [balance, recipients, catalog] = await Promise.all([
+    input.walletFunding.getBalance({ userId: input.challenge.customerUserId, now: input.now }),
+    input.store.listStandaloneRecipients({ guildId: input.challenge.guildId }),
+    input.store.listActiveCatalog()
+  ]);
+  const items = catalog.filter((item) => item.currency === 'CAT');
+  return {
+    id: input.challenge.id, customer: { displayName: input.challenge.customerDisplayName },
+    recipients: recipients.map((recipient) => ({ playerProfileId: recipient.playerProfileId, displayName: recipient.displayName })),
+    balance, items: items.map((item) => ({ id: item.id, code: item.code, name: item.name, version: item.version,
+      priceMinor: item.priceMinor, currency: item.currency, affordable: item.priceMinor <= balance.availableMinor })),
+    failedAttempts: input.challenge.failedAttempts, expiresAt: input.challenge.expiresAt
+  };
+}
+
+async function checkStaffGiftAssistAffordability(input: {
+  store: GiftStore; walletFunding: WalletFundingService; actor: ActorContext;
+  challengeId: string; body: { playerProfileId: string; giftCatalogVersionId: string };
+  now: Date; botConfigStore?: BotConfigStore;
+}) {
+  const staff = requireStaffGiftActor(input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, staff.guildId);
+  const challenge = await input.store.findStaffGiftAssistChallenge({ id: input.challengeId, actorStaffId: staff.staffId,
+    guildId: staff.guildId, permissionsVersion: staff.permissionsVersion, now: input.now });
+  if (!challenge) throw new GiftError('NOT_FOUND', 'Gift assist challenge was not found.');
+  const [recipient, catalog, balance] = await Promise.all([
+    input.store.findStandaloneRecipient({ guildId: staff.guildId, playerProfileId: input.body.playerProfileId }),
+    input.store.findCatalogVersion(input.body.giftCatalogVersionId),
+    input.walletFunding.getBalance({ userId: challenge.customerUserId, now: input.now })
+  ]);
+  if (!recipient) throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+  if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  if (catalog.currency !== balance.currency) throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
+  const shortfallMinor = Math.max(0, catalog.priceMinor - balance.availableMinor);
+  return { playerProfileId: recipient.playerProfileId, giftCatalogVersionId: catalog.id, catalogVersion: catalog.version,
+    priceMinor: catalog.priceMinor, recipientCount: 1, totalPriceMinor: catalog.priceMinor,
+    ledgerBalanceMinor: balance.ledgerBalanceMinor, reservedMinor: balance.reservedMinor, availableMinor: balance.availableMinor,
+    shortfallMinor, currency: balance.currency, calculatedAt: balance.calculatedAt, stale: false as const,
+    canAfford: shortfallMinor === 0, topUpInstructions: '联系客服并提交付款 receipt。' };
+}
+
+async function prepareStaffAssistedGiftRequest(input: {
+  store: GiftStore; walletFunding: WalletFundingService; actor: ActorContext; auditSink: AuditSink;
+  challengeId: string; botConfigStore?: BotConfigStore; idempotencyKey: string; now: Date;
+  body: { playerProfileId: string; giftCatalogVersionId: string; expectedCatalogVersion: number;
+    expectedPriceMinor: number; anonymous: boolean; authorizationReason: string; totpCode: string };
+}) {
+  const staff = requireStaffGiftActor(input.actor);
+  await requireStandaloneGiftEnabled(input.botConfigStore, staff.guildId);
+  const challenge = await input.store.findStaffGiftAssistChallenge({ id: input.challengeId, actorStaffId: staff.staffId,
+    guildId: staff.guildId, permissionsVersion: staff.permissionsVersion, now: input.now });
+  if (!challenge) throw new GiftError('NOT_FOUND', 'Gift assist challenge was not found.');
+  const [recipient, catalog, balance] = await Promise.all([
+    input.store.findStandaloneRecipient({ guildId: staff.guildId, playerProfileId: input.body.playerProfileId }),
+    input.store.findCatalogVersion(input.body.giftCatalogVersionId),
+    input.walletFunding.getBalance({ userId: challenge.customerUserId, now: input.now })
+  ]);
+  if (!recipient) throw new GiftError('NOT_FOUND', 'Eligible gift recipient was not found.');
+  if (!catalog || catalog.status !== 'ACTIVE') throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift is not available.');
+  if (catalog.version !== input.body.expectedCatalogVersion || catalog.priceMinor !== input.body.expectedPriceMinor)
+    throw new GiftError('GIFT_CATALOG_CHANGED', 'Gift catalog changed; check affordability and confirm again.');
+  if (catalog.currency !== 'CAT' || balance.currency !== catalog.currency)
+    throw new GiftError('VALIDATION_ERROR', 'Gift currency does not match the account.');
+  if (balance.availableMinor < catalog.priceMinor) {
+    const availableMinor = Math.max(0, balance.availableMinor);
+    throw new GiftError('INSUFFICIENT_AVAILABLE_BALANCE', 'Available balance is insufficient.', [
+      { field: 'availableMinor', reason: String(availableMinor) },
+      { field: 'shortfallMinor', reason: String(catalog.priceMinor - availableMinor) },
+      { field: 'topUpAction', reason: 'CONTACT_SUPPORT_WITH_RECEIPT' }
+    ]);
+  }
+  const requestId = deterministicUuid(`gift-request:${challenge.customerUserId}:${staff.guildId}:assist:${input.challengeId}`);
+  const expiresAt = new Date(input.now.getTime() + 30 * 60_000).toISOString();
+  const request: GiftRequestRecord = {
+    id: requestId, publicId: `G-${requestId.slice(0, 8).toUpperCase()}`, guildId: staff.guildId,
+    origin: 'STANDALONE', senderVisibility: input.body.anonymous ? 'ANONYMOUS' : 'PUBLIC',
+    initiatorMode: 'STAFF_ASSISTED', assistedByStaffId: staff.staffId, giftAssistChallengeId: challenge.id,
+    orderId: null, participantId: null, giftCatalogVersionId: catalog.id, senderId: challenge.customerUserId,
+    receiverId: recipient.userId, status: 'PENDING_REVIEW', version: 1, giftCodeSnapshot: catalog.code,
+    giftNameSnapshot: catalog.name, priceMinor: catalog.priceMinor, currency: catalog.currency,
+    broadcastTemplateSnapshot: catalog.broadcastTemplate, expiresAt, createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+  };
+  const draft = buildFundReservationDraft({ businessSource: { type: 'GIFT', referenceId: request.id },
+    userId: challenge.customerUserId, provider: null, mode: 'LOCAL_RESERVATION', amountMinor: catalog.priceMinor,
+    currency: 'CAT', idempotencyKey: `${input.idempotencyKey}:recipient:1`, ttlMinutes: 30, now: input.now });
+  const reservation: GiftReservationRecord = { ...draft, sourceType: 'GIFT', orderId: null, giftRequestId: request.id,
+    status: 'ACTIVE', version: 2, providerHoldRef: null, activatedAt: input.now.toISOString() };
+  const staffTask: GiftStaffTaskRecord = {
+    id: deterministicUuid(`gift-task:${request.id}`), publicId: `T-GIFT-${request.publicId.slice(2)}`,
+    type: 'GIFT_REVIEW', reasonCode: 'GIFT_REQUESTED', status: 'OPEN', version: 1, orderId: null,
+    giftRequestId: request.id, voiceChannelId: null,
+    contextSnapshot: { source: 'STANDALONE', initiatorMode: 'STAFF_ASSISTED', assistedByStaffId: staff.staffId,
+      giftAssistChallengeId: challenge.id, authorizationChannelId: challenge.authorizationChannelId,
+      authorizationMessageId: challenge.authorizationMessageId, authorizationReason: input.body.authorizationReason,
+      orderId: null, orderPublicId: null, channelId: null, voiceChannelId: null, senderId: challenge.customerUserId,
+      receiverId: recipient.userId, giftCode: catalog.code, giftName: catalog.name, priceMinor: catalog.priceMinor,
+      currency: catalog.currency, reservationId: reservation.id },
+    createdAt: input.now.toISOString(), updatedAt: input.now.toISOString()
+  };
+  return {
+    data: { origin: 'STANDALONE', initiatorMode: 'STAFF_ASSISTED', assistedByStaffId: staff.staffId,
+      giftAssistChallengeId: challenge.id, senderVisibility: request.senderVisibility, orderId: null,
+      playerProfileId: recipient.playerProfileId, receiverId: recipient.userId, id: request.id, publicId: request.publicId,
+      status: request.status, expiresAt, gift: { code: catalog.code, name: catalog.name, priceMinor: catalog.priceMinor, currency: catalog.currency },
+      reservation: { id: reservation.id, status: reservation.status, amountMinor: reservation.amountMinor, currency: reservation.currency, expiresAt },
+      staffTask: { id: staffTask.id, publicId: staffTask.publicId, type: staffTask.type, status: staffTask.status },
+      balance: { ...balance, reservedMinor: balance.reservedMinor + catalog.priceMinor,
+        availableMinor: balance.ledgerBalanceMinor - balance.reservedMinor - catalog.priceMinor } },
+    statusCode: 201,
+    commit: (auditRecord: AuditRecord) => input.store.commitCreateBatch({ items: [{ request, reservation, staffTask }],
+      standalonePlayerProfileId: recipient.playerProfileId, ledgerBalanceMinor: balance.ledgerBalanceMinor,
+      expectedGuildId: staff.guildId, now: input.now, auditRecord, auditSink: input.auditSink,
+      staffAssist: { challengeId: challenge.id, actorStaffId: staff.staffId, actorDiscordUserId: staff.discordUserId,
+        permissionsVersion: staff.permissionsVersion, authorizationReason: input.body.authorizationReason, totpCode: input.body.totpCode } })
+  };
+}
+
+function requireStaffGiftActor(actor: ActorContext) {
+  if (!actor.actorStaffId || !actor.guildId || !actor.discordUserId || actor.permissionsVersion == null)
+    throw new GiftError('PERMISSION_DENIED', 'An approved Discord staff account is required.');
+  return { staffId: actor.actorStaffId, guildId: actor.guildId, discordUserId: actor.discordUserId,
+    permissionsVersion: actor.permissionsVersion };
+}
+
 async function requireStandaloneGiftEnabled(store: BotConfigStore | undefined, guildId: string) {
   if (!await resolveBotConfigBoolean(store, guildId, 'gift_requests_enabled', true))
     throw new GiftError('GIFT_NOT_AVAILABLE', 'Gift requests are currently paused.');
@@ -1701,6 +2114,37 @@ function parseStandaloneGiftRequestBody(value: unknown) {
     anonymous: body.anonymous };
 }
 
+function parseStaffGiftAssistChallengeBody(value: unknown) {
+  const body = value as Record<string, unknown>;
+  if (!body || !isDiscordSnowflake(body.customerDiscordUserId) || !isDiscordSnowflake(body.authorizationChannelId)
+    || !isDiscordSnowflake(body.authorizationMessageId)
+    || Object.keys(body).some((key) => !['customerDiscordUserId', 'authorizationChannelId', 'authorizationMessageId'].includes(key))) {
+    throw new GiftError('VALIDATION_ERROR', 'Customer and authorization message identifiers are required.');
+  }
+  return { customerDiscordUserId: body.customerDiscordUserId, authorizationChannelId: body.authorizationChannelId,
+    authorizationMessageId: body.authorizationMessageId };
+}
+
+function isDiscordSnowflake(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{17,20}$/u.test(value);
+}
+
+function parseStaffAssistedGiftRequestBody(value: unknown) {
+  const body = value as Record<string, unknown>;
+  const authorizationReason = typeof body?.authorizationReason === 'string' ? body.authorizationReason.trim() : '';
+  if (!body || typeof body.playerProfileId !== 'string' || typeof body.giftCatalogVersionId !== 'string'
+    || !Number.isSafeInteger(body.expectedCatalogVersion) || !Number.isSafeInteger(body.expectedPriceMinor)
+    || typeof body.anonymous !== 'boolean' || authorizationReason.length < 3 || authorizationReason.length > 1000
+    || typeof body.totpCode !== 'string' || !/^\d{6}$/.test(body.totpCode)
+    || Object.keys(body).some((key) => !['playerProfileId', 'giftCatalogVersionId', 'expectedCatalogVersion', 'expectedPriceMinor',
+      'anonymous', 'authorizationReason', 'totpCode'].includes(key))) {
+    throw new GiftError('VALIDATION_ERROR', 'Current player, catalog, price, anonymous selection, reason, and six-digit TOTP are required.');
+  }
+  return { playerProfileId: body.playerProfileId, giftCatalogVersionId: body.giftCatalogVersionId,
+    expectedCatalogVersion: body.expectedCatalogVersion as number, expectedPriceMinor: body.expectedPriceMinor as number,
+    anonymous: body.anonymous, authorizationReason, totpCode: body.totpCode };
+}
+
 function parseVerifyBody(value: unknown) {
   const body = value as Record<string, unknown>;
   if (!body || !Number.isInteger(body.expectedVersion) || typeof body.verificationMethod !== 'string'
@@ -1752,9 +2196,16 @@ function giftRequestIdParam(request: FastifyRequest): string {
   return id;
 }
 
+function giftAssistChallengeIdParam(request: FastifyRequest): string {
+  const id = (request.params as { giftAssistChallengeId?: unknown }).giftAssistChallengeId;
+  if (typeof id !== 'string') throw new GiftError('VALIDATION_ERROR', 'giftAssistChallengeId is required.');
+  return id;
+}
+
 function mapGiftError(error: unknown) {
   if (!(error instanceof GiftError)) return null;
-  const statusCode = error.code === 'NOT_FOUND' ? 404 : error.code === 'PERMISSION_DENIED' ? 403 : error.code === 'VALIDATION_ERROR' ? 400
+  const statusCode = error.code === 'NOT_FOUND' ? 404
+    : ['PERMISSION_DENIED', 'MFA_REQUIRED', 'MFA_INVALID'].includes(error.code) ? 403 : error.code === 'VALIDATION_ERROR' ? 400
     : error.code === 'INSUFFICIENT_AVAILABLE_BALANCE' ? 422
       : 409;
   return { statusCode, code: error.code, message: error.message, details: error.details };
@@ -2035,6 +2486,31 @@ interface StandaloneGiftRecipientRow {
 function mapStandaloneGiftRecipientRow(row: StandaloneGiftRecipientRow): StandaloneGiftRecipientRecord {
   return { playerProfileId: row.player_profile_id, userId: row.user_id, displayName: row.display_name,
     guildId: row.guild_id, discordUserId: row.discord_user_id, reviewStatus: row.review_status, userStatus: row.user_status };
+}
+
+const staffGiftAssistChallengeSelect = `SELECT challenge.id,challenge.guild_id,challenge.staff_account_id,
+  challenge.staff_discord_user_id,challenge.permissions_version,challenge.customer_user_id,
+  challenge.customer_discord_user_id,customer.display_name AS customer_display_name,
+  challenge.authorization_channel_id,challenge.authorization_message_id,challenge.authorization_reason,
+  challenge.failed_attempts,challenge.expires_at,challenge.consumed_at,challenge.created_at,challenge.updated_at
+FROM staff_gift_assist_challenges challenge JOIN users customer ON customer.id=challenge.customer_user_id `;
+
+interface StaffGiftAssistChallengeRow {
+  id: string; guild_id: string; staff_account_id: string; staff_discord_user_id: string; permissions_version: number;
+  customer_user_id: string; customer_discord_user_id: string; customer_display_name: string;
+  authorization_channel_id: string; authorization_message_id: string; authorization_reason: string | null;
+  failed_attempts: number; expires_at: Date | string; consumed_at: Date | string | null;
+  created_at: Date | string; updated_at: Date | string;
+}
+
+function mapStaffGiftAssistChallengeRow(row: StaffGiftAssistChallengeRow): StaffGiftAssistChallengeRecord {
+  return { id: row.id, guildId: row.guild_id, staffAccountId: row.staff_account_id,
+    staffDiscordUserId: row.staff_discord_user_id, permissionsVersion: row.permissions_version,
+    customerUserId: row.customer_user_id, customerDiscordUserId: row.customer_discord_user_id,
+    customerDisplayName: row.customer_display_name, authorizationChannelId: row.authorization_channel_id,
+    authorizationMessageId: row.authorization_message_id, authorizationReason: row.authorization_reason,
+    failedAttempts: row.failed_attempts, expiresAt: toIso(row.expires_at), consumedAt: nullableIso(row.consumed_at),
+    createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at) };
 }
 
 function clone<T>(value: T): T {

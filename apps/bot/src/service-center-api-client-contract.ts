@@ -37,8 +37,9 @@ import type {
   SelectionFinalizeResult
 } from './service-center-api-contracts.js';
 import type { StandaloneGiftApiClientContract } from './service-center-api-client-standalone-gift-contract.js';
+import type { StaffGiftAssistApiClientContract } from './service-center-api-client-staff-gift-contract.js';
 
-export interface BotApiClient extends StandaloneGiftApiClientContract {
+export interface BotApiClient extends StandaloneGiftApiClientContract, StaffGiftAssistApiClientContract {
   listServices(actor: BotActorContext, game?: string): Promise<{ items: PublicServiceSummary[] }>;
   createOrder(
     input: { orderType: 'IMMEDIATE'; channelSpec: OrderChannelSpec },

@@ -299,6 +299,11 @@ enum GiftSenderVisibility {
   ANONYMOUS
 }
 
+enum GiftRequestInitiatorMode {
+  CUSTOMER_SELF
+  STAFF_ASSISTED
+}
+
 enum FundReservationSourceType {
   ORDER
   GIFT
@@ -612,6 +617,7 @@ model User {
   selectionApplications SelectionApplication[]
   sentGiftRequests     GiftRequest[]         @relation("GiftSender")
   receivedGiftRequests GiftRequest[]         @relation("GiftReceiver")
+  staffGiftAssistChallenges StaffGiftAssistChallenge[] @relation("GiftAssistCustomer")
   externalTransactions ExternalTransaction[]
   refundBeneficiaries  Refund[]              @relation("RefundBeneficiary")
   requestedRefunds     Refund[]              @relation("RefundRequestedByUser")
@@ -853,6 +859,8 @@ model StaffAccount {
   approvalDecisions      ApprovalDecision[]        @relation("ApprovalDecidedBy")
   verifiedGiftRequests   GiftRequest[]             @relation("GiftVerifiedBy")
   approvedGiftRequests   GiftRequest[]             @relation("GiftApprovedBy")
+  assistedGiftRequests   GiftRequest[]             @relation("GiftAssistedBy")
+  giftAssistChallenges   StaffGiftAssistChallenge[] @relation("GiftAssistStaff")
   requestedRefunds       Refund[]                  @relation("RefundRequestedByStaff")
   confirmedEarnings      PlayerEarning[]           @relation("EarningConfirmedBy")
   earningAdjustments     PlayerEarningAdjustment[] @relation("EarningAdjustmentCreatedBy")
@@ -1071,6 +1079,34 @@ model StaffStepUpChallenge {
   @@index([staffAccountId, consumedAt, expiresAt], map: "staff_step_up_challenges_owner_state_idx")
   @@index([staffSessionId, consumedAt, expiresAt], map: "staff_step_up_challenges_session_state_idx")
   @@map("staff_step_up_challenges")
+}
+
+/// Discord-only, short-lived authorization context for mode-B staff-assisted gifting.
+/// TOTP proof is verified during finalization and is never persisted in this row.
+model StaffGiftAssistChallenge {
+  id                         String    @id @default(uuid()) @db.Uuid
+  guildId                    String    @map("guild_id") @db.VarChar(32)
+  staffAccountId             String    @map("staff_account_id") @db.Uuid
+  staffDiscordUserId         String    @map("staff_discord_user_id") @db.VarChar(32)
+  permissionsVersion         Int       @map("permissions_version")
+  customerUserId             String    @map("customer_user_id") @db.Uuid
+  customerDiscordUserId      String    @map("customer_discord_user_id") @db.VarChar(32)
+  authorizationChannelId     String    @map("authorization_channel_id") @db.VarChar(32)
+  authorizationMessageId     String    @map("authorization_message_id") @db.VarChar(32)
+  authorizationReason        String?   @map("authorization_reason") @db.VarChar(1000)
+  failedAttempts             Int       @default(0) @map("failed_attempts")
+  expiresAt                  DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt                 DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt                  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  staffAccount StaffAccount @relation("GiftAssistStaff", fields: [staffAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer    User         @relation("GiftAssistCustomer", fields: [customerUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftRequest GiftRequest?
+
+  @@index([staffAccountId, consumedAt, expiresAt], map: "staff_gift_assist_owner_state_idx")
+  @@index([guildId, customerUserId, createdAt], map: "staff_gift_assist_customer_idx")
+  @@map("staff_gift_assist_challenges")
 }
 
 model DiscordRoleMapping {
@@ -1998,6 +2034,9 @@ model GiftRequest {
   guildId                   String            @map("guild_id") @db.VarChar(32)
   origin                    GiftRequestOrigin @default(ORDER)
   senderVisibility          GiftSenderVisibility @default(PUBLIC) @map("sender_visibility")
+  initiatorMode             GiftRequestInitiatorMode @default(CUSTOMER_SELF) @map("initiator_mode")
+  assistedByStaffId         String?           @map("assisted_by_staff_id") @db.Uuid
+  giftAssistChallengeId     String?           @unique @map("gift_assist_challenge_id") @db.Uuid
   orderId                   String?           @map("order_id") @db.Uuid
   orderParticipantId        String?           @map("order_participant_id") @db.Uuid
   giftCatalogVersionId      String            @map("gift_catalog_version_id") @db.Uuid
@@ -2035,6 +2074,8 @@ model GiftRequest {
   receiver            User                 @relation("GiftReceiver", fields: [receiverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   verifiedBy          StaffAccount?        @relation("GiftVerifiedBy", fields: [verifiedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   approvedBy          StaffAccount?        @relation("GiftApprovedBy", fields: [approvedByStaffId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  assistedBy          StaffAccount?        @relation("GiftAssistedBy", fields: [assistedByStaffId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  giftAssistChallenge StaffGiftAssistChallenge? @relation(fields: [giftAssistChallengeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   staffTask           StaffTask?
   fundReservation     FundReservation?
   externalTransaction ExternalTransaction?

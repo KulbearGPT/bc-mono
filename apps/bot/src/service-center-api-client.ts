@@ -264,6 +264,14 @@ export class HttpBotApiClient implements BotApiClient {
     this.gifts.checkStandalone(...args);
   public createStandaloneGiftRequest: BotApiClient['createStandaloneGiftRequest'] = (...args) =>
     this.gifts.createStandalone(...args);
+  public createStaffGiftAssistChallenge: BotApiClient['createStaffGiftAssistChallenge'] = (...args) =>
+    this.gifts.createStaffAssistChallenge(...args);
+  public getStaffGiftAssistChallenge: BotApiClient['getStaffGiftAssistChallenge'] = (...args) =>
+    this.gifts.getStaffAssistChallenge(...args);
+  public checkStaffGiftAssistAffordability: BotApiClient['checkStaffGiftAssistAffordability'] = (...args) =>
+    this.gifts.checkStaffAssist(...args);
+  public createStaffAssistedGiftRequest: BotApiClient['createStaffAssistedGiftRequest'] = (...args) =>
+    this.gifts.createStaffAssisted(...args);
 
   public async createOrderAppeal(
     orderId: string,

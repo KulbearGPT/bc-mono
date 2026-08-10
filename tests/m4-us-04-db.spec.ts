@@ -28,7 +28,8 @@ describe('M4-US-04 durable MFA and step-up persistence', () => {
     expect(schema).toMatch(/codeHash\s+String\s+@unique\s+@map\("code_hash"\)/);
     expect(schema).toMatch(/consumedAt\s+DateTime\?\s+@map\("consumed_at"\)/);
     expect(schema).toMatch(/stepUpAt\s+DateTime\?\s+@map\("step_up_at"\)/);
-    expect(schema.match(/failedAttempts\s+Int\s+@default\(0\)\s+@map\("failed_attempts"\)/g)).toHaveLength(2);
+    expect(schema.match(/failedAttempts\s+Int\s+@default\(0\)\s+@map\("failed_attempts"\)/g)).toHaveLength(3);
+    expect(schema).toMatch(/model StaffGiftAssistChallenge[\s\S]+failedAttempts\s+Int\s+@default\(0\)/u);
   });
 
   test('migration constrains expiry, active credentials, and single-use security records', async () => {
