@@ -3,11 +3,17 @@ import { describe, expect, test } from 'vitest';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 
-describe('M7-US-01 internal USD funding contracts', () => {
+describe('M7-US-01 internal wallet funding contracts under the M9 CAT override', () => {
   test('creates optional receipts only after and already bound to a funding fact', () => {
     const api = read('outputs/P0开发交付包/02-API/openapi.yaml');
-    const receiptBody = api.slice(api.indexOf('    ReceiptAttachmentBody:'), api.indexOf('    CreateUserRiskEventBody:'));
-    const topUpInput = api.slice(api.indexOf('    CreateTopUpInput:'), api.indexOf('    CreateExternalRefundDebitInput:'));
+    const receiptBody = api.slice(
+      api.indexOf('    ReceiptAttachmentBody:'),
+      api.indexOf('    CreateUserRiskEventBody:')
+    );
+    const topUpInput = api.slice(
+      api.indexOf('    CreateTopUpInput:'),
+      api.indexOf('    CreateExternalRefundDebitInput:')
+    );
     expect(receiptBody).toContain('required: [evidenceType, evidenceId, file]');
     expect(receiptBody).toContain('enum: [TOP_UP, EXTERNAL_REFUND_DEBIT]');
     expect(topUpInput).not.toContain('attachmentIds:');
@@ -23,7 +29,7 @@ describe('M7-US-01 internal USD funding contracts', () => {
     expect(api).not.toContain('operationId: createBinding');
   });
 
-  test('defines one USD wallet fact source and universal audit changes', () => {
+  test('defines one CAT wallet fact source and universal audit changes', () => {
     const schema = read('outputs/P0开发交付包/03-数据模型/schema.prisma');
     const acceptance = read('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv');
 
@@ -44,7 +50,9 @@ describe('M7-US-01 internal USD funding contracts', () => {
     const acceptance = read('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv');
     const fixtures = read('outputs/P0开发交付包/07-验收测试/test-fixtures.json');
 
-    expect(api).not.toMatch(/getProviderBalance|createHold|captureHold|releaseHold|createReservationDebit|createRefund/u);
+    expect(api).not.toMatch(
+      /getProviderBalance|createHold|captureHold|releaseHold|createReservationDebit|createRefund/u
+    );
     expect(api).not.toContain('PROVIDER_BALANCE_SNAPSHOT');
     expect(config).not.toMatch(/providerBalanceMinor|LOCAL_RESERVATION|LOCAL_RESERVATION/u);
     expect(`${api}\n${config}\n${adapter}\n${mainSpec}`).not.toMatch(/currency:\s*CNY|default:\s*CNY|人民币/u);
@@ -82,12 +90,13 @@ describe('M7-US-01 internal USD funding contracts', () => {
     expect(agents).not.toContain('Provider 负责用户账户事实、真实余额、充值、支付和退款');
     expect(agents).not.toContain('providerBalanceMinor');
 
-    expect(apiGuide).toContain('内部 USD 钱包承担客户账户、真实余额、充值、消费与退款事实');
-    expect(packageIndex).toContain('内部 USD 钱包与人工渠道核对');
-    expect(backlogPrototype).toContain('M7 当前合同覆盖 M0–M6 的 Provider 资金历史口径');
-    expect(businessConfig).toContain('内部 USD 钱包是客户余额、充值、消费与退款的唯一资金事实来源');
-    expect(`${businessConfig}\n${businessConfigExample}\n${businessConfigSchema}`)
-      .not.toMatch(/account\.bind|webhook\.payment\.receive/u);
+    expect(apiGuide).toContain('内部 CAT 钱包承担客户账户、真实余额、充值、消费与退款事实');
+    expect(packageIndex).toContain('内部 CAT 钱包与人工渠道核对');
+    expect(backlogPrototype).toContain('M9 当前 CAT 合同覆盖 M0–M8 的历史资金口径');
+    expect(businessConfig).toContain('内部 CAT 钱包是客户余额、充值、消费与退款的唯一资金事实来源');
+    expect(`${businessConfig}\n${businessConfigExample}\n${businessConfigSchema}`).not.toMatch(
+      /account\.bind|webhook\.payment\.receive/u
+    );
     for (const permission of ['wallet.read', 'wallet.top_up', 'wallet.external_refund', 'wallet.adjust']) {
       expect(businessConfigExample).toContain(permission);
       expect(businessConfigSchema).toContain(permission);
@@ -107,9 +116,10 @@ describe('M7-US-01 internal USD funding contracts', () => {
 
   test('resolves every acceptance fixture identifier to concrete fixture data', () => {
     const acceptance = read('outputs/P0开发交付包/07-验收测试/acceptance-cases.csv');
-    const fixtureDocument = JSON.parse(
-      read('outputs/P0开发交付包/07-验收测试/test-fixtures.json')
-    ) as { fixtureIndex: Record<string, string>; [key: string]: unknown };
+    const fixtureDocument = JSON.parse(read('outputs/P0开发交付包/07-验收测试/test-fixtures.json')) as {
+      fixtureIndex: Record<string, string>;
+      [key: string]: unknown;
+    };
     const referenced = [...new Set(acceptance.match(/FX-[A-Z0-9-]+/gu) ?? [])].sort();
 
     expect(referenced.length).toBeGreaterThan(0);

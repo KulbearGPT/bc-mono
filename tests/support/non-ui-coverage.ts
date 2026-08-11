@@ -21,18 +21,70 @@ const planned = (implementationPackage: NonUiPackage, automationId: `BNUI-${stri
   sources: []
 });
 
+const automated = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  test: string,
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A1',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources: [{ file: 'tests/non-ui/account-wallet.spec.ts', test }]
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
-  ...[
+  automated(
     'BNUI-ACC-001',
+    ['AT-ACC-001', 'AT-ACC-003', 'AT-ONB-001', 'AT-ONB-006'],
+    'BNUI-ACC-001 registers one trusted Discord account, CAT wallet and role task with idempotent audit',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automated(
     'BNUI-ACC-002',
+    ['AT-ONB-002', 'AT-ONB-006'],
+    'BNUI-ACC-002 creates one pending companion application and rejects an untrusted source with zero writes'
+  ),
+  automated(
     'BNUI-ACC-003',
+    ['AT-ACC-002', 'AT-ACC-004', 'AT-PRF-002', 'AT-PRF-004', 'AT-PRF-006'],
+    'BNUI-ACC-003 keeps current-user profile and paginated orders private to the trusted Guild actor',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automated(
     'BNUI-WLT-001',
+    ['AT-PL-002', 'AT-WAL-001', 'AT-PRF-006'],
+    'BNUI-WLT-001 calculates one CAT balance from append-only entries and active order plus gift reservations'
+  ),
+  automated(
     'BNUI-WLT-002',
+    ['AT-WAL-003', 'AT-WAL-005', 'AT-WAL-006', 'AT-WAL-007', 'AT-WLT-011'],
+    'BNUI-WLT-002 credits USD cents as CAT once, rejects duplicate receipts and exposes only paginated public entries',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automated(
     'BNUI-WLT-003',
+    ['AT-WAL-004', 'AT-WLT-012', 'AT-WLT-013'],
+    'BNUI-WLT-003 denies L1, stale step-up and invalid top-up input without wallet business writes'
+  ),
+  automated(
     'BNUI-WLT-004',
+    ['AT-WAL-002', 'AT-WAL-008', 'AT-WAL-009', 'AT-CAT-004'],
+    'BNUI-WLT-004 rejects an overdrawn offline refund then appends one valid non-negative debit and audit'
+  ),
+  automated(
     'BNUI-WLT-005',
-    'BNUI-WLT-006'
-  ].map((id) => planned('NUI-A1', id as `BNUI-${string}`)),
+    ['AT-PL-002', 'AT-WAL-006'],
+    'BNUI-WLT-005 converges a lost-response replay and concurrent refund race to one credit and one debit'
+  ),
+  automated(
+    'BNUI-WLT-006',
+    ['AT-WAL-010', 'AT-WHK-001', 'AT-WHK-002', 'AT-WHK-003', 'AT-CAT-005'],
+    'BNUI-WLT-006 keeps payment providers and webhooks retired with unknown routes and zero business writes',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
   ...[
     'BNUI-CAT-001',
     'BNUI-CAT-002',

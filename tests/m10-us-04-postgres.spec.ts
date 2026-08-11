@@ -1,15 +1,9 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresOrderParticipantStore } from '@blackcat/api/order-participants';
 import { PostgresServiceLifecycleStore, confirmOrder, setOrderReadiness } from '@blackcat/api/service-lifecycle';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
-const database = 'blackcat_m10_lifecycle';
 const guildId = '999999999999999999';
 const customerId = '00000000-0000-0000-0000-000000104001';
 const readinessCustomerId = '00000000-0000-0000-0000-000000104048';
@@ -24,53 +18,52 @@ const catalogId = '00000000-0000-0000-0000-000000104005';
 const reservationId = '00000000-0000-0000-0000-000000104006';
 const walletId = '00000000-0000-0000-0000-000000104007';
 const now = new Date('2026-08-04T13:00:00.000Z');
-let root = '';
-let data = '';
-let port = 0;
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M10-US-04 PostgreSQL multi-player capture', () => {
   beforeAll(async () => {
-    port = 62_700 + (process.pid % 100);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m10-lifecycle-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root} -c listen_addresses=''`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), database]);
-    for (const migration of (await readdir('database/prisma/migrations')).sort()) {
-      await execFile('psql', ['-h', root, '-p', String(port), '-d', database, '-v', 'ON_ERROR_STOP=1', '-f', `database/prisma/migrations/${migration}/migration.sql`]);
-    }
-    pool = new Pool({ host: root, port, database, max: 4 });
+    isolated = await startIsolatedPostgres('m10_lifecycle');
+    pool = isolated.pool;
     await seed();
   }, 40_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('blocks an unready late player, then captures the latest total into nine participant earnings', async () => {
     const lifecycle = new PostgresServiceLifecycleStore({ pool });
-    await expect(confirmOrder({
-      store: lifecycle,
-      orderId,
-      expectedVersion: 9,
-      confirmation: 'CONFIRM_COMPLETED',
-      actor: { guildId, discordUserId: customerDiscordId },
-      idempotencyKey: 'm10-us-04:postgres:blocked',
-      referralsEnabled: false,
-      now
-    })).rejects.toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
+    await expect(
+      confirmOrder({
+        store: lifecycle,
+        orderId,
+        expectedVersion: 9,
+        confirmation: 'CONFIRM_COMPLETED',
+        actor: { guildId, discordUserId: customerDiscordId },
+        idempotencyKey: 'm10-us-04:postgres:blocked',
+        referralsEnabled: false,
+        now
+      })
+    ).rejects.toThrowError(expect.objectContaining({ code: 'CONFLICT' }));
 
-    let untouched = await pool.query(`SELECT orders.status::text, reservation.status::text reservation_status,
+    const untouched = await pool.query(
+      `SELECT orders.status::text, reservation.status::text reservation_status,
       (SELECT count(*)::int FROM wallet_entries WHERE source_id=$2) capture_count,
       (SELECT count(*)::int FROM player_earnings WHERE order_id=$1) earning_count
-      FROM orders JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`, [orderId, reservationId]);
-    expect(untouched.rows[0]).toEqual({ status: 'PENDING_CONFIRMATION', reservation_status: 'ACTIVE', capture_count: 0, earning_count: 0 });
+      FROM orders JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`,
+      [orderId, reservationId]
+    );
+    expect(untouched.rows[0]).toEqual({
+      status: 'PENDING_CONFIRMATION',
+      reservation_status: 'ACTIVE',
+      capture_count: 0,
+      earning_count: 0
+    });
 
-    await pool.query(`UPDATE order_participants SET ready_at=$2,row_version=row_version+1,updated_at=$2
-      WHERE order_id=$1 AND ready_at IS NULL`, [orderId, now]);
+    await pool.query(
+      `UPDATE order_participants SET ready_at=$2,row_version=row_version+1,updated_at=$2
+      WHERE order_id=$1 AND ready_at IS NULL`,
+      [orderId, now]
+    );
     const completed = await confirmOrder({
       store: lifecycle,
       orderId,
@@ -83,48 +76,67 @@ describe('M10-US-04 PostgreSQL multi-player capture', () => {
     });
     expect(completed).toMatchObject({ status: 'COMPLETED', capturedMinor: 900, playerEarningMinor: 450 });
 
-    const facts = await pool.query(`SELECT orders.status::text,orders.amount_minor::text,
+    const facts = await pool.query(
+      `SELECT orders.status::text,orders.amount_minor::text,
       reservation.status::text reservation_status,
       (SELECT amount_minor::text FROM wallet_entries WHERE source_id=$2 AND entry_type='ORDER_CAPTURE_DEBIT') captured_minor,
       (SELECT count(*)::int FROM player_earnings WHERE order_id=$1) earning_count,
       (SELECT COALESCE(sum(amount_minor),0)::text FROM player_earnings WHERE order_id=$1) earning_total,
       (SELECT count(DISTINCT order_participant_id)::int FROM player_earnings WHERE order_id=$1) linked_participant_count,
       (SELECT count(*)::int FROM outbox_events WHERE order_id=$1 AND event_type='CHANNEL_ARCHIVE') channel_cleanup_jobs
-      FROM orders JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`, [orderId, reservationId]);
+      FROM orders JOIN fund_reservations reservation ON reservation.order_id=orders.id WHERE orders.id=$1`,
+      [orderId, reservationId]
+    );
     expect(facts.rows[0]).toEqual({
-      status: 'COMPLETED', amount_minor: '900', reservation_status: 'CAPTURED', captured_minor: '900',
-      earning_count: 9, earning_total: '450', linked_participant_count: 9, channel_cleanup_jobs: 1
+      status: 'COMPLETED',
+      amount_minor: '900',
+      reservation_status: 'CAPTURED',
+      captured_minor: '900',
+      earning_count: 9,
+      earning_total: '450',
+      linked_participant_count: 9,
+      channel_cleanup_jobs: 1
     });
 
     const participants = new PostgresOrderParticipantStore(pool);
-    await expect(participants.update({
-      orderId,
-      participantId: participantId(1),
-      actorStaffId: staffId,
-      actorLevel: 'L2_SUPERVISOR',
-      guildId,
-      expectedOrderVersion: 10,
-      expectedParticipantVersion: 1,
-      action: 'REMOVE',
-      serviceCatalogVersionId: null,
-      unitCount: null,
-      linePriceMinor: null,
-      reasonCode: 'REMOVE_AFTER_CAPTURE',
-      idempotencyKey: 'm10-us-04:postgres:immutable',
-      now
-    })).rejects.toThrowError(expect.objectContaining({ code: 'BUSINESS_RULE_ERROR' }));
+    await expect(
+      participants.update({
+        orderId,
+        participantId: participantId(1),
+        actorStaffId: staffId,
+        actorLevel: 'L2_SUPERVISOR',
+        guildId,
+        expectedOrderVersion: 10,
+        expectedParticipantVersion: 1,
+        action: 'REMOVE',
+        serviceCatalogVersionId: null,
+        unitCount: null,
+        linePriceMinor: null,
+        reasonCode: 'REMOVE_AFTER_CAPTURE',
+        idempotencyKey: 'm10-us-04:postgres:immutable',
+        now
+      })
+    ).rejects.toThrowError(expect.objectContaining({ code: 'BUSINESS_RULE_ERROR' }));
   });
 
   test('starts from all active participant facts without writing customer readiness', async () => {
     const lifecycle = new PostgresServiceLifecycleStore({ pool });
     const first = await setOrderReadiness({
-      store: lifecycle, orderId: readinessOrderId, expectedVersion: 4, readiness: 'READY',
-      actor: { guildId, discordUserId: '111111111111111121' }, now
+      store: lifecycle,
+      orderId: readinessOrderId,
+      expectedVersion: 4,
+      readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111121' },
+      now
     });
     expect(first).toMatchObject({ status: 'ACCEPTED', readiness: { allActivePlayersReady: false } });
     const started = await setOrderReadiness({
-      store: lifecycle, orderId: readinessOrderId, expectedVersion: 5, readiness: 'READY',
-      actor: { guildId, discordUserId: '111111111111111122' }, now: new Date(now.getTime() + 1_000)
+      store: lifecycle,
+      orderId: readinessOrderId,
+      expectedVersion: 5,
+      readiness: 'READY',
+      actor: { guildId, discordUserId: '111111111111111122' },
+      now: new Date(now.getTime() + 1_000)
     });
     expect(started).toMatchObject({ status: 'IN_SERVICE', readiness: { allActivePlayersReady: true } });
     const facts = await pool.query(
@@ -145,24 +157,35 @@ describe('M10-US-04 PostgreSQL multi-player capture', () => {
         VALUES(gen_random_uuid(),$1,1,'SERVICE_STARTED','ACCEPTED','IN_SERVICE','SYSTEM_JOB','{}',now())`,
         [guardOrderId]
       );
-      await expect(client.query(
-        `UPDATE orders SET status='IN_SERVICE',customer_ready_at=now(),player_ready_at=now(),service_started_at=now(),row_version=row_version+1,updated_at=now() WHERE id=$1`,
-        [guardOrderId]
-      )).rejects.toThrow(/all active order participants ready/);
+      await expect(
+        client.query(
+          `UPDATE orders SET status='IN_SERVICE',customer_ready_at=now(),player_ready_at=now(),service_started_at=now(),row_version=row_version+1,updated_at=now() WHERE id=$1`,
+          [guardOrderId]
+        )
+      ).rejects.toThrow(/all active order participants ready/);
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
       client.release();
     }
-    const facts = await pool.query(`SELECT status::text,customer_ready_at,service_started_at FROM orders WHERE id=$1`, [guardOrderId]);
+    const facts = await pool.query(`SELECT status::text,customer_ready_at,service_started_at FROM orders WHERE id=$1`, [
+      guardOrderId
+    ]);
     expect(facts.rows[0]).toEqual({ status: 'ACCEPTED', customer_ready_at: null, service_started_at: null });
   });
 });
 
-function playerId(index: number) { return `00000000-0000-0000-0000-${String(104100 + index).padStart(12, '0')}`; }
-function participantId(index: number) { return `00000000-0000-0000-0000-${String(104200 + index).padStart(12, '0')}`; }
+function playerId(index: number) {
+  return `00000000-0000-0000-0000-${String(104100 + index).padStart(12, '0')}`;
+}
+function participantId(index: number) {
+  return `00000000-0000-0000-0000-${String(104200 + index).padStart(12, '0')}`;
+}
 
 async function seed() {
-  const users = Array.from({ length: 13 }, (_, index) => `('${playerId(index + 1)}','陪玩猫${index + 1}','ACTIVE',1,now(),now())`).join(',');
+  const users = Array.from(
+    { length: 13 },
+    (_, index) => `('${playerId(index + 1)}','陪玩猫${index + 1}','ACTIVE',1,now(),now())`
+  ).join(',');
   const participants = Array.from({ length: 9 }, (_, index) => {
     const number = index + 1;
     const readyAt = number === 9 ? 'NULL' : 'now()';

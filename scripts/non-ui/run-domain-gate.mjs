@@ -3,7 +3,12 @@ import process from 'node:process';
 
 const gate = process.argv[2];
 const filesByGate = {
-  a0: ['tests/non-ui/nui-a0-harness.spec.ts']
+  a0: ['tests/non-ui/nui-a0-harness.spec.ts'],
+  a1: [
+    'tests/non-ui/nui-a0-harness.spec.ts',
+    'tests/non-ui/account-wallet-contract.spec.ts',
+    'tests/non-ui/account-wallet.spec.ts'
+  ]
 };
 
 const files = filesByGate[gate];
