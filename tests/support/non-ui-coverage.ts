@@ -35,6 +35,20 @@ const automated = (
   sources: [{ file: 'tests/non-ui/account-wallet.spec.ts', test }]
 });
 
+const automatedA2 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  test: string,
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A2',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources: [{ file: 'tests/non-ui/catalog-player.spec.ts', test }]
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -85,16 +99,48 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
     'BNUI-WLT-006 keeps payment providers and webhooks retired with unknown routes and zero business writes',
     'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
   ),
-  ...[
+  automatedA2(
     'BNUI-CAT-001',
+    ['AT-CAT-001', 'AT-CAT-002', 'AT-ARC-001'],
+    'BNUI-CAT-001 creates, supersedes and archives immutable CAT service versions without rewriting an order snapshot'
+  ),
+  automatedA2(
     'BNUI-CAT-002',
+    ['AT-CAT-001', 'AT-TAG-002'],
+    'BNUI-CAT-002 rejects missing prices, invalid units and wrong tag types with zero catalog, audit or outbox writes'
+  ),
+  automatedA2(
     'BNUI-PKG-001',
+    ['AT-MULTI-012', 'AT-MULTI-014'],
+    'BNUI-PKG-001 publishes ordered same-game slots with a server-derived total and one immutable active version per code'
+  ),
+  automatedA2(
     'BNUI-PKG-002',
+    ['AT-MULTI-012', 'AT-MULTI-014'],
+    'BNUI-PKG-002 rejects mixed-game slots and lets only one concurrent activation of the same draft succeed'
+  ),
+  automatedA2(
     'BNUI-TAG-001',
+    ['AT-TAG-001', 'AT-TAG-004'],
+    'BNUI-TAG-001 keeps tag codes and historical references stable while disabling only future selection'
+  ),
+  automatedA2(
     'BNUI-PLY-001',
+    ['AT-ONB-005', 'AT-TAG-002'],
+    'BNUI-PLY-001 approves and rejects companion applications atomically with version, tags, role tasks and audit',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA2(
     'BNUI-PLY-002',
-    'BNUI-PLY-003'
-  ].map((id) => planned('NUI-A2', id as `BNUI-${string}`)),
+    ['AT-DOP-005'],
+    'BNUI-PLY-002 excludes a paused player from new candidates, restores them, and leaves an existing order fact unchanged',
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA2(
+    'BNUI-PLY-003',
+    ['AT-COMP-001', 'AT-COMP-002'],
+    'BNUI-PLY-003 validates batch compensation and freezes the selected rule into the participant snapshot'
+  ),
   ...[
     'BNUI-ORD-001',
     'BNUI-ORD-002',

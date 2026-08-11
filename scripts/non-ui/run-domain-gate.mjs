@@ -8,6 +8,12 @@ const filesByGate = {
     'tests/non-ui/nui-a0-harness.spec.ts',
     'tests/non-ui/account-wallet-contract.spec.ts',
     'tests/non-ui/account-wallet.spec.ts'
+  ],
+  a2: [
+    'tests/non-ui/nui-a0-harness.spec.ts',
+    'tests/non-ui/account-wallet-contract.spec.ts',
+    'tests/non-ui/account-wallet.spec.ts',
+    'tests/non-ui/catalog-player.spec.ts'
   ]
 };
 

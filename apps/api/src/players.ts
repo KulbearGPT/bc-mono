@@ -5,6 +5,8 @@ import {
   registerSecureReadRoute,
   registerSecureWriteRoute,
   type ActorContext,
+  type AuditRecord,
+  insertPostgresAuditRecord,
 } from "./security.js";
 import type { BusinessTagStore } from "./business-tags.js";
 import { buildOrderAvailableActions } from "./order-actions.js";
@@ -108,6 +110,15 @@ export interface PlayerStore {
     approvedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  stageApprovePlayer?(input: {
+    playerId: string;
+    expectedVersion: number;
+    gameTags: string[];
+    serviceTags: string[];
+    languageTags?: string[];
+    approvedByStaffId: string;
+    now: Date;
+  }): Promise<StagedPlayerWrite>;
   rejectPlayer(input: {
     playerId: string;
     expectedVersion: number;
@@ -116,12 +127,26 @@ export interface PlayerStore {
     rejectedByStaffId: string;
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  stageRejectPlayer?(input: {
+    playerId: string;
+    expectedVersion: number;
+    reasonCode: string;
+    note: string;
+    rejectedByStaffId: string;
+    now: Date;
+  }): Promise<StagedPlayerWrite>;
   updateOperationalStatus(input: {
     playerId: string;
     expectedVersion: number;
     reviewStatus: Exclude<PlayerReviewStatus, "PENDING_REVIEW">;
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  stageUpdateOperationalStatus?(input: {
+    playerId: string;
+    expectedVersion: number;
+    reviewStatus: Exclude<PlayerReviewStatus, "PENDING_REVIEW">;
+    now: Date;
+  }): Promise<StagedPlayerWrite>;
   updateTags(input: {
     playerId: string;
     expectedVersion: number;
@@ -130,10 +155,24 @@ export interface PlayerStore {
     languageTags?: string[];
     now: Date;
   }): Promise<PlayerProfileRecord> | PlayerProfileRecord;
+  stageUpdateTags?(input: {
+    playerId: string;
+    expectedVersion: number;
+    gameTags: string[];
+    serviceTags: string[];
+    languageTags?: string[];
+    now: Date;
+  }): Promise<StagedPlayerWrite>;
   getWorkbenchData(input: {
     profile: PlayerProfileRecord;
     now: Date;
   }): Promise<PlayerWorkbenchData> | PlayerWorkbenchData;
+}
+
+interface StagedPlayerWrite {
+  data: PlayerProfileRecord;
+  commit(auditRecord: AuditRecord): Promise<void>;
+  abort(): Promise<void>;
 }
 
 export class PlayerError extends Error {
@@ -499,6 +538,18 @@ WHERE id = $1
     return this.requireProfile(input.playerId);
   }
 
+  async stageApprovePlayer(input: {
+    playerId: string;
+    expectedVersion: number;
+    gameTags: string[];
+    serviceTags: string[];
+    languageTags?: string[];
+    approvedByStaffId: string;
+    now: Date;
+  }): Promise<StagedPlayerWrite> {
+    return this.stageMutation((store) => store.approvePlayer(input));
+  }
+
   async rejectPlayer(input: {
     playerId: string;
     expectedVersion: number;
@@ -543,6 +594,17 @@ WHERE id = $1
     return this.requireProfile(input.playerId);
   }
 
+  async stageRejectPlayer(input: {
+    playerId: string;
+    expectedVersion: number;
+    reasonCode: string;
+    note: string;
+    rejectedByStaffId: string;
+    now: Date;
+  }): Promise<StagedPlayerWrite> {
+    return this.stageMutation((store) => store.rejectPlayer(input));
+  }
+
   async updateOperationalStatus(input: {
     playerId: string;
     expectedVersion: number;
@@ -564,6 +626,15 @@ WHERE id = $1
       [input.playerId, input.reviewStatus, input.now.toISOString()],
     );
     return this.requireProfile(input.playerId);
+  }
+
+  async stageUpdateOperationalStatus(input: {
+    playerId: string;
+    expectedVersion: number;
+    reviewStatus: Exclude<PlayerReviewStatus, "PENDING_REVIEW">;
+    now: Date;
+  }): Promise<StagedPlayerWrite> {
+    return this.stageMutation((store) => store.updateOperationalStatus(input));
   }
 
   async updateTags(input: {
@@ -593,6 +664,67 @@ WHERE id = $1
       [input.playerId, input.now.toISOString()],
     );
     return this.requireProfile(input.playerId);
+  }
+
+  async stageUpdateTags(input: {
+    playerId: string;
+    expectedVersion: number;
+    gameTags: string[];
+    serviceTags: string[];
+    languageTags?: string[];
+    now: Date;
+  }): Promise<StagedPlayerWrite> {
+    return this.stageMutation((store) => store.updateTags(input));
+  }
+
+  private async stageMutation(
+    mutation: (store: PostgresPlayerStore) => Promise<PlayerProfileRecord>,
+  ): Promise<StagedPlayerWrite> {
+    if (!this.pool) {
+      throw new PlayerError(
+        "CONFIGURATION_ERROR",
+        "Atomic player writes require a PostgreSQL pool.",
+      );
+    }
+    const client = await this.pool.connect();
+    let closed = false;
+    const close = () => {
+      if (!closed) {
+        closed = true;
+        client.release();
+      }
+    };
+    try {
+      await client.query("BEGIN");
+      const data = await mutation(new PostgresPlayerStore({ client }));
+      return {
+        data,
+        commit: async (auditRecord) => {
+          if (closed) return;
+          try {
+            await insertPostgresAuditRecord(client, auditRecord);
+            await client.query("COMMIT");
+          } catch (error) {
+            await client.query("ROLLBACK").catch(() => undefined);
+            throw error;
+          } finally {
+            close();
+          }
+        },
+        abort: async () => {
+          if (closed) return;
+          try {
+            await client.query("ROLLBACK");
+          } finally {
+            close();
+          }
+        },
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      close();
+      throw error;
+    }
   }
 
   async getWorkbenchData(input: {
@@ -829,7 +961,10 @@ export function registerPlayerRoutes(
         })),
         earningsSummary: workbench.earningsSummary,
         availableActions: workbench.currentOrder
-          ? buildOrderAvailableActions({ status: workbench.currentOrder.status, role: "PLAYER" })
+          ? buildOrderAvailableActions({
+              status: workbench.currentOrder.status,
+              role: "PLAYER",
+            })
           : [],
         nextActions: buildWorkbenchActions(
           profile,
@@ -854,6 +989,21 @@ export function registerPlayerRoutes(
       if (!actor.actorStaffId)
         throw new PlayerError("PERMISSION_DENIED", "Staff actor is required.");
       const body = parseRejectBody(request.body);
+      if (options.store.stageRejectPlayer) {
+        const staged = await options.store.stageRejectPlayer({
+          playerId: playerIdParam(request),
+          expectedVersion: body.expectedVersion,
+          reasonCode: body.reasonCode,
+          note: body.note,
+          rejectedByStaffId: actor.actorStaffId,
+          now: now(),
+        });
+        return {
+          data: toApiProfile(staged.data),
+          commit: staged.commit,
+          abort: staged.abort,
+        };
+      }
       return toApiProfile(
         await options.store.rejectPlayer({
           playerId: playerIdParam(request),
@@ -917,6 +1067,22 @@ export function registerPlayerRoutes(
         request.body,
         options.businessTags,
       );
+      if (options.store.stageApprovePlayer) {
+        const staged = await options.store.stageApprovePlayer({
+          playerId: playerIdParam(request),
+          expectedVersion: body.expectedVersion,
+          gameTags: body.gameTags,
+          serviceTags: body.serviceTags,
+          languageTags: body.languageTags,
+          approvedByStaffId: actor.actorStaffId,
+          now: now(),
+        });
+        return {
+          data: toApiProfile(staged.data),
+          commit: staged.commit,
+          abort: staged.abort,
+        };
+      }
       return toApiProfile(
         await options.store.approvePlayer({
           playerId: playerIdParam(request),
@@ -943,6 +1109,19 @@ export function registerPlayerRoutes(
     acceptedSources: ["DASHBOARD", "DISCORD_BOT"],
     handler: async (request) => {
       const body = parseStatusBody(request.body);
+      if (options.store.stageUpdateOperationalStatus) {
+        const staged = await options.store.stageUpdateOperationalStatus({
+          playerId: playerIdParam(request),
+          expectedVersion: body.expectedVersion,
+          reviewStatus: body.reviewStatus,
+          now: now(),
+        });
+        return {
+          data: toApiProfile(staged.data),
+          commit: staged.commit,
+          abort: staged.abort,
+        };
+      }
       return toApiProfile(
         await options.store.updateOperationalStatus({
           playerId: playerIdParam(request),
@@ -969,6 +1148,21 @@ export function registerPlayerRoutes(
         request.body,
         options.businessTags,
       );
+      if (options.store.stageUpdateTags) {
+        const staged = await options.store.stageUpdateTags({
+          playerId: playerIdParam(request),
+          expectedVersion: body.expectedVersion,
+          gameTags: body.gameTags,
+          serviceTags: body.serviceTags,
+          languageTags: body.languageTags,
+          now: now(),
+        });
+        return {
+          data: toApiProfile(staged.data),
+          commit: staged.commit,
+          abort: staged.abort,
+        };
+      }
       return toApiProfile(
         await options.store.updateTags({
           playerId: playerIdParam(request),
