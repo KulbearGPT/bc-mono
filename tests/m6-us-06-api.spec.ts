@@ -23,10 +23,10 @@ function catalog(overrides: Partial<GiftCatalogRecord> = {}): GiftCatalogRecord 
 }
 
 function fixture(input: { balance?: number; orderGuildId?: string; participantCount?: number;
-  orderStatus?: OrderStatus; completedAt?: string | null } = {}) {
+  orderStatus?: OrderStatus; completedAt?: string | null; catalogCurrency?: string } = {}) {
   const participantIds = Array.from({ length: input.participantCount ?? 1 }, (_, index) => index === 0
     ? participantId : `00000000-0000-0000-0000-${String(6606 + index).padStart(12, '0')}`);
-  const giftStore = new InMemoryGiftStore({ catalog: [catalog()], orderParticipants: participantIds.map((id, index) => ({
+  const giftStore = new InMemoryGiftStore({ catalog: [catalog({ currency: input.catalogCurrency ?? 'CAT' })], orderParticipants: participantIds.map((id, index) => ({
     participantId: id, playerId: index === 0 ? playerId : `00000000-0000-0000-0000-${String(6703 + index).padStart(12, '0')}`,
     displayName: `陪玩猫${index + 1}`
   })) });
@@ -118,6 +118,17 @@ describe('M6-US-06 gift affordability API', () => {
         expectedCatalogVersion: 4, expectedPriceMinor: 8_800, anonymous: true } });
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    expectZeroWrites(state.giftStore);
+  });
+
+  test('reports CAT as the required internal gift currency', async () => {
+    const state = fixture({ balance: 20_000, catalogCurrency: 'USD' });
+    const response = await state.server.inject({ method: 'POST', url: `/api/v1/orders/${orderId}/gift-requests`,
+      headers: headers('gift:m22-us-06:currency-message'), payload: { expectedOrderVersion: 7,
+        participantIds: [participantId], giftCatalogVersionId: catalog().id,
+        expectedCatalogVersion: 4, expectedPriceMinor: 8_800 } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR', message: 'Gifts must use CAT.' } });
     expectZeroWrites(state.giftStore);
   });
 

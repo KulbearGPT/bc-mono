@@ -1989,7 +1989,7 @@ async function prepareGiftRequest(input: {
     throw new GiftError('CONFLICT', 'One or more selected players are no longer active on this order.');
   }
   const walletBalance = await input.walletFunding.getBalance({ userId: binding.userId, now: input.now });
-  if (catalog.currency !== 'CAT') throw new GiftError('VALIDATION_ERROR', 'Gifts must use USD.');
+  if (catalog.currency !== 'CAT') throw new GiftError('VALIDATION_ERROR', 'Gifts must use CAT.');
   const reservedMinor = walletBalance.reservedMinor;
   const totalAmountMinor = catalog.priceMinor * recipients.length;
   if (!Number.isSafeInteger(totalAmountMinor)) throw new GiftError('VALIDATION_ERROR', 'Gift total is outside the supported range.');
