@@ -1,13 +1,6 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { createServer } from 'node:net';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { Pool, type QueryResult } from 'pg';
 import type { AccountBindingRecord } from '@blackcat/api/accounts';
-import { applyCurrentMigrations } from './postgres-migrations';
-
-const execFile = promisify(execFileCallback);
+import { startIsolatedPostgres } from './isolated-postgres';
 
 type Queryable = {
   query(sql: string, values?: readonly unknown[]): Promise<Pick<QueryResult, 'rows'>>;
@@ -54,46 +47,16 @@ export interface GiftAutomationSeed {
 export async function startIsolatedGiftDatabase(label: string): Promise<IsolatedGiftDatabase> {
   const safeLabel = label.toLowerCase().replace(/[^a-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '');
   if (!safeLabel) throw new Error('INVALID_GIFT_TEST_DATABASE_LABEL');
-
-  const port = await reserveAvailablePort();
-  // PostgreSQL Unix sockets have a short platform path limit. Keep the isolated
-  // root below it instead of inheriting macOS's long per-user TMPDIR path.
-  const root = await mkdtemp(join('/tmp', `blackcat-m22-gift-${safeLabel}-`));
-  const data = join(root, 'data');
-  const database = `blackcat_m22_gift_${safeLabel}_${process.pid}`;
-  let pool: Pool | undefined;
-  let started = false;
-  let stopped = false;
-
-  try {
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    started = true;
-    await execFile('createdb', ['-h', root, '-p', String(port), database]);
-    await applyCurrentMigrations({ host: root, port, database });
-    pool = new Pool({ host: root, port, database, max: 8 });
-    await assertGiftTestDatabase(pool);
-
-    return {
-      database,
-      host: root,
-      port,
-      root,
-      pool,
-      stop: async () => {
-        if (stopped) return;
-        stopped = true;
-        await pool?.end().catch(() => undefined);
-        if (started) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-        await rm(root, { recursive: true, force: true });
-      }
-    };
-  } catch (error) {
-    await pool?.end().catch(() => undefined);
-    if (started) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
-    throw error;
-  }
+  const isolated = await startIsolatedPostgres(`gift_${safeLabel}`);
+  await assertGiftTestDatabase(isolated.pool);
+  return {
+    database: isolated.database,
+    host: isolated.socketDir,
+    port: isolated.port,
+    root: isolated.root,
+    pool: isolated.pool,
+    stop: () => isolated.stop()
+  };
 }
 
 export async function assertGiftTestDatabase(database: Queryable): Promise<void> {
@@ -102,8 +65,8 @@ export async function assertGiftTestDatabase(database: Queryable): Promise<void>
   const identity = result.rows[0] as { database_name?: unknown; socket_path?: unknown } | undefined;
   const databaseName = String(identity?.database_name ?? '');
   const socketPath = String(identity?.socket_path ?? '');
-  if (!/^blackcat_m22_gift_[a-z0-9_]+_[0-9]+$/u.test(databaseName)
-      || !socketPath.includes('blackcat-m22-gift-')) {
+  if (!/^blackcat_non_ui_gift_[a-z0-9_]+_[0-9]+_[a-f0-9]{8}$/u.test(databaseName)
+      || !socketPath.includes('blackcat-non-ui-gift_')) {
     throw new Error(`UNSAFE_GIFT_TEST_DATABASE:${databaseName}:${socketPath}`);
   }
 }
@@ -205,17 +168,4 @@ export async function seedGiftAutomationScenario(pool: Pool, input: {
       boundAt: input.now.toISOString()
     }
   };
-}
-
-async function reserveAvailablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-  const address = server.address();
-  const port = typeof address === 'object' && address ? address.port : 0;
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  if (!port) throw new Error('GIFT_TEST_DATABASE_PORT_UNAVAILABLE');
-  return port;
 }

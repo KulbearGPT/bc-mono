@@ -14,7 +14,7 @@ describe('M22-US-06 isolated gift automation fixture contract', () => {
 
   test('starts from current migrations without accepting an ambient DATABASE_URL', async () => {
     database = await startIsolatedGiftDatabase('fixture-contract');
-    expect(database.database).toMatch(/^blackcat_m22_gift_fixture_contract_[0-9]+$/u);
+    expect(database.database).toMatch(/^blackcat_non_ui_gift_fixture_contract_[0-9]+_[a-f0-9]{8}$/u);
     await expect(database.pool.query("SELECT to_regclass('public.gift_requests') AS gift_requests"))
       .resolves.toMatchObject({ rows: [{ gift_requests: 'gift_requests' }] });
     await expect(snapshotGiftFacts(database.pool)).resolves.toMatchObject({
