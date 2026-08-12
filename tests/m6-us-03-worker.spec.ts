@@ -127,7 +127,7 @@ describe('M6-US-03 weekly report worker', () => {
       deliveryCalls += 1;
       if (deliveryCalls === 1) throw new Error('Discord unavailable');
     } });
-    const generationJob = job('WEEKLY_REPORT_GENERATE', { payload: { guildId, scheduleKey: 'weekly-cny',
+    const generationJob = job('WEEKLY_REPORT_GENERATE', { payload: { guildId, scheduleKey: 'weekly-cat',
       periodStart: '2026-07-12T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
       cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT' } });
 

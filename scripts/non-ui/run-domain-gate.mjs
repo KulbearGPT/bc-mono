@@ -114,6 +114,19 @@ const filesByGate = {
   ]
 };
 
+filesByGate.a6 = [
+  ...filesByGate.a5,
+  'tests/m6-us-01.spec.ts',
+  'tests/m6-us-01-db.spec.ts',
+  'tests/m6-us-02-api.spec.ts',
+  'tests/m6-us-02-db.spec.ts',
+  'tests/m6-settlement-security.spec.ts',
+  'tests/m6-us-03.spec.ts',
+  'tests/m6-us-03-api.spec.ts',
+  'tests/m6-us-03-db.spec.ts',
+  'tests/m6-us-03-worker.spec.ts'
+];
+
 const files = filesByGate[gate];
 if (!files) {
   throw new Error(`Unknown non-UI gate '${gate ?? ''}'. Available gates: ${Object.keys(filesByGate).join(', ')}`);

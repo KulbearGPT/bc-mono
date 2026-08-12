@@ -14,7 +14,7 @@ const playerB = '00000000-0000-0000-0000-000000006302';
 function generation(): WeeklyReportGenerationInput {
   return {
     guildId,
-    scheduleKey: 'weekly-cny',
+    scheduleKey: 'weekly-cat',
     periodStart: '2026-07-12T16:00:00.000Z',
     periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z',
@@ -91,7 +91,7 @@ describe('M6-US-03 weekly report domain', () => {
     expect(reports.playerReports[0]?.detailSnapshot).toMatchObject({ issues: ['MISSING_SERVICE_BOUNDARY'] });
   });
 
-  test('rejects cross-guild, non-USD, and out-of-period facts', async () => {
+  test('rejects cross-guild, non-CAT, and out-of-period facts', async () => {
     const store = new InMemoryWeeklyReportStore({ facts: [
       fact(),
       fact({ id: 'wrong-guild', guildId: 'other-guild', orderId: 'order-x', orderEarningMinor: 99_999 }),

@@ -201,7 +201,16 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
       'BNUI-REF-003',
       'BNUI-REF-004',
       'BNUI-REF-005',
-      'BNUI-HIS-001'
+      'BNUI-HIS-001',
+      'BNUI-RPT-001',
+      'BNUI-RPT-002',
+      'BNUI-RPT-003',
+      'BNUI-SET-001',
+      'BNUI-SET-002',
+      'BNUI-SET-003',
+      'BNUI-SET-004',
+      'BNUI-SET-005',
+      'BNUI-SET-006'
     ]);
   });
 
@@ -222,15 +231,15 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
 
   test('builds a redacted machine report with explicit acceptance classifications', () => {
     const report = buildNonUiAcceptanceReport({
-      story: 'M23-US-06',
-      implementationPackage: 'NUI-A5',
+      story: 'M23-US-07',
+      implementationPackage: 'NUI-A6',
       commitSha: 'WORKTREE',
       generatedAt: '2026-08-14T00:00:00.000Z',
       cases: nonUiAutomationCoverage
     });
     expect(() => validateNonUiAcceptanceReport(report)).not.toThrow();
     expect(JSON.stringify(report)).not.toContain('123456');
-    expect(report.summary).toMatchObject({ total: 77, automated: 56, planned: 21 });
+    expect(report.summary).toMatchObject({ total: 77, automated: 65, planned: 12 });
   });
 
   test('freezes nine sequential M23 Stories and mirrored implementation contracts', async () => {

@@ -1,44 +1,31 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import {
   PostgresWeeklyReportStore,
   generateWeeklyReports,
   type WeeklyReportGenerationInput
 } from '@blackcat/api/weekly-reports';
 import type { AuditRecord } from '@blackcat/api/security';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const guildId = '900000000000006300';
 const playerA = '00000000-0000-0000-0000-000000006301';
 const playerB = '00000000-0000-0000-0000-000000006302';
 const customerId = '00000000-0000-0000-0000-000000006303';
 const staffUserId = '00000000-0000-0000-0000-000000006304';
 const staffId = '00000000-0000-0000-0000-000000006305';
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 function generation(): WeeklyReportGenerationInput {
-  return { guildId, scheduleKey: 'weekly-usd', periodStart: '2026-07-12T16:00:00.000Z',
+  return { guildId, scheduleKey: 'weekly-cat', periodStart: '2026-07-12T16:00:00.000Z',
     periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT' };
 }
 
 describe('M6-US-03 PostgreSQL weekly reports', () => {
   beforeAll(async () => {
-    const port = 61_600 + (process.pid % 200);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m6-reports-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_reports']);
-    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m6_reports' });
-    pool = new Pool({ host: root, port, database: 'blackcat_m6_reports', max: 8 });
+    isolated = await startIsolatedPostgres('a6_weekly_reports');
+    pool = isolated.pool;
   }, 30_000);
 
   beforeEach(async () => {
@@ -49,11 +36,7 @@ describe('M6-US-03 PostgreSQL weekly reports', () => {
     await seed();
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('atomically and idempotently creates all personal reports, one summary, and notifications', async () => {
     const store = new PostgresWeeklyReportStore(pool);
@@ -83,7 +66,7 @@ describe('M6-US-03 PostgreSQL weekly reports', () => {
     await pool.query('DROP TRIGGER test_fail_weekly_summary ON weekly_report_summaries; DROP FUNCTION fail_weekly_summary()');
   });
 
-  test('stores USD and Guild scope and rejects duplicate or cross-currency facts', async () => {
+  test('stores CAT and Guild scope and rejects duplicate or cross-currency facts', async () => {
     const store = new PostgresWeeklyReportStore(pool);
     await generateWeeklyReports({ store, input: generation() });
     const rows = await pool.query('SELECT DISTINCT guild_id,currency,time_zone FROM player_weekly_reports');

@@ -91,6 +91,20 @@ const automatedA5 = (
   sources
 });
 
+const automatedA6 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  sources: NonUiAutomationCase['sources'],
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A6',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -706,17 +720,137 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
       }
     ]
   ),
-  ...[
+  automatedA6(
     'BNUI-RPT-001',
+    ['AT-RPT-001'],
+    [
+      {
+        file: 'tests/m6-us-03-db.spec.ts',
+        test: 'atomically and idempotently creates all personal reports, one summary, and notifications'
+      },
+      {
+        file: 'tests/m6-us-03-db.spec.ts',
+        test: 'includes a current-period adjustment for an earning whose order is outside the period'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-RPT-002',
+    ['AT-RPT-002', 'AT-RPT-007', 'AT-RPT-008'],
+    [
+      {
+        file: 'tests/m6-us-03-api.spec.ts',
+        test: 'resolves the current Discord player and never reveals another report existence'
+      },
+      {
+        file: 'tests/m6-us-03-api.spec.ts',
+        test: 'allows L2 Dashboard reads and RFC4180 CSV of the current projection'
+      },
+      {
+        file: 'tests/m6-us-03-api.spec.ts',
+        test: 'appends a step-up protected L3 revision and replays idempotently'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-RPT-003',
+    ['AT-RPT-006'],
+    [
+      {
+        file: 'tests/m6-us-03-worker.spec.ts',
+        test: 'notification failure retries without replaying report generation'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-SET-001',
+    ['AT-SET-001'],
+    [
+      {
+        file: 'tests/m6-us-02-api.spec.ts',
+        test: 'returns a successful empty preview but rejects creation of an empty batch'
+      },
+      {
+        file: 'tests/m6-us-01-db.spec.ts',
+        test: 'serializes two creations and lets only one active batch claim an earning'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-SET-002',
+    ['AT-SET-002', 'AT-SET-003'],
+    [
+      {
+        file: 'tests/m6-us-01-db.spec.ts',
+        test: 'returns the same batch from concurrent automatic schedule replays'
+      },
+      {
+        file: 'tests/m6-us-01.spec.ts',
+        test: 'defers a negative-only late adjustment without creating an item or occupying its entry'
+      },
+      {
+        file: 'tests/m6-us-01.spec.ts',
+        test: 'applies a deferred debit to a later positive earning without re-batching the paid earning'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-SET-003',
+    ['AT-SET-004'],
+    [
+      {
+        file: 'tests/m6-us-02-api.spec.ts',
+        test: 'enforces manual high-value maker-checker and L4 threshold by actor identity, not inherited role'
+      }
+    ]
+  ),
+  automatedA6(
     'BNUI-SET-004',
+    ['AT-SET-005', 'AT-SET-010'],
+    [
+      {
+        file: 'tests/m6-us-02-api.spec.ts',
+        test: 'records whole-item results append-only, supports failed retry, and pays only successful earnings'
+      },
+      {
+        file: 'tests/m6-us-02-db.spec.ts',
+        test: 'serializes concurrent payment attempts so one request wins without duplicate results'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA6(
     'BNUI-SET-005',
-    'BNUI-SET-006'
-  ].map((id) => planned('NUI-A6', id as `BNUI-${string}`)),
+    ['AT-AUD-005'],
+    [
+      {
+        file: 'tests/m6-settlement-security.spec.ts',
+        test: 'rejects self, cross-Guild, and cross-currency replacement attacks before atomically creating a valid replacement'
+      },
+      {
+        file: 'tests/m6-us-01-db.spec.ts',
+        test: 'keeps void terminal and replacement history immutable'
+      },
+      {
+        file: 'tests/m6-us-01-db.spec.ts',
+        test: 'requires replacement targets to be finalized and non-void'
+      }
+    ]
+  ),
+  automatedA6(
+    'BNUI-SET-006',
+    ['AT-SET-006'],
+    [
+      {
+        file: 'tests/m6-us-02-api.spec.ts',
+        test: 'exports deterministic UTF-8 BOM RFC4180 CSV with fixed columns and no bank data'
+      },
+      {
+        file: 'tests/m6-us-02-api.spec.ts',
+        test: 'never exposes a complete short external account and reveals only the last four of longer values'
+      }
+    ]
+  ),
   ...[
     'BNUI-AUTH-001',
     'BNUI-RBAC-001',

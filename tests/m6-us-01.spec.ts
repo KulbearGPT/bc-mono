@@ -46,7 +46,7 @@ function createInput(overrides: Partial<SettlementCreateInput> = {}): Settlement
 }
 
 describe('M6-US-01 settlement domain', () => {
-  test('selects only confirmed USD earnings at the inclusive cutoff and keeps playerUserId identity', async () => {
+  test('selects only confirmed CAT earnings at the inclusive cutoff and keeps playerUserId identity', async () => {
     const atCutoff = earning({ id: '00000000-0000-0000-0000-000000006111', confirmedAt: cutoffAt });
     const afterCutoff = earning({ id: '00000000-0000-0000-0000-000000006112', confirmedAt: '2026-07-19T16:00:00.001Z' });
     const pending = earning({ id: '00000000-0000-0000-0000-000000006113', status: 'PENDING', confirmedAt: null });
@@ -61,7 +61,7 @@ describe('M6-US-01 settlement domain', () => {
     expect(preview.items[0]?.entries.map((entry) => entry.playerEarningId)).toEqual([atCutoff.id]);
   });
 
-  test('filters by player user id and rejects currencies outside the P0 USD boundary', async () => {
+  test('filters by player user id and rejects currencies outside the P0 CAT boundary', async () => {
     const store = new InMemorySettlementStore({ earnings: [
       earning({ id: '00000000-0000-0000-0000-000000006121', playerUserId: playerA }),
       earning({ id: '00000000-0000-0000-0000-000000006122', playerUserId: playerB })
@@ -70,7 +70,10 @@ describe('M6-US-01 settlement domain', () => {
     const preview = await previewSettlement({ store, input: createInput({ playerUserIds: [playerB] }) });
     expect(preview.items.map((item) => item.playerUserId)).toEqual([playerB]);
     await expect(previewSettlement({ store, input: createInput({ currency: 'EUR' as never }) }))
-      .rejects.toEqual(expect.objectContaining({ code: 'UNSUPPORTED_CURRENCY' }));
+      .rejects.toEqual(expect.objectContaining({
+        code: 'UNSUPPORTED_CURRENCY',
+        message: 'P0 settlements support CAT only.'
+      }));
   });
 
   test('snapshots net adjustments and leaves preview storage unchanged', async () => {
@@ -95,7 +98,7 @@ describe('M6-US-01 settlement domain', () => {
   test('deduplicates an automatic schedule deterministically and returns immutable snapshots', async () => {
     const source = earning({ id: '00000000-0000-0000-0000-000000006141' });
     const store = new InMemorySettlementStore({ earnings: [source] });
-    const input = createInput({ source: 'SCHEDULED', scheduleKey: 'weekly-cny' });
+    const input = createInput({ source: 'SCHEDULED', scheduleKey: 'weekly-cat' });
 
     const first = await createSettlementBatch({ store, input });
     source.amountMinor = 99_999;

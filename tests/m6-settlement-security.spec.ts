@@ -1,11 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { buildApiServer } from '@blackcat/api/server';
 import {
   InMemorySettlementStore,
@@ -14,8 +9,8 @@ import {
   type SettlementCreateInput
 } from '@blackcat/api/settlements';
 import type { StaffAccount } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 
 const env = {
   NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: 'http://localhost:3000',
@@ -116,7 +111,7 @@ describe('settlement security remediation', () => {
     expect(voided.statusCode).toBe(404);
   });
 
-  test('requires and atomically creates a replacement when voiding an approved batch', async () => {
+  test('rejects self, cross-Guild, and cross-currency replacement attacks before atomically creating a valid replacement', async () => {
     const store = new InMemorySettlementStore({ earnings: [
       earning('00000000-0000-0000-0000-000000006821', playerA, guildA),
       earning('00000000-0000-0000-0000-000000006822', playerB, guildA)
@@ -130,6 +125,26 @@ describe('settlement security remediation', () => {
       expectedVersion: 2, reason: 'approve', actorStaffId: staffId,
       actorLevel: 'L4_ADMIN_OWNER', now: new Date('2026-07-19T17:30:00.000Z')
     }, { manualDualReviewFromMinor: 400_000, l4ReviewFromMinor: 500_000 });
+    const rejectedReplacement = (replacementBatchId: string, replacement: SettlementCreateInput) => () =>
+      store.void(guildA, original.id, {
+        expectedVersion: 3,
+        reason: 'invalid replacement',
+        actorStaffId: staffId,
+        actorLevel: 'L4_ADMIN_OWNER',
+        now: new Date('2026-07-19T17:45:00.000Z'),
+        replacementBatchId,
+        replacement
+      });
+    expect(rejectedReplacement(original.id, createInput(guildA, [playerA]))).toThrow(/cannot replace itself/i);
+    expect(rejectedReplacement('00000000-0000-0000-0000-000000006827', createInput(guildB, [playerA]))).toThrow(
+      /same Guild and currency/i
+    );
+    expect(rejectedReplacement('00000000-0000-0000-0000-000000006828', {
+      ...createInput(guildA, [playerA]),
+      currency: 'USD'
+    })).toThrow(/same Guild and currency/i);
+    expect(store.batches).toHaveLength(1);
+    expect(store.batches[0]).toMatchObject({ status: 'APPROVED', replacementBatchId: null });
     const server = serverFor(store);
 
     const missing = await server.inject({
@@ -165,27 +180,15 @@ describe('settlement security remediation', () => {
 });
 
 describe('durable settlement idempotency', () => {
-  let root = '';
-  let data = '';
+  let isolated: IsolatedPostgres;
   let pool: Pool;
 
   beforeAll(async () => {
-    const port = 61_800 + (process.pid % 100);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m6-idempotency-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_idempotency']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m6_idempotency', '-v', 'ON_ERROR_STOP=1',
-      '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
-    pool = new Pool({ host: root, port, database: 'blackcat_m6_idempotency' });
+    isolated = await startIsolatedPostgres('a6_idempotency');
+    pool = isolated.pool;
   }, 30_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('replays a completed response from a fresh PostgreSQL store instance', async () => {
     await pool.query(`INSERT INTO users (id,display_name,status,row_version,created_at,updated_at)

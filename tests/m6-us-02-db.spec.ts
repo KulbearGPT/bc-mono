@@ -1,11 +1,6 @@
-import { execFile as execFileCallback } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import {
   PostgresSettlementStore,
   createSettlementBatch,
@@ -13,9 +8,8 @@ import {
   type SettlementMutationInput,
   type SettlementPaymentResultsInput
 } from '@blackcat/api/settlements';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const playerA = '00000000-0000-0000-0000-000000006401';
 const playerB = '00000000-0000-0000-0000-000000006402';
 const customerId = '00000000-0000-0000-0000-000000006403';
@@ -26,8 +20,7 @@ const orderA = '00000000-0000-0000-0000-000000006421';
 const orderB = '00000000-0000-0000-0000-000000006422';
 const now = new Date('2026-07-19T18:00:00.000Z');
 const guildId = '900000000000000001';
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 function batchInput(): SettlementCreateInput {
@@ -53,14 +46,8 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     expect(source).toContain("CASE WHEN length(ea.external_user_id)>4 THEN right(ea.external_user_id,4) ELSE '' END");
   });
   beforeAll(async () => {
-    const port = 61_400 + (process.pid % 200);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m6-payment-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_payment']);
-    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m6_payment' });
-    pool = new Pool({ host: root, port, database: 'blackcat_m6_payment', max: 8 });
+    isolated = await startIsolatedPostgres('a6_payment');
+    pool = isolated.pool;
   }, 30_000);
 
   beforeEach(async () => {
@@ -69,11 +56,7 @@ describe('M6-US-02 PostgreSQL review and payment persistence', () => {
     await seed();
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('records whole-item success and failure atomically and pays only the successful earning', async () => {
     const { store, batch } = await approvedBatch();

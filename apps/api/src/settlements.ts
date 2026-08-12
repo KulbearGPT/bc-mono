@@ -854,12 +854,13 @@ export function buildSettlementCsv(batch: SettlementBatchRecord, exportType: Set
       formatMinor(batch.adjustmentAmountMinor,batch.currency), formatMinor(batch.netAmountMinor,batch.currency), batch.status]);
   } else if (exportType === 'TRANSFER_LIST') {
     rows.push(['batch_public_id', 'period_start', 'period_end', 'player_user_id', 'player_display_name', 'discord_user_id',
-      'external_account_display', 'currency', 'gross_amount', 'adjustment_amount', 'net_amount', 'payment_status']);
+      'external_account_display', 'currency', 'gross_amount', 'adjustment_amount', 'net_amount', 'manual_transfer_usd', 'payment_status']);
     for (const item of [...batch.items].sort((left, right) => left.playerUserId.localeCompare(right.playerUserId))) {
       if (item.paymentStatus === 'SUCCEEDED') continue;
       rows.push([batch.publicId, batch.periodStart, batch.periodEnd, item.playerUserId, item.playerDisplayName,
         item.playerDiscordUserId ?? '', item.externalAccountDisplay ?? '', item.currency,
-        formatMinor(item.grossAmountMinor,item.currency), formatMinor(item.adjustmentAmountMinor,item.currency), formatMinor(item.netAmountMinor,item.currency), item.paymentStatus]);
+        formatMinor(item.grossAmountMinor,item.currency), formatMinor(item.adjustmentAmountMinor,item.currency), formatMinor(item.netAmountMinor,item.currency),
+        formatManualTransferUsd(item.netAmountMinor), item.paymentStatus]);
     }
   } else {
     rows.push(['batch_public_id', 'settlement_item_id', 'player_user_id', 'entry_type', 'source_id', 'occurred_at', 'currency', 'amount']);
@@ -886,9 +887,18 @@ function formatMinor(value: number,currency:string): string {
   return `${sign}${Math.floor(absolute/scale)}.${String(absolute%scale).padStart(digits,'0')}`;
 }
 
+function formatManualTransferUsd(catSubunits: number): string {
+  if (!Number.isSafeInteger(catSubunits)) {
+    throw new SettlementError('VALIDATION_ERROR', 'CSV amount exceeds the supported range.');
+  }
+  const sign = catSubunits < 0 ? '-' : '';
+  const absolute = Math.abs(catSubunits);
+  return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`;
+}
+
 function validateInput(input: SettlementCreateInput): void {
   if (!input.guildId.trim()) throw new SettlementError('PERMISSION_DENIED', 'Trusted Guild context is required.');
-  if (input.currency !== 'CAT') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support USD only.');
+  if (input.currency !== 'CAT') throw new SettlementError('UNSUPPORTED_CURRENCY', 'P0 settlements support CAT only.');
   if (input.source === 'SCHEDULED' && !input.scheduleKey) {
     throw new SettlementError('VALIDATION_ERROR', 'Scheduled settlements require scheduleKey.');
   }

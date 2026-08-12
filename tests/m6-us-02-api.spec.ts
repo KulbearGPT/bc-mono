@@ -49,7 +49,7 @@ function earning(id: string, playerUserId: string, amountMinor: number): Settlem
 function batchInput(source: 'MANUAL' | 'SCHEDULED' = 'MANUAL'): SettlementCreateInput {
   return {
     guildId,
-    source, scheduleKey: source === 'SCHEDULED' ? 'weekly-cny' : null,
+    source, scheduleKey: source === 'SCHEDULED' ? 'weekly-cat' : null,
     periodStart: '2026-07-13T16:00:00.000Z', periodEnd: '2026-07-19T16:00:00.000Z',
     cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT',
     playerUserIds: null, createdByStaffId: makerId
@@ -221,9 +221,9 @@ describe('M6-US-02 settlement review, export, and payment API', () => {
     expect(response.headers['content-type']).toMatch(/^text\/csv/u);
     expect(response.body.charCodeAt(0)).toBe(0xfeff);
     const lines = response.body.slice(1).split('\r\n').filter(Boolean);
-    expect(lines[0]).toBe('batch_public_id,period_start,period_end,player_user_id,player_display_name,discord_user_id,external_account_display,currency,gross_amount,adjustment_amount,net_amount,payment_status');
-    expect(lines[1]).toContain(`${playerA},陪玩甲,900000000000006201,provider:***1001,CAT,2000.0,0.0,2000.0,PENDING`);
-    expect(lines[2]).toContain(`${playerB},陪玩乙,900000000000006202,provider:***1002,CAT,1000.0,0.0,1000.0,PENDING`);
+    expect(lines[0]).toBe('batch_public_id,period_start,period_end,player_user_id,player_display_name,discord_user_id,external_account_display,currency,gross_amount,adjustment_amount,net_amount,manual_transfer_usd,payment_status');
+    expect(lines[1]).toContain(`${playerA},陪玩甲,900000000000006201,provider:***1001,CAT,2000.0,0.0,2000.0,200.00,PENDING`);
+    expect(lines[2]).toContain(`${playerB},陪玩乙,900000000000006202,provider:***1002,CAT,1000.0,0.0,1000.0,100.00,PENDING`);
     expect(response.body.toLowerCase()).not.toMatch(/bank|card|account_number|银行卡|收款账号/u);
     expect(f.store.batches[0]?.status).toBe('APPROVED');
   });

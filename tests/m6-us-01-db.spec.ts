@@ -1,19 +1,13 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import {
   PostgresSettlementStore,
   createSettlementBatch,
   previewSettlement,
   type SettlementCreateInput
 } from '@blackcat/api/settlements';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const playerId = '00000000-0000-0000-0000-000000006201';
 const customerId = '00000000-0000-0000-0000-000000006202';
 const staffId = '00000000-0000-0000-0000-000000006203';
@@ -21,8 +15,7 @@ const earningId = '00000000-0000-0000-0000-000000006211';
 const orderId = '00000000-0000-0000-0000-000000006221';
 const cutoffAt = '2026-07-19T16:00:00.000Z';
 const guildId = '900000000000000001';
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 function input(overrides: Partial<SettlementCreateInput> = {}): SettlementCreateInput {
@@ -37,14 +30,8 @@ function input(overrides: Partial<SettlementCreateInput> = {}): SettlementCreate
 
 describe('M6-US-01 PostgreSQL settlement persistence', () => {
   beforeAll(async () => {
-    const port = 61_200 + (process.pid % 200);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m6-settlements-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m6_settlements']);
-    await applyCurrentMigrations({ host: root, port, database: 'blackcat_m6_settlements' });
-    pool = new Pool({ host: root, port, database: 'blackcat_m6_settlements', max: 8 });
+    isolated = await startIsolatedPostgres('a6_settlements');
+    pool = isolated.pool;
   }, 30_000);
 
   beforeEach(async () => {
@@ -53,11 +40,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
     await seedBase();
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('serializes two creations and lets only one active batch claim an earning', async () => {
     await insertEarning({ id: earningId, orderId });
@@ -77,7 +60,7 @@ describe('M6-US-01 PostgreSQL settlement persistence', () => {
   test('returns the same batch from concurrent automatic schedule replays', async () => {
     await insertEarning({ id: earningId, orderId });
     const store = new PostgresSettlementStore(pool);
-    const scheduled = input({ source: 'SCHEDULED', scheduleKey: 'weekly-cny' });
+    const scheduled = input({ source: 'SCHEDULED', scheduleKey: 'weekly-cat' });
 
     const [first, second] = await Promise.all([
       createSettlementBatch({ store, input: scheduled }),

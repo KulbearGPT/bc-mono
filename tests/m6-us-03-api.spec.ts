@@ -18,7 +18,7 @@ const staffId = '00000000-0000-0000-0000-000000006303';
 const now = new Date('2026-07-19T18:00:00.000Z');
 
 function generation(): WeeklyReportGenerationInput {
-  return { guildId, scheduleKey: 'weekly-cny', periodStart: '2026-07-12T16:00:00.000Z',
+  return { guildId, scheduleKey: 'weekly-cat', periodStart: '2026-07-12T16:00:00.000Z',
     periodEnd: '2026-07-19T16:00:00.000Z', cutoffAt: '2026-07-19T16:00:00.000Z', timeZone: 'Asia/Shanghai', currency: 'CAT' };
 }
 
@@ -148,7 +148,7 @@ describe('M6-US-03 weekly report shared API', () => {
     const f = await fixture();
     f.store.facts.push({ ...fact(playerA, 'previous'), id: 'fact-previous', orderId: 'order-previous', occurredAt: '2026-07-10T12:00:00.000Z' });
     await generateWeeklyReports({ store: f.store, input: {
-      ...generation(), scheduleKey: 'weekly-cny-previous', periodStart: '2026-07-05T16:00:00.000Z',
+      ...generation(), scheduleKey: 'weekly-cat-previous', periodStart: '2026-07-05T16:00:00.000Z',
       periodEnd: '2026-07-12T16:00:00.000Z', cutoffAt: '2026-07-12T16:00:00.000Z'
     } });
     const first = await f.server.inject({ method: 'GET', url: '/api/v1/players/me/weekly-reports?limit=1', headers: headers('player-a', 'DISCORD_BOT') });
