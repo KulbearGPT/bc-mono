@@ -44,7 +44,10 @@ export async function verifyIsolatedPostgresEnvironment(): Promise<void> {
   await Promise.all(['initdb', 'pg_ctl', 'createdb', 'psql'].map((binary) => execFile(binary, ['--version'])));
 }
 
-export async function startIsolatedPostgres(label: string): Promise<IsolatedPostgres> {
+export async function startIsolatedPostgres(
+  label: string,
+  options: { excludeMigrations?: string[] } = {}
+): Promise<IsolatedPostgres> {
   const safeLabel = label
     .toLowerCase()
     .replace(/[^a-z0-9]+/gu, '_')
@@ -78,7 +81,7 @@ export async function startIsolatedPostgres(label: string): Promise<IsolatedPost
     ]);
     started = true;
     await execFile('createdb', ['-h', root, '-p', String(port), database]);
-    await applyCurrentMigrations({ host: root, port, database });
+    await applyCurrentMigrations({ host: root, port, database, exclude: options.excludeMigrations });
     pool = new Pool({ host: root, port, database, max: 8 });
     await assertRunningIdentity(pool, { database, root });
 

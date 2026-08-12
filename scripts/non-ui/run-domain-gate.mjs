@@ -127,6 +127,38 @@ filesByGate.a6 = [
   'tests/m6-us-03-worker.spec.ts'
 ];
 
+filesByGate.a7 = [
+  ...filesByGate.a6,
+  'tests/m0-us-03.spec.ts',
+  'tests/m4-us-01-api.spec.ts',
+  'tests/m4-us-07-policy.spec.ts',
+  'tests/m4-us-05-api.spec.ts',
+  'tests/m4-us-05-db.spec.ts',
+  'tests/m4-us-05-bot.spec.ts',
+  'tests/m4-us-05-role-sync-reliability.spec.ts',
+  'tests/m4-us-10-api.spec.ts',
+  'tests/m4-us-10-db.spec.ts',
+  'tests/m4-us-10-bot.spec.ts',
+  'tests/m7-us-03-audit.spec.ts',
+  'tests/m7-us-03-audit-db.spec.ts',
+  'tests/m4-us-09-api.spec.ts',
+  'tests/m4-us-09-db.spec.ts',
+  'tests/m13-us-02-stable-sort.spec.ts',
+  'tests/m19-us-01-cross-role-state-contract.spec.ts',
+  'tests/m19-us-03-service-state-sync.spec.ts',
+  'tests/m19-us-04-support-live-refresh.spec.ts',
+  'tests/m19-us-05-projection-observability.spec.ts',
+  'tests/m5-us-02-worker-runtime.spec.ts',
+  'tests/m5-us-02-worker-delivery.spec.ts',
+  'tests/m21-us-02-order-experience-reviews.spec.ts',
+  'tests/m21-us-02-postgres.spec.ts',
+  'tests/m21-us-03-bot-review-center.spec.ts',
+  'tests/m21-us-04-five-star-broadcast.spec.ts',
+  'tests/m17-us-05-bot-transport.spec.ts',
+  'tests/m20-us-03-discord-action-renderers.spec.ts',
+  'tests/m20-us-04-action-release-gate.spec.ts'
+];
+
 const files = filesByGate[gate];
 if (!files) {
   throw new Error(`Unknown non-UI gate '${gate ?? ''}'. Available gates: ${Object.keys(filesByGate).join(', ')}`);

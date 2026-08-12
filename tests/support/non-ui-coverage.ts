@@ -105,6 +105,20 @@ const automatedA6 = (
   sources
 });
 
+const automatedA7 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  sources: NonUiAutomationCase['sources'],
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A7',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -851,18 +865,260 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
       }
     ]
   ),
-  ...[
+  automatedA7(
     'BNUI-AUTH-001',
+    ['AT-AUTH-001', 'AT-AUTH-002', 'AT-AUTH-003'],
+    [
+      {
+        file: 'tests/m0-us-03.spec.ts',
+        test: 'rejects forged actor headers before parsing untrusted level or staff claims'
+      },
+      {
+        file: 'tests/m4-us-01-api.spec.ts',
+        test: 'derives capabilities from the server session and ignores browser role claims'
+      },
+      {
+        file: 'tests/m17-us-05-bot-transport.spec.ts',
+        test: 'builds trusted Guild actors once and fails closed for DM or empty identities'
+      }
+    ]
+  ),
+  automatedA7(
     'BNUI-RBAC-001',
+    ['AT-RBAC-001', 'AT-RBAC-002', 'AT-RBAC-007', 'AT-RBAC-008', 'AT-RBAC-009', 'AT-RBAC-010', 'AT-RBAC-011'],
+    [
+      {
+        file: 'tests/m4-us-07-policy.spec.ts',
+        test: 'AT-RBAC-010 cumulatively inherits lower-level capabilities from one resolver'
+      },
+      {
+        file: 'tests/m4-us-07-policy.spec.ts',
+        test: 'uses identical API authorization for Bot and Dashboard actors and audits both denials'
+      },
+      {
+        file: 'tests/m4-us-07-policy.spec.ts',
+        test: 'AT-RBAC-009/011 keeps hard delete absent and allows one stepped-up L4 to execute high-value work'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-ROL-001',
+    ['AT-ROL-001', 'AT-ROL-002', 'AT-ROL-003', 'AT-ROL-004', 'AT-ROL-005'],
+    [
+      {
+        file: 'tests/m4-us-05-api.spec.ts',
+        test: 'applies L1 then L2 automatically and replays one source event without another mutation'
+      },
+      {
+        file: 'tests/m4-us-05-api.spec.ts',
+        test: 'keeps first L3 elevation pending and never trusts client-supplied Role claims'
+      },
+      {
+        file: 'tests/m4-us-05-api.spec.ts',
+        test: 'immediately applies an observed Role downgrade and invalidates the prior Dashboard session'
+      },
+      {
+        file: 'tests/m4-us-05-db.spec.ts',
+        test: 'persists automatic access, source replay, advanced approval, and immediate downgrade revocation'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-CFG-001',
+    [
+      'AT-CFG-001',
+      'AT-CFG-002',
+      'AT-CFG-003',
+      'AT-CFG-004',
+      'AT-CFG-005',
+      'AT-CFG-006',
+      'AT-CFG-007',
+      'AT-CFG-008',
+      'AT-CFG-009'
+    ],
+    [
+      {
+        file: 'tests/m4-us-10-api.spec.ts',
+        test: 'AT-CFG-006 requires an unexpired preview token bound to actor, Guild, version, changes and reason'
+      },
+      {
+        file: 'tests/m4-us-10-api.spec.ts',
+        test: 'AT-CFG-007 rejects a stale preview without overwriting a newer value'
+      },
+      {
+        file: 'tests/m4-us-10-db.spec.ts',
+        test: 'AT-CFG-008 atomically commits current config, immutable event, and success audit'
+      },
+      {
+        file: 'tests/m4-us-10-bot.spec.ts',
+        test: 'opens a private field picker and transitions to native Channel and Role Select components'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-AUD-001',
+    ['AT-AUD-001', 'AT-AUD-002', 'AT-AUD-003', 'AT-AUD-004'],
+    [
+      {
+        file: 'tests/m7-us-03-audit.spec.ts',
+        test: 'records success, failure, and rejection with stable change semantics'
+      },
+      {
+        file: 'tests/m7-us-03-audit.spec.ts',
+        test: 'redacts nested secrets, normalizes fields, and caps oversized snapshots'
+      },
+      {
+        file: 'tests/m7-us-03-audit.spec.ts',
+        test: 'all ordinary API mutation routes use the secure wrapper'
+      },
+      {
+        file: 'tests/m7-us-03-audit-db.spec.ts',
+        test: 'commits header and ordered child changes together'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-MET-001',
+    ['AT-MET-001', 'AT-MET-002', 'AT-MET-003', 'AT-MET-004', 'AT-MET-005', 'AT-MET-006', 'AT-MET-007', 'AT-MET-008'],
+    [
+      {
+        file: 'tests/m4-us-09-db.spec.ts',
+        test: 'recomputes all eight L2 team metrics from immutable source facts'
+      },
+      {
+        file: 'tests/m4-us-09-db.spec.ts',
+        test: 'keeps L4 metrics inside the actor Guild so drilldowns use the same scope'
+      },
+      {
+        file: 'tests/m4-us-09-api.spec.ts',
+        test: 'AT-MET-002 uses the Asia/Shanghai half-open business day'
+      }
+    ]
+  ),
+  automatedA7(
     'BNUI-LST-001',
+    ['AT-LST-001', 'AT-LST-002', 'AT-LST-003', 'AT-LST-008'],
+    [
+      {
+        file: 'tests/m13-us-02-stable-sort.spec.ts',
+        test: 'publishes the frozen sort whitelist for all seven resources'
+      },
+      {
+        file: 'tests/m13-us-02-stable-sort.spec.ts',
+        test: 'continues a keyset page without duplicates or skips when a row is inserted'
+      },
+      {
+        file: 'tests/m13-us-02-stable-sort.spec.ts',
+        test: 'rejects tampered, cross-resource, cross-sort and cross-filter cursors'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-STATE-001',
+    ['AT-STATE-002', 'AT-STATE-003', 'AT-STATE-004', 'AT-STATE-005'],
+    [
+      {
+        file: 'tests/m19-us-01-cross-role-state-contract.spec.ts',
+        test: 'covers every order transition and every affected audience'
+      },
+      {
+        file: 'tests/m19-us-03-service-state-sync.spec.ts',
+        test: 'patches the existing staff coordination card for partial readiness while status remains ACCEPTED'
+      },
+      {
+        file: 'tests/m19-us-04-support-live-refresh.spec.ts',
+        test: 'prevents an older response from replacing a newer trusted query'
+      },
+      {
+        file: 'tests/m19-us-05-projection-observability.spec.ts',
+        test: 'measures the five-second target and emits a redacted alert after thirty seconds'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-REC-001',
+    ['AT-REC-003', 'AT-REC-004'],
+    [
+      {
+        file: 'tests/m5-us-02-worker-runtime.spec.ts',
+        test: 'recovers a stale processing job on startup and preserves its dedupe key'
+      },
+      {
+        file: 'tests/m5-us-02-worker-runtime.spec.ts',
+        test: 'rebuilds a deleted order panel from the database projection and persists the replacement message id'
+      },
+      {
+        file: 'tests/m5-us-02-worker-delivery.spec.ts',
+        test: 'recovers a remotely-created message by stable nonce before posting again'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-REVW-001',
+    ['AT-REVIEW-001', 'AT-REVIEW-002', 'AT-REVIEW-004'],
+    [
+      {
+        file: 'tests/m21-us-02-order-experience-reviews.spec.ts',
+        test: 'atomically saves selected targets without requiring reasons or comments'
+      },
+      {
+        file: 'tests/m21-us-02-postgres.spec.ts',
+        test: 'derives trusted targets and atomically persists reviews, comments and five-star snapshot'
+      },
+      {
+        file: 'tests/m21-us-02-postgres.spec.ts',
+        test: 'allows only one concurrent score per target and blocks mutation'
+      },
+      {
+        file: 'tests/m21-us-03-bot-review-center.spec.ts',
+        test: 'refreshes current API facts after a stale score click and does not replay the old intent'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
     'BNUI-REVW-002',
-    'BNUI-BOT-001'
-  ].map((id) => planned('NUI-A7', id as `BNUI-${string}`))
+    ['AT-REVIEW-003', 'AT-REVIEW-004'],
+    [
+      {
+        file: 'tests/m21-us-04-five-star-broadcast.spec.ts',
+        test: 'offers a safe preview only after a five-star fact and requires the explicit consent button'
+      },
+      {
+        file: 'tests/m21-us-04-five-star-broadcast.spec.ts',
+        test: 'delivers exactly one safe aggregate from the immutable snapshot across retries and message loss'
+      },
+      {
+        file: 'tests/m21-us-04-five-star-broadcast.spec.ts',
+        test: 'rejects any publication snapshot that contains a private review field'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA7(
+    'BNUI-BOT-001',
+    ['AT-BOT-REV-003', 'AT-BOT-REV-004', 'AT-ACT-004', 'AT-EXP-004', 'AT-EXP-005'],
+    [
+      {
+        file: 'tests/m17-us-05-bot-transport.spec.ts',
+        test: 'applies service authentication, Actor Context, idempotency and JSON envelope parsing consistently'
+      },
+      {
+        file: 'tests/m17-us-05-bot-transport.spec.ts',
+        test: 'normalizes timeout, network, non-JSON and API envelope failures without leaking the token'
+      },
+      {
+        file: 'tests/m20-us-04-action-release-gate.spec.ts',
+        test: 'keeps every current order and selection action on a registered route'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  )
 ];

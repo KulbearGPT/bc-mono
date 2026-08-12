@@ -1,23 +1,17 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresDashboardMetricsStore } from '@blackcat/api/dashboard-metrics';
 import { PostgresAccountStore } from '@blackcat/api/accounts';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T18:00:00.000Z');
 const id = (suffix: string) => `00000000-0000-0000-0000-${suffix.padStart(12, '0')}`;
 const ids = { staffUser:id('901'),staff:id('902'),customer:id('903'),player:id('904'),order:id('905'),active:id('906'),exception:id('907'),other:id('908'),reservation:id('909'),giftItem:id('910'),giftVersion:id('911'),gift:id('912'),giftDebit:id('913'),giftCredit:id('914'),activeCustomer:id('915'),exceptionCustomer:id('916'),otherCustomer:id('917') };
-let root='';let data='';let pool:Pool;
+let isolated:IsolatedPostgres;let pool:Pool;
 
 describe('M4-US-09 PostgreSQL dashboard metrics',()=>{
-  beforeAll(async()=>{const port=62000+(process.pid%100);root=await mkdtemp(join(tmpdir(),'blackcat-m4-metrics-'));data=join(root,'data');await execFile('initdb',['-D',data,'--no-locale','--encoding=UTF8']);await execFile('pg_ctl',['-D',data,'-o',`-p ${port} -k ${root}`,'-l',join(root,'postgres.log'),'start']);await execFile('createdb',['-h',root,'-p',String(port),'blackcat_m4_metrics']);await applyCurrentMigrations({host:root,port,database:'blackcat_m4_metrics'});pool=new Pool({host:root,port,database:'blackcat_m4_metrics'});await seed();},30000);
-  afterAll(async()=>{await pool?.end().catch(()=>undefined);if(data)await execFile('pg_ctl',['-D',data,'stop','-m','fast']).catch(()=>undefined);if(root)await rm(root,{recursive:true,force:true});});
+  beforeAll(async()=>{isolated=await startIsolatedPostgres('a7_metrics');pool=isolated.pool;await seed();},30000);
+  afterAll(async()=>isolated.stop());
 
   test('recomputes all eight L2 team metrics from immutable source facts',async()=>{
     const summary=await new PostgresDashboardMetricsStore(pool).getSummary({actorStaffId:ids.staff,actorLevel:'L2_SUPERVISOR',guildId:'900000000000009000',now,timeZone:'Asia/Shanghai',currency:'CAT'});

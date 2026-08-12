@@ -1,16 +1,12 @@
-import { execFile as execFileCallback } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresOrderExperienceReviewStore } from '@blackcat/api/order-experience-reviews';
 import { PostgresOrderReviewBroadcastStore } from '@blackcat/api/order-review-broadcast';
 import type { AuditRecord } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
+import { applyCurrentMigrations } from './support/postgres-migrations';
 
-const execFile = promisify(execFileCallback);
 const guildId = '999999999999999999';
 const customerDiscordId = '111111111111111111';
 const staffDiscordId = '222222222222222222';
@@ -23,54 +19,25 @@ const staffId = '00000000-0000-0000-0000-000000021296';
 const catalogId = '00000000-0000-0000-0000-000000021297';
 const legacyRatingId = '00000000-0000-0000-0000-000000021298';
 const completedAt = new Date();
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M21-US-02 PostgreSQL order experience reviews', () => {
   beforeAll(async () => {
-    const port = 63_060 + (process.pid % 20);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m21-reviews-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m21_reviews']);
-    const migrations = (await readdir('database/prisma/migrations')).sort();
-    for (const migration of migrations.filter((item) => item !== '000042_order_experience_reviews')) {
-      await execFile('psql', [
-        '-h',
-        root,
-        '-p',
-        String(port),
-        '-d',
-        'blackcat_m21_reviews',
-        '-v',
-        'ON_ERROR_STOP=1',
-        '-f',
-        `database/prisma/migrations/${migration}/migration.sql`
-      ]);
-    }
-    pool = new Pool({ host: root, port, database: 'blackcat_m21_reviews', max: 5 });
+    isolated = await startIsolatedPostgres('a7_review_upgrade', {
+      excludeMigrations: ['000042_order_experience_reviews']
+    });
+    pool = isolated.pool;
     await seed();
-    await execFile('psql', [
-      '-h',
-      root,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m21_reviews',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000042_order_experience_reviews/migration.sql'
-    ]);
+    await applyCurrentMigrations({
+      host: isolated.socketDir,
+      port: isolated.port,
+      database: isolated.database,
+      only: ['000042_order_experience_reviews']
+    });
   }, 45_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('derives trusted targets and atomically persists reviews, comments and five-star snapshot', async () => {
     const store = new PostgresOrderExperienceReviewStore(pool);

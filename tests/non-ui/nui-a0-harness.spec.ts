@@ -1,6 +1,7 @@
 import { access, readFile, rm } from 'node:fs/promises';
 import { describe, expect, test } from 'vitest';
 import { assertIsolatedPostgresTarget, startIsolatedPostgres } from '../support/isolated-postgres';
+import { applyCurrentMigrations } from '../support/postgres-migrations';
 import {
   createCatalogFixture,
   createFixtureKernel,
@@ -24,11 +25,15 @@ import {
   expectWalletInvariant,
   snapshotBusinessFacts
 } from '../support/non-ui-assertions';
-import { buildNonUiAcceptanceReport, validateNonUiAcceptanceReport } from '../support/non-ui-acceptance-report';
-import { nonUiAutomationCoverage } from '../support/non-ui-coverage';
+import {
+  buildNonUiAcceptanceReport,
+  validateNonUiAcceptanceReport,
+  type NonUiAcceptanceReport
+} from '../support/non-ui-acceptance-report';
+import { nonUiAutomationCoverage, type NonUiAutomationCase } from '../support/non-ui-coverage';
 
 describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
-  test('fails closed for unsafe labels, remote hosts, ordinary database names and non-test environments', () => {
+  test('fails closed for unsafe labels, migration names, remote hosts, ordinary databases and non-test environments', async () => {
     expect(() =>
       assertIsolatedPostgresTarget({
         database: 'production',
@@ -45,6 +50,14 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
         nodeEnv: 'test'
       })
     ).toThrow();
+    await expect(
+      applyCurrentMigrations({
+        host: '/tmp/unused',
+        port: 1,
+        database: 'unused',
+        only: ['../../outside-migration']
+      })
+    ).rejects.toThrow('Unknown PostgreSQL migration');
   });
 
   test('starts from current migrations on a private Unix socket and removes the instance cleanly', async () => {
@@ -210,7 +223,19 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
       'BNUI-SET-003',
       'BNUI-SET-004',
       'BNUI-SET-005',
-      'BNUI-SET-006'
+      'BNUI-SET-006',
+      'BNUI-AUTH-001',
+      'BNUI-RBAC-001',
+      'BNUI-ROL-001',
+      'BNUI-CFG-001',
+      'BNUI-AUD-001',
+      'BNUI-MET-001',
+      'BNUI-LST-001',
+      'BNUI-STATE-001',
+      'BNUI-REC-001',
+      'BNUI-REVW-001',
+      'BNUI-REVW-002',
+      'BNUI-BOT-001'
     ]);
   });
 
@@ -231,15 +256,21 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
 
   test('builds a redacted machine report with explicit acceptance classifications', () => {
     const report = buildNonUiAcceptanceReport({
-      story: 'M23-US-07',
-      implementationPackage: 'NUI-A6',
+      story: 'M23-US-08',
+      implementationPackage: 'NUI-A7',
       commitSha: 'WORKTREE',
       generatedAt: '2026-08-14T00:00:00.000Z',
       cases: nonUiAutomationCoverage
     });
     expect(() => validateNonUiAcceptanceReport(report)).not.toThrow();
     expect(JSON.stringify(report)).not.toContain('123456');
-    expect(report.summary).toMatchObject({ total: 77, automated: 65, planned: 12 });
+    expect(report.summary).toMatchObject({ total: 77, automated: 77, planned: 0 });
+
+    const poisoned = structuredClone(report) as NonUiAcceptanceReport & {
+      cases: Array<NonUiAutomationCase & { sources: Array<{ file: string; test: string; password?: string }> }>;
+    };
+    poisoned.cases[0]!.sources[0]!.password = '123456';
+    expect(() => validateNonUiAcceptanceReport(poisoned)).toThrow('sensitive field');
   });
 
   test('freezes nine sequential M23 Stories and mirrored implementation contracts', async () => {

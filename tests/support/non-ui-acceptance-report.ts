@@ -59,8 +59,25 @@ export function validateNonUiAcceptanceReport(report: NonUiAcceptanceReport): vo
   ) {
     throw new Error('Non-UI report summary does not match cases.');
   }
-  const serialized = JSON.stringify(report);
-  if (/(?:totp|password|secret|receiptBody|accountNumber|privateKey)/iu.test(serialized)) {
+  if (containsSensitiveField(report) || containsCredentialValue(report)) {
     throw new Error('Non-UI report contains a sensitive field.');
   }
+}
+
+function containsSensitiveField(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsSensitiveField);
+  return Object.entries(value).some(
+    ([key, nested]) =>
+      /^(?:totp|password|secret|receiptBody|accountNumber|privateKey)$/iu.test(key) || containsSensitiveField(nested)
+  );
+}
+
+function containsCredentialValue(value: unknown): boolean {
+  if (typeof value === 'string') {
+    return /(?:valid-bot-token|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|\b[0-9]{6}\b)/u.test(value);
+  }
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsCredentialValue);
+  return Object.values(value).some(containsCredentialValue);
 }

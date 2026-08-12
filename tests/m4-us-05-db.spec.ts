@@ -1,14 +1,9 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresAccessStore, enqueuePeriodicRoleReconciliation } from '@blackcat/api/access';
 import { InMemoryAuditSink, type AuditRecord } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T20:00:00.000Z');
 const guildId = '900000000000005000';
 const role = {
@@ -29,28 +24,17 @@ const ids = {
   targetSession: '00000000-0000-0000-0000-000000005506'
 };
 
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M4-US-05 PostgreSQL Role mapping and access', () => {
   beforeAll(async () => {
-    const port = 61_500 + (process.pid % 200);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m4-access-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_access']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_access', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
-    pool = new Pool({ host: root, port, database: 'blackcat_m4_access' });
+    isolated = await startIsolatedPostgres('a7_role_access');
+    pool = isolated.pool;
     await seed();
   }, 30_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('bootstraps the first L4 exactly once and refuses retained bootstrap configuration', async () => {
     const store = new PostgresAccessStore(pool);

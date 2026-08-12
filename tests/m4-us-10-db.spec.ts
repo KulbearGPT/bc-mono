@@ -1,22 +1,16 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresBotConfigStore } from '@blackcat/api/bot-config';
 import type { AuditRecord, AuditSink } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const guildId = '900000000000002000';
 const staffUserId = '00000000-0000-0000-0000-000000020001';
 const staffId = '00000000-0000-0000-0000-000000020002';
 const eventId = '00000000-0000-0000-0000-000000020003';
 const staffRoleId = '900000000000002201';
 const now = new Date('2026-07-18T20:30:00.000Z');
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 const audit: AuditRecord = {
@@ -29,23 +23,14 @@ const audit: AuditRecord = {
 
 describe('M4-US-10 PostgreSQL Bot configuration', () => {
   beforeAll(async () => {
-    const port = 63000 + (process.pid % 100);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m4-bot-config-')); data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m4_bot_config']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m4_bot_config', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
-    pool = new Pool({ host: root, port, database: 'blackcat_m4_bot_config' });
+    isolated = await startIsolatedPostgres('a7_bot_config');
+    pool = isolated.pool;
     await pool.query("INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES ($1,'Config operator','ACTIVE',1,$2,$2)", [staffUserId, now]);
     await pool.query("INSERT INTO staff_accounts(id,user_id,level,status,role_source,permissions_version,created_at,updated_at) VALUES ($1,$2,'L3_OPERATIONS','ACTIVE','MANUAL',1,$3,$3)", [staffId, staffUserId, now]);
     await pool.query("INSERT INTO guild_bot_configs(guild_id,version,config_json,updated_by_staff_id,updated_at) VALUES ($1,1,'{\"gift_broadcast_channel_id\":\"900000000000002100\",\"auto_dispatch_enabled\":true}'::jsonb,$2,$3)", [guildId, staffId, now]);
   }, 30_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('AT-CFG-008 atomically commits current config, immutable event, and success audit', async () => {
     const store = new PostgresBotConfigStore(pool);

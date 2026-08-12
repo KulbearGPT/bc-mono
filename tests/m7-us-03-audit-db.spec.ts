@@ -1,16 +1,10 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresAuditSink, type AuditRecord } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const auditId = '00000000-0000-0000-0000-000000007311';
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 function record(invalidChange = false): AuditRecord {
@@ -48,32 +42,15 @@ function record(invalidChange = false): AuditRecord {
 
 describe('M7-US-03 PostgreSQL audit header/change transaction', () => {
   beforeAll(async () => {
-    const port = 61_700 + (process.pid % 200);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-m7-audit-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', [
-      '-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start'
-    ]);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m7_audit']);
-    for (const directory of (await readdir('database/prisma/migrations')).sort()) {
-      await execFile('psql', [
-        '-h', root, '-p', String(port), '-d', 'blackcat_m7_audit', '-v', 'ON_ERROR_STOP=1',
-        '-f', join('database/prisma/migrations', directory, 'migration.sql')
-      ]);
-    }
-    pool = new Pool({ host: root, port, database: 'blackcat_m7_audit', max: 4 });
+    isolated = await startIsolatedPostgres('a7_audit');
+    pool = isolated.pool;
   }, 40_000);
 
   beforeEach(async () => {
     await pool.query('TRUNCATE TABLE audit_log_changes,audit_logs CASCADE');
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('commits header and ordered child changes together', async () => {
     await new PostgresAuditSink({ client: pool }).append(record());
