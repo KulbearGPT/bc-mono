@@ -49,6 +49,20 @@ const automatedA2 = (
   sources: [{ file: 'tests/non-ui/catalog-player.spec.ts', test }]
 });
 
+const automatedA3 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  sources: NonUiAutomationCase['sources'],
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A3',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -141,26 +155,242 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
     ['AT-COMP-001', 'AT-COMP-002'],
     'BNUI-PLY-003 validates batch compensation and freezes the selected rule into the participant snapshot'
   ),
-  ...[
+  automatedA3(
     'BNUI-ORD-001',
+    ['AT-CAT-003', 'AT-MULTI-006', 'AT-PL-001'],
+    [
+      {
+        file: 'tests/m10-us-07-order-requirements.spec.ts',
+        test: 'derives every line and order estimate without accepting client money'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-ORD-002',
+    ['AT-MULTI-008', 'AT-MULTI-009', 'AT-MULTI-011', 'AT-MULTI-013'],
+    [
+      {
+        file: 'tests/m10-us-08-service-packages-postgres.spec.ts',
+        test: 'replaces the basket with independent slots, notes, events, package price and audit atomically'
+      },
+      {
+        file: 'tests/m10-us-09-game-scoped-ordering-api.spec.ts',
+        test: 'allows another game as a separate single item while preserving same-game slot replacement'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-ORD-003',
+    ['AT-ORD-001', 'AT-RES-001'],
+    [
+      {
+        file: 'tests/m1-us-03-db.spec.ts',
+        test: 'uses the remaining amount of a partially settled hold when submitting another order'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-ORD-004',
+    ['AT-ORD-002', 'AT-RES-003'],
+    [
+      {
+        file: 'tests/non-ui/order-gift-concurrency.spec.ts',
+        test: 'BNUI-ORD-004 serializes order and gift reservations against one exact CAT balance'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-ORD-005',
+    ['AT-ORD-003', 'AT-ORD-004', 'AT-REV-004'],
+    [
+      {
+        file: 'tests/m16-us-02-api-resilience.spec.ts',
+        test: 'terminalizes the committed response when normal idempotency completion fails'
+      },
+      {
+        file: 'tests/m1-us-04-bot.spec.ts',
+        test: 'create order returns existing active channel without planning a second submittable order'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-ORD-006',
+    ['AT-CAT-002', 'AT-ORD-002'],
+    [
+      {
+        file: 'tests/m1-us-03-api.spec.ts',
+        test: 'updateOrder rejects stale expectedVersion and inactive catalog versions'
+      },
+      {
+        file: 'tests/m10-us-08-service-packages-postgres.spec.ts',
+        test: 'rolls every generated slot, event and order change back when audit append fails'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-ORD-007',
+    ['AT-CHN-001', 'AT-CHN-003', 'AT-PRJ-001'],
+    [
+      {
+        file: 'tests/m1-us-04-bot.spec.ts',
+        test: 'create order maps channel creation failure to a non-submittable recovery result'
+      },
+      {
+        file: 'tests/m1-us-04-bot.spec.ts',
+        test: 'channel failure reporting retries once and keeps a deterministic support request id'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-ORD-008',
+    ['AT-MULTI-006', 'AT-SEL-008'],
+    [
+      {
+        file: 'tests/m11-us-06-selection-reactions.spec.ts',
+        test: 'renders one reaction-only card for one through nine requirements and rejects ten'
+      },
+      {
+        file: 'tests/m11-us-06-selection-reactions.spec.ts',
+        test: 'rejects starting a round with ten remaining requirement rows before any pool write'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-SEL-001',
+    ['AT-SEL-001', 'AT-DSP-002', 'AT-DSP-011', 'AT-DSP-012', 'AT-DSP-015', 'AT-DSP-016'],
+    [
+      {
+        file: 'tests/m11-us-02-selection-pools-api.spec.ts',
+        test: 'accepts an application long after recruitment started until the customer stops it'
+      },
+      {
+        file: 'tests/m11-us-02-selection-pools-postgres.spec.ts',
+        test: 'does not close a pool when a legacy deadline worker call is recovered'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-SEL-002',
+    ['AT-DSP-001', 'AT-DSP-003', 'AT-SEL-002', 'AT-SEL-007', 'AT-SEL-008'],
+    [
+      {
+        file: 'tests/m11-us-02-selection-pools-postgres.spec.ts',
+        test: 'persists a reaction card and reactivates the same application after reaction removal'
+      },
+      {
+        file: 'tests/m11-us-06-selection-reactions.spec.ts',
+        test: 'serializes rapid add then remove events for the same user and project'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-SEL-003',
+    ['AT-DSP-004', 'AT-SEL-004'],
+    [
+      {
+        file: 'tests/m11-us-02-selection-pools-postgres.spec.ts',
+        test: 'allows cross-order applications while offline, then atomically grants only one active slot'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-SEL-004',
+    ['AT-DSP-014', 'AT-MULTI-007', 'AT-SEL-004', 'AT-SEL-005'],
+    [
+      {
+        file: 'tests/m11-us-02-selection-pools-api.spec.ts',
+        test: 'closes early and atomically selects multiple applicants while retaining partial selections'
+      },
+      {
+        file: 'tests/m11-us-02-selection-pools-api.spec.ts',
+        test: 'lets the owner explicitly start a new round after an empty selection without touching the reservation'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-SEL-005',
+    ['AT-SEL-003', 'AT-SEL-006', 'AT-DSP-019', 'AT-DSP-020'],
+    [
+      {
+        file: 'tests/m11-us-03-selection-discord.spec.ts',
+        test: 'uses Discord REST idempotently with user_limit zero and explicit loser cleanup'
+      },
+      {
+        file: 'tests/m11-us-03-selection-discord.spec.ts',
+        test: 'creates one recovery task only on the terminal Discord sync attempt'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
     'BNUI-RDY-001',
+    ['AT-RDY-001', 'AT-SVC-001'],
+    [
+      {
+        file: 'tests/m2-us-04-api.spec.ts',
+        test: 'setOrderReadiness rejects customers and starts only from the active participant fact'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-RDY-002',
+    ['AT-RDY-002', 'AT-RDY-003', 'AT-MULTI-003', 'AT-STATE-001'],
+    [
+      {
+        file: 'tests/m10-us-04-postgres.spec.ts',
+        test: 'starts from all active participant facts without writing customer readiness'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-RDY-003',
+    ['AT-RDY-003', 'AT-RDY-005', 'AT-STATE-001'],
+    [
+      { file: 'tests/m2-us-04-api.spec.ts', test: 'legacy single-party start endpoint is rejected and audited' },
+      {
+        file: 'tests/m10-us-04-postgres.spec.ts',
+        test: 'database guard rejects legacy aggregate timestamps when an active participant is still unready'
+      }
+    ]
+  ),
+  automatedA3(
     'BNUI-SVC-001',
-    'BNUI-SVC-002'
-  ].map((id) => planned('NUI-A3', id as `BNUI-${string}`)),
+    ['AT-SVC-002', 'AT-SVC-003', 'AT-MULTI-004'],
+    [
+      {
+        file: 'tests/m10-us-04-postgres.spec.ts',
+        test: 'blocks an unready late player, then captures the latest total into nine participant earnings'
+      },
+      {
+        file: 'tests/m2-us-04-api.spec.ts',
+        test: 'customer confirm completion records consumption, player earning and eligible referral commission facts'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA3(
+    'BNUI-SVC-002',
+    ['AT-SVC-004', 'AT-RDY-004'],
+    [
+      {
+        file: 'tests/m2-us-04-api.spec.ts',
+        test: 'completion confirmation timeout creates exactly one staff review task without settling money'
+      },
+      {
+        file: 'tests/m12-us-03-worker.spec.ts',
+        test: 'reminder sends once while pending and overdue changes facts without punishment'
+      }
+    ]
+  ),
   ...[
     'BNUI-CXL-001',
     'BNUI-CXL-002',

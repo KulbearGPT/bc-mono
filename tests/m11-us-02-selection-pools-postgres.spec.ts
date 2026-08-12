@@ -1,19 +1,15 @@
 import crypto from "node:crypto";
-import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { Pool } from "pg";
 import { PostgresSelectionPoolStore } from "@blackcat/api/selection-pools";
 import { PostgresSelectionPoolWorkerStore } from "@blackcat/api/selection-pool-worker";
 import type { AuditRecord } from "@blackcat/api/security";
+import {
+  startIsolatedPostgres,
+  type IsolatedPostgres,
+} from "./support/isolated-postgres";
 
-const execFile = promisify(execFileCallback);
-let root = "";
-let data = "";
-let port = 0;
+let isolated: IsolatedPostgres;
 let pool: Pool;
 const guildId = "999999999999999999";
 const customerId = "00000000-0000-0000-0000-000000011001";
@@ -33,57 +29,11 @@ const secondCustomerDiscord = "333333333333333333";
 
 describe("M11-US-02 PostgreSQL selection pool transaction", () => {
   beforeAll(async () => {
-    port = 62600 + (process.pid % 100);
-    root = await mkdtemp(join(tmpdir(), "blackcat-m11-selection-"));
-    data = join(root, "data");
-    await execFile("initdb", ["-D", data, "--no-locale", "--encoding=UTF8"]);
-    await execFile("pg_ctl", [
-      "-D",
-      data,
-      "-o",
-      `-p ${port} -k ${root}`,
-      "-l",
-      join(root, "postgres.log"),
-      "start",
-    ]);
-    await execFile("createdb", [
-      "-h",
-      root,
-      "-p",
-      String(port),
-      "blackcat_m11_selection",
-    ]);
-    for (const migration of (
-      await readdir("database/prisma/migrations")
-    ).sort())
-      await execFile("psql", [
-        "-h",
-        root,
-        "-p",
-        String(port),
-        "-d",
-        "blackcat_m11_selection",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-f",
-        `database/prisma/migrations/${migration}/migration.sql`,
-      ]);
-    pool = new Pool({
-      host: root,
-      port,
-      database: "blackcat_m11_selection",
-      max: 8,
-    });
+    isolated = await startIsolatedPostgres("a3_selection");
+    pool = isolated.pool;
     await seed();
-  }, 30000);
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data)
-      await execFile("pg_ctl", ["-D", data, "stop", "-m", "fast"]).catch(
-        () => undefined,
-      );
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  }, 40000);
+  afterAll(async () => isolated.stop());
 
   test("allows cross-order applications while offline, then atomically grants only one active slot", async () => {
     const store = new PostgresSelectionPoolStore(pool);

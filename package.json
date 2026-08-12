@@ -41,6 +41,7 @@
     "test:non-ui:harness": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a0",
     "test:non-ui:a1": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a1",
     "test:non-ui:a2": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a2",
+    "test:non-ui:a3": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a3",
     "verify:non-ui:environment": "NODE_ENV=test node scripts/non-ui/verify-environment.mjs",
     "generate:non-ui:coverage": "tsx scripts/non-ui/build-coverage-report.ts",
     "quality:bot": "npm run lint:bot && npm run format:bot:check && npm run typecheck -w @blackcat/bot && npm run build && npm run pieces -w @blackcat/bot && npm run test:bot"

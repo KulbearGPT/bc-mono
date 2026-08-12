@@ -1,8 +1,3 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { Pool } from 'pg';
 import {
@@ -11,49 +6,21 @@ import {
   type OrderRecord
 } from '@blackcat/api/orders';
 import { InMemoryAuditSink, type AuditRecord } from '@blackcat/api/security';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-17T20:00:00.000Z');
 
-let tmpRoot = '';
-let dataDir = '';
-let socketDir = '';
-let port = 0;
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M1-US-03 Postgres order draft integration', () => {
   beforeAll(async () => {
-    port = 57_000 + (process.pid % 1_000);
-    tmpRoot = await mkdtemp(join(tmpdir(), 'blackcat-m1-order-'));
-    dataDir = join(tmpRoot, 'data');
-    socketDir = tmpRoot;
-
-    await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m1_order']);
-    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m1_order' });
-
-    pool = new Pool({
-      host: socketDir,
-      port,
-      database: 'blackcat_m1_order',
-      application_name: 'blackcat_m1_order_test',
-      max: 4
-    });
-
+    isolated = await startIsolatedPostgres('a3_order_store');
+    pool = isolated.pool;
     await seedCustomerAndCatalog();
-  }, 30_000);
+  }, 40_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (dataDir) {
-      await execFile('pg_ctl', ['-D', dataDir, 'stop', '-m', 'fast']).catch(() => undefined);
-    }
-    if (tmpRoot) {
-      await rm(tmpRoot, { recursive: true, force: true });
-    }
-  });
+  afterAll(async () => isolated.stop());
 
   test('commits a draft order, CREATED event and audit record atomically', async () => {
     const store = new PostgresOrderStore({ pool });

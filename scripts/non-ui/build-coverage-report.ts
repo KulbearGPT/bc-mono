@@ -7,8 +7,8 @@ import {
 import { nonUiAutomationCoverage } from '../../tests/support/non-ui-coverage';
 
 const report = buildNonUiAcceptanceReport({
-  story: 'M23-US-03',
-  implementationPackage: 'NUI-A2',
+  story: 'M23-US-04',
+  implementationPackage: 'NUI-A3',
   commitSha: process.env.NON_UI_COMMIT_SHA ?? 'WORKTREE',
   generatedAt: process.env.NON_UI_REPORT_AT ?? new Date().toISOString(),
   cases: nonUiAutomationCoverage

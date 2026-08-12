@@ -162,21 +162,54 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
       'BNUI-TAG-001',
       'BNUI-PLY-001',
       'BNUI-PLY-002',
-      'BNUI-PLY-003'
+      'BNUI-PLY-003',
+      'BNUI-ORD-001',
+      'BNUI-ORD-002',
+      'BNUI-ORD-003',
+      'BNUI-ORD-004',
+      'BNUI-ORD-005',
+      'BNUI-ORD-006',
+      'BNUI-ORD-007',
+      'BNUI-ORD-008',
+      'BNUI-SEL-001',
+      'BNUI-SEL-002',
+      'BNUI-SEL-003',
+      'BNUI-SEL-004',
+      'BNUI-SEL-005',
+      'BNUI-RDY-001',
+      'BNUI-RDY-002',
+      'BNUI-RDY-003',
+      'BNUI-SVC-001',
+      'BNUI-SVC-002'
     ]);
+  });
+
+  test('keeps every automated coverage source executable and traceable to its named test', async () => {
+    const sourceFiles = new Map<string, string>();
+    for (const item of nonUiAutomationCoverage.filter(({ status }) => status === 'AUTOMATED')) {
+      expect(item.sources.length, item.automationId).toBeGreaterThan(0);
+      for (const source of item.sources) {
+        const contents = sourceFiles.get(source.file) ?? (await readFile(source.file, 'utf8'));
+        sourceFiles.set(source.file, contents);
+        expect(contents, `${item.automationId}:${source.file}`).toContain(source.test);
+        expect(contents, `${item.automationId}:${source.file}`).not.toMatch(
+          new RegExp(`(?:test|it)\\.(?:skip|todo)\\([^\\n]*${escapeRegExp(source.test)}`, 'u')
+        );
+      }
+    }
   });
 
   test('builds a redacted machine report with explicit acceptance classifications', () => {
     const report = buildNonUiAcceptanceReport({
-      story: 'M23-US-03',
-      implementationPackage: 'NUI-A2',
+      story: 'M23-US-04',
+      implementationPackage: 'NUI-A3',
       commitSha: 'WORKTREE',
       generatedAt: '2026-08-14T00:00:00.000Z',
       cases: nonUiAutomationCoverage
     });
     expect(() => validateNonUiAcceptanceReport(report)).not.toThrow();
     expect(JSON.stringify(report)).not.toContain('123456');
-    expect(report.summary).toMatchObject({ total: 77, automated: 17, planned: 60 });
+    expect(report.summary).toMatchObject({ total: 77, automated: 35, planned: 42 });
   });
 
   test('freezes nine sequential M23 Stories and mirrored implementation contracts', async () => {
@@ -197,3 +230,7 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
     expect(todo).toContain('## M23：全业务非 UI 自动化');
   });
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}

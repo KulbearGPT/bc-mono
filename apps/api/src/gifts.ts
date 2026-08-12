@@ -867,6 +867,16 @@ EXISTS (
     try {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${first.request.senderId}:${first.request.currency}`]);
+      await client.query(
+        `INSERT INTO user_currency_locks (user_id,currency,updated_at)
+         VALUES ($1,$2,now()) ON CONFLICT (user_id,currency) DO NOTHING`,
+        [first.request.senderId, first.request.currency]
+      );
+      await client.query(
+        `SELECT user_id FROM user_currency_locks
+         WHERE user_id=$1 AND currency=$2 FOR UPDATE`,
+        [first.request.senderId, first.request.currency]
+      );
       if (input.staffAssist) {
         const assist = input.staffAssist;
         const result = await client.query<{

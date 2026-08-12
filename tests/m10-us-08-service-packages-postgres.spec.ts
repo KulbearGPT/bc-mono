@@ -1,15 +1,10 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp,readdir,rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll,beforeAll,describe,expect,test } from 'vitest';
 import { Pool } from 'pg';
 import { PostgresOrderRequirementStore } from '@blackcat/api/order-requirements';
 import { PostgresServicePackageStore } from '@blackcat/api/service-packages';
 import type { AuditRecord } from '@blackcat/api/security';
+import { startIsolatedPostgres,type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile=promisify(execFileCallback);const database='blackcat_m10_packages';
 const guildId='999999999999999999',discordUserId='111111111111111111';
 const customerId='00000000-0000-0000-0000-000000108501',staffUserId='00000000-0000-0000-0000-000000108502',staffId='00000000-0000-0000-0000-000000108503';
 const rollbackCustomerId='00000000-0000-0000-0000-000000108513',rollbackDiscordUserId='111111111111111112';
@@ -17,11 +12,11 @@ const updateCustomerId='00000000-0000-0000-0000-000000108530',updateDiscordUserI
 const orderId='00000000-0000-0000-0000-000000108504',rollbackOrderId='00000000-0000-0000-0000-000000108505',updateOrderId='00000000-0000-0000-0000-000000108532';
 const catalogId='00000000-0000-0000-0000-000000108506',packageId='00000000-0000-0000-0000-000000108507';
 const otherGameCatalogId='00000000-0000-0000-0000-000000108516';
-let root='',data='',port=0,pool:Pool;
+let isolated:IsolatedPostgres,pool:Pool;
 
 describe('M10-US-08 PostgreSQL package transaction',()=>{
-  beforeAll(async()=>{port=62650+(process.pid%100);root=await mkdtemp(join(tmpdir(),'blackcat-m10-package-'));data=join(root,'data');await execFile('initdb',['-D',data,'--no-locale','--encoding=UTF8']);await execFile('pg_ctl',['-D',data,'-o',`-p ${port} -k ${root} -c listen_addresses=''`,'-l',join(root,'postgres.log'),'start']);await execFile('createdb',['-h',root,'-p',String(port),database]);for(const migration of (await readdir('database/prisma/migrations')).sort())await execFile('psql',['-h',root,'-p',String(port),'-d',database,'-v','ON_ERROR_STOP=1','-f',`database/prisma/migrations/${migration}/migration.sql`]);pool=new Pool({host:root,port,database,max:4});await seed();},40_000);
-  afterAll(async()=>{await pool?.end().catch(()=>undefined);if(data)await execFile('pg_ctl',['-D',data,'stop','-m','fast']).catch(()=>undefined);if(root)await rm(root,{recursive:true,force:true});});
+  beforeAll(async()=>{isolated=await startIsolatedPostgres('a3_packages');pool=isolated.pool;await seed();},40_000);
+  afterAll(async()=>isolated.stop());
 
   test('replaces the basket with independent slots, notes, events, package price and audit atomically',async()=>{
     const store=new PostgresServicePackageStore(pool);const staged=await store.apply(input(orderId,'package:postgres:apply'));expect(staged.data).toMatchObject({orderVersion:2,derivedTotalMinor:200,requirements:[{requestedPlayerCount:1,customerNote:'负责技术护航'},{requestedPlayerCount:1,customerNote:'可改成聊天陪伴'}]});await staged.commit(audit('00000000-0000-0000-0000-000000108520',staffId));
