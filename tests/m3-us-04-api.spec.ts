@@ -55,13 +55,20 @@ describe('M3-US-04 player earnings API', () => {
       headers: staffHeaders('earning:no-step:0001'), payload: { expectedVersion: 1, action: 'CONFIRM', reasonCode: 'REVIEWED' } })).statusCode).toBe(428);
 
     const { server, store } = fixture('L3_OPERATIONS', true);
-    const confirmed = await server.inject({ method: 'PATCH', url: `/api/v1/admin/player-earnings/${earningId}`,
-      headers: staffHeaders('earning:confirm:0001'), payload: { expectedVersion: 1, action: 'CONFIRM', reasonCode: 'REVIEWED', note: 'Snapshot verified.' } });
+    const confirmRequest = { method: 'PATCH' as const, url: `/api/v1/admin/player-earnings/${earningId}`,
+      headers: staffHeaders('earning:confirm:0001'), payload: { expectedVersion: 1, action: 'CONFIRM', reasonCode: 'REVIEWED', note: 'Snapshot verified.' } };
+    const confirmed = await server.inject(confirmRequest);
+    const confirmedReplay = await server.inject(confirmRequest);
     expect(confirmed.json()).toMatchObject({ data: { resultType: 'STATE_UPDATED', playerEarning: { status: 'CONFIRMED', version: 2 }, adjustment: null } });
-    const paid = await server.inject({ method: 'PATCH', url: `/api/v1/admin/player-earnings/${earningId}`,
-      headers: staffHeaders('earning:paid:000001'), payload: { expectedVersion: 2, action: 'MARK_PAID', reasonCode: 'MANUAL_PAYMENT_RECORDED' } });
+    expect(confirmedReplay.json()).toEqual(confirmed.json());
+    const paidRequest = { method: 'PATCH' as const, url: `/api/v1/admin/player-earnings/${earningId}`,
+      headers: staffHeaders('earning:paid:000001'), payload: { expectedVersion: 2, action: 'MARK_PAID', reasonCode: 'MANUAL_PAYMENT_RECORDED' } };
+    const paid = await server.inject(paidRequest);
+    const paidReplay = await server.inject(paidRequest);
     expect(paid.json()).toMatchObject({ data: { playerEarning: { status: 'PAID', version: 3 } } });
+    expect(paidReplay.json()).toEqual(paid.json());
     expect(store.earnings[0]?.amountMinor).toBe(8400);
+    expect(store.earnings[0]).toMatchObject({ status: 'PAID', version: 3 });
   });
 
   test('appends a reversal without replacing the original earning', async () => {

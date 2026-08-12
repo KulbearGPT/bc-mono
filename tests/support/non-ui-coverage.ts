@@ -77,6 +77,20 @@ const automatedA4 = (
   sources
 });
 
+const automatedA5 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  sources: NonUiAutomationCase['sources'],
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A5',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -565,17 +579,133 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
       }
     ]
   ),
-  ...[
+  automatedA5(
     'BNUI-FIN-001',
+    ['AT-EAR-001', 'AT-MULTI-004', 'AT-COMP-002', 'AT-REF-001'],
+    [
+      {
+        file: 'tests/m10-us-04-postgres.spec.ts',
+        test: 'blocks an unready late player, then captures the latest total into nine participant earnings'
+      },
+      {
+        file: 'tests/m2-us-04-api.spec.ts',
+        test: 'customer confirm completion records consumption, player earning and eligible referral commission facts'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-FIN-002',
+    ['AT-EAR-002'],
+    [
+      {
+        file: 'tests/m3-us-04-api.spec.ts',
+        test: 'requires L3 step-up and reason for CONFIRM then MARK_PAID'
+      },
+      {
+        file: 'tests/m3-us-04-db.spec.ts',
+        test: 'transitions state and appends a reversal while preserving the original earning'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-FIN-003',
+    ['AT-EAR-003'],
+    [
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically'
+      },
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'rolls back the approval decision and all refund facts when the success audit cannot be appended'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-REF-001',
+    ['AT-REF-004', 'AT-RFP-004'],
+    [
+      {
+        file: 'tests/m3-us-07-db.spec.ts',
+        test: 'serializes concurrent promoter and player bindings to one active source with zero partial writes'
+      },
+      {
+        file: 'tests/m3-us-07-api.spec.ts',
+        test: 'does not create or enumerate referral facts across Guilds'
+      },
+      { file: 'tests/m3-us-07-api.spec.ts', test: 'rejects self, duplicate, and late attribution' }
+    ]
+  ),
+  automatedA5(
     'BNUI-REF-002',
+    ['AT-REF-002', 'AT-RFP-001', 'AT-RFP-002'],
+    [
+      { file: 'tests/m3-us-07-api.spec.ts', test: 'uses integer floor rounding and exact fixed awards' },
+      {
+        file: 'tests/m3-us-07-db.spec.ts',
+        test: 'fulfills promoter once while player lifetime creates one commission per eligible order source'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-REF-003',
+    ['AT-REF-001', 'AT-REF-003', 'AT-RFP-003'],
+    [
+      {
+        file: 'tests/m2-us-04-api.spec.ts',
+        test: 'customer confirm completion records consumption, player earning and eligible referral commission facts'
+      },
+      {
+        file: 'tests/m3-us-07-db.spec.ts',
+        test: 'fulfills promoter once while player lifetime creates one commission per eligible order source'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-REF-004',
+    ['AT-REF-005', 'AT-RFP-008'],
+    [
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically'
+      },
+      {
+        file: 'tests/m3-us-05-db.spec.ts',
+        test: 'persists an idempotent append-only reversal and keeps the original amount'
+      }
+    ]
+  ),
+  automatedA5(
     'BNUI-REF-005',
-    'BNUI-HIS-001'
-  ].map((id) => planned('NUI-A5', id as `BNUI-${string}`)),
+    ['AT-HIS-002', 'AT-RFP-005', 'AT-RFP-006', 'AT-RFP-007', 'AT-TML-002'],
+    [
+      {
+        file: 'tests/m3-us-05-api.spec.ts',
+        test: 'returns only commissions owned by the actor with no relationship identifiers or rate'
+      },
+      { file: 'tests/m3-us-05-commissions-api.spec.ts', test: 'denies confidential records to L2 staff' },
+      {
+        file: 'tests/m3-us-07-api.spec.ts',
+        test: 'shows L2 only redacted records and corrects by appending a replacement'
+      },
+      {
+        file: 'tests/m4-us-08-api.spec.ts',
+        test: 'AT-TML-002 and AT-RFP-005 apply L1/L2/L3 redaction without leaking referral identities'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA5(
+    'BNUI-HIS-001',
+    ['AT-HIS-001', 'AT-TML-001'],
+    [
+      { file: 'tests/m3-us-05-db.spec.ts', test: 'paginates consumption facts without duplicates' },
+      {
+        file: 'tests/m4-us-08-api.spec.ts',
+        test: 'AT-TML-001 returns stable pages and keeps adjustments distinct from original facts'
+      }
+    ]
+  ),
   ...[
     'BNUI-RPT-001',
     'BNUI-RPT-002',

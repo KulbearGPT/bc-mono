@@ -1,16 +1,11 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresAccountStore } from '@blackcat/api/accounts';
 import { PostgresCommissionStore } from '@blackcat/api/commissions';
 import { decodeKeysetCursor } from '../apps/api/src/signed-cursor';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
-let root = ''; let data = ''; let pool: Pool;
+let isolated: IsolatedPostgres; let pool: Pool;
 const beneficiaryId = '00000000-0000-0000-0000-000000004210';
 const otherBeneficiaryId = '00000000-0000-0000-0000-000000004211';
 const customerId = '00000000-0000-0000-0000-000000004212';
@@ -20,14 +15,10 @@ const guildId = '900000000000004200';
 
 describe('M3-US-05 PostgreSQL private financial history', () => {
   beforeAll(async () => {
-    const port = 61_100 + (process.pid % 200); root = await mkdtemp(join(tmpdir(), 'blackcat-m3-history-')); data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_m3_history']);
-    await execFile('psql', ['-h', root, '-p', String(port), '-d', 'blackcat_m3_history', '-v', 'ON_ERROR_STOP=1', '-f', 'database/prisma/migrations/000001_p0_baseline/migration.sql']);
-    pool = new Pool({ host: root, port, database: 'blackcat_m3_history' }); await seed();
+    isolated = await startIsolatedPostgres('a5_financial_history');
+    pool = isolated.pool; await seed();
   }, 30_000);
-  afterAll(async () => { await pool?.end().catch(() => undefined); if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined); if (root) await rm(root, { recursive: true, force: true }); });
+  afterAll(async () => isolated.stop());
 
   test('paginates consumption facts without duplicates', async () => {
     const store = new PostgresAccountStore({ pool });

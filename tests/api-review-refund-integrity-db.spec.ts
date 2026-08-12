@@ -14,6 +14,11 @@ const staffId = '00000000-0000-0000-0000-000000020004';
 const orderId = '00000000-0000-0000-0000-000000020005';
 const chargeId = '00000000-0000-0000-0000-000000020006';
 const walletId = '00000000-0000-0000-0000-000000020007';
+const consumptionId = '00000000-0000-0000-0000-000000020008';
+const earningId = '00000000-0000-0000-0000-000000020009';
+const referralProgramId = '00000000-0000-0000-0000-000000020010';
+const referralAttributionId = '00000000-0000-0000-0000-000000020013';
+const commissionId = '00000000-0000-0000-0000-000000020014';
 const approvalId = '00000000-0000-0000-0000-000000020020';
 const now = new Date('2026-08-12T15:00:00.000Z');
 let isolated: IsolatedPostgres;
@@ -53,7 +58,7 @@ describe('API review standalone refund integrity', () => {
       `INSERT INTO orders
       (id,public_id,customer_id,player_id,status,row_version,billing_unit_minutes,unit_count,customer_unit_price_minor,
        player_unit_payout_minor,amount_minor,expected_player_earning_minor,currency,guild_id,completed_at,created_at,updated_at)
-      VALUES ($1,'P-REFUND-INTEGRITY',$2,$3,'COMPLETED',9,60,1,200000,0,200000,0,'CAT',$4,$5,$5,$5)`,
+      VALUES ($1,'P-REFUND-INTEGRITY',$2,$3,'COMPLETED',9,60,1,200000,120000,200000,120000,'CAT',$4,$5,$5,$5)`,
       [orderId, customerId, playerId, actor.guildId, now]
     );
     await pool.query(
@@ -70,8 +75,32 @@ describe('API review standalone refund integrity', () => {
     await pool.query(
       `INSERT INTO consumption_entries
       (id,user_id,entry_type,direction,order_id,external_transaction_id,amount_minor,currency,source_type,source_id,idempotency_key,occurred_at,created_at)
-      VALUES ('00000000-0000-0000-0000-000000020008',$1,'ORDER_CHARGE','DEBIT',$2,$3,200000,'CAT','ORDER',$2,'consumption:refund-integrity',$4,$4)`,
-      [customerId, orderId, chargeId, now]
+      VALUES ($1,$2,'ORDER_CHARGE','DEBIT',$3,$4,200000,'CAT','ORDER',$3,'consumption:refund-integrity',$5,$5)`,
+      [consumptionId, customerId, orderId, chargeId, now]
+    );
+    await pool.query(
+      `INSERT INTO player_earnings
+      (id,order_id,player_user_id,base_units,unit_payout_minor,amount_minor,currency,status,row_version,created_at,updated_at)
+      VALUES ($1,$2,$3,1,120000,120000,'CAT','CONFIRMED',1,$4,$4)`,
+      [earningId, orderId, playerId, now]
+    );
+    await pool.query(
+      `INSERT INTO referral_program_versions
+      (id,program_type,version,status,active_program_key,award_mode,rate_bps,currency,eligible_order_spend,eligible_gift_spend,created_by_staff_id,activated_at,created_at)
+      VALUES ($1,'PLAYER_LIFETIME',1,'ACTIVE','PLAYER_LIFETIME','NET_SPEND_BPS',200,'CAT',true,false,$2,$3,$3)`,
+      [referralProgramId, staffId, now]
+    );
+    await pool.query(
+      `INSERT INTO referral_attributions
+      (id,program_version_id,beneficiary_user_id,referred_user_id,status,row_version,active_attribution_key,source_type,bound_by_staff_id,eligibility_checked_at,bound_at,created_at)
+      VALUES ($1,$2,$3,$4,'ACTIVE',1,$4,'ADMIN_MANUAL',$5,$6,$6,$6)`,
+      [referralAttributionId, referralProgramId, playerId, customerId, staffId, now]
+    );
+    await pool.query(
+      `INSERT INTO commissions
+      (id,referral_attribution_id,beneficiary_user_id,source_consumption_entry_id,program_type_snapshot,program_version_snapshot,award_mode_snapshot,base_amount_minor,rate_bps,amount_minor,currency,status,row_version,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,'PLAYER_LIFETIME',1,'NET_SPEND_BPS',200000,200,4000,'CAT','CONFIRMED',1,$5,$5)`,
+      [commissionId, referralAttributionId, playerId, consumptionId, now]
     );
   });
 
@@ -135,8 +164,15 @@ describe('API review standalone refund integrity', () => {
       (SELECT approval_request_id::text FROM refunds WHERE order_id=$2) refund_approval_id,
       (SELECT amount_minor::int FROM refunds WHERE order_id=$2) refunded,
       (SELECT COALESCE(SUM(amount_minor),0)::int FROM wallet_entries WHERE entry_type='ORDER_REFUND_CREDIT') credited,
+      (SELECT count(*)::int FROM consumption_entries WHERE reversal_of_entry_id=$4) consumption_adjustments,
+      (SELECT amount_minor::int FROM player_earnings WHERE id=$5) original_earning,
+      (SELECT amount_minor::int FROM player_earning_adjustments WHERE player_earning_id=$5) earning_adjustment,
+      (SELECT source_refund_id::text FROM player_earning_adjustments WHERE player_earning_id=$5) earning_refund_id,
+      (SELECT amount_minor::int FROM commissions WHERE id=$6) original_commission,
+      (SELECT amount_minor::int FROM commission_adjustments WHERE commission_id=$6) commission_adjustment,
+      (SELECT source_refund_id::text FROM commission_adjustments WHERE commission_id=$6) commission_refund_id,
       (SELECT approval_request_id::text FROM audit_logs WHERE id=$3) audit_approval_id`,
-      [approvalId, orderId, '00000000-0000-0000-0000-000000020021']
+      [approvalId, orderId, '00000000-0000-0000-0000-000000020021', consumptionId, earningId, commissionId]
     );
     expect(facts.rows[0]).toMatchObject({
       approval_status: 'APPROVED',
@@ -145,8 +181,16 @@ describe('API review standalone refund integrity', () => {
       refund_approval_id: approvalId,
       refunded: 50_100,
       credited: 50_100,
+      consumption_adjustments: 1,
+      original_earning: 120_000,
+      earning_adjustment: 30_060,
+      earning_refund_id: expect.any(String),
+      original_commission: 4_000,
+      commission_adjustment: 1_002,
+      commission_refund_id: expect.any(String),
       audit_approval_id: approvalId
     });
+    expect(facts.rows[0].earning_refund_id).toBe(facts.rows[0].commission_refund_id);
   });
 
   test('rolls back the approval decision and all refund facts when the success audit cannot be appended', async () => {
@@ -178,15 +222,21 @@ describe('API review standalone refund integrity', () => {
       (SELECT row_version FROM approval_requests WHERE id=$1) approval_version,
       (SELECT count(*)::int FROM approval_decisions WHERE approval_request_id=$1) decision_count,
       (SELECT count(*)::int FROM refunds WHERE order_id=$2) refund_count,
-      (SELECT count(*)::int FROM wallet_entries WHERE entry_type='ORDER_REFUND_CREDIT') credit_count`,
-      [approvalId, orderId]
+      (SELECT count(*)::int FROM wallet_entries WHERE entry_type='ORDER_REFUND_CREDIT') credit_count,
+      (SELECT count(*)::int FROM consumption_entries WHERE reversal_of_entry_id=$3) consumption_adjustments,
+      (SELECT count(*)::int FROM player_earning_adjustments WHERE player_earning_id=$4) earning_adjustments,
+      (SELECT count(*)::int FROM commission_adjustments WHERE commission_id=$5) commission_adjustments`,
+      [approvalId, orderId, consumptionId, earningId, commissionId]
     );
     expect(facts.rows[0]).toMatchObject({
       approval_status: 'PENDING',
       approval_version: 1,
       decision_count: 0,
       refund_count: 0,
-      credit_count: 0
+      credit_count: 0,
+      consumption_adjustments: 0,
+      earning_adjustments: 0,
+      commission_adjustments: 0
     });
   });
 
