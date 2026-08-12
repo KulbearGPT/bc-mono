@@ -1,17 +1,12 @@
-import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresAdminOrderActionStore, refundOrder } from '@blackcat/api/admin-order-actions';
 import { PostgresDomainApprovalStore } from '@blackcat/api/approvals';
 import { PostgresGiftStore } from '@blackcat/api/gifts';
 import type { AuditRecord, ActorContext } from '@blackcat/api/security';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const customerId = '00000000-0000-0000-0000-000000020001';
 const playerId = '00000000-0000-0000-0000-000000020002';
 const staffUserId = '00000000-0000-0000-0000-000000020003';
@@ -21,8 +16,7 @@ const chargeId = '00000000-0000-0000-0000-000000020006';
 const walletId = '00000000-0000-0000-0000-000000020007';
 const approvalId = '00000000-0000-0000-0000-000000020020';
 const now = new Date('2026-08-12T15:00:00.000Z');
-let root = '';
-let data = '';
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 const actor: ActorContext = {
@@ -39,27 +33,8 @@ const actor: ActorContext = {
 
 describe('API review standalone refund integrity', () => {
   beforeAll(async () => {
-    const port = 62_500 + (process.pid % 100);
-    root = await mkdtemp(join(tmpdir(), 'blackcat-refund-integrity-'));
-    data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), 'blackcat_refund_integrity']);
-    for (const directory of (await readdir('database/prisma/migrations')).sort()) {
-      await execFile('psql', [
-        '-h',
-        root,
-        '-p',
-        String(port),
-        '-d',
-        'blackcat_refund_integrity',
-        '-v',
-        'ON_ERROR_STOP=1',
-        '-f',
-        join('database/prisma/migrations', directory, 'migration.sql')
-      ]);
-    }
-    pool = new Pool({ host: root, port, database: 'blackcat_refund_integrity', max: 4 });
+    isolated = await startIsolatedPostgres('a4_refund_integrity');
+    pool = isolated.pool;
   }, 45_000);
 
   beforeEach(async () => {
@@ -100,11 +75,7 @@ describe('API review standalone refund integrity', () => {
     );
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (data) await execFile('pg_ctl', ['-D', data, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (root) await rm(root, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('serializes different idempotency keys and never credits more than the captured charge', async () => {
     const store = new PostgresAdminOrderActionStore({ pool });

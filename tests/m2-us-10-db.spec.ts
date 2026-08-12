@@ -1,48 +1,28 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { buildApiServer } from '@blackcat/api/server';
 import { PostgresAccountStore, type AccountBindingRecord } from '@blackcat/api/accounts';
 import { PostgresOrderStore, registerOrderRoutes } from '@blackcat/api/orders';
 import { PostgresServiceCatalogStore } from '@blackcat/api/catalog';
 import { InMemoryAuditSink, InMemoryIdempotencyStore } from '@blackcat/api/security';
-import { applyCurrentMigrations } from './support/postgres-migrations';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T08:00:00.000Z');
 const orderId = '00000000-0000-0000-0000-00000000ba10';
 const selectionPoolId = '00000000-0000-0000-0000-00000000ba11';
 const selectionApplicationId = '00000000-0000-0000-0000-00000000ba12';
-let tmpRoot = '';
-let dataDir = '';
-let socketDir = '';
-let port = 0;
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M2-US-10 PostgreSQL cancellation preview transaction', () => {
   beforeAll(async () => {
-    port = 60_100 + (process.pid % 200);
-    tmpRoot = await mkdtemp(join(tmpdir(), 'blackcat-m2-cancel-preview-'));
-    dataDir = join(tmpRoot, 'data');
-    socketDir = tmpRoot;
-    await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_cancel_preview']);
-    await applyCurrentMigrations({ host: socketDir, port, database: 'blackcat_m2_cancel_preview' });
-    pool = new Pool({ host: socketDir, port, database: 'blackcat_m2_cancel_preview', application_name: 'blackcat_m2_cancel_preview_test', max: 4 });
+    isolated = await startIsolatedPostgres('a4_cancel_preview');
+    pool = isolated.pool;
     await seedAccount();
     await seedOrder();
   }, 30_000);
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (dataDir) await execFile('pg_ctl', ['-D', dataDir, 'stop', '-m', 'fast']).catch(() => undefined);
-    if (tmpRoot) await rm(tmpRoot, { recursive: true, force: true });
-  });
+  afterAll(async () => isolated.stop());
 
   test('applies the matching preview and releases reservation atomically', async () => {
     const accountStore = new PostgresAccountStore({ pool });

@@ -1,10 +1,5 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { buildApiServer } from '@blackcat/api/server';
 import { PostgresOrderParticipantStore } from '@blackcat/api/order-participants';
 import { PostgresOrderRequirementStore } from '@blackcat/api/order-requirements';
@@ -14,10 +9,9 @@ import { PostgresServiceCatalogStore } from '@blackcat/api/catalog';
 import { PostgresOrderStore } from '@blackcat/api/orders';
 import { PostgresWalletStore } from '@blackcat/api/wallet';
 import { PostgresDispatchPlayerPool,PostgresDispatchStore,acceptOrder,dispatchOrder } from '@blackcat/api/dispatch';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
-let root = ''; let data = ''; let port = 0; let pool: Pool;
-const database = 'blackcat_m10_participant_api';
+let isolated: IsolatedPostgres; let pool: Pool;
 const guildId = '999999999999999999';
 const orderId = '00000000-0000-0000-0000-000000010001';
 const rollbackOrderId = '00000000-0000-0000-0000-000000010009';
@@ -42,15 +36,10 @@ const env = { NODE_ENV: 'test', DATABASE_URL: '', API_PORT: '0', API_BASE_URL: '
 
 describe('M10-US-03 PostgreSQL participant transaction', () => {
   beforeAll(async () => {
-    port = 62_500 + (process.pid % 150); root = await mkdtemp(join(tmpdir(), 'blackcat-m10-participant-api-')); data = join(root, 'data');
-    await execFile('initdb', ['-D', data, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', data, '-o', `-p ${port} -k ${root}`, '-l', join(root, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', root, '-p', String(port), database]);
-    const migrations = (await readdir('database/prisma/migrations')).sort();
-    for (const migration of migrations) await execFile('psql', ['-h', root, '-p', String(port), '-d', database, '-v', 'ON_ERROR_STOP=1', '-f', `database/prisma/migrations/${migration}/migration.sql`]);
-    pool = new Pool({ host: root, port, database }); await seed();
+    isolated = await startIsolatedPostgres('a4_participant_api');
+    pool = isolated.pool; await seed();
   }, 30_000);
-  afterAll(async () => { await pool?.end().catch(() => undefined); if(data)await execFile('pg_ctl',['-D',data,'stop','-m','fast']).catch(()=>undefined); if(root)await rm(root,{recursive:true,force:true}); });
+  afterAll(async () => isolated.stop());
 
   test('commits participant, derived total, event and audit in one successful route write', async () => {
     const directory: StaffDirectory = { resolveByDiscord: ({ discordUserId }) => discordUserId === discordId ? { staffId, userId: staffUserId, level: 'L2_SUPERVISOR', permissionsVersion: 1, status: 'ACTIVE' } : null };

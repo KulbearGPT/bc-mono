@@ -1,29 +1,20 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { PostgresOrderChannelEventStore, recordOrderChannelEvent } from '@blackcat/api/order-channel-events';
 import { PostgresSupportResponseJobStore } from '@blackcat/api/support-response-jobs';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const guildId='999999999999999999';
 const channelId='777777777777777777';
 const orderId='00000000-0000-0000-0000-000000013001';
 const customerId='00000000-0000-0000-0000-000000013002';
 const staffIds=['00000000-0000-0000-0000-000000013003','00000000-0000-0000-0000-000000013004'];
-let root='';let data='';let pool:Pool;
+let isolated:IsolatedPostgres;let pool:Pool;
 
 describe('M12-US-03 PostgreSQL first response concurrency',()=>{
   beforeAll(async()=>{
-    const port=62_980+(process.pid%20);root=await mkdtemp(join(tmpdir(),'blackcat-m12-response-'));data=join(root,'data');
-    await execFile('initdb',['-D',data,'--no-locale','--encoding=UTF8']);
-    await execFile('pg_ctl',['-D',data,'-o',`-p ${port} -k ${root}`,'-l',join(root,'postgres.log'),'start']);
-    await execFile('createdb',['-h',root,'-p',String(port),'blackcat_m12_response']);
-    for(const migration of (await readdir('database/prisma/migrations')).sort())await execFile('psql',['-h',root,'-p',String(port),'-d','blackcat_m12_response','-v','ON_ERROR_STOP=1','-f',`database/prisma/migrations/${migration}/migration.sql`]);
-    pool=new Pool({host:root,port,database:'blackcat_m12_response',max:5});
+    isolated=await startIsolatedPostgres('a4_first_response');
+    pool=isolated.pool;
     await pool.query(`INSERT INTO users(id,display_name,status,row_version,created_at,updated_at) VALUES
       ($1,'客户','ACTIVE',1,now(),now()),($2,'店主','ACTIVE',1,now(),now()),($3,'一线客服','ACTIVE',1,now(),now())`,[customerId,...staffIds]);
     await pool.query(`INSERT INTO staff_accounts(id,user_id,level,status,role_source,permissions_version,created_at,updated_at) VALUES
@@ -37,7 +28,7 @@ describe('M12-US-03 PostgreSQL first response concurrency',()=>{
       ('00000000-0000-0000-0000-000000013012','T-M12-NEW','SERVICE_INTERRUPTED','CUSTOMER_HELP','OPEN',1,$1,'{}','2026-08-05T16:00:30Z','2026-08-05T16:00:30Z')`,[orderId]);
   },40_000);
 
-  afterAll(async()=>{await pool?.end().catch(()=>undefined);if(data)await execFile('pg_ctl',['-D',data,'stop','-m','fast']).catch(()=>undefined);if(root)await rm(root,{recursive:true,force:true});});
+  afterAll(async()=>isolated.stop());
 
   test('two staff replies serialize to one owner while both response facts converge',async()=>{
     const store=new PostgresOrderChannelEventStore(pool);

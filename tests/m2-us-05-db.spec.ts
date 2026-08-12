@@ -1,10 +1,5 @@
-import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import {
   PostgresStaffTaskStore,
   claimStaffTask,
@@ -15,47 +10,18 @@ import {
   createUserRiskFlag
 } from '@blackcat/api/risk-events';
 import type { OrderRecord } from '@blackcat/api/orders';
+import { startIsolatedPostgres, type IsolatedPostgres } from './support/isolated-postgres';
 
-const execFile = promisify(execFileCallback);
 const now = new Date('2026-07-18T05:30:00.000Z');
 const orderId = '00000000-0000-0000-0000-00000000b551';
 
-let tmpRoot = '';
-let dataDir = '';
-let socketDir = '';
-let port = 0;
+let isolated: IsolatedPostgres;
 let pool: Pool;
 
 describe('M2-US-05 Postgres staff task support', () => {
   beforeAll(async () => {
-    port = 59_980 + (process.pid % 80);
-    tmpRoot = await mkdtemp(join(tmpdir(), 'blackcat-m2-staff-task-'));
-    dataDir = join(tmpRoot, 'data');
-    socketDir = tmpRoot;
-
-    await execFile('initdb', ['-D', dataDir, '--no-locale', '--encoding=UTF8']);
-    await execFile('pg_ctl', ['-D', dataDir, '-o', `-p ${port} -k ${socketDir}`, '-l', join(tmpRoot, 'postgres.log'), 'start']);
-    await execFile('createdb', ['-h', socketDir, '-p', String(port), 'blackcat_m2_staff_task']);
-    await execFile('psql', [
-      '-h',
-      socketDir,
-      '-p',
-      String(port),
-      '-d',
-      'blackcat_m2_staff_task',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-f',
-      'database/prisma/migrations/000001_p0_baseline/migration.sql'
-    ]);
-
-    pool = new Pool({
-      host: socketDir,
-      port,
-      database: 'blackcat_m2_staff_task',
-      application_name: 'blackcat_m2_staff_task_test',
-      max: 6
-    });
+    isolated = await startIsolatedPostgres('a4_staff_task');
+    pool = isolated.pool;
   }, 30_000);
 
   beforeEach(async () => {
@@ -71,15 +37,7 @@ RESTART IDENTITY CASCADE
     await seedOrderAndStaff();
   });
 
-  afterAll(async () => {
-    await pool?.end().catch(() => undefined);
-    if (dataDir) {
-      await execFile('pg_ctl', ['-D', dataDir, 'stop', '-m', 'fast']).catch(() => undefined);
-    }
-    if (tmpRoot) {
-      await rm(tmpRoot, { recursive: true, force: true });
-    }
-  });
+  afterAll(async () => isolated.stop());
 
   test('createOrderStaffTask returns the same active task for repeated order/type/reason', async () => {
     const store = new PostgresStaffTaskStore({ pool });

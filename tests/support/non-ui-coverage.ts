@@ -63,6 +63,20 @@ const automatedA3 = (
   sources
 });
 
+const automatedA4 = (
+  automationId: `BNUI-${string}`,
+  acceptanceIds: `AT-${string}`[],
+  sources: NonUiAutomationCase['sources'],
+  acceptanceClass: NonUiAcceptanceClass = 'AUTOMATED_FULL'
+): NonUiAutomationCase => ({
+  automationId,
+  implementationPackage: 'NUI-A4',
+  acceptanceIds,
+  acceptanceClass,
+  status: 'AUTOMATED',
+  sources
+});
+
 export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
   automated(
     'BNUI-ACC-001',
@@ -391,20 +405,166 @@ export const nonUiAutomationCoverage: NonUiAutomationCase[] = [
       }
     ]
   ),
-  ...[
+  automatedA4(
     'BNUI-CXL-001',
+    ['AT-CXL-001', 'AT-CXL-002', 'AT-CXL-003', 'AT-CXL-004'],
+    [
+      {
+        file: 'tests/m2-us-10-api.spec.ts',
+        test: 'previews an automatic reservation release without mutating order or funds'
+      },
+      {
+        file: 'tests/m2-us-10-api.spec.ts',
+        test: 'rejects a stale preview after the order changes and leaves reservation untouched'
+      }
+    ]
+  ),
+  automatedA4(
     'BNUI-CXL-002',
+    ['AT-CAN-001', 'AT-CAN-002', 'AT-CAN-004', 'AT-CAN-007', 'AT-CAN-008'],
+    [
+      { file: 'tests/m2-us-10-db.spec.ts', test: 'applies the matching preview and releases reservation atomically' },
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-CXL-003',
+    ['AT-CAN-003', 'AT-CAN-009', 'AT-SUP-003'],
+    [
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'rolls back the approval decision and all refund facts when the success audit cannot be appended'
+      },
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'serializes different idempotency keys and never credits more than the captured charge'
+      }
+    ]
+  ),
+  automatedA4(
     'BNUI-ORD-009',
+    ['AT-MULTI-010', 'AT-MULTI-015'],
+    [
+      {
+        file: 'tests/m10-us-03-postgres.spec.ts',
+        test: 'reassigns one persisted participant without changing the other line, total, or reservation facts'
+      },
+      {
+        file: 'tests/m10-us-03-postgres.spec.ts',
+        test: 'AT-MULTI-015 persists staff note corrections without changing funds and rejects terminal recovery writes'
+      }
+    ]
+  ),
+  automatedA4(
     'BNUI-SUP-001',
+    ['AT-SUP-001'],
+    [
+      {
+        file: 'tests/m2-us-05-db.spec.ts',
+        test: 'claimStaffTask is atomic: concurrent L1 claims leave exactly one claimant'
+      }
+    ]
+  ),
+  automatedA4(
     'BNUI-SUP-002',
+    ['AT-SUP-002', 'AT-RBAC-001', 'AT-RBAC-002'],
+    [
+      { file: 'tests/m4-us-02-api.spec.ts', test: 'lets L1 append a note and escalate only a personally claimed task' },
+      { file: 'tests/m2-us-11-api.spec.ts', test: 'lets only L2 resolve a claimed task after automation resumes' }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-SUP-003',
+    ['AT-SUP-005', 'AT-SUP-006'],
+    [
+      {
+        file: 'tests/m2-us-11-api.spec.ts',
+        test: 'lets L1 pause only an order task they claimed without changing its reservation'
+      },
+      {
+        file: 'tests/m2-us-11-worker.spec.ts',
+        test: 'skips readiness timeout escalation while lifecycle automation is paused'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-SUP-004',
+    ['AT-SUP-011'],
+    [
+      {
+        file: 'tests/m12-us-03-postgres.spec.ts',
+        test: 'two staff replies serialize to one owner while both response facts converge'
+      },
+      {
+        file: 'tests/m12-us-03-worker.spec.ts',
+        test: 'L4 first response claims oldest OPEN task and later staff cannot steal it'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-SUP-005',
+    ['AT-SUP-010', 'AT-SUP-013'],
+    [
+      { file: 'tests/m12-us-02-api.spec.ts', test: 'L1 clock-in is idempotent and current shift is queryable' },
+      { file: 'tests/m12-us-02-api.spec.ts', test: 'L1 summary is self-only while L2 sees ACTIVE L1-L4 support actors' }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-SUP-006',
+    ['AT-DOP-002', 'AT-SUX-002', 'AT-SUX-003', 'AT-SUX-004'],
+    [
+      {
+        file: 'tests/m15-us-03-order-transcript.spec.ts',
+        test: 'returns immutable lifecycle events with stable cursor pages and deletion metadata'
+      },
+      {
+        file: 'tests/m15-us-03-order-transcript.spec.ts',
+        test: 'renders a read-only transcript without any message mutation controls'
+      },
+      {
+        file: 'tests/m14-us-02-support-triage-api.spec.ts',
+        test: 'never emits malformed links and hides a task carrying another Guild context'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
     'BNUI-APR-001',
-    'BNUI-APR-002'
-  ].map((id) => planned('NUI-A4', id as `BNUI-${string}`)),
+    ['AT-RBAC-003', 'AT-RBAC-004', 'AT-RBAC-005', 'AT-RBAC-006', 'AT-AUD-001'],
+    [
+      {
+        file: 'tests/api-review-approval-runtime.spec.ts',
+        test: 'fails closed for stale, expired, cross-Guild, and reserved actions'
+      },
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically'
+      }
+    ],
+    'AUTOMATED_PARTIAL_EXTERNAL_REMAINS'
+  ),
+  automatedA4(
+    'BNUI-APR-002',
+    ['AT-RBAC-005', 'AT-RBAC-006', 'AT-RBAC-011', 'AT-AUD-005'],
+    [
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'cancels a superseded pending snapshot when a higher-level actor uses the compatible direct refund route'
+      },
+      {
+        file: 'tests/api-review-refund-integrity-db.spec.ts',
+        test: 'generically approves an immutable order resolution and links every resulting fact'
+      }
+    ]
+  ),
   ...[
     'BNUI-FIN-001',
     'BNUI-FIN-002',
