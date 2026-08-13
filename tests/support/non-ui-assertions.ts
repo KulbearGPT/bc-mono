@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { Pool, PoolClient } from 'pg';
 
 export type BusinessSnapshot = Record<string, unknown[]>;
@@ -17,7 +19,11 @@ export async function snapshotBusinessFacts(database: Pool | PoolClient, tables:
 }
 
 export function expectNoBusinessWrites(before: BusinessSnapshot, after: BusinessSnapshot): void {
-  assert.deepEqual(after, before, 'Expected business facts to remain unchanged.');
+  if (!isDeepStrictEqual(after, before)) {
+    throw new Error(
+      `Expected business facts to remain unchanged.\n[NON_UI_SNAPSHOT] before=${snapshotDigest(before)} after=${snapshotDigest(after)}`
+    );
+  }
 }
 
 export function expectAppendOnlyDelta(
@@ -123,4 +129,8 @@ export function expectPrivacyAllowlist(value: unknown, allowedKeys: string[]): v
     }
   };
   visit(value, '$');
+}
+
+function snapshotDigest(snapshot: BusinessSnapshot): string {
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
 }

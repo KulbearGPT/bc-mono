@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { emitNonUiFailureContext } from '../non-ui-failure-context';
 
 export interface NonUiFixtureIdentity {
   scenarioId: string;
@@ -16,6 +17,7 @@ export interface NonUiFixtureIdentity {
 }
 
 export function createGuildFixture(scenarioId: string, sequence: number) {
+  emitNonUiFailureContext({ scenarioId, sequence });
   const key = `${scenarioId}:${sequence}`;
   return {
     primary: {
@@ -34,6 +36,7 @@ export function createGuildFixture(scenarioId: string, sequence: number) {
 }
 
 export function createActorFixture(scenarioId: string, sequence: number): NonUiFixtureIdentity {
+  emitNonUiFailureContext({ scenarioId, sequence });
   const key = `${scenarioId}:${sequence}`;
   return {
     scenarioId,

@@ -6,6 +6,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import { applyCurrentMigrations } from './postgres-migrations';
+import { emitNonUiFailureContext } from './non-ui-failure-context';
 
 const execFile = promisify(execFileCallback);
 const isolatedBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
@@ -40,6 +41,16 @@ export function assertIsolatedPostgresTarget(input: {
   }
 }
 
+export function isExpectedIsolatedPostgresShutdownError(error: unknown, stopping: boolean): boolean {
+  return (
+    stopping &&
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '57P01'
+  );
+}
+
 export async function verifyIsolatedPostgresEnvironment(): Promise<void> {
   await Promise.all(['initdb', 'pg_ctl', 'createdb', 'psql'].map((binary) => execFile(binary, ['--version'])));
 }
@@ -66,6 +77,8 @@ export async function startIsolatedPostgres(
   let started = false;
   let pool: Pool | undefined;
   let stopped = false;
+  let stopping = false;
+  const unexpectedPoolErrors: unknown[] = [];
 
   try {
     assertIsolatedPostgresTarget({ database, host: root, root, nodeEnv: process.env.NODE_ENV });
@@ -83,11 +96,16 @@ export async function startIsolatedPostgres(
     await execFile('createdb', ['-h', root, '-p', String(port), database]);
     await applyCurrentMigrations({ host: root, port, database, exclude: options.excludeMigrations });
     pool = new Pool({ host: root, port, database, max: 8 });
+    pool.on('error', (error) => {
+      if (!isExpectedIsolatedPostgresShutdownError(error, stopping)) unexpectedPoolErrors.push(error);
+    });
     await assertRunningIdentity(pool, { database, root });
+    emitNonUiFailureContext({ database });
 
     const stop = async (options: { failed?: boolean; keepFailed?: boolean } = {}) => {
       if (stopped) return;
       stopped = true;
+      stopping = true;
       const cleanupErrors: unknown[] = [];
       try {
         await pool?.end();
@@ -102,6 +120,8 @@ export async function startIsolatedPostgres(
           cleanupErrors.push(error);
         }
       }
+      await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+      cleanupErrors.push(...unexpectedPoolErrors);
       const keep =
         options.failed === true && (options.keepFailed === true || process.env.NON_UI_KEEP_FAILED_DB === '1');
       if (!keep && cleanupErrors.length === 0) {
@@ -121,6 +141,7 @@ export async function startIsolatedPostgres(
 
     return { database, dataDir, port, root, socketDir: root, pool, stop };
   } catch (error) {
+    stopping = true;
     const cleanupErrors: unknown[] = [];
     try {
       await pool?.end();
@@ -135,6 +156,8 @@ export async function startIsolatedPostgres(
         cleanupErrors.push(cleanupError);
       }
     }
+    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+    cleanupErrors.push(...unexpectedPoolErrors);
     if (cleanupErrors.length === 0) await rm(root, { recursive: true, force: true });
     if (cleanupErrors.length > 0) {
       throw new AggregateError(

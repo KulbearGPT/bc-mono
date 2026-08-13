@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const step = (id, command, args) => ({ id, command, args });
 
 export const gateDefinitions = Object.freeze({
@@ -79,28 +81,94 @@ export function sanitizeGateOutput(output) {
       '[REDACTED_FIELD]'
     )
     .replace(/\b(?:valid-bot-token|[0-9]{12,19})\b/gu, '[REDACTED_VALUE]')
+    .replace(/\b(guildFixtureId|actorFixtureId)\s*[:=]\s*([a-z0-9:._-]+)/giu, (_, key, value) => {
+      return `${key}=sha256:${fingerprint(value)}`;
+    })
     .replace(
       /BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY[\s\S]*?END (?:RSA |EC |OPENSSH )?PRIVATE KEY/gu,
       '[REDACTED_KEY]'
     );
 }
 
-export function buildFailureArtifact({ gate, stepId, commitSha, runId, output, failedAt }) {
+export function buildFailureArtifact({ gate, stepId, commitSha, runId, output, failedAt, automationCases = [] }) {
+  const context = extractFailureContext(output, stepId, automationCases);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gate,
-    testId: stepId,
+    testId: context.testId,
     commitSha,
     runId,
     failedAt,
-    temporaryDatabase: 'ISOLATED_PER_TEST',
-    guildFixtureId: 'REDACTED_FIXTURE',
-    actorFixtureId: 'REDACTED_FIXTURE',
-    requestId: 'SEE_SANITIZED_TEST_OUTPUT',
+    temporaryDatabase: context.temporaryDatabase,
+    temporaryDatabaseAssociation: context.temporaryDatabaseAssociation,
+    observedTemporaryDatabases: context.observedTemporaryDatabases,
+    guildFixtureId: context.guildFixtureId,
+    actorFixtureId: context.actorFixtureId,
+    requestId: context.requestId,
     sanitizedOutput: sanitizeGateOutput(output),
-    beforeAfterSnapshot: 'ASSERTED_BY_EXECUTABLE_SCENARIO',
+    beforeAfterSnapshot: context.beforeAfterSnapshot,
     acceptanceMapping: 'evidence/P0/non-ui-automation/coverage.json'
   };
+}
+
+export function extractFailureContext(output, fallbackTestId, automationCases = []) {
+  const value = String(output);
+  const failureText = value
+    .split(/\r?\n/u)
+    .filter((line) => /(?:\bFAIL\b|×)/u.test(line))
+    .join('\n');
+  const testId =
+    lastMatch(failureText, /\b(?:BNUI|DE2E|AT)-[A-Z0-9]+(?:-[A-Z0-9]+)*-[0-9]{3}\b/gu)?.[0] ??
+    mappedAutomationId(failureText, automationCases) ??
+    fallbackTestId;
+  const observedTemporaryDatabases = [
+    ...new Set([...value.matchAll(/\bblackcat_non_ui_[a-z0-9_]+_[0-9]+_[a-f0-9]{8}\b/gu)].map((match) => match[0]))
+  ];
+  const contextLines = value.match(/\[NON_UI_CONTEXT\][^\r\n]*/gu) ?? [];
+  const fixtureContext = contextLines.findLast((line) => line.includes(`scenario=${testId}`)) ?? '';
+  const scenarioDatabase = fixtureContext.match(/\bblackcat_non_ui_[a-z0-9_]+_[0-9]+_[a-f0-9]{8}\b/u)?.[0];
+  const temporaryDatabase = scenarioDatabase ?? observedTemporaryDatabases.at(-1) ?? 'NOT_EMITTED';
+  const guildFixture = taggedValue(fixtureContext, 'guildFixtureId');
+  const actorFixture = taggedValue(fixtureContext, 'actorFixtureId');
+  const requestId = lastMatch(value, /\brequest[_-]?id"?\s*[:=]\s*"?([a-z0-9._:-]{1,128})"?/giu)?.[1] ?? 'NOT_EMITTED';
+  const snapshot = lastMatch(value, /\[NON_UI_SNAPSHOT\]\s+before=([0-9a-f]{64})\s+after=([0-9a-f]{64})/gu);
+  return {
+    testId,
+    temporaryDatabase,
+    temporaryDatabaseAssociation: scenarioDatabase
+      ? 'SCENARIO_CONTEXT'
+      : temporaryDatabase === 'NOT_EMITTED'
+        ? 'NOT_EMITTED'
+        : 'LAST_OBSERVED',
+    observedTemporaryDatabases,
+    guildFixtureId: guildFixture ? `sha256:${fingerprint(guildFixture)}` : 'NOT_EMITTED',
+    actorFixtureId: actorFixture ? `sha256:${fingerprint(actorFixture)}` : 'NOT_EMITTED',
+    requestId,
+    beforeAfterSnapshot: snapshot
+      ? { captured: true, beforeDigest: snapshot[1], afterDigest: snapshot[2] }
+      : { captured: false, reason: 'NOT_EMITTED' }
+  };
+}
+
+function taggedValue(output, key) {
+  return output.match(new RegExp(`\\b${key}\\s*[:=]\\s*([a-z0-9:._-]+)`, 'iu'))?.[1];
+}
+
+function mappedAutomationId(failureText, automationCases) {
+  const matches = automationCases.flatMap((item) =>
+    (item.sources ?? [])
+      .filter((source) => typeof source.test === 'string' && source.test && failureText.includes(source.test))
+      .map((source) => ({ automationId: item.automationId, length: source.test.length }))
+  );
+  return matches.sort((left, right) => right.length - left.length)[0]?.automationId;
+}
+
+function lastMatch(value, pattern) {
+  return [...value.matchAll(pattern)].at(-1);
+}
+
+function fingerprint(value) {
+  return createHash('sha256').update(String(value)).digest('hex').slice(0, 12);
 }
 
 validateGateDefinition(gateDefinitions);

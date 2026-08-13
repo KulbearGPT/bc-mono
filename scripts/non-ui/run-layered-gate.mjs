@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import process from 'node:process';
-import { buildFailureArtifact, gateDefinitions, sanitizeGateOutput } from './gate-definition.mjs';
+import { buildFailureArtifact, gateDefinitions } from './gate-definition.mjs';
 
 class GateStepError extends Error {
   constructor(message, output) {
     super(message);
-    this.output = sanitizeGateOutput(output.slice(-100_000));
+    this.output = output.slice(-100_000);
   }
 }
 
@@ -36,7 +36,8 @@ try {
     commitSha,
     runId,
     output,
-    failedAt: new Date().toISOString()
+    failedAt: new Date().toISOString(),
+    automationCases: await readAutomationCases()
   });
   await writeFile(
     resolve(reportDirectory, `${gate}-${runId}-failure.json`),
@@ -63,7 +64,7 @@ async function executeStep(layer, item) {
   const code = await new Promise((resolveCode, reject) => {
     const child = spawn(item.command, item.args, {
       cwd: process.cwd(),
-      env: { ...process.env, NODE_ENV: 'test' },
+      env: { ...process.env, NODE_ENV: 'test', NON_UI_EMIT_FAILURE_CONTEXT: '1' },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     for (const [stream, destination] of [
@@ -115,4 +116,13 @@ async function gitSha() {
     child.once('exit', resolveCode);
   });
   return code === 0 ? output.join('').trim() : 'WORKTREE';
+}
+
+async function readAutomationCases() {
+  try {
+    const report = JSON.parse(await readFile('evidence/P0/non-ui-automation/coverage.json', 'utf8'));
+    return Array.isArray(report.cases) ? report.cases : [];
+  } catch {
+    return [];
+  }
 }

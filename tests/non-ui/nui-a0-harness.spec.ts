@@ -1,6 +1,10 @@
 import { access, readFile, rm } from 'node:fs/promises';
 import { describe, expect, test } from 'vitest';
-import { assertIsolatedPostgresTarget, startIsolatedPostgres } from '../support/isolated-postgres';
+import {
+  assertIsolatedPostgresTarget,
+  isExpectedIsolatedPostgresShutdownError,
+  startIsolatedPostgres
+} from '../support/isolated-postgres';
 import { applyCurrentMigrations } from '../support/postgres-migrations';
 import {
   createCatalogFixture,
@@ -14,6 +18,7 @@ import {
 } from '../support/non-ui-fixtures/business';
 import { createAccountFixture, createActorFixture, createGuildFixture } from '../support/non-ui-fixtures/actors';
 import { ControlledFaultBoundary } from '../support/non-ui-fixtures/faults';
+import { formatNonUiFailureContext } from '../support/non-ui-failure-context';
 import {
   expectAppendOnlyDelta,
   expectAuditAtomicity,
@@ -60,6 +65,13 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
     ).rejects.toThrow('Unknown PostgreSQL migration');
   });
 
+  test('classifies only PostgreSQL administrator termination during an active Harness stop as expected', () => {
+    expect(isExpectedIsolatedPostgresShutdownError({ code: '57P01' }, true)).toBe(true);
+    expect(isExpectedIsolatedPostgresShutdownError({ code: '57P01' }, false)).toBe(false);
+    expect(isExpectedIsolatedPostgresShutdownError({ code: '08006' }, true)).toBe(false);
+    expect(isExpectedIsolatedPostgresShutdownError(new Error('ordinary failure'), true)).toBe(false);
+  });
+
   test('starts from current migrations on a private Unix socket and removes the instance cleanly', async () => {
     const database = await startIsolatedPostgres('a0-migrations');
     const identity = await database.pool.query(`SELECT current_database() database,
@@ -84,6 +96,15 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
     await expect(access(second.root)).resolves.toBeUndefined();
     await rm(second.root, { recursive: true, force: true });
   }, 60_000);
+
+  test('does not swallow an unexpected PostgreSQL pool error during cleanup', async () => {
+    const database = await startIsolatedPostgres('a0-pool-error');
+    const failure = Object.assign(new Error('unexpected pool failure'), { code: '08006' });
+    database.pool.emit('error', failure);
+    await expect(database.stop()).rejects.toThrow('Failed to stop isolated PostgreSQL');
+    await expect(access(database.root)).resolves.toBeUndefined();
+    await rm(database.root, { recursive: true, force: true });
+  }, 40_000);
 
   test('builds deterministic fixtures without embedding proof, receipt body or external credentials', () => {
     const first = createFixtureKernel('NUI-A0-HARNESS', 7);
@@ -122,6 +143,31 @@ describe.sequential('M23-US-01 / NUI-A0 shared non-UI harness', () => {
     expectNoBusinessWrites(before, after);
     await database.stop();
   }, 40_000);
+
+  test('reports only deterministic snapshot digests when a zero-write assertion fails', () => {
+    const before = { wallet_entries: [{ id: 'private-before', amount: 100 }] };
+    const after = { wallet_entries: [{ id: 'private-after', amount: 200 }] };
+    expect(() => expectNoBusinessWrites(before, after)).toThrow(
+      /\[NON_UI_SNAPSHOT\] before=[0-9a-f]{64} after=[0-9a-f]{64}/u
+    );
+    try {
+      expectNoBusinessWrites(before, after);
+    } catch (error) {
+      expect(String(error)).not.toMatch(/private-before|private-after/u);
+    }
+  });
+
+  test('formats machine-readable failure context without embedding fixture UUIDs', () => {
+    const line = formatNonUiFailureContext({
+      database: 'blackcat_non_ui_orders_123_abcd1234',
+      scenarioId: 'BNUI-ORD-004',
+      sequence: 7
+    });
+    expect(line).toBe(
+      '[NON_UI_CONTEXT] database=blackcat_non_ui_orders_123_abcd1234 scenario=BNUI-ORD-004 guildFixtureId=BNUI-ORD-004:7:guild-set actorFixtureId=BNUI-ORD-004:7:actor-set'
+    );
+    expect(line).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/u);
+  });
 
   test('checks CAT wallet arithmetic and rejects inconsistent or non-CAT projections', () => {
     const wallet = createWalletFixture('NUI-A0-HARNESS', 7);
