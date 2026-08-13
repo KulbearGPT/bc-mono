@@ -27,11 +27,15 @@ describe('M5-US-01 cross-client candidate gate', () => {
   });
 
   test('runs every reproducible candidate command in the dedicated P0 CI workflow', async () => {
-    const workflow = await readFile('.github/workflows/p0-ci.yml', 'utf8');
+    const [workflow, layeredGate] = await Promise.all([
+      readFile('.github/workflows/p0-ci.yml', 'utf8'),
+      readFile('scripts/non-ui/gate-definition.mjs', 'utf8')
+    ]);
     for (const command of [
-      'node scripts/build-p0-acceptance-matrix.mjs', 'npm test', 'npm run typecheck', 'npm run build',
+      'node scripts/build-p0-acceptance-matrix.mjs', 'npm run test:non-ui:full', 'npm run typecheck', 'npm run build',
       'npx vite build apps/dashboard', 'npm run db:validate', 'npm run db:verify:migration',
       'npm run pieces -w @blackcat/bot', 'git diff --check'
     ]) expect(workflow).toContain(command);
+    expect(layeredGate).toContain("step('repository-regression', 'npm', ['test'])");
   });
 });

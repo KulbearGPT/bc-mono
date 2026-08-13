@@ -1,0 +1,65 @@
+name: P0 release gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      signoff_file:
+        description: Repository-relative non-example owner/staff sign-off JSON
+        required: true
+        type: string
+      config_snapshot_file:
+        description: Repository-relative non-example P0 release snapshot JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      P0_SIGNOFF_FILE: ${{ inputs.signoff_file }}
+      P0_CONFIG_SNAPSHOT_FILE: ${{ inputs.config_snapshot_file }}
+      NON_UI_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install PostgreSQL test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql
+          pg_config --bindir >> "$GITHUB_PATH"
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run release gate
+        run: npm run test:non-ui:release
+
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-release-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            test-results/non-ui/
+            evidence/P0/non-ui-automation/coverage.json
+            evidence/P0/acceptance-matrix.csv
+            evidence/P0/dashboard-e2e/

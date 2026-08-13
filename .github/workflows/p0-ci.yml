@@ -42,8 +42,13 @@ jobs:
           node scripts/build-p0-acceptance-matrix.mjs
           git diff --exit-code -- evidence/P0/acceptance-matrix.csv
 
-      - name: Run full automated regression
-        run: npm test
+      - name: Run PR quick non-UI gate
+        if: github.event_name == 'pull_request'
+        run: npm run test:non-ui:quick
+
+      - name: Run main full non-UI gate
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: npm run test:non-ui:full
 
       - name: Typecheck
         run: npm run typecheck

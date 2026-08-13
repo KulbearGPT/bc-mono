@@ -46,6 +46,10 @@
     "test:non-ui:a5": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a5",
     "test:non-ui:a6": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a6",
     "test:non-ui:a7": "NODE_ENV=test node scripts/non-ui/run-domain-gate.mjs a7",
+    "test:non-ui:quick": "NODE_ENV=test node scripts/non-ui/run-layered-gate.mjs quick",
+    "test:non-ui:full": "NODE_ENV=test node scripts/non-ui/run-layered-gate.mjs full",
+    "test:non-ui:release": "NODE_ENV=test node scripts/non-ui/run-layered-gate.mjs release",
+    "test:non-ui:stability": "NODE_ENV=test node scripts/non-ui/run-stability.mjs",
     "verify:non-ui:environment": "NODE_ENV=test node scripts/non-ui/verify-environment.mjs",
     "generate:non-ui:coverage": "tsx scripts/non-ui/build-coverage-report.ts",
     "quality:bot": "npm run lint:bot && npm run format:bot:check && npm run typecheck -w @blackcat/bot && npm run build && npm run pieces -w @blackcat/bot && npm run test:bot"

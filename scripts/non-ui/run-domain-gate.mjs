@@ -159,6 +159,23 @@ filesByGate.a7 = [
   'tests/m20-us-04-action-release-gate.spec.ts'
 ];
 
+filesByGate.quick = [
+  'tests/non-ui/nui-a0-harness.spec.ts',
+  'tests/non-ui/account-wallet-contract.spec.ts',
+  'tests/non-ui/account-wallet.spec.ts',
+  'tests/m0-us-03.spec.ts',
+  'tests/m1-us-03-api.spec.ts',
+  'tests/m1-us-03-db.spec.ts',
+  'tests/m10-us-07-order-requirements.spec.ts',
+  'tests/m2-us-05-db.spec.ts',
+  'tests/m3-us-05-api.spec.ts',
+  'tests/m3-us-05-commissions-api.spec.ts',
+  'tests/m6-us-02-api.spec.ts',
+  'tests/m7-us-03-audit.spec.ts',
+  'tests/m7-us-03-audit-db.spec.ts',
+  'tests/m4-us-07-policy.spec.ts'
+];
+
 const files = filesByGate[gate];
 if (!files) {
   throw new Error(`Unknown non-UI gate '${gate ?? ''}'. Available gates: ${Object.keys(filesByGate).join(', ')}`);
