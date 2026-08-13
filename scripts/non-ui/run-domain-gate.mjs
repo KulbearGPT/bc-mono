@@ -161,6 +161,7 @@ filesByGate.a7 = [
 
 filesByGate.quick = [
   'tests/non-ui/nui-a0-harness.spec.ts',
+  'tests/non-ui/nui-a8-gates.spec.ts',
   'tests/non-ui/account-wallet-contract.spec.ts',
   'tests/non-ui/account-wallet.spec.ts',
   'tests/m0-us-03.spec.ts',

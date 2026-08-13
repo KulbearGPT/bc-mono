@@ -6,6 +6,7 @@ import {
   sanitizeGateOutput,
   validateGateDefinition
 } from '../../scripts/non-ui/gate-definition.mjs';
+import { evaluateReleaseGate } from '../../scripts/p0-release-gate.mjs';
 
 describe('M23-US-09 / NUI-A8 layered non-UI gates', () => {
   test('freezes distinct PR quick, main full, and fail-closed release layers without retry wrappers', () => {
@@ -119,11 +120,12 @@ describe('M23-US-09 / NUI-A8 layered non-UI gates', () => {
   });
 
   test('wires PR, main, and release entry points to their named gate without inline reruns', async () => {
-    const [candidateWorkflow, releaseWorkflow, packageJson, coverageBuilder] = await Promise.all([
+    const [candidateWorkflow, releaseWorkflow, packageJson, coverageBuilder, domainRunner] = await Promise.all([
       readFile('.github/workflows/p0-ci.yml', 'utf8'),
       readFile('.github/workflows/p0-release.yml', 'utf8'),
       readFile('package.json', 'utf8'),
-      readFile('scripts/non-ui/build-coverage-report.ts', 'utf8')
+      readFile('scripts/non-ui/build-coverage-report.ts', 'utf8'),
+      readFile('scripts/non-ui/run-domain-gate.mjs', 'utf8')
     ]);
     expect(candidateWorkflow).toContain('npm run test:non-ui:quick');
     expect(candidateWorkflow).toContain('npm run test:non-ui:full');
@@ -132,6 +134,50 @@ describe('M23-US-09 / NUI-A8 layered non-UI gates', () => {
     expect(coverageBuilder).not.toContain('new Date().toISOString()');
     expect(coverageBuilder).toContain("process.env.NON_UI_COMMIT_SHA ?? 'WORKTREE'");
     expect(coverageBuilder).toContain('process.env.SOURCE_DATE_EPOCH');
+    expect(domainRunner.match(/filesByGate\.quick\s*=\s*\[[\s\S]*?\];/u)?.[0]).toContain(
+      'tests/non-ui/nui-a8-gates.spec.ts'
+    );
     expect(`${candidateWorkflow}\n${releaseWorkflow}`).not.toMatch(/continue-on-error:\s*true|(?:retry|rerun)/iu);
+  });
+
+  test('reports every pending, failed and stale external acceptance ID for the exact release candidate', () => {
+    const requiredCandidate = `git:${'a'.repeat(40)}`;
+    const staleCandidate = `git:${'b'.repeat(40)}`;
+    const result = evaluateReleaseGate({
+      matrix: [
+        {
+          acceptance_id: 'AT-EXT-001',
+          execution_class: 'EXTERNAL_E2E',
+          candidate_status: 'PENDING_EXTERNAL',
+          external_candidate_ref: ''
+        },
+        {
+          acceptance_id: 'AT-EXT-002',
+          execution_class: 'EXTERNAL_E2E',
+          candidate_status: 'FAILED',
+          external_candidate_ref: requiredCandidate
+        },
+        {
+          acceptance_id: 'AT-EXT-003',
+          execution_class: 'EXTERNAL_E2E',
+          candidate_status: 'PASSED',
+          external_candidate_ref: staleCandidate
+        }
+      ],
+      signoff: { approvals: [] },
+      config: { scope: 'P0', releaseCandidate: requiredCandidate }
+    });
+
+    expect(result.acceptanceDetails).toEqual({
+      pendingExternalIds: ['AT-EXT-001'],
+      failedAcceptanceIds: ['AT-EXT-002'],
+      staleExternal: [
+        {
+          acceptanceId: 'AT-EXT-003',
+          evidenceCandidateRef: staleCandidate,
+          requiredCandidateRef: requiredCandidate
+        }
+      ]
+    });
   });
 });
