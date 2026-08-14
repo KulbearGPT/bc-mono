@@ -1,0 +1,23 @@
+{
+  "acceptanceId": "AT-GIFT2-004",
+  "observedAt": "2026-08-13T10:16:07.771Z",
+  "guildId": "1533309755873955880",
+  "channelId": "1537404360923938927",
+  "firstMessageId": "1537404363172216832",
+  "repeatedMessageId": "1537404363172216832",
+  "recoveredMessageId": "1537404376753373267",
+  "initiallyPinned": true,
+  "requiredButtonsPresent": true,
+  "personalBalanceAbsentFromPublicCard": true,
+  "repeatedEnsureReusedMessage": true,
+  "duplicateRemoved": true,
+  "durableProjectionSurvivedApiClientReconstruction": true,
+  "deletedMessageRecovered": true,
+  "finalVisibleEntryCount": 1,
+  "finalProjectionMatchesDiscord": true,
+  "apiBusinessMutationCalls": 0,
+  "humanDesktopMobileInteraction": "PENDING",
+  "status": "PASS_AUTOMATED_PROBE",
+  "temporaryDatabase": "DELETED",
+  "temporaryDiscordChannel": "DELETED"
+}

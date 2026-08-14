@@ -1,0 +1,39 @@
+{
+  "acceptanceId": "AT-BOT-REV-001",
+  "observedAt": "2026-08-06T19:02:59.728Z",
+  "guildId": "1533309755873955880",
+  "configVersion": 17,
+  "configRequestId": "req_1df9256e-e9de-43f0-818e-64cc41e0c182",
+  "customerId": "REDACTED_NON_BOT_MEMBER",
+  "staffRoleCount": 2,
+  "first": {
+    "channelId": "1535000238547275959",
+    "panelMessageId": "1535000239935717386",
+    "parentApplied": true,
+    "panelPinned": true,
+    "everyoneViewDenied": true,
+    "customerViewAllowed": true,
+    "customerSendAllowed": true,
+    "customerManageDenied": true,
+    "botManageAllowed": true,
+    "allConfiguredStaffManageAllowed": true,
+    "playerViewDenied": true,
+    "firstNameFinalized": true
+  },
+  "recovery": {
+    "channelId": "1535000250308362260",
+    "panelMessageId": "1535000251805732914",
+    "parentApplied": true,
+    "panelPinned": true,
+    "everyoneViewDenied": true,
+    "customerViewAllowed": true,
+    "customerSendAllowed": true,
+    "customerManageDenied": true,
+    "botManageAllowed": true,
+    "allConfiguredStaffManageAllowed": true,
+    "playerViewDenied": true
+  },
+  "apiBusinessMutationCalls": 0,
+  "temporaryResourcesDeleted": true,
+  "status": "PASS"
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "story": "M23-US-01",
+  "implementationPackage": "NUI-A0",
+  "status": "PASSED",
+  "red": [
+    { "command": "npm exec -- vitest run tests/non-ui/nui-a0-harness.spec.ts", "result": "1 suite failed / 0 tests" },
+    { "contract": "formal-stories", "result": "1 failed / 9 passed" },
+    { "contract": "fixture-builders", "result": "1 failed / 9 passed" },
+    { "contract": "append-only", "result": "1 failed / 10 passed" }
+  ],
+  "green": {
+    "harness": { "files": 1, "tests": 11, "stabilityRuns": 3, "status": "PASSED" },
+    "giftCompatibility": { "files": 18, "tests": 99, "status": "PASSED" },
+    "typecheck": "PASSED",
+    "environment": "READY",
+    "residualProcesses": 0,
+    "residualDirectories": 0,
+    "fullRegression": { "files": 305, "tests": 1530, "status": "PASSED" },
+    "routeContracts": 192,
+    "acceptanceMatrixRows": 317
+  },
+  "coverage": { "total": 77, "automated": 0, "planned": 77 },
+  "externalUat": "NOT_CLAIMED"
+}

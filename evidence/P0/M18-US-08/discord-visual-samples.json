@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "acceptanceScope": "M18 visual samples only; not three-role signed UAT",
+  "observedAt": "2026-08-09T04:56:38.000Z",
+  "guildId": "1533309755873955880",
+  "channelId": "1533342003478138910",
+  "markerMessageId": "1535873526316146850",
+  "messageIds": [
+    "1535873526316146850",
+    "1535873528929452032",
+    "1535873532175581217",
+    "1535873550781644831",
+    "1535873562362118225",
+    "1535873565893853185"
+  ],
+  "gameBannerCount": 13,
+  "dispatchStatusBannerCount": 2,
+  "configRequestId": "req_f7c39620-784b-4458-9441-2555af29fb1d",
+  "readOnlyApiCalls": 1,
+  "businessMutationCalls": 0,
+  "idempotencyRecheck": {
+    "status": "REUSED",
+    "markerMessageId": "1535873526316146850",
+    "configRequestId": "req_8eb6f5af-6a2e-4ed8-8a62-3ed08da6c994",
+    "additionalMessagesSent": 0,
+    "businessMutationCalls": 0
+  }
+}

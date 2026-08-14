@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "results": [
+    {
+      "acceptanceId": "AT-BOT-REV-001",
+      "status": "PASSED",
+      "candidateRef": "git:a07814637ca31a66b3b65bb69bac5d5945ab2111",
+      "executedAt": "2026-08-06T19:02:59.728Z",
+      "executor": "Codex runtime operator",
+      "environment": "Discord SANDBOX Guild 1533309755873955880",
+      "summary": "真实 Guild 首建与恢复频道的权限、pin、命名和清理全部通过。",
+      "evidence": [
+        {
+          "path": "evidence/P0/external/AT-BOT-REV-001/result.md",
+          "sha256": "30aa514e86628696012804991316c3175e981ef9ec1ed6783db8f3b20ae98ce8"
+        },
+        {
+          "path": "evidence/P0/external/AT-BOT-REV-001/discord-channel-uat.json",
+          "sha256": "5f76d1b4d07ce60fd13edba5e4160f02ed35ad2c616d19ddd27b6889eaa6fd89"
+        }
+      ]
+    },
+    {
+      "acceptanceId": "AT-BOT-REV-002",
+      "status": "PASSED",
+      "candidateRef": "git:a07814637ca31a66b3b65bb69bac5d5945ab2111",
+      "executedAt": "2026-08-06T18:59:30.207Z",
+      "executor": "Codex runtime operator",
+      "environment": "Discord SANDBOX Guild 1533309755873955880",
+      "summary": "真实 Bot 重启中 health 先返回 503，关键恢复后转 200，后台同步无失败。",
+      "evidence": [
+        {
+          "path": "evidence/P0/external/AT-BOT-REV-002/result.md",
+          "sha256": "37ec280bf996ec2c9e00a299128b425fb75ca3ad536db502caa943fee922d6b1"
+        },
+        {
+          "path": "evidence/P0/external/AT-BOT-REV-002/readiness-restart-uat.json",
+          "sha256": "ae6246668ce063dc97755c145abd28b8d0fa3ff6d6546301ac0270fbc3f442fb"
+        }
+      ]
+    }
+  ]
+}

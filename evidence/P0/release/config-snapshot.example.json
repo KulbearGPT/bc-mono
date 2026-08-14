@@ -1,0 +1,15 @@
+{
+  "scope": "P0",
+  "releaseCandidate": "",
+  "rollbackImageDigest": "",
+  "railwaySandboxEvidence": "",
+  "fundingModeEvidence": "",
+  "discordGuildEvidence": "",
+  "backupRestoreEvidence": "",
+  "workerRecoveryEvidence": "",
+  "p1Excluded": true,
+  "realMoneyFundingExcluded": true,
+  "providerIntegrationDeferred": true,
+  "blockingDefects": null,
+  "acceptedRisks": []
+}

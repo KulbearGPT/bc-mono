@@ -1,0 +1,24 @@
+{
+  "story": "M22-US-06",
+  "date": "2026-08-13",
+  "branch": "codex/order-review",
+  "giftAutomationCases": 48,
+  "dedicatedSuite": {
+    "files": 18,
+    "tests": 99,
+    "stabilityRuns": 3,
+    "status": "PASSED"
+  },
+  "botQuality": {
+    "files": 74,
+    "tests": 412,
+    "status": "PASSED"
+  },
+  "routeContracts": 192,
+  "fullRegression": {
+    "files": 304,
+    "tests": 1519,
+    "status": "PASSED"
+  },
+  "externalDiscordUat": "PENDING_M22-US-05"
+}

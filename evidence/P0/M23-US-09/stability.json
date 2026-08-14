@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "gate": "full-stability",
+  "status": "PASSED",
+  "requiredRuns": 10,
+  "passedRuns": 10,
+  "startedAt": "2026-08-14T12:41:27.120Z",
+  "completedAt": "2026-08-14T13:04:31.648Z",
+  "retryCount": 0,
+  "iterations": [
+    { "iteration": 1, "status": "PASSED", "durationMs": 140224 },
+    { "iteration": 2, "status": "PASSED", "durationMs": 136266 },
+    { "iteration": 3, "status": "PASSED", "durationMs": 136865 },
+    { "iteration": 4, "status": "PASSED", "durationMs": 134838 },
+    { "iteration": 5, "status": "PASSED", "durationMs": 135393 },
+    { "iteration": 6, "status": "PASSED", "durationMs": 137114 },
+    { "iteration": 7, "status": "PASSED", "durationMs": 139958 },
+    { "iteration": 8, "status": "PASSED", "durationMs": 143149 },
+    { "iteration": 9, "status": "PASSED", "durationMs": 143647 },
+    { "iteration": 10, "status": "PASSED", "durationMs": 137073 }
+  ],
+  "perIterationAssertions": {
+    "quick": { "files": 15, "tests": 109 },
+    "allBnui": { "files": 77, "tests": 497 },
+    "botQuality": { "files": 74, "tests": 412 },
+    "repositoryRegression": { "files": 310, "tests": 1563 }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "acceptanceId": "AT-BOT-REV-002",
+  "guildId": "1533309755873955880",
+  "candidateRef": "git:a07814637ca31a66b3b65bb69bac5d5945ab2111",
+  "healthTransitions": [
+    { "observedAt": "2026-08-06T18:59:20.293Z", "status": "UNREACHABLE" },
+    { "observedAt": "2026-08-06T18:59:28.281Z", "statusCode": 503, "body": { "status": "starting" } },
+    { "observedAt": "2026-08-06T18:59:30.207Z", "statusCode": 200, "body": { "status": "ok" } }
+  ],
+  "criticalInitialization": {
+    "configLoaded": 1,
+    "configFailed": 0,
+    "onboardingMessageCreated": false
+  },
+  "backgroundReconciliation": {
+    "observedMembers": 5,
+    "syncedMembers": 4,
+    "failedMembers": 0,
+    "completedTasks": 1,
+    "failedTasks": 0
+  },
+  "status": "PASS"
+}

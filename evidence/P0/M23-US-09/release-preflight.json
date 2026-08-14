@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "observedAt": "2026-08-14T12:40:30.000Z",
+  "status": "BLOCKED",
+  "missingProductionInputs": {
+    "exitCode": 1,
+    "ready": false,
+    "blockers": [
+      "P0_SIGNOFF_FILE must reference an explicit non-example path.",
+      "P0_CONFIG_SNAPSHOT_FILE must reference an explicit non-example path."
+    ]
+  },
+  "structuralEvaluation": {
+    "description": "Synthetic structurally complete inputs exercise the evaluator only and are not production evidence.",
+    "ready": false,
+    "blockers": [
+      "87 external acceptance cases remain pending.",
+      "2 passed external acceptance cases target another candidate."
+    ],
+    "summary": {
+      "acceptanceCases": 317,
+      "pendingExternal": 87,
+      "passedExternal": 2,
+      "signedRoles": 2
+    },
+    "pendingExternalByPriority": {
+      "P0_BLOCKER": 53,
+      "P0_HIGH": 34
+    },
+    "staleExternal": [
+      {
+        "acceptanceId": "AT-BOT-REV-001",
+        "evidenceCandidateRef": "git:a07814637ca31a66b3b65bb69bac5d5945ab2111"
+      },
+      {
+        "acceptanceId": "AT-BOT-REV-002",
+        "evidenceCandidateRef": "git:a07814637ca31a66b3b65bb69bac5d5945ab2111"
+      }
+    ],
+    "candidateBinding": "Every PASSED external result must exactly match the final config.releaseCandidate."
+  }
+}

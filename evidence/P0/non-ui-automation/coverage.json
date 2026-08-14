@@ -1,0 +1,1625 @@
+{
+  "schemaVersion": 1,
+  "story": "M23-US-08",
+  "implementationPackage": "NUI-A7",
+  "commitSha": "WORKTREE",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "summary": {
+    "total": 77,
+    "automated": 77,
+    "planned": 0
+  },
+  "cases": [
+    {
+      "automationId": "BNUI-ACC-001",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-ACC-001",
+        "AT-ACC-003",
+        "AT-ONB-001",
+        "AT-ONB-006"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-ACC-001 registers one trusted Discord account, CAT wallet and role task with idempotent audit"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ACC-002",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-ONB-002",
+        "AT-ONB-006"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-ACC-002 creates one pending companion application and rejects an untrusted source with zero writes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ACC-003",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-ACC-002",
+        "AT-ACC-004",
+        "AT-PRF-002",
+        "AT-PRF-004",
+        "AT-PRF-006"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-ACC-003 keeps current-user profile and paginated orders private to the trusted Guild actor"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-001",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-PL-002",
+        "AT-WAL-001",
+        "AT-PRF-006"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-001 calculates one CAT balance from append-only entries and active order plus gift reservations"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-002",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-WAL-003",
+        "AT-WAL-005",
+        "AT-WAL-006",
+        "AT-WAL-007",
+        "AT-WLT-011"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-002 credits USD cents as CAT once, rejects duplicate receipts and exposes only paginated public entries"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-003",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-WAL-004",
+        "AT-WLT-012",
+        "AT-WLT-013"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-003 denies L1, stale step-up and invalid top-up input without wallet business writes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-004",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-WAL-002",
+        "AT-WAL-008",
+        "AT-WAL-009",
+        "AT-CAT-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-004 rejects an overdrawn offline refund then appends one valid non-negative debit and audit"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-005",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-PL-002",
+        "AT-WAL-006"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-005 converges a lost-response replay and concurrent refund race to one credit and one debit"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-WLT-006",
+      "implementationPackage": "NUI-A1",
+      "acceptanceIds": [
+        "AT-WAL-010",
+        "AT-WHK-001",
+        "AT-WHK-002",
+        "AT-WHK-003",
+        "AT-CAT-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/account-wallet.spec.ts",
+          "test": "BNUI-WLT-006 keeps payment providers and webhooks retired with unknown routes and zero business writes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CAT-001",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-CAT-001",
+        "AT-CAT-002",
+        "AT-ARC-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-CAT-001 creates, supersedes and archives immutable CAT service versions without rewriting an order snapshot"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CAT-002",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-CAT-001",
+        "AT-TAG-002"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-CAT-002 rejects missing prices, invalid units and wrong tag types with zero catalog, audit or outbox writes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-PKG-001",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-MULTI-012",
+        "AT-MULTI-014"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-PKG-001 publishes ordered same-game slots with a server-derived total and one immutable active version per code"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-PKG-002",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-MULTI-012",
+        "AT-MULTI-014"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-PKG-002 rejects mixed-game slots and lets only one concurrent activation of the same draft succeed"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-TAG-001",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-TAG-001",
+        "AT-TAG-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-TAG-001 keeps tag codes and historical references stable while disabling only future selection"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-PLY-001",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-ONB-005",
+        "AT-TAG-002"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-PLY-001 approves and rejects companion applications atomically with version, tags, role tasks and audit"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-PLY-002",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-DOP-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-PLY-002 excludes a paused player from new candidates, restores them, and leaves an existing order fact unchanged"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-PLY-003",
+      "implementationPackage": "NUI-A2",
+      "acceptanceIds": [
+        "AT-COMP-001",
+        "AT-COMP-002"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/catalog-player.spec.ts",
+          "test": "BNUI-PLY-003 validates batch compensation and freezes the selected rule into the participant snapshot"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-001",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-CAT-003",
+        "AT-MULTI-006",
+        "AT-PL-001"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-07-order-requirements.spec.ts",
+          "test": "derives every line and order estimate without accepting client money"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-002",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-MULTI-008",
+        "AT-MULTI-009",
+        "AT-MULTI-011",
+        "AT-MULTI-013"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-08-service-packages-postgres.spec.ts",
+          "test": "replaces the basket with independent slots, notes, events, package price and audit atomically"
+        },
+        {
+          "file": "tests/m10-us-09-game-scoped-ordering-api.spec.ts",
+          "test": "allows another game as a separate single item while preserving same-game slot replacement"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-003",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-ORD-001",
+        "AT-RES-001"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m1-us-03-db.spec.ts",
+          "test": "uses the remaining amount of a partially settled hold when submitting another order"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-004",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-ORD-002",
+        "AT-RES-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/non-ui/order-gift-concurrency.spec.ts",
+          "test": "BNUI-ORD-004 serializes order and gift reservations against one exact CAT balance"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-005",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-ORD-003",
+        "AT-ORD-004",
+        "AT-REV-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m16-us-02-api-resilience.spec.ts",
+          "test": "terminalizes the committed response when normal idempotency completion fails"
+        },
+        {
+          "file": "tests/m1-us-04-bot.spec.ts",
+          "test": "create order returns existing active channel without planning a second submittable order"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-006",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-CAT-002",
+        "AT-ORD-002"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m1-us-03-api.spec.ts",
+          "test": "updateOrder rejects stale expectedVersion and inactive catalog versions"
+        },
+        {
+          "file": "tests/m10-us-08-service-packages-postgres.spec.ts",
+          "test": "rolls every generated slot, event and order change back when audit append fails"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-007",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-CHN-001",
+        "AT-CHN-003",
+        "AT-PRJ-001"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m1-us-04-bot.spec.ts",
+          "test": "create order maps channel creation failure to a non-submittable recovery result"
+        },
+        {
+          "file": "tests/m1-us-04-bot.spec.ts",
+          "test": "channel failure reporting retries once and keeps a deterministic support request id"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-008",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-MULTI-006",
+        "AT-SEL-008"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-06-selection-reactions.spec.ts",
+          "test": "renders one reaction-only card for one through nine requirements and rejects ten"
+        },
+        {
+          "file": "tests/m11-us-06-selection-reactions.spec.ts",
+          "test": "rejects starting a round with ten remaining requirement rows before any pool write"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SEL-001",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-SEL-001",
+        "AT-DSP-002",
+        "AT-DSP-011",
+        "AT-DSP-012",
+        "AT-DSP-015",
+        "AT-DSP-016"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-02-selection-pools-api.spec.ts",
+          "test": "accepts an application long after recruitment started until the customer stops it"
+        },
+        {
+          "file": "tests/m11-us-02-selection-pools-postgres.spec.ts",
+          "test": "does not close a pool when a legacy deadline worker call is recovered"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SEL-002",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-DSP-001",
+        "AT-DSP-003",
+        "AT-SEL-002",
+        "AT-SEL-007",
+        "AT-SEL-008"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-02-selection-pools-postgres.spec.ts",
+          "test": "persists a reaction card and reactivates the same application after reaction removal"
+        },
+        {
+          "file": "tests/m11-us-06-selection-reactions.spec.ts",
+          "test": "serializes rapid add then remove events for the same user and project"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SEL-003",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-DSP-004",
+        "AT-SEL-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-02-selection-pools-postgres.spec.ts",
+          "test": "allows cross-order applications while offline, then atomically grants only one active slot"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SEL-004",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-DSP-014",
+        "AT-MULTI-007",
+        "AT-SEL-004",
+        "AT-SEL-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-02-selection-pools-api.spec.ts",
+          "test": "closes early and atomically selects multiple applicants while retaining partial selections"
+        },
+        {
+          "file": "tests/m11-us-02-selection-pools-api.spec.ts",
+          "test": "lets the owner explicitly start a new round after an empty selection without touching the reservation"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SEL-005",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-SEL-003",
+        "AT-SEL-006",
+        "AT-DSP-019",
+        "AT-DSP-020"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m11-us-03-selection-discord.spec.ts",
+          "test": "uses Discord REST idempotently with user_limit zero and explicit loser cleanup"
+        },
+        {
+          "file": "tests/m11-us-03-selection-discord.spec.ts",
+          "test": "creates one recovery task only on the terminal Discord sync attempt"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RDY-001",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-RDY-001",
+        "AT-SVC-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "setOrderReadiness rejects customers and starts only from the active participant fact"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RDY-002",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-RDY-002",
+        "AT-RDY-003",
+        "AT-MULTI-003",
+        "AT-STATE-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-04-postgres.spec.ts",
+          "test": "starts from all active participant facts without writing customer readiness"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RDY-003",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-RDY-003",
+        "AT-RDY-005",
+        "AT-STATE-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "legacy single-party start endpoint is rejected and audited"
+        },
+        {
+          "file": "tests/m10-us-04-postgres.spec.ts",
+          "test": "database guard rejects legacy aggregate timestamps when an active participant is still unready"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SVC-001",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-SVC-002",
+        "AT-SVC-003",
+        "AT-MULTI-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-04-postgres.spec.ts",
+          "test": "blocks an unready late player, then captures the latest total into nine participant earnings"
+        },
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "customer confirm completion records consumption, player earning and eligible referral commission facts"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SVC-002",
+      "implementationPackage": "NUI-A3",
+      "acceptanceIds": [
+        "AT-SVC-004",
+        "AT-RDY-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "completion confirmation timeout creates exactly one staff review task without settling money"
+        },
+        {
+          "file": "tests/m12-us-03-worker.spec.ts",
+          "test": "reminder sends once while pending and overdue changes facts without punishment"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CXL-001",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-CXL-001",
+        "AT-CXL-002",
+        "AT-CXL-003",
+        "AT-CXL-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-10-api.spec.ts",
+          "test": "previews an automatic reservation release without mutating order or funds"
+        },
+        {
+          "file": "tests/m2-us-10-api.spec.ts",
+          "test": "rejects a stale preview after the order changes and leaves reservation untouched"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CXL-002",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-CAN-001",
+        "AT-CAN-002",
+        "AT-CAN-004",
+        "AT-CAN-007",
+        "AT-CAN-008"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-10-db.spec.ts",
+          "test": "applies the matching preview and releases reservation atomically"
+        },
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CXL-003",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-CAN-003",
+        "AT-CAN-009",
+        "AT-SUP-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "rolls back the approval decision and all refund facts when the success audit cannot be appended"
+        },
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "serializes different idempotency keys and never credits more than the captured charge"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ORD-009",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-MULTI-010",
+        "AT-MULTI-015"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-03-postgres.spec.ts",
+          "test": "reassigns one persisted participant without changing the other line, total, or reservation facts"
+        },
+        {
+          "file": "tests/m10-us-03-postgres.spec.ts",
+          "test": "AT-MULTI-015 persists staff note corrections without changing funds and rejects terminal recovery writes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-001",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-SUP-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-05-db.spec.ts",
+          "test": "claimStaffTask is atomic: concurrent L1 claims leave exactly one claimant"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-002",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-SUP-002",
+        "AT-RBAC-001",
+        "AT-RBAC-002"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m4-us-02-api.spec.ts",
+          "test": "lets L1 append a note and escalate only a personally claimed task"
+        },
+        {
+          "file": "tests/m2-us-11-api.spec.ts",
+          "test": "lets only L2 resolve a claimed task after automation resumes"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-003",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-SUP-005",
+        "AT-SUP-006"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-11-api.spec.ts",
+          "test": "lets L1 pause only an order task they claimed without changing its reservation"
+        },
+        {
+          "file": "tests/m2-us-11-worker.spec.ts",
+          "test": "skips readiness timeout escalation while lifecycle automation is paused"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-004",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-SUP-011"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m12-us-03-postgres.spec.ts",
+          "test": "two staff replies serialize to one owner while both response facts converge"
+        },
+        {
+          "file": "tests/m12-us-03-worker.spec.ts",
+          "test": "L4 first response claims oldest OPEN task and later staff cannot steal it"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-005",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-SUP-010",
+        "AT-SUP-013"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m12-us-02-api.spec.ts",
+          "test": "L1 clock-in is idempotent and current shift is queryable"
+        },
+        {
+          "file": "tests/m12-us-02-api.spec.ts",
+          "test": "L1 summary is self-only while L2 sees ACTIVE L1-L4 support actors"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SUP-006",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-DOP-002",
+        "AT-SUX-002",
+        "AT-SUX-003",
+        "AT-SUX-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m15-us-03-order-transcript.spec.ts",
+          "test": "returns immutable lifecycle events with stable cursor pages and deletion metadata"
+        },
+        {
+          "file": "tests/m15-us-03-order-transcript.spec.ts",
+          "test": "renders a read-only transcript without any message mutation controls"
+        },
+        {
+          "file": "tests/m14-us-02-support-triage-api.spec.ts",
+          "test": "never emits malformed links and hides a task carrying another Guild context"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-APR-001",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-RBAC-003",
+        "AT-RBAC-004",
+        "AT-RBAC-005",
+        "AT-RBAC-006",
+        "AT-AUD-001"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/api-review-approval-runtime.spec.ts",
+          "test": "fails closed for stale, expired, cross-Guild, and reserved actions"
+        },
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-APR-002",
+      "implementationPackage": "NUI-A4",
+      "acceptanceIds": [
+        "AT-RBAC-005",
+        "AT-RBAC-006",
+        "AT-RBAC-011",
+        "AT-AUD-005"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "cancels a superseded pending snapshot when a higher-level actor uses the compatible direct refund route"
+        },
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "generically approves an immutable order resolution and links every resulting fact"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-FIN-001",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-EAR-001",
+        "AT-MULTI-004",
+        "AT-COMP-002",
+        "AT-REF-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m10-us-04-postgres.spec.ts",
+          "test": "blocks an unready late player, then captures the latest total into nine participant earnings"
+        },
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "customer confirm completion records consumption, player earning and eligible referral commission facts"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-FIN-002",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-EAR-002"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m3-us-04-api.spec.ts",
+          "test": "requires L3 step-up and reason for CONFIRM then MARK_PAID"
+        },
+        {
+          "file": "tests/m3-us-04-db.spec.ts",
+          "test": "transitions state and appends a reversal while preserving the original earning"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-FIN-003",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-EAR-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically"
+        },
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "rolls back the approval decision and all refund facts when the success audit cannot be appended"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REF-001",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-REF-004",
+        "AT-RFP-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m3-us-07-db.spec.ts",
+          "test": "serializes concurrent promoter and player bindings to one active source with zero partial writes"
+        },
+        {
+          "file": "tests/m3-us-07-api.spec.ts",
+          "test": "does not create or enumerate referral facts across Guilds"
+        },
+        {
+          "file": "tests/m3-us-07-api.spec.ts",
+          "test": "rejects self, duplicate, and late attribution"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REF-002",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-REF-002",
+        "AT-RFP-001",
+        "AT-RFP-002"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m3-us-07-api.spec.ts",
+          "test": "uses integer floor rounding and exact fixed awards"
+        },
+        {
+          "file": "tests/m3-us-07-db.spec.ts",
+          "test": "fulfills promoter once while player lifetime creates one commission per eligible order source"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REF-003",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-REF-001",
+        "AT-REF-003",
+        "AT-RFP-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m2-us-04-api.spec.ts",
+          "test": "customer confirm completion records consumption, player earning and eligible referral commission facts"
+        },
+        {
+          "file": "tests/m3-us-07-db.spec.ts",
+          "test": "fulfills promoter once while player lifetime creates one commission per eligible order source"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REF-004",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-REF-005",
+        "AT-RFP-008"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/api-review-refund-integrity-db.spec.ts",
+          "test": "approves the immutable refund snapshot and commits decision, refund, wallet credit, and audit atomically"
+        },
+        {
+          "file": "tests/m3-us-05-db.spec.ts",
+          "test": "persists an idempotent append-only reversal and keeps the original amount"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REF-005",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-HIS-002",
+        "AT-RFP-005",
+        "AT-RFP-006",
+        "AT-RFP-007",
+        "AT-TML-002"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m3-us-05-api.spec.ts",
+          "test": "returns only commissions owned by the actor with no relationship identifiers or rate"
+        },
+        {
+          "file": "tests/m3-us-05-commissions-api.spec.ts",
+          "test": "denies confidential records to L2 staff"
+        },
+        {
+          "file": "tests/m3-us-07-api.spec.ts",
+          "test": "shows L2 only redacted records and corrects by appending a replacement"
+        },
+        {
+          "file": "tests/m4-us-08-api.spec.ts",
+          "test": "AT-TML-002 and AT-RFP-005 apply L1/L2/L3 redaction without leaking referral identities"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-HIS-001",
+      "implementationPackage": "NUI-A5",
+      "acceptanceIds": [
+        "AT-HIS-001",
+        "AT-TML-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m3-us-05-db.spec.ts",
+          "test": "paginates consumption facts without duplicates"
+        },
+        {
+          "file": "tests/m4-us-08-api.spec.ts",
+          "test": "AT-TML-001 returns stable pages and keeps adjustments distinct from original facts"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RPT-001",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-RPT-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-03-db.spec.ts",
+          "test": "atomically and idempotently creates all personal reports, one summary, and notifications"
+        },
+        {
+          "file": "tests/m6-us-03-db.spec.ts",
+          "test": "includes a current-period adjustment for an earning whose order is outside the period"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RPT-002",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-RPT-002",
+        "AT-RPT-007",
+        "AT-RPT-008"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-03-api.spec.ts",
+          "test": "resolves the current Discord player and never reveals another report existence"
+        },
+        {
+          "file": "tests/m6-us-03-api.spec.ts",
+          "test": "allows L2 Dashboard reads and RFC4180 CSV of the current projection"
+        },
+        {
+          "file": "tests/m6-us-03-api.spec.ts",
+          "test": "appends a step-up protected L3 revision and replays idempotently"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RPT-003",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-RPT-006"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-03-worker.spec.ts",
+          "test": "notification failure retries without replaying report generation"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-001",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-SET-001"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-02-api.spec.ts",
+          "test": "returns a successful empty preview but rejects creation of an empty batch"
+        },
+        {
+          "file": "tests/m6-us-01-db.spec.ts",
+          "test": "serializes two creations and lets only one active batch claim an earning"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-002",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-SET-002",
+        "AT-SET-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-01-db.spec.ts",
+          "test": "returns the same batch from concurrent automatic schedule replays"
+        },
+        {
+          "file": "tests/m6-us-01.spec.ts",
+          "test": "defers a negative-only late adjustment without creating an item or occupying its entry"
+        },
+        {
+          "file": "tests/m6-us-01.spec.ts",
+          "test": "applies a deferred debit to a later positive earning without re-batching the paid earning"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-003",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-SET-004"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-02-api.spec.ts",
+          "test": "enforces manual high-value maker-checker and L4 threshold by actor identity, not inherited role"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-004",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-SET-005",
+        "AT-SET-010"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-02-api.spec.ts",
+          "test": "records whole-item results append-only, supports failed retry, and pays only successful earnings"
+        },
+        {
+          "file": "tests/m6-us-02-db.spec.ts",
+          "test": "serializes concurrent payment attempts so one request wins without duplicate results"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-005",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-AUD-005"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-settlement-security.spec.ts",
+          "test": "rejects self, cross-Guild, and cross-currency replacement attacks before atomically creating a valid replacement"
+        },
+        {
+          "file": "tests/m6-us-01-db.spec.ts",
+          "test": "keeps void terminal and replacement history immutable"
+        },
+        {
+          "file": "tests/m6-us-01-db.spec.ts",
+          "test": "requires replacement targets to be finalized and non-void"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-SET-006",
+      "implementationPackage": "NUI-A6",
+      "acceptanceIds": [
+        "AT-SET-006"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m6-us-02-api.spec.ts",
+          "test": "exports deterministic UTF-8 BOM RFC4180 CSV with fixed columns and no bank data"
+        },
+        {
+          "file": "tests/m6-us-02-api.spec.ts",
+          "test": "never exposes a complete short external account and reveals only the last four of longer values"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-AUTH-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-AUTH-001",
+        "AT-AUTH-002",
+        "AT-AUTH-003"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m0-us-03.spec.ts",
+          "test": "rejects forged actor headers before parsing untrusted level or staff claims"
+        },
+        {
+          "file": "tests/m4-us-01-api.spec.ts",
+          "test": "derives capabilities from the server session and ignores browser role claims"
+        },
+        {
+          "file": "tests/m17-us-05-bot-transport.spec.ts",
+          "test": "builds trusted Guild actors once and fails closed for DM or empty identities"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-RBAC-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-RBAC-001",
+        "AT-RBAC-002",
+        "AT-RBAC-007",
+        "AT-RBAC-008",
+        "AT-RBAC-009",
+        "AT-RBAC-010",
+        "AT-RBAC-011"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m4-us-07-policy.spec.ts",
+          "test": "AT-RBAC-010 cumulatively inherits lower-level capabilities from one resolver"
+        },
+        {
+          "file": "tests/m4-us-07-policy.spec.ts",
+          "test": "uses identical API authorization for Bot and Dashboard actors and audits both denials"
+        },
+        {
+          "file": "tests/m4-us-07-policy.spec.ts",
+          "test": "AT-RBAC-009/011 keeps hard delete absent and allows one stepped-up L4 to execute high-value work"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-ROL-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-ROL-001",
+        "AT-ROL-002",
+        "AT-ROL-003",
+        "AT-ROL-004",
+        "AT-ROL-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m4-us-05-api.spec.ts",
+          "test": "applies L1 then L2 automatically and replays one source event without another mutation"
+        },
+        {
+          "file": "tests/m4-us-05-api.spec.ts",
+          "test": "keeps first L3 elevation pending and never trusts client-supplied Role claims"
+        },
+        {
+          "file": "tests/m4-us-05-api.spec.ts",
+          "test": "immediately applies an observed Role downgrade and invalidates the prior Dashboard session"
+        },
+        {
+          "file": "tests/m4-us-05-db.spec.ts",
+          "test": "persists automatic access, source replay, advanced approval, and immediate downgrade revocation"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-CFG-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-CFG-001",
+        "AT-CFG-002",
+        "AT-CFG-003",
+        "AT-CFG-004",
+        "AT-CFG-005",
+        "AT-CFG-006",
+        "AT-CFG-007",
+        "AT-CFG-008",
+        "AT-CFG-009"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m4-us-10-api.spec.ts",
+          "test": "AT-CFG-006 requires an unexpired preview token bound to actor, Guild, version, changes and reason"
+        },
+        {
+          "file": "tests/m4-us-10-api.spec.ts",
+          "test": "AT-CFG-007 rejects a stale preview without overwriting a newer value"
+        },
+        {
+          "file": "tests/m4-us-10-db.spec.ts",
+          "test": "AT-CFG-008 atomically commits current config, immutable event, and success audit"
+        },
+        {
+          "file": "tests/m4-us-10-bot.spec.ts",
+          "test": "opens a private field picker and transitions to native Channel and Role Select components"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-AUD-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-AUD-001",
+        "AT-AUD-002",
+        "AT-AUD-003",
+        "AT-AUD-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m7-us-03-audit.spec.ts",
+          "test": "records success, failure, and rejection with stable change semantics"
+        },
+        {
+          "file": "tests/m7-us-03-audit.spec.ts",
+          "test": "redacts nested secrets, normalizes fields, and caps oversized snapshots"
+        },
+        {
+          "file": "tests/m7-us-03-audit.spec.ts",
+          "test": "all ordinary API mutation routes use the secure wrapper"
+        },
+        {
+          "file": "tests/m7-us-03-audit-db.spec.ts",
+          "test": "commits header and ordered child changes together"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-MET-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-MET-001",
+        "AT-MET-002",
+        "AT-MET-003",
+        "AT-MET-004",
+        "AT-MET-005",
+        "AT-MET-006",
+        "AT-MET-007",
+        "AT-MET-008"
+      ],
+      "acceptanceClass": "AUTOMATED_FULL",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m4-us-09-db.spec.ts",
+          "test": "recomputes all eight L2 team metrics from immutable source facts"
+        },
+        {
+          "file": "tests/m4-us-09-db.spec.ts",
+          "test": "keeps L4 metrics inside the actor Guild so drilldowns use the same scope"
+        },
+        {
+          "file": "tests/m4-us-09-api.spec.ts",
+          "test": "AT-MET-002 uses the Asia/Shanghai half-open business day"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-LST-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-LST-001",
+        "AT-LST-002",
+        "AT-LST-003",
+        "AT-LST-008"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m13-us-02-stable-sort.spec.ts",
+          "test": "publishes the frozen sort whitelist for all seven resources"
+        },
+        {
+          "file": "tests/m13-us-02-stable-sort.spec.ts",
+          "test": "continues a keyset page without duplicates or skips when a row is inserted"
+        },
+        {
+          "file": "tests/m13-us-02-stable-sort.spec.ts",
+          "test": "rejects tampered, cross-resource, cross-sort and cross-filter cursors"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-STATE-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-STATE-002",
+        "AT-STATE-003",
+        "AT-STATE-004",
+        "AT-STATE-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m19-us-01-cross-role-state-contract.spec.ts",
+          "test": "covers every order transition and every affected audience"
+        },
+        {
+          "file": "tests/m19-us-03-service-state-sync.spec.ts",
+          "test": "patches the existing staff coordination card for partial readiness while status remains ACCEPTED"
+        },
+        {
+          "file": "tests/m19-us-04-support-live-refresh.spec.ts",
+          "test": "prevents an older response from replacing a newer trusted query"
+        },
+        {
+          "file": "tests/m19-us-05-projection-observability.spec.ts",
+          "test": "measures the five-second target and emits a redacted alert after thirty seconds"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REC-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-REC-003",
+        "AT-REC-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m5-us-02-worker-runtime.spec.ts",
+          "test": "recovers a stale processing job on startup and preserves its dedupe key"
+        },
+        {
+          "file": "tests/m5-us-02-worker-runtime.spec.ts",
+          "test": "rebuilds a deleted order panel from the database projection and persists the replacement message id"
+        },
+        {
+          "file": "tests/m5-us-02-worker-delivery.spec.ts",
+          "test": "recovers a remotely-created message by stable nonce before posting again"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REVW-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-REVIEW-001",
+        "AT-REVIEW-002",
+        "AT-REVIEW-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m21-us-02-order-experience-reviews.spec.ts",
+          "test": "atomically saves selected targets without requiring reasons or comments"
+        },
+        {
+          "file": "tests/m21-us-02-postgres.spec.ts",
+          "test": "derives trusted targets and atomically persists reviews, comments and five-star snapshot"
+        },
+        {
+          "file": "tests/m21-us-02-postgres.spec.ts",
+          "test": "allows only one concurrent score per target and blocks mutation"
+        },
+        {
+          "file": "tests/m21-us-03-bot-review-center.spec.ts",
+          "test": "refreshes current API facts after a stale score click and does not replay the old intent"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-REVW-002",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-REVIEW-003",
+        "AT-REVIEW-004"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m21-us-04-five-star-broadcast.spec.ts",
+          "test": "offers a safe preview only after a five-star fact and requires the explicit consent button"
+        },
+        {
+          "file": "tests/m21-us-04-five-star-broadcast.spec.ts",
+          "test": "delivers exactly one safe aggregate from the immutable snapshot across retries and message loss"
+        },
+        {
+          "file": "tests/m21-us-04-five-star-broadcast.spec.ts",
+          "test": "rejects any publication snapshot that contains a private review field"
+        }
+      ]
+    },
+    {
+      "automationId": "BNUI-BOT-001",
+      "implementationPackage": "NUI-A7",
+      "acceptanceIds": [
+        "AT-BOT-REV-003",
+        "AT-BOT-REV-004",
+        "AT-ACT-004",
+        "AT-EXP-004",
+        "AT-EXP-005"
+      ],
+      "acceptanceClass": "AUTOMATED_PARTIAL_EXTERNAL_REMAINS",
+      "status": "AUTOMATED",
+      "sources": [
+        {
+          "file": "tests/m17-us-05-bot-transport.spec.ts",
+          "test": "applies service authentication, Actor Context, idempotency and JSON envelope parsing consistently"
+        },
+        {
+          "file": "tests/m17-us-05-bot-transport.spec.ts",
+          "test": "normalizes timeout, network, non-JSON and API envelope failures without leaking the token"
+        },
+        {
+          "file": "tests/m20-us-04-action-release-gate.spec.ts",
+          "test": "keeps every current order and selection action on a registered route"
+        }
+      ]
+    }
+  ]
+}
