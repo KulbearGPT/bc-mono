@@ -1,0 +1,108 @@
+contract: internal-cat-wallet-v2
+status: P0_APPROVED
+currency: CAT
+
+boundary:
+  balance_fact_source: INTERNAL_APPEND_ONLY_LEDGER
+  external_payment_platform_reads: FORBIDDEN
+  external_payment_platform_writes: FORBIDDEN
+  payment_channels_are_receipt_metadata_only: true
+  bot_database_access: FORBIDDEN
+  dashboard_database_access: FORBIDDEN
+
+balance:
+  fields:
+    - ledgerBalanceMinor
+    - reservedMinor
+    - availableMinor
+    - currency
+    - calculatedAt
+    - version
+  formula: availableMinor = ledgerBalanceMinor - reservedMinor
+  negative_balance_allowed: false
+  client_calculation_allowed: false
+
+top_up:
+  immediate_credit: true
+  paid_currency: USD
+  usd_cent_to_cat_subunit: 1
+  required_fields:
+    - userId
+    - paidAmountUsdCents
+    - paidCurrency
+    - paymentMethod
+    - receiptNumber
+    - paidAt
+    - note
+    - reasonCode
+  receipt_attachment_flow: create-funding-fact-then-upload-with-evidenceType-and-evidenceId
+  unique_key:
+    - paymentMethod
+    - receiptNumber
+  minimum_level: L2_SUPERVISOR
+  recent_step_up_required: true
+  separate_reviewer_required: false
+
+receipt_attachment:
+  optional: true
+  allowed_media_types:
+    - image/jpeg
+    - image/png
+    - image/webp
+    - application/pdf
+  maximum_bytes: 10485760
+  storage: PRIVATE_OBJECT_STORAGE
+  database_fields:
+    - mediaType
+    - originalFileName
+    - byteSize
+    - sha256
+    - opaqueStorageKey
+  public_url_forbidden: true
+
+reservation:
+  create_on:
+    - ORDER_SUBMIT
+    - GIFT_REQUEST_CREATE
+  capture_on:
+    - ORDER_COMPLETE
+    - GIFT_APPROVAL
+  release_on:
+    - USER_CANCELLED
+    - GIFT_WITHDRAWN
+    - GIFT_REJECTED
+    - GIFT_RESERVATION_EXPIRED
+    - FAILED
+  order_waiting_time_expiry_forbidden: true
+  dispute_holds_reservation: true
+  bypass_debit_forbidden: true
+
+refund:
+  business_refund: ORDER_REFUND_CREDIT
+  out_of_band_refund_registration: EXTERNAL_REFUND_DEBIT
+  external_refund_requires_sufficient_available_minor: true
+  negative_balance_allowed: false
+
+audit:
+  all_non_read_operations_required: true
+  actor_sources:
+    - DASHBOARD
+    - DISCORD_BOT
+    - SYSTEM_JOB
+  outcomes:
+    - SUCCEEDED
+    - FAILED
+    - REJECTED
+  successful_business_and_audit_transaction: SAME_DATABASE_TRANSACTION
+  per_object_changes_required_on_success: true
+  update_or_delete_forbidden: true
+
+errors:
+  - DUPLICATE_PAYMENT_REFERENCE
+  - INSUFFICIENT_TOP_UP_LEVEL
+  - INSUFFICIENT_AVAILABLE_BALANCE
+  - BALANCE_VERSION_CONFLICT
+  - CURRENCY_MISMATCH
+  - IDEMPOTENCY_CONFLICT
+  - VALIDATION_ERROR
+  - AUDIT_WRITE_FAILED

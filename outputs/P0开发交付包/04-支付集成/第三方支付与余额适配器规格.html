@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>P0 内部 CAT 账本与人工充值规格</title>
+  <style>
+    body{font:16px/1.65 system-ui,sans-serif;color:#172033;max-width:1060px;margin:40px auto;padding:0 24px}h1,h2{color:#0b3a67}code{background:#eef4f8;padding:2px 5px;border-radius:4px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #cad5df;padding:8px;text-align:left;vertical-align:top}.callout{padding:14px 16px;background:#eef7ff;border-left:4px solid #1677c8;margin:18px 0}
+  </style>
+</head>
+<body>
+  <h1>P0 内部 CAT 账本与人工充值规格</h1>
+  <div class="callout"><strong>合同替代：</strong>本文替代原第三方支付与余额适配器规格。当前 P0 不读取或操作 Stripe、PayPal、信用卡收单方等外部平台数据；支付渠道只作为客服录入 receipt 的证据字段。</div>
+
+  <h2>1. 资金事实源</h2>
+  <p>自有系统的追加式 CAT 账本是唯一客户余额事实源。除充值 receipt 的付款事实使用 USD cents 外，所有内部金额与阈值使用 CAT subunits；不支持多币种账本、动态汇率或负余额。</p>
+  <p><code>availableMinor = ledgerBalanceMinor - reservedMinor</code>。其中 <code>ledgerBalanceMinor</code> 来自不可修改的 CREDIT/DEBIT 流水净额，<code>reservedMinor</code> 来自有效 FundReservation 剩余金额。</p>
+
+  <h2>2. 客服充值</h2>
+  <table><thead><tr><th>项目</th><th>合同</th></tr></thead><tbody>
+    <tr><td>必填</td><td>客户、金额、支付渠道、渠道交易号、付款时间、备注</td></tr>
+    <tr><td>可选</td><td>Receipt 图片或 PDF</td></tr>
+    <tr><td>去重</td><td><code>paymentChannel + externalTransactionId</code> 唯一；并发重复只允许一笔成功</td></tr>
+    <tr><td>权限</td><td>≤500000 最低 L1；>500000 最低 L2；高级别累积继承</td></tr>
+    <tr><td>到账</td><td>确认后立即追加 <code>TOP_UP_CREDIT</code></td></tr>
+    <tr><td>原子性</td><td>充值、账本、附件关联、审计和对象变更明细同一事务</td></tr>
+  </tbody></table>
+
+  <h2>3. Receipt 附件</h2>
+  <p>附件正文进入私有对象存储；数据库仅保存不可变元数据与不公开的存储引用。允许 JPEG、PNG、WebP 与 PDF，单文件最大 10 MiB。审计保存附件 ID、类型、大小和 SHA-256，不保存正文或永久公开 URL。</p>
+
+  <h2>4. 消费、预留与退款</h2>
+  <ul>
+    <li>订单提交或礼物请求时原子创建 FundReservation。</li>
+    <li>订单完成或礼物批准时捕获原预留并追加对应 DEBIT。</li>
+    <li>取消、拒绝、过期或撤回只释放预留，不产生账本流水。</li>
+    <li>订单业务退款追加 <code>ORDER_REFUND_CREDIT</code>，立即返回内部余额。</li>
+    <li>线下渠道已退款后，客服登记 <code>EXTERNAL_REFUND_DEBIT</code>；必须先验证可用余额足够，不得占用预留或形成负余额。</li>
+    <li>纠错只能追加关联原流水的 Adjustment，不能覆盖历史。</li>
+  </ul>
+
+  <h2>5. 全量审计</h2>
+  <p>Dashboard、Discord、Bot 服务身份、Webhook 和系统 Job 的所有非只读操作都写 AuditLog。成功操作还必须按对象写 AuditLogChange；失败和拒绝记录真实 Actor/系统身份、动作、目标、错误码与 request ID。</p>
+  <p>成功业务变化和成功审计必须同事务提交；审计失败时业务回滚。账本、充值、线下退款、附件元数据、AuditLog 与 AuditLogChange 均不可更新或删除。</p>
+
+  <h2>6. 明确非目标</h2>
+  <ul>
+    <li>读取外部平台账户、余额或交易。</li>
+    <li>系统发起外部扣款、退款或提现。</li>
+    <li>自动验证 receipt 真伪。</li>
+    <li>多币种、汇率、透支或人工覆盖余额。</li>
+  </ul>
+</body>
+</html>

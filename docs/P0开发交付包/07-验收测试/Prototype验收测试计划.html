@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord 陪玩业务 Prototype P0 验收测试计划</title>
+  <style>
+    :root {
+      --ink: #172126;
+      --muted: #5b686f;
+      --line: #d8dfe2;
+      --soft: #f4f7f7;
+      --teal: #0c6b67;
+      --teal-soft: #e8f4f2;
+      --orange: #b65e25;
+      --orange-soft: #fff1e7;
+      --red: #a23232;
+      --white: #ffffff;
+      --max: 1120px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--soft);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      letter-spacing: 0;
+    }
+    a { color: var(--teal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code {
+      padding: 1px 5px;
+      border: 1px solid #d5e2e0;
+      border-radius: 4px;
+      background: #edf5f4;
+      color: #174d4a;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+    .page {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 24px auto 64px;
+      background: var(--white);
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 28px rgba(23, 33, 38, 0.08);
+    }
+    header {
+      padding: 44px 48px 34px;
+      border-top: 6px solid var(--teal);
+      border-bottom: 1px solid var(--line);
+    }
+    .kicker {
+      margin: 0 0 10px;
+      color: var(--orange);
+      font-size: 13px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { margin-top: 0; letter-spacing: 0; }
+    h1 { margin-bottom: 14px; font-size: 32px; line-height: 1.25; }
+    h2 { margin-bottom: 16px; font-size: 23px; line-height: 1.35; }
+    h3 { margin: 24px 0 10px; font-size: 17px; }
+    p { margin: 8px 0 14px; }
+    .subtitle { max-width: 820px; color: var(--muted); font-size: 17px; }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      margin-top: 26px;
+      border: 1px solid var(--line);
+      background: var(--line);
+    }
+    .meta div { min-width: 0; padding: 13px 15px; background: var(--white); }
+    .meta span { display: block; color: var(--muted); font-size: 12px; }
+    .meta strong { display: block; margin-top: 2px; font-size: 15px; overflow-wrap: anywhere; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      padding: 7px 13px;
+      border: 1px solid var(--teal);
+      border-radius: 5px;
+      background: var(--teal);
+      color: var(--white);
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .button.secondary { background: var(--white); color: var(--teal); }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      padding: 16px 48px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfc;
+    }
+    nav a { font-size: 13px; font-weight: 650; text-decoration: none; }
+    main { padding: 0 48px 48px; }
+    section { padding: 34px 0; border-bottom: 1px solid var(--line); }
+    section:last-child { border-bottom: 0; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      background: var(--line);
+      gap: 1px;
+    }
+    .summary div { padding: 20px; background: var(--white); }
+    .summary strong { display: block; color: var(--teal); font-size: 28px; line-height: 1.1; }
+    .summary span { display: block; margin-top: 7px; color: var(--muted); font-size: 13px; }
+    .callout {
+      margin: 18px 0;
+      padding: 14px 17px;
+      border-left: 4px solid var(--teal);
+      background: var(--teal-soft);
+    }
+    .callout.warning { border-left-color: var(--orange); background: var(--orange-soft); }
+    .callout strong { display: block; margin-bottom: 3px; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; }
+    th, td {
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    th { background: #eef3f3; color: #26363c; font-size: 13px; }
+    td { font-size: 13px; }
+    ul, ol { margin: 10px 0 14px; padding-left: 22px; }
+    li + li { margin-top: 5px; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin: 16px 0;
+      border: 1px solid var(--line);
+    }
+    .flow div { position: relative; padding: 14px 12px; border-right: 1px solid var(--line); background: #fbfcfc; }
+    .flow div:last-child { border-right: 0; }
+    .flow b { display: block; color: var(--teal); font-size: 12px; }
+    .flow span { display: block; margin-top: 4px; font-size: 13px; }
+    .tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border: 1px solid #b9cfcc;
+      border-radius: 4px;
+      color: #174d4a;
+      background: #f3f9f8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .tag.blocker { border-color: #e1b9b9; color: var(--red); background: #fff4f4; }
+    .small { color: var(--muted); font-size: 12px; }
+    footer {
+      padding: 22px 48px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: #fbfcfc;
+      font-size: 12px;
+    }
+
+    @media (max-width: 820px) {
+      .page { width: 100%; margin: 0; border: 0; box-shadow: none; }
+      header, main, footer { padding-left: 22px; padding-right: 22px; }
+      nav { padding-left: 22px; padding-right: 22px; }
+      .meta, .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow { grid-template-columns: 1fr; }
+      .flow div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .flow div:last-child { border-bottom: 0; }
+      .table-wrap { overflow-x: auto; }
+      table { min-width: 720px; }
+    }
+
+    @media print {
+      body { background: var(--white); font-size: 11px; }
+      .page { width: 100%; margin: 0; border: 0; box-shadow: none; }
+      .actions, nav { display: none; }
+      header, main, footer { padding-left: 0; padding-right: 0; }
+      section { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+      @page { size: A4; margin: 14mm; }
+    }
+  </style>
+</head>
+<body>
+  <article class="page">
+    <header>
+      <p class="kicker">Prototype P0 · Acceptance Test Plan</p>
+      <h1>Discord 陪玩业务 Prototype 验收测试计划</h1>
+      <p class="subtitle">用于开发联调、测试环境验收和上线前放行。测试对象覆盖 Sapphire Bot、React Dashboard、统一业务 API、PostgreSQL、内部 CAT 钱包、Worker 与 Discord 事件链路。</p>
+      <div class="meta">
+        <div><span>上位规格</span><strong>需求基线 v1.0</strong></div>
+        <div><span>版本</span><strong>Acceptance v3.0</strong></div>
+        <div><span>测试范围</span><strong>Prototype P0</strong></div>
+        <div><span>数据规则</span><strong>minor units + currency</strong></div>
+      </div>
+      <div class="actions">
+        <a class="button" href="acceptance-cases.csv" download>下载验收用例 CSV</a>
+        <a class="button secondary" href="test-fixtures.json" download>下载测试 Fixtures</a>
+        <button class="button secondary" type="button" onclick="window.print()">打印测试计划</button>
+      </div>
+    </header>
+
+    <nav aria-label="文档目录">
+      <a href="#purpose">目标与基线</a>
+      <a href="#scope">范围</a>
+      <a href="#strategy">测试策略</a>
+      <a href="#coverage">覆盖矩阵</a>
+      <a href="#roles">权限与金额</a>
+      <a href="#data">测试数据</a>
+      <a href="#execution">执行方式</a>
+      <a href="#release">放行标准</a>
+    </nav>
+
+    <main>
+      <section id="purpose">
+        <h2>1. 目标与唯一基线</h2>
+        <p>本计划验证 Prototype 是否能够安全闭环以下核心业务：可信 Discord 身份与内部 CAT 账户、结构化即时下单、订单与礼物资金预留、客户手动控制的无截止候选池、陪玩报名与客户原子终选、陪玩工作台、全体有效陪玩就绪、取消影响预览、客服接管、全人工送礼核对、两种互斥的一级返佣、消费与收益时间线、周期结算与周报、用户与客户 Profile、余额不足礼物充值回流、四级后台权限、Discord <code>/bot-config</code> 基础配置、八项运营指标以及故障恢复。</p>
+        <div class="callout">
+          <strong>唯一上位规格</strong>
+          <span>《Discord陪玩业务Bot最小原型设计开发文档.html》v1.0 现行基线及其已合并的专项合同。出现解释差异时，以 CAT 内部钱包、客户手动控制无截止候选池、客户只读且全体有效陪玩就绪和返佣保密约束为准。CSV 通过 <code>PL-01..PL-06</code>、<code>BASELINE-*</code>、<code>SPEC-x.y</code> 和 Story ID 追踪来源。</span>
+        </div>
+        <div class="summary" aria-label="用例统计">
+          <div><strong>317</strong><span>可执行级验收场景</span></div>
+          <div><strong>212</strong><span>P0_BLOCKER</span></div>
+          <div><strong>102</strong><span>P0_HIGH</span></div>
+          <div><strong>260</strong><span>稳定 fixture key</span></div>
+        </div>
+      </section>
+
+      <section id="scope">
+        <h2>2. 验收范围</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>系统边界</th><th>本次验证</th><th>明确不验证</th></tr></thead>
+            <tbody>
+              <tr><td>Sapphire Discord Bot</td><td>公共入口、消息 Select/Button、少量文本 Modal、私密频道、完整确认、匹配进度、逐名陪玩就绪、取消预览、客服卡片、用户 Profile、陪玩本人周报、礼物充值回流、<code>/bot-config</code> Channel/Role Select、ephemeral 预览确认、消息恢复和播报</td><td>在单个 Modal 内完成全部下单、Modal 内动态级联、大量斜杠命令、独立配置网页、可点击配置 Demo、语音录制、复杂动画</td></tr>
+              <tr><td>统一业务 API</td><td>状态机、余额摘要、FundReservation、匹配、就绪、取消预览、结算批次、周报、双端 Profile、Actor Context、RBAC、配置校验与版本控制、审批、幂等、事务、审计和恢复</td><td>Bot 或 Dashboard 内重复实现业务规则或配置权限；直接控制银行或第三方转账</td></tr>
+              <tr><td>React Dashboard</td><td>L1-L4 能力、陪玩工作台、客户 Profile、结算复核/导出/外部结果登记、周报、数据 scope、任务暂停/恢复、审批、目录、收益、返佣保密、时间线、八项指标、Role 映射与失败 Job</td><td>完整 BI、复杂排班、营销后台、银行账户管理</td></tr>
+              <tr><td>PostgreSQL</td><td>预留并发、唯一约束、快照、只追加流水、Adjustment、原子结案、备份恢复</td><td>多地域容灾和生产级容量压测</td></tr>
+              <tr><td>第三方系统</td><td>绑定、余额、扣款、退款、Webhook、超时和幂等适配</td><td>第三方内部账务正确性和支付合规认证</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small">所有订单均为即时单；预约、自动提现、多级返佣、VIP、评价、复杂排班和自动争议裁决属于非目标。</p>
+      </section>
+
+      <section id="strategy">
+        <h2>3. 测试策略</h2>
+        <div class="flow" aria-label="验收执行顺序">
+          <div><b>01</b><span>Unit 规则与金额计算</span></div>
+          <div><b>02</b><span>API 与数据库事务</span></div>
+          <div><b>03</b><span>第三方 Mock 与故障注入</span></div>
+          <div><b>04</b><span>Discord / Dashboard E2E</span></div>
+          <div><b>05</b><span>业务 UAT 与恢复演练</span></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>层级</th><th>数量</th><th>主要目标</th><th>推荐执行位置</th></tr></thead>
+            <tbody>
+              <tr><td><span class="tag">Unit</span></td><td>4</td><td>余额公式、候选筛选、返佣整数计算、日志脱敏</td><td>每次提交</td></tr>
+              <tr><td><span class="tag">API</span></td><td>119</td><td>预留、状态、权限、结算与周报、Profile、礼物充值回流、Bot 配置校验与并发、金额边界、事务、幂等、Webhook、指标与数据库约束</td><td>每次 PR 与测试环境</td></tr>
+              <tr><td><span class="tag">DB / Worker / Dashboard</span></td><td>5</td><td>结算并发唯一、周报原子生成与通知恢复、Profile 模块隔离</td><td>每次 PR 与生产样环境</td></tr>
+              <tr><td><span class="tag">E2E</span></td><td>43</td><td>Discord 原生组件约束、<code>/bot-config</code> 私密交互与重载、用户 Profile、陪玩周报、充值续接、工作台、逐名陪玩就绪、客服接管、客户端一致性及恢复</td><td>每日构建与候选版本</td></tr>
+              <tr><td><span class="tag">UAT</span></td><td>4</td><td>客服接管、四级工作方式、备份恢复操作</td><td>候选版本人工验收</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>自动化优先落在统一 API 和数据库层。Discord E2E 只保留用户可见交互、频道权限和最终一致性验证，避免把所有业务规则重复测在 Bot 客户端。</p>
+      </section>
+
+      <section id="coverage">
+        <h2>4. 核心覆盖矩阵</h2>
+        <h3>4.1 启动前最优先六项</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>需求</th><th>验收用例</th><th>不可缺少的证明</th></tr></thead>
+            <tbody>
+              <tr><td><code>PL-01</code> 结构化需求与完整确认</td><td><code>AT-PL-001</code></td><td>游戏、服务、区服、时长、标签、备注、价格、三段余额和取消规则一次展示，缺项不可提交</td></tr>
+              <tr><td><code>PL-02</code> 原子资金预留</td><td><code>AT-PL-002</code>、<code>AT-RES-001..011</code></td><td>订单与礼物并发不超支；创建、捕获、释放幂等；可用余额公式一致</td></tr>
+              <tr><td><code>PL-03</code> 匹配透明</td><td><code>AT-PL-003</code>、<code>AT-MAT-001..002</code></td><td>无截止候选池阶段、报名名单、客户下一步及原子终选结果可见</td></tr>
+              <tr><td><code>PL-04</code> 陪玩工作台</td><td><code>AT-PL-004</code>、<code>AT-WRK-001..003</code></td><td>资格、在线/可接单、当前与匹配订单、倒计时、收益和动作闭环</td></tr>
+              <tr><td><code>PL-05</code> 全体有效陪玩就绪</td><td><code>AT-PL-005</code>、<code>AT-RDY-001..005</code></td><td>部分陪玩不开始；最后一名就绪只迁移一次；超时转客服且不计费</td></tr>
+              <tr><td><code>PL-06</code> 取消影响预览</td><td><code>AT-PL-006</code>、<code>AT-CXL-001..004</code></td><td>释放/退款影响、处理方式和时效可见；陈旧、过期或跨订单预览拒绝执行</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>4.2 完整 P0 能力域</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>能力域</th><th>关键用例</th><th>必须证明的结果</th></tr></thead>
+            <tbody>
+              <tr><td>账户与隐私</td><td><code>AT-ACC-001..004</code>、<code>AT-HIS-002</code></td><td>唯一绑定；不存密码；M3 前服务中心返回私密稳定空状态；跨用户访问被拒绝</td></tr>
+              <tr><td>目录、确认与即时单</td><td><code>AT-CAT-001..003</code>、<code>AT-ORD-001..004</code>、<code>AT-PL-001</code>、<code>AT-UI-001..005</code></td><td>双价格与版本快照不漂移；消息组件与 Modal 符合 Discord 原生约束；完整确认；只支持即时单；余额不足不派单</td></tr>
+              <tr><td>余额与资金预留</td><td><code>AT-PL-002</code>、<code>AT-RES-001..011</code></td><td>ledger / reserved / available 口径统一；并发不超支；订单和礼物全生命周期正确</td></tr>
+              <tr><td>候选池、工作台与服务</td><td><code>AT-DSP-001..004</code>、<code>AT-MAT-001..002</code>、<code>AT-WRK-001..003</code>、<code>AT-SVC-001..004</code>、<code>AT-RDY-001..005</code></td><td>准入与标签候选、并发报名、客户原子终选、匹配透明、陪玩资格隔离、全体有效陪玩就绪、完成权限与超时正确</td></tr>
+              <tr><td>取消与客服接管</td><td><code>AT-CAN-001..009</code>、<code>AT-CXL-001..004</code>、<code>AT-SUP-001..006</code></td><td>取消前预览；每阶段自动或人工处理；客服可暂停/恢复；爽约/中断与结案原子一致</td></tr>
+              <tr><td>礼物</td><td><code>AT-GFT-001..010</code>、<code>AT-RES-008..011</code></td><td>创建即预留；每笔人工核对；目标固定；金额分级；捕获幂等；播报失败不重复收费</td></tr>
+              <tr><td>消费、返佣、收益</td><td><code>AT-HIS-001..002</code>、<code>AT-REF-001..005</code>、<code>AT-RFP-001..008</code>、<code>AT-EAR-001..003</code></td><td>两计划互斥；被推荐用户零泄露；退款只追加非负金额 Adjustment；收益不自动支付</td></tr>
+              <tr><td>Bot 配置、权限与身份</td><td><code>AT-CFG-001..010</code>、<code>AT-RBAC-001..011</code>、<code>AT-ROL-001..005</code>、<code>AT-AUTH-001..003</code></td><td><code>/bot-config</code> 只在 Discord 内以 Channel/Role Select 操作；L3 管理运营字段、L4 累积继承并管理 Role；API 为最终授权点；预览 Token 防绕过、保存后立即生效、版本冲突、审计、重启重载和 ephemeral 隐私正确</td></tr>
+              <tr><td>时间线、指标与恢复</td><td><code>AT-TML-001..002</code>、<code>AT-MET-001..008</code>、<code>AT-WHK-001..003</code>、<code>AT-REC-001..005</code>、<code>AT-AUD-001..004</code></td><td>业务事实可追踪且按角色脱敏；八项指标可复算；重复/乱序、超时、Outbox、审计和恢复正确</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>4.3 Discord 原生组件约束</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>用例</th><th>验收对象</th><th>通过标准</th></tr></thead>
+            <tbody>
+              <tr><td><code>AT-UI-001</code></td><td>账户绑定 Modal</td><td>单字段、Label 包装、最多 5 个顶层组件、无自定义底部按钮</td></tr>
+              <tr><td><code>AT-UI-002</code></td><td>订单结构化选择</td><td>游戏、服务、区服、时长和标签使用消息 Select；每次提交后更新原消息</td></tr>
+              <tr><td><code>AT-UI-003</code></td><td>补充备注 Modal</td><td>纵向单字段；提交后返回订单消息；不承载级联选项</td></tr>
+              <tr><td><code>AT-UI-004</code></td><td>超过 25 个选项</td><td>消息分页，或提交搜索词后在新响应中返回结果</td></tr>
+              <tr><td><code>AT-UI-005</code></td><td>送礼、取消与后台确认</td><td>Discord 使用消息/ephemeral 确认；Dashboard 使用网页 Dialog，二者不混用</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="roles">
+        <h2>5. 权限与金额边界</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>操作</th><th>金额</th><th>预期路径</th><th>测试用例</th></tr></thead>
+            <tbody>
+              <tr><td>退款</td><td>49999 CAT subunits</td><td>L2 直接执行</td><td><code>AT-RBAC-003</code></td></tr>
+              <tr><td>退款</td><td>50000 CAT subunits</td><td>L2 直接执行，边界包含</td><td><code>AT-RBAC-004</code></td></tr>
+              <tr><td>退款</td><td>50001 CAT subunits</td><td>L2 只提交，升级 L3</td><td><code>AT-RBAC-005</code></td></tr>
+              <tr><td>退款</td><td>500000 CAT subunits</td><td>仅 L4 可直接执行；可由同一人发起并执行</td><td><code>AT-RBAC-006</code></td></tr>
+              <tr><td>礼物</td><td>199999 CAT subunits</td><td>人工核对后 L2 批准</td><td><code>AT-GFT-003</code></td></tr>
+              <tr><td>礼物</td><td>200000 CAT subunits</td><td>人工核对后 L2 批准，边界包含</td><td><code>AT-GFT-004</code></td></tr>
+              <tr><td>礼物</td><td>200001 CAT subunits</td><td>L2 只提交，升级 L3</td><td><code>AT-GFT-005</code></td></tr>
+              <tr><td>礼物</td><td>500000 CAT subunits</td><td>仅 L4 可直接执行；可由同一人发起并执行</td><td><code>AT-GFT-006..007</code></td></tr>
+              <tr><td>权限继承</td><td>L1–L4</td><td>L2 执行 L1、L3 执行 L2、L4 执行 L3 操作</td><td><code>AT-RBAC-010</code></td></tr>
+              <tr><td>高额礼物/退款直接执行</td><td>≥ 500000 CAT subunits</td><td>同一 L4 可发起并执行；高额手动结算另按 <code>AT-SET-004</code> 要求不同人员复核</td><td><code>AT-RBAC-011</code></td></tr>
+              <tr><td>Bot 运营配置</td><td>L3+</td><td><code>bot_config.read</code> 与 <code>bot_config.operational.manage</code>；L4 累积继承</td><td><code>AT-CFG-001..002</code></td></tr>
+              <tr><td>Bot Role 映射</td><td>L4</td><td><code>bot_config.security.manage</code>；L3 请求由 API 返回 403</td><td><code>AT-CFG-003</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          <strong>不可绕过规则</strong>
+          <span>权限按 L1 &lt; L2 &lt; L3 &lt; L4 累积继承，高等级可执行全部低等级操作；一般礼物和退款允许同一人发起并执行，单笔 ≥ 500000 CAT subunits 仅 L4 可直接执行。高额手动结算必须由不同人员复核，角色继承不能绕过自批禁止。高风险执行必须填写原因、通过 15 分钟内 step-up/MFA、重校验业务版本并保留不可篡改审计；任何角色都不能硬删除财务和审计记录。</span>
+        </div>
+      </section>
+
+      <section id="data">
+        <h2>6. 测试环境与数据</h2>
+        <h3>6.1 环境要求</h3>
+        <ul>
+          <li>独立 Discord 测试服务器、测试 Bot App、测试 Role 和固定频道，不复用生产 ID。</li>
+          <li>独立 API、PostgreSQL 和 Job Worker；时间相关测试支持 fake clock 或可控 Job 触发。</li>
+          <li>第三方沙箱或行为等价 Mock，支持余额不足、超时、未知结果、重复与乱序 Webhook。</li>
+          <li>L1-L4 各至少一个员工账号；Fixtures 覆盖同一员工发起并执行，不要求准备独立复核人员。</li>
+        </ul>
+
+        <h3>6.2 Fixture 使用规则</h3>
+        <p><code>test-fixtures.json</code> 提供 260 个稳定的 <code>FX-*</code> fixture key；实际内部实体使用确定性 UUIDv5，Discord 用户、Guild、频道、消息和 Role 使用确定性 18 位纯数字测试 Snowflake。遗留外部交易字段只使用明确的合成参考值，不代表当前 Provider 入口。CSV 的“前置数据”字段通过 <code>fixtureIndex</code> 和 JSON Pointer 装载数据。</p>
+        <ul>
+          <li>每条自动化用例在独立事务、独立 schema 或唯一 test_run_id 下执行。</li>
+          <li>并发场景必须使用真实数据库事务，不用进程内锁模拟。</li>
+          <li>所有 Adjustment 的 <code>amountMinor</code> 使用非负绝对值，方向只由稳定的 <code>type</code> 表达。</li>
+          <li>Fixtures 不含真实 Token、Key、个人资料或支付凭证。</li>
+          <li>测试结束可清理普通临时数据；财务与审计测试通过隔离数据库重置，不调用产品硬删除接口。</li>
+        </ul>
+      </section>
+
+      <section id="execution">
+        <h2>7. 执行与证据</h2>
+        <h3>7.1 推荐批次</h3>
+        <ol>
+          <li><strong>Smoke：</strong>绑定、完整确认、订单预留、匹配、接单、全体有效陪玩就绪、完成、消费和收益。</li>
+          <li><strong>Money：</strong>三段余额、并发预留、捕获/释放、取消预览、礼物审批、返佣和收益 Adjustment。</li>
+          <li><strong>Access：</strong>L1-L4、Role 升降级、<code>/bot-config</code> 权限与 ephemeral 隔离、Actor 伪造、跨用户访问和无硬删除。</li>
+          <li><strong>Resilience：</strong>Webhook 重复/乱序、第三方超时、Outbox、Bot 重启、面板与数据库恢复。</li>
+          <li><strong>UAT：</strong>陪玩工作台、客服暂停/恢复、返佣保密、四级 Dashboard、八项指标和备份恢复演练。</li>
+        </ol>
+
+        <h3>7.2 每条用例证据</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>层级</th><th>最低证据</th></tr></thead>
+            <tbody>
+              <tr><td>Unit / API</td><td>测试报告、request_id、关键响应断言、数据库前后状态、第三方 Mock 调用次数</td></tr>
+              <tr><td>E2E</td><td>Discord/Dashboard 截图或录像、interaction_id、channel/message ID、最终 API 状态</td></tr>
+              <tr><td>资金与审批</td><td>Idempotency-Key、external_ref、approval_id、requested_by/approved_by、审计记录</td></tr>
+              <tr><td>恢复演练</td><td>执行时间线、故障注入点、恢复结果、重复副作用计数、恢复后健康检查</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>7.3 缺陷等级</h3>
+        <ul>
+          <li><span class="tag blocker">Blocker</span> 重复扣退款、越权、数据泄露、多人接单、财务半完成、不可恢复或不可变记录被修改。</li>
+          <li><span class="tag">High</span> 核心流程无法闭环、错误状态迁移、超时未进入客服、Role 撤权不及时、关键审计缺失。</li>
+          <li><span class="tag">Medium</span> 非阻断展示、文案、排序或人工可恢复的同步问题。</li>
+        </ul>
+      </section>
+
+      <section id="release">
+        <h2>8. 准入、退出与放行</h2>
+        <h3>8.1 开始验收前</h3>
+        <ul>
+          <li>主规格版本冻结，API 契约和数据库迁移可部署。</li>
+          <li>测试 Bot、Dashboard、API、Worker、PostgreSQL 和第三方 Mock/沙箱均可访问。</li>
+          <li>服务双价格、礼物、频道、Role、阈值和 Fixtures 已导入。</li>
+          <li>日志、指标、审计和 Job 重试页面可用于取证。</li>
+        </ul>
+
+        <h3>8.2 Prototype P0 放行条件</h3>
+        <ul>
+          <li>119 条 <code>P0_BLOCKER</code> 全部通过，不能豁免。</li>
+          <li>56 条 <code>P0_HIGH</code> 全部执行；未通过项必须有明确修复版本，不允许影响核心闭环、权限隔离或资金一致性。</li>
+          <li><code>PL-01..PL-06</code> 及对应扩展场景全部通过；提交前确认、预留、匹配、工作台、逐名陪玩就绪和取消预览不得降级为客户端本地规则。</li>
+          <li>49999/50000/50001、199999/200000/200001/500000 CAT subunits，以及权限累积继承、同一人发起并执行和高额仅 L4 直接执行全部通过。</li>
+          <li>并发订单/礼物不超支、重复捕获、候选池并发报名与终选、重复/乱序 Outbox、WalletEntry/FundReservation 生命周期、返佣零泄露、Role 降权、无硬删除、审计和恢复演练全部通过。</li>
+          <li>八项指标均可由 fixture 源事实复算；时间线在 L1-L4 下按权限正确脱敏。</li>
+          <li><code>AT-CFG-001..010</code> 全部通过；配置必须先预览并取得绑定变更的短期 Token 再确认，API 拒绝绕过预览的直接保存；成功后下一次业务动作立即使用新配置，版本冲突不覆盖新值，变更可审计，重启从 API 重载且配置响应仅操作者可见。</li>
+          <li><code>AT-SET-*</code>、<code>AT-RPT-*</code>、<code>AT-PRF-*</code> 与 <code>AT-GFT-012..015</code> 全部通过；结算不重复且不直接转账，高额批次禁止创建者自批，周报可修订可恢复，Profile 不跨人/跨 Guild，余额不足送礼零业务写入。</li>
+          <li>测试环境完成一次 Bot 重启、面板重建、Outbox 恢复和数据库备份恢复。</li>
+          <li>产品、客服运营、技术负责人共同签署 UAT 结果。</li>
+        </ul>
+
+        <h3>8.3 固定测试假设</h3>
+        <ul>
+          <li>订单确认提交时创建资金预留；完成时捕获；用户取消、拒绝或失败时释放；候选池招募与选秀无自然截止且保持原预留；争议保持，部分结案按决议捕获并释放剩余。</li>
+          <li>礼物请求创建时立即预留；批准时捕获已有预留；拒绝、过期或撤回时释放。客服核对信息，不人工计算可用余额。</li>
+          <li>余额字段固定为 <code>ledgerBalanceMinor</code>、<code>reservedMinor</code>、<code>availableMinor</code>、<code>currency</code> 和 <code>calculatedAt</code>；可用余额等于内部账本余额减有效预留合计。</li>
+          <li>礼物和退款阈值使用包含边界：L2 礼物 ≤ 200000 CAT subunits，L2 退款 ≤ 50000 CAT subunits；高于 L2 上限且低于 500000 CAT subunits 的操作由 L3+ 执行；单笔 ≥ 500000 CAT subunits 仅 L4 可直接执行并允许同一人发起和执行。高额手动结算批次不适用该同人规则，必须由不同人员复核。</li>
+          <li>返佣采用 basis points；不足一个 minor unit 时向下取整，避免浮点运算。</li>
+          <li><code>PROMOTER_FIRST_PURCHASE</code> 与 <code>PLAYER_LIFETIME</code> 互斥；被推荐用户端不显示任何受益人、关系类型、比例、金额或状态。</li>
+          <li>订单从 <code>ACCEPTED</code> 仅在所有当前有效陪玩均就绪后进入 <code>IN_SERVICE</code>；客户不提交 readiness，部分陪玩就绪和就绪超时均不开始计费。</li>
+          <li>Role 的最高映射值只是 requested level；内部 <code>staff_accounts.level</code> 是最终授权事实来源。</li>
+          <li><code>/bot-config</code> 的最终授权由 API 基于 staff_account 和 <code>bot_config.read</code>、<code>bot_config.operational.manage</code>、<code>bot_config.security.manage</code> 判定；不制作独立网页或可点击配置 Demo。</li>
+          <li>客户资金只由内部 <code>WalletEntry</code> 与 <code>FundReservation</code> 事实派生：充值和业务退款追加 CREDIT，订单、礼物与线下渠道退款登记追加 DEBIT；系统不接收支付 Provider Webhook。</li>
+          <li>预留的创建、捕获、释放和争议状态与 WalletEntry 分开保存；捕获后的退款或纠错通过新的 CREDIT/Adjustment 表达，不覆盖原扣款。</li>
+          <li>PlayerEarning 和 Commission 每个业务来源只保留一条主记录；退款或纠错追加 PlayerEarningAdjustment / CommissionAdjustment，不创建第二条收益或返佣主记录。</li>
+          <li>所有财务、订单事件和审计数据只追加；纠错使用 Adjustment 或其他追加更正记录。</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      Discord 陪玩业务 Prototype P0 验收测试计划 · Acceptance v3.0 · Baseline v1.0 · 配套文件：acceptance-cases.csv / test-fixtures.json
+    </footer>
+  </article>
+</body>
+</html>

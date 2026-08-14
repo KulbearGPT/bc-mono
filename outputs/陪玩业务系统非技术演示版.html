@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%230d6b63'/%3E%3Cpath d='M19 17h26v30H19z' fill='%23fff'/%3E%3Cpath d='M25 24h14v4H25zm0 9h14v4H25z' fill='%23d1783f'/%3E%3C/svg%3E">
+  <title>陪玩业务系统第一版 · 非技术演示</title>
+  <style>
+    :root {
+      --ink: #16252b;
+      --muted: #64727a;
+      --line: #d8dfe2;
+      --surface: #ffffff;
+      --canvas: #eef2f3;
+      --teal: #087f73;
+      --teal-dark: #075e57;
+      --teal-soft: #e3f3f0;
+      --coral: #c7553d;
+      --coral-soft: #fae9e4;
+      --amber: #9d6415;
+      --amber-soft: #fff3d7;
+      --green: #23734d;
+      --green-soft: #e3f3e9;
+      --red: #a53a3a;
+      --red-soft: #f9e7e7;
+      --discord: #313338;
+      --discord-side: #2b2d31;
+      --discord-deep: #1e1f22;
+      --discord-text: #dbdee1;
+      --shadow: 0 12px 34px rgba(24, 39, 45, .11);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--canvas); }
+    body { margin: 0; color: var(--ink); background: var(--canvas); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    button, input, select, textarea { font: inherit; letter-spacing: 0; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    [hidden] { display: none !important; }
+
+    .topbar { position: sticky; top: 0; z-index: 20; min-height: 58px; padding: 10px clamp(14px, 3vw, 34px); display: flex; align-items: center; justify-content: space-between; gap: 18px; color: #fff; background: #17282f; border-bottom: 1px solid #0c191e; }
+    .brand { min-width: 0; display: flex; align-items: center; gap: 11px; }
+    .brand-mark { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 7px; color: #fff; background: var(--teal); font-weight: 850; }
+    .brand strong { display: block; font-size: 14px; }
+    .brand small { display: block; margin-top: 1px; color: #aec0c7; font-size: 10px; }
+    .prototype-tag { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #536970; border-radius: 5px; color: #dbe7ea; font-size: 10px; font-weight: 750; }
+    .docs-home-link { flex: 0 0 auto; padding: 5px 7px; border: 1px solid #536970; border-radius: 5px; color: #fff; text-decoration: none; font-size: 10px; font-weight: 800; }
+    .docs-home-link:hover { background: #263a42; }
+
+    .welcome { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: clamp(34px, 6vw, 72px) 0 64px; }
+    .intro { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: clamp(24px, 5vw, 70px); align-items: end; padding-bottom: 34px; border-bottom: 1px solid #cbd5d9; }
+    .eyebrow { margin: 0 0 12px; color: var(--teal-dark); font-size: 11px; font-weight: 850; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 0; font-size: clamp(30px, 4.6vw, 54px); line-height: 1.08; letter-spacing: 0; }
+    .intro-copy { max-width: 720px; margin: 18px 0 0; color: #526169; font-size: clamp(15px, 1.8vw, 18px); }
+    .intro-note { padding: 18px 20px; border-left: 4px solid var(--coral); background: #fff; box-shadow: var(--shadow); }
+    .intro-note strong { display: block; margin-bottom: 5px; }
+    .intro-note p { margin: 0; color: var(--muted); font-size: 12px; }
+
+    .section-head { margin: 34px 0 16px; display: flex; align-items: end; justify-content: space-between; gap: 20px; }
+    .section-head h2 { margin: 0; font-size: 20px; }
+    .section-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .story-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .story-card { min-height: 220px; padding: 18px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; color: var(--ink); border: 1px solid #c9d3d7; border-top: 4px solid var(--story-color, var(--teal)); border-radius: 7px; background: #fff; box-shadow: 0 6px 20px rgba(24, 39, 45, .06); transition: transform .16s ease, box-shadow .16s ease; }
+    .story-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+    .story-number { color: var(--story-color, var(--teal)); font-size: 11px; font-weight: 900; }
+    .story-card h3 { margin: 12px 0 8px; font-size: 16px; line-height: 1.32; }
+    .story-card p { margin: 0; color: var(--muted); font-size: 12px; }
+    .story-meta { margin-top: auto; padding-top: 16px; color: #45545b; font-size: 10px; font-weight: 800; }
+    .story-start { margin-top: 10px; color: var(--story-color, var(--teal)); font-size: 11px; font-weight: 850; }
+
+    .roles { margin-top: 34px; padding: 20px 0 0; border-top: 1px solid #cbd5d9; }
+    .roles h2 { margin: 0 0 14px; font-size: 16px; }
+    .role-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #cbd5d9; background: #fff; }
+    .role-item { padding: 14px 16px; border-right: 1px solid var(--line); }
+    .role-item:last-child { border-right: 0; }
+    .role-item b { display: block; margin-bottom: 4px; font-size: 12px; }
+    .role-item span { color: var(--muted); font-size: 10px; }
+    .privacy-note { margin-top: 14px; padding: 12px 14px; color: #5f4a20; border: 1px solid #e9d29d; background: var(--amber-soft); font-size: 11px; }
+
+    .story-shell { min-height: calc(100vh - 58px); }
+    .story-head { padding: 14px clamp(14px, 3vw, 34px); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; border-bottom: 1px solid var(--line); background: #fff; }
+    .icon-btn { width: 36px; height: 36px; display: grid; place-items: center; color: #32444c; border: 1px solid #bdc9ce; border-radius: 6px; background: #fff; font-size: 18px; }
+    .icon-btn:hover { background: #f1f5f6; }
+    .story-heading { min-width: 0; }
+    .story-heading strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+    .story-heading small { color: var(--muted); font-size: 10px; }
+    .progress-wrap { min-width: 190px; }
+    .progress-copy { margin-bottom: 5px; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+    .progress-track { height: 5px; overflow: hidden; border-radius: 5px; background: #dfe6e8; }
+    .progress-fill { height: 100%; width: 0; background: var(--teal); transition: width .22s ease; }
+
+    .story-main { width: min(1320px, calc(100% - 28px)); margin: 0 auto; padding: 18px 0 110px; }
+    .viewpoint { min-height: 46px; padding: 8px 12px; display: flex; align-items: center; gap: 11px; color: #d9e5e8; background: #263a42; border-radius: 7px 7px 0 0; }
+    .viewpoint-icon { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--teal); font-size: 12px; font-weight: 850; }
+    .viewpoint strong { display: block; color: #fff; font-size: 12px; }
+    .viewpoint span { display: block; color: #afc0c6; font-size: 10px; }
+    .product-stage { height: clamp(330px, calc(100vh - 390px), 560px); min-height: 330px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid #bdc8cc; border-top: 0; border-radius: 0 0 7px 7px; background: #fff; box-shadow: var(--shadow); }
+
+    .plain-strip { margin-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #cbd5d9; border-radius: 7px; background: #fff; }
+    .plain-item { min-width: 0; padding: 13px 15px; border-right: 1px solid var(--line); }
+    .plain-item:last-child { border-right: 0; }
+    .plain-label { margin-bottom: 4px; color: var(--teal-dark); font-size: 10px; font-weight: 900; }
+    .plain-item p { margin: 0; color: #46565e; font-size: 11px; }
+
+    .story-controls { position: fixed; z-index: 18; left: 0; right: 0; bottom: 0; min-height: 76px; padding: 12px clamp(14px, 3vw, 34px); display: flex; align-items: center; justify-content: center; gap: 10px; border-top: 1px solid #bfcbd0; background: rgba(247, 249, 250, .96); backdrop-filter: blur(8px); }
+    .control-btn { min-height: 42px; padding: 9px 16px; border: 1px solid #aebdc3; border-radius: 6px; color: #304149; background: #fff; font-weight: 800; }
+    .control-btn.primary { min-width: 190px; color: #fff; border-color: var(--teal-dark); background: var(--teal-dark); }
+    .control-btn.primary:hover { background: #064f49; }
+    .step-hint { min-width: 170px; color: var(--muted); text-align: center; font-size: 10px; }
+
+    .discord { height: 100%; min-height: 0; display: grid; grid-template-columns: 190px minmax(0, 1fr); color: var(--discord-text); background: var(--discord); }
+    .discord-side { padding: 16px 10px; overflow-y: auto; background: var(--discord-side); border-right: 1px solid #202225; }
+    .server-name { padding: 0 8px 13px; color: #fff; font-weight: 850; border-bottom: 1px solid #1f2023; }
+    .channel-label { margin: 16px 8px 6px; color: #949ba4; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+    .channel { padding: 7px 9px; color: #aeb4bb; border-radius: 4px; font-size: 12px; }
+    .channel.active { color: #fff; background: #404249; }
+    .discord-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .discord-head { min-height: 48px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #25262a; box-shadow: 0 1px 0 rgba(0,0,0,.18); }
+    .discord-head strong { color: #fff; }
+    .discord-head span { color: #949ba4; font-size: 10px; }
+    .chat { min-height: 0; flex: 1; padding: 20px clamp(14px, 3vw, 28px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+    .message { max-width: 760px; margin-bottom: 18px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #6d5bd0; font-size: 11px; font-weight: 900; }
+    .avatar.bot { background: var(--teal); }
+    .message-name { color: #fff; font-size: 12px; font-weight: 850; }
+    .message-time { margin-left: 6px; color: #949ba4; font-size: 9px; font-weight: 400; }
+    .message-body { margin-top: 3px; color: #cbd0d6; font-size: 12px; }
+    .embed { max-width: 720px; margin-top: 9px; padding: 14px; border-left: 4px solid var(--teal); border-radius: 4px; background: #2b2d31; }
+    .embed.warning { border-left-color: #e0a447; }
+    .embed.danger { border-left-color: #d65d5d; }
+    .embed.success { border-left-color: #43a36f; }
+    .embed h3 { margin: 0 0 5px; color: #fff; font-size: 14px; }
+    .embed p { margin: 0; color: #b9c0c7; font-size: 11px; }
+    .embed-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+    .embed-field small { display: block; color: #8f969e; font-size: 9px; }
+    .embed-field b { color: #e7e9eb; font-size: 11px; }
+    .discord-actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 7px; }
+    .discord-btn { min-height: 34px; padding: 7px 11px; color: #fff; border: 0; border-radius: 4px; background: #5865f2; font-size: 11px; font-weight: 800; }
+    .discord-btn.secondary { background: #4e5058; }
+    .discord-btn.success { background: #278353; }
+    .discord-btn.danger { background: #aa4040; }
+    .discord-btn:disabled { color: #8c9299; background: #414349; opacity: 1; }
+    .balance-line { margin-top: 11px; padding: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #232428; border-radius: 4px; }
+    .balance-line small { display: block; color: #8f969e; font-size: 9px; }
+    .balance-line b { color: #fff; font-size: 12px; }
+    .inline-feedback { margin-top: 10px; padding: 10px; color: #f4dba8; border: 1px solid #78603b; border-radius: 4px; background: #3a3328; font-size: 11px; }
+
+    .modal-wrap { height: 100%; min-height: 0; padding: 18px 16px; display: grid; place-items: center; overflow: auto; background: rgba(18, 20, 24, .92); }
+    .modal { width: min(600px, 100%); overflow: hidden; border-radius: 7px; color: var(--discord-text); background: #313338; box-shadow: 0 22px 60px rgba(0,0,0,.38); }
+    .modal-head { padding: 18px 20px 12px; }
+    .modal-head h3 { margin: 0; color: #fff; font-size: 18px; }
+    .modal-head p { margin: 5px 0 0; color: #aeb4bb; font-size: 11px; }
+    .modal-body { padding: 8px 20px 18px; }
+    .field { margin-top: 12px; }
+    .field label { display: block; margin-bottom: 5px; color: #c9ced3; font-size: 10px; font-weight: 850; }
+    .field input, .field select, .field textarea { width: 100%; min-height: 38px; padding: 8px 10px; color: #e4e6e8; border: 1px solid #202225; border-radius: 4px; background: #1e1f22; }
+    .field textarea { min-height: 68px; resize: none; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+    .modal-foot { padding: 14px 20px; display: flex; justify-content: flex-end; gap: 8px; background: #2b2d31; }
+
+    .dashboard { height: 100%; min-height: 0; display: grid; grid-template-columns: 208px minmax(0, 1fr); background: #f3f6f7; }
+    .dash-side { padding: 18px 12px; overflow-y: auto; color: #cbd7db; background: #21343c; }
+    .dash-brand { padding: 0 8px 15px; color: #fff; font-size: 13px; font-weight: 900; border-bottom: 1px solid #3b5058; }
+    .dash-nav { margin-top: 12px; }
+    .dash-nav-item { padding: 8px 9px; border-radius: 4px; color: #aebfc5; font-size: 11px; }
+    .dash-nav-item.active { color: #fff; background: #31515b; }
+    .dash-role { margin-top: 18px; padding: 10px; border: 1px solid #4a6068; border-radius: 5px; font-size: 10px; }
+    .dash-main { min-width: 0; min-height: 0; padding: 20px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+    .dash-page-head { margin-bottom: 14px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+    .dash-page-head h2 { margin: 0; font-size: 20px; }
+    .dash-page-head p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+    .status { display: inline-flex; min-height: 24px; padding: 4px 7px; align-items: center; border-radius: 4px; font-size: 9px; font-weight: 850; white-space: nowrap; }
+    .status.green { color: var(--green); background: var(--green-soft); }
+    .status.amber { color: var(--amber); background: var(--amber-soft); }
+    .status.red { color: var(--red); background: var(--red-soft); }
+    .status.blue { color: #255f88; background: #e4f0f8; }
+    .metric-row { margin-bottom: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .metric { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    .metric span { display: block; color: var(--muted); font-size: 9px; }
+    .metric strong { display: block; margin-top: 3px; font-size: 17px; }
+    .dash-panel { margin-bottom: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    .panel-head { min-height: 46px; padding: 10px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+    .panel-head h3 { margin: 0; font-size: 13px; }
+    .panel-body { padding: 13px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    th { color: var(--muted); background: #f7f9fa; font-weight: 850; text-align: left; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #e5eaec; white-space: nowrap; }
+    tr.selected td { background: #edf7f5; }
+    .dash-btn { min-height: 32px; padding: 6px 9px; color: #31434a; border: 1px solid #aebdc3; border-radius: 4px; background: #fff; font-size: 10px; font-weight: 800; }
+    .dash-btn.primary { color: #fff; border-color: var(--teal-dark); background: var(--teal-dark); }
+    .dash-btn.warning { color: #6b4816; border-color: #d9ad62; background: var(--amber-soft); }
+    .dash-btn.danger { color: var(--red); border-color: #d9a7a7; background: var(--red-soft); }
+    .dash-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+    .detail-item small { display: block; color: var(--muted); font-size: 9px; }
+    .detail-item b { display: block; margin-top: 2px; font-size: 11px; }
+    .notice { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--amber); color: #5e4a26; background: var(--amber-soft); font-size: 10px; }
+    .notice.success { color: #28563d; border-left-color: var(--green); background: var(--green-soft); }
+    .notice.danger { color: #6f3333; border-left-color: var(--red); background: var(--red-soft); }
+
+    .transition-view { height: 100%; min-height: 0; padding: 30px 20px; display: grid; place-items: center; overflow: auto; background: #f6f8f9; }
+    .transition-content { width: min(680px, 100%); text-align: center; }
+    .transition-route { margin: 0 auto 22px; display: grid; grid-template-columns: 1fr 56px 1fr; align-items: center; gap: 8px; }
+    .route-person { padding: 18px 12px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+    .route-person b { display: block; font-size: 13px; }
+    .route-person span { color: var(--muted); font-size: 10px; }
+    .route-arrow { color: var(--teal); font-size: 26px; font-weight: 900; }
+    .transition-content h2 { margin: 0 0 8px; font-size: 23px; }
+    .transition-content p { max-width: 520px; margin: 0 auto 18px; color: var(--muted); }
+
+    @media (max-width: 1040px) {
+      .story-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .story-card:last-child { grid-column: 1 / -1; min-height: 170px; }
+      .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 760px) {
+      .intro { grid-template-columns: minmax(0, 1fr); align-items: start; }
+      .story-head { grid-template-columns: auto minmax(0, 1fr); }
+      .progress-wrap { grid-column: 1 / -1; }
+      .role-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .role-item:nth-child(2) { border-right: 0; }
+      .role-item:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .plain-strip { grid-template-columns: minmax(0, 1fr); }
+      .plain-item { border-right: 0; border-bottom: 1px solid var(--line); }
+      .plain-item:last-child { border-bottom: 0; }
+      .dashboard { grid-template-columns: minmax(0, 1fr); }
+      .dash-side { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      .topbar { min-height: 54px; }
+      .brand small, .prototype-tag { display: none; }
+      .welcome { width: min(100% - 20px, 1180px); padding-top: 28px; }
+      .story-grid { grid-template-columns: minmax(0, 1fr); }
+      .story-card, .story-card:last-child { min-height: 168px; grid-column: auto; }
+      .story-main { width: min(100% - 12px, 1320px); padding-top: 8px; padding-bottom: 132px; }
+      .product-stage { height: auto; min-height: 520px; }
+      .discord { min-height: 520px; grid-template-columns: minmax(0, 1fr); }
+      .discord-side { display: none; }
+      .chat { padding: 16px 10px; }
+      .message { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; }
+      .avatar { width: 28px; height: 28px; }
+      .embed { padding: 11px; }
+      .embed-grid, .form-grid, .detail-grid { grid-template-columns: minmax(0, 1fr); }
+      .balance-line { grid-template-columns: minmax(0, 1fr); }
+      .modal-wrap { padding: 10px; }
+      .dashboard { min-height: 520px; }
+      .dash-main { padding: 12px 9px; }
+      .dash-page-head { align-items: stretch; flex-direction: column; }
+      .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .transition-route { grid-template-columns: minmax(0, 1fr); }
+      .route-arrow { transform: rotate(90deg); }
+      .story-controls { min-height: 102px; padding: 9px 7px; flex-wrap: wrap; }
+      .control-btn { min-height: 38px; padding: 7px 10px; }
+      .control-btn.primary { min-width: 150px; flex: 1; }
+      .step-hint { width: 100%; order: -1; min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a class="docs-home-link" href="index.html">文档中心</a><div class="brand-mark">陪</div><div><strong>陪玩业务系统</strong><small>Discord 服务体验 + 客服管理后台</small></div></div>
+    <span class="prototype-tag">第一版本地产品原型 · 尚未上线</span>
+  </header>
+
+  <main class="welcome" id="welcomeView">
+    <section class="intro">
+      <div>
+        <p class="eyebrow">第一版核心业务流程演示</p>
+        <h1>陪玩业务系统第一版产品演示</h1>
+        <p class="intro-copy">本演示以六个核心业务场景说明用户、陪玩、客服与店长之间的操作流程。页面支持交互，可用于会议展示或独立浏览。</p>
+      </div>
+      <aside class="intro-note"><strong>演示说明</strong><p>每个步骤对应一个产品界面，并附业务说明、资金变化和后续处理。完整功能与异常分支请参阅第一版完整产品原型。</p></aside>
+    </section>
+
+    <div class="section-head"><div><h2>选择业务场景</h2><p>场景 01 展示完整主流程，六个场景的预计总时长约为 10 分钟。</p></div></div>
+    <section class="story-grid" aria-label="核心业务场景">
+      <button class="story-card" data-story="normal-order" style="--story-color:#087f73"><span class="story-number">场景 01</span><h3>正常下单到完成</h3><p>展示订单创建、资金预留、自动派单、服务开始及正式消费的完整流程。</p><span class="story-meta">用户小林 · 陪玩阿岚 · 约 2 分钟</span><span class="story-start">进入场景 →</span></button>
+      <button class="story-card" data-story="limited-gift" style="--story-color:#c7553d"><span class="story-number">场景 02</span><h3>订单预留下的送礼限制</h3><p>展示订单预留生效后，系统根据可用余额限制礼物金额的处理方式。</p><span class="story-meta">余额预留与坏账控制 · 约 1 分钟</span><span class="story-start">进入场景 →</span></button>
+      <button class="story-card" data-story="dispatch-timeout" style="--story-color:#9d6415"><span class="story-number">场景 03</span><h3>派单超时与客服接管</h3><p>展示自动派单超时后的任务生成、客服认领与人工转派流程。</p><span class="story-meta">自动派单与人工接管 · 约 1 分钟</span><span class="story-start">进入场景 →</span></button>
+      <button class="story-card" data-story="gift-review" style="--story-color:#7457a6"><span class="story-number">场景 04</span><h3>送礼核对与公开播报</h3><p>展示送礼请求、客服核对、主管审批、正式消费与公开播报流程。</p><span class="story-meta">用户 · 客服 · 主管 · 约 2 分钟</span><span class="story-start">进入场景 →</span></button>
+      <button class="story-card" data-story="dispute-resolution" style="--story-color:#a53a3a"><span class="story-number">场景 05</span><h3>服务争议与部分结案</h3><p>展示服务争议发生后的流程暂停、事实核对、审批与部分结案。</p><span class="story-meta">异常处理闭环 · 约 2 分钟</span><span class="story-start">进入场景 →</span></button>
+      <button class="story-card" data-story="weekly-settlement" style="--story-color:#356c87"><span class="story-number">场景 06</span><h3>陪玩周报与周期结算</h3><p>展示个人周报、店铺汇总、转账清单导出和第三方付款结果登记。</p><span class="story-meta">陪玩 · 店长 · 约 2 分钟</span><span class="story-start">进入场景 →</span></button>
+    </section>
+
+    <section class="roles">
+      <h2>后台权限层级</h2>
+      <div class="privacy-note"><strong>权限采用向下继承：</strong>高级别自动拥有低级别的全部执行权限。一般订单、礼物和退款按最低等级直接执行；周期结算是例外，高额手动批次的创建人不能批准自己的批次。</div>
+      <div class="role-strip">
+        <div class="role-item"><b>L1 基础客服</b><span>执行联系、核对、内部备注、流程暂停和提交审批；无权执行资金及高风险操作。</span></div>
+        <div class="role-item"><b>L2 客服主管</b><span>处理团队任务、常规取消、转派和限额内审批。</span></div>
+        <div class="role-item"><b>L3 运营负责人</b><span>管理目录、用户与陪玩状态、推荐绑定、周报、结算批次和高金额操作。</span></div>
+        <div class="role-item"><b>L4 管理员 / 所有者</b><span>继承全部低级权限，管理权限与 Discord 身份映射，并可直接执行高额操作；仍不能硬删除账务事实。</span></div>
+      </div>
+      <div class="privacy-note"><strong>推荐关系隐私规则：</strong>系统禁止自荐。被推荐用户无法查看返佣对象、比例或金额；仅受益人本人及具备相应权限的管理人员可查看相关记录。</div>
+    </section>
+  </main>
+
+  <main class="story-shell" id="storyView" hidden>
+    <header class="story-head">
+      <button class="icon-btn" id="storyListButton" title="返回场景列表" aria-label="返回场景列表">←</button>
+      <div class="story-heading"><strong id="storyTitle">场景标题</strong><small id="stepTitle">步骤标题</small></div>
+      <div class="progress-wrap"><div class="progress-copy"><span id="stepCount">第 1 / 1 步</span><span id="storyDuration">约 1 分钟</span></div><div class="progress-track"><div class="progress-fill" id="progressFill"></div></div></div>
+    </header>
+
+    <section class="story-main">
+      <div class="viewpoint"><div class="viewpoint-icon" id="viewpointIcon">用</div><div><strong id="viewpointName">用户小林</strong><span id="viewpointLocation">正在使用 Discord</span></div></div>
+      <div class="product-stage" id="productStage" aria-live="polite"></div>
+      <div class="plain-strip">
+        <div class="plain-item"><div class="plain-label">业务说明</div><p id="plainNow"></p></div>
+        <div class="plain-item"><div class="plain-label">资金变化</div><p id="plainMoney"></p></div>
+        <div class="plain-item"><div class="plain-label">后续处理</div><p id="plainNext"></p></div>
+      </div>
+    </section>
+
+    <nav class="story-controls" aria-label="场景步骤">
+      <button class="control-btn" id="prevButton">← 上一步</button>
+      <div class="step-hint" id="stepHint">产品界面中的主要操作按钮可用于推进演示</div>
+      <button class="control-btn primary" id="nextButton">下一步 →</button>
+    </nav>
+  </main>
+
+  <script>
+    const STORIES = [
+      {
+        id: 'normal-order', title: '正常下单到完成', duration: '约 2 分钟', color: '#087f73',
+        steps: [
+          { view: 'entry', title: '进入公共服务入口', who: '用户小林', icon: '用', where: 'Discord · #陪玩服务中心', now: '用户通过固定服务入口创建订单或进入个人服务中心。账户已与第三方资金账户完成绑定。', money: '系统仅查询账户余额，不产生扣款或预留。当前可用余额为 $200.00。', next: '用户选择“创建订单”，系统建立私密订单频道并显示订单配置面板。' },
+          { view: 'order-panel', title: '逐步选择订单项目', who: '用户小林', icon: '用', where: 'Discord · 私密订单频道', now: '游戏、服务、区服、时长和语言等结构化选项在订单面板中逐步完成。每次选择后，Bot 更新同一条消息并显示下一项。', money: '账户余额保持不变，订单价格根据已提交的选项即时计算。', next: '用户如需说明偏好，可打开只包含一个文本字段的补充备注弹窗。' },
+          { view: 'order-notes', title: '填写可选补充备注', who: '用户小林', icon: '用', where: 'Discord · 补充备注弹窗', now: '补充备注弹窗仅收集自由文本，并采用 Discord 原生的纵向布局和提交操作。结构化选项不放在弹窗内。', money: '填写备注不改变余额或订单价格。', next: '提交备注后返回私密订单频道，由系统生成完整订单摘要。' },
+          { view: 'order-confirm', title: '确认订单与预算', who: '用户小林', icon: '用', where: 'Discord · 私密订单频道', now: '系统创建仅对用户、Bot 和客服开放的私密订单频道，并在常驻面板中汇总订单信息。', money: '账户总余额 $200.00；本单预留 $120.00；提交后可用余额为 $80.00。', next: '用户确认订单后，系统建立资金预留并启动自动派单。' },
+          { view: 'dispatch', title: '自动匹配符合条件的陪玩', who: '系统自动处理', icon: '系', where: 'Discord · 订单频道与派单频道', now: '系统向在线、可接单且服务标签匹配的陪玩发送订单通知。派单过程由系统自动执行。', money: '$120.00 保持订单预留状态，尚未形成正式消费。', next: '陪玩人员在工作台查看订单并决定是否接单。' },
+          { view: 'player-offer', title: '陪玩工作台接单', who: '陪玩阿岚', icon: '陪', where: 'Discord · 陪玩工作台', now: '陪玩可查看游戏、区服、时间、时长和服务要求。系统不会展示用户完整账户余额，并在接单前重新校验资格。', money: '接单仅确定订单归属，不产生额外消费。', next: '接单成功后，系统将陪玩加入对应的私密订单频道。' },
+          { view: 'private-order', title: '陪玩确认并开始服务', who: '用户小林 + 陪玩阿岚', icon: '陪', where: 'Discord · 私密订单频道', now: '客户只读查看准备进度；所有当前有效陪玩分别确认本人就绪后，订单进入服务中状态。', money: '$120.00 继续保持订单预留，订单完成前不会转为正式消费。', next: '服务结束后，陪玩提交完成申请，由用户确认服务结果。' },
+          { view: 'order-complete', title: '订单完成与正式消费', who: '用户小林', icon: '用', where: 'Discord · 我的服务中心', now: '订单状态更新为已完成，消费历史记录服务对象、时长、金额和处理结果。', money: '$120.00 由订单预留转为正式消费；账户剩余可用余额为 $80.00。', next: '订单流程结束。推荐收益仅对合法受益人展示，被推荐用户无法查看返佣对象。' }
+        ]
+      },
+      {
+        id: 'limited-gift', title: '订单占用预算后的送礼限制', duration: '约 1 分钟', color: '#c7553d',
+        steps: [
+          { view: 'limited-balance', title: '订单预留已生效', who: '用户小林', icon: '用', where: 'Discord · 私密订单频道', now: '用户当前有一笔 $30.00 的进行中订单，并从订单面板进入送礼功能。', money: '账户总余额 $50.00；订单预留 $30.00；当前可用余额 $20.00。', next: '系统根据可用余额生成可选礼物列表。' },
+          { view: 'limited-catalog', title: '所有启用礼物始终可以选择', who: '用户小林', icon: '用', where: 'Discord · 订单内送礼面板', now: '$18.00、$28.00 和 $88.00 的礼物按钮都可点击；余额提示不会把较贵礼物灰掉。接收人固定为当前订单的陪玩阿岚。', money: '订单和礼物共用统一的全局预留计算，避免同一笔 内部账本余额在不同服务器被重复使用。', next: '小林选择 $28.00 的庆祝花束，系统实时检查余额。' },
+          { view: 'limited-result', title: '不足面板只显示差额和下一步', who: '用户小林', icon: '用', where: 'Discord · ephemeral 面板', now: '系统只显示还差 $8.00，并提供前往充值、刷新余额、返回礼物三个操作。', money: '此时礼物请求、礼物预留、消费、客服任务和消息任务均为 0；原订单预留保持不变。', next: '点击刷新后余额仍不足，面板保持不变。' },
+          { view: 'limited-refresh', title: '刷新后仍不足就留在当前面板', who: '用户小林', icon: '用', where: 'Discord · ephemeral 面板', now: '系统重新读取内部账本余额和全部活动预留，仍显示差额 $8.00；点击充值链接本身不代表充值成功。', money: '没有新增任何礼物或资金事实。', next: '充值到账后再次刷新，继续原订单、陪玩和礼物。' },
+          { view: 'limited-recharge', title: '充值到账后继续原礼物确认', who: '用户小林', icon: '用', where: 'Discord · ephemeral 面板', now: '刷新得到足额且非陈旧余额，系统保留原订单和庆祝花束，并展示当前价格 $28.00 的最终确认。', money: '最终确认前仍然零写入。', next: '若目录价格或上下架状态变化，必须先重新确认。' },
+          { view: 'limited-changed', title: '价格变化回到重新确认', who: '用户小林', icon: '用', where: 'Discord · ephemeral 面板', now: '充值期间庆祝花束更新为 $30.00；旧确认失效，系统展示新价格并要求重新确认，绝不按 $28.00 提交。', money: '旧价没有创建预留或消费。', next: '小林确认当前价格后，API 再做一次原子校验。' },
+          { view: 'affordable-gift', title: '当前快照确认后才创建请求', who: '用户小林', icon: '用', where: 'Discord · 订单内送礼面板', now: '当前余额、catalogVersion 和 $30.00 价格均一致后，礼物接收人仍由订单推导为陪玩阿岚。', money: '礼物预留 $30.00；系统同时创建礼物请求和客服核对任务。', next: '并发出现其他预留时会安全回到不足面板，不产生坏账。' }
+        ]
+      },
+      {
+        id: 'dispatch-timeout', title: '无人接单后的客服接管', duration: '约 1 分钟', color: '#9d6415',
+        steps: [
+          { view: 'dispatch-wait', title: '自动派单按预设规则运行', who: '用户小林', icon: '用', where: 'Discord · 私密订单频道', now: '系统已通知 4 位在线且符合条件的陪玩，订单面板持续更新等待状态。', money: '订单预留 $120.00 保持不变。', next: '超过预设等待时间后，系统自动生成派单超时客服任务。' },
+          { view: 'handoff', title: '处理视角由用户端切换至客服端', who: '系统交接', icon: '→', where: 'Discord → Dashboard', now: '用户订单频道继续保留等待状态；Dashboard 同步生成派单超时任务并关联完整订单记录。', money: '订单预留保持有效，系统不会重复创建订单。', next: 'L1 客服在 Dashboard 认领并处理任务。' },
+          { view: 'dispatch-task', title: '客服查看超时原因与处理选项', who: '客服小周', icon: '客', where: 'Dashboard · 客服任务队列', now: '客服可查看通知人数、未接单原因、等待时间和订单要求，并执行联系用户、继续等待或提交转派。', money: 'L1 基础客服无权修改价格或直接处理资金，可按规则接管流程并提交上级审批。', next: '客服确认用户意愿后，向主管提交扩大候选范围申请。' },
+          { view: 'dispatch-manual', title: '主管执行人工转派', who: '主管陈姐', icon: '管', where: 'Dashboard · 订单详情', now: '主管核对订单与沟通记录后，在保留核心服务条件的前提下增加候选陪玩并重新派单。', money: '订单金额与预留金额均保持 $120.00，不因转派发生变化。', next: '陪玩接单后，系统将其加入对应的私密订单频道。' },
+          { view: 'dispatch-recovered', title: '订单恢复正常派单状态', who: '用户小林 + 陪玩阿岚', icon: '陪', where: 'Discord · 私密订单频道', now: '订单面板更新为已终选，并显示逐名陪玩准备进度；关联客服任务同步完成。', money: '订单继续处于预留阶段，服务完成后才形成正式消费。', next: '所有当前有效陪玩确认本人就绪后，订单进入服务中状态。' }
+        ]
+      },
+      {
+        id: 'gift-review', title: '送礼核对与公开播报', duration: '约 2 分钟', color: '#7457a6',
+        steps: [
+          { view: 'gift-request', title: '用户提交送礼请求', who: '用户小林', icon: '用', where: 'Discord · 订单内送礼面板', now: '用户选择“星光礼盒”，接收人由当前订单固定为陪玩阿岚，以确保礼物对象与订单一致。', money: '请求确认后建立 $520.00 礼物预留，尚未形成正式消费。', next: '系统在客服专用频道和 Dashboard 同步创建礼物核对任务。' },
+          { view: 'handoff-gift', title: '处理视角切换至客服端', who: '系统交接', icon: '→', where: 'Discord → Dashboard', now: '客服任务包含礼物品类、接收人、金额、关联订单，以及私聊和语音频道入口。', money: '$520.00 保持礼物预留；请求拒绝、撤回或超时后释放。', next: 'L1 客服联系用户，核对礼物品类、接收人和沟通结果。' },
+          { view: 'gift-task', title: 'L1 客服完成礼物核对', who: '客服小周', icon: '客', where: 'Dashboard · 礼物核对任务', now: '客服可加入语音频道或私聊用户，填写内部核对记录并提交审批。', money: '余额与预留由系统完成计算和校验，L1 客服无权执行最终消费。', next: 'L2 主管检查核对记录与预留状态后进行审批。' },
+          { view: 'gift-approval', title: 'L2 主管审批礼物请求', who: '主管陈姐', icon: '管', where: 'Dashboard · 礼物审批', now: '主管核对申请人与审批人、预留有效期及金额权限范围，并作出审批决定。', money: '批准后，$520.00 由礼物预留转为正式消费；重复操作不会产生第二笔消费。', next: '业务结果保存成功后，系统向指定频道发送礼物播报。' },
+          { view: 'gift-broadcast', title: '正式消费后的公开播报', who: 'Discord 服务器成员', icon: '播', where: 'Discord · #礼物播报', now: '公开频道显示“用户小林向陪玩阿岚送出了星光礼盒”。播报内容不包含余额或支付信息。', money: '$520.00 已完成正式消费。播报失败时仅重试消息，不重复执行消费。', next: '礼物记录同步进入用户、陪玩与管理后台的历史记录。' }
+        ]
+      },
+      {
+        id: 'dispute-resolution', title: '服务争议与部分结案', duration: '约 2 分钟', color: '#a53a3a',
+        steps: [
+          { view: 'issue-report', title: '用户从原订单报告服务问题', who: '用户小林', icon: '用', where: 'Discord · 私密订单频道', now: '服务发生中断后，用户通过“报告问题”提交原因与说明。系统保留原订单及相关沟通记录。', money: '$120.00 订单预留保持不变，争议处理期间不会自动完成订单。', next: '系统创建客服任务，由 L1 客服接管并暂停自动流程。' },
+          { view: 'handoff-dispute', title: '处理视角切换至客服端', who: '系统交接', icon: '→', where: 'Discord → Dashboard', now: '用户端与陪玩端均显示“客服处理中”；后台任务关联订单时间线、双方状态和联系入口。', money: '资金结果保持冻结，系统禁止重复完成、取消或退款操作。', next: 'L1 客服联系双方并记录核对结果。' },
+          { view: 'dispute-task', title: '客服核对事实并提交处理建议', who: '客服小周', icon: '客', where: 'Dashboard · 争议任务', now: '客服查看订单时间线、联系双方并记录核对结果，建议按已完成的服务量进行 $60.00 部分结案。', money: 'L1 基础客服仅可提交处理建议，无权批准资金结果。', next: '处理建议提交至 L2 客服主管审批。' },
+          { view: 'partial-resolution', title: '主管审批部分结案', who: '主管陈姐', icon: '管', where: 'Dashboard · 订单处理', now: '主管核对处理依据、结案金额和权限范围后完成审批。系统新增结案记录，原始记录不可删除。', money: '正式消费 $60.00，并释放剩余订单预留 $60.00。', next: '系统向用户和陪玩发送处理结果，并更新用户消费历史。' },
+          { view: 'final-history', title: '用户查看最终金额与处理结果', who: '用户小林', icon: '用', where: 'Discord · 我的服务中心', now: '订单状态显示为部分结案，明细记录原价、实际消费、释放金额和客服处理结论。', money: '本单净消费 $60.00；可用余额恢复 $60.00。后续退款仍由第三方资金接口处理。', next: '流程结束。后续更正以新增记录方式保存，原始业务事实保持不变。' }
+        ]
+      },
+      {
+        id: 'weekly-settlement', title: '陪玩周报与周期结算', duration: '约 2 分钟', color: '#356c87',
+        steps: [
+          { view: 'player-weekly-report', title: '陪玩查看本人周报', who: '陪玩阿岚', icon: '陪', where: 'Discord · 我的 Profile', now: '阿岚从私密入口查看本周完成订单、服务时长以及不同状态的收益。系统只返回当前 Discord 身份本人的报告。', money: '本期待确认 $168.00；可结算 $1,246.00；已归入本期批次 $980.00。', next: '店长在 Dashboard 查看同一周期的店铺汇总。' },
+          { view: 'store-weekly-report', title: '店长复核店铺汇总', who: '店长运营01', icon: '店', where: 'Dashboard · 周报与汇总', now: '店长查看全店完成订单、服务时长、可结算金额和需要复核的项目。报告纠错会新增修订，不会覆盖旧报告。', money: '本期全店可结算 $18,462.00；1 项需要复核。', next: '异常处理后，店长打开或手动生成本期结算批次。' },
+          { view: 'settlement-export', title: '复核并导出转账清单', who: '店长运营01', icon: '店', where: 'Dashboard · 周期结算', now: '店长核对每位陪玩的收益与调整，按权限提交复核并导出第三方平台可使用的转账清单。系统不会连接银行，也不保存完整银行卡。', money: '清单净应付合计 $18,462.00；导出本身不会转账。', next: '店长在银行或第三方平台完成批量转账，再回到系统登记结果。' },
+          { view: 'settlement-results', title: '逐条登记外部付款结果', who: '店长运营01', icon: '店', where: 'Dashboard · 周期结算', now: '店长为已处理条目明确选择成功或失败，并填写第三方批次号或说明。没有选择的条目保持未登记。', money: '阿岚 $1,218.00 登记成功；可可 $720.00 登记失败并保留后续重试。', next: '系统更新批次和陪玩周报，但不会再次发起转账。' }
+        ]
+      }
+    ];
+
+    const state = { storyId: null, step: 0, inline: null };
+    const $ = (id) => document.getElementById(id);
+    const moneyFields = (items) => `<div class="balance-line">${items.map(([a,b]) => `<div><small>${a}</small><b>${b}</b></div>`).join('')}</div>`;
+    const discordShell = (channel, content, extra = '') => `<div class="discord"><aside class="discord-side"><div class="server-name">陪玩俱乐部</div><div class="channel-label">开始使用</div><div class="channel ${channel === '陪玩服务中心' ? 'active' : ''}"># 陪玩服务中心</div><div class="channel ${channel.includes('订单') ? 'active' : ''}"># ${channel.includes('订单') ? channel : '我的订单'}</div><div class="channel-label">业务频道</div><div class="channel ${channel === '礼物播报' ? 'active' : ''}"># 礼物播报</div><div class="channel"># 陪玩工作台</div></aside><section class="discord-main"><header class="discord-head"><strong># ${channel}</strong><span>${extra || '仅展示本步骤相关内容'}</span></header><div class="chat">${content}</div></section></div>`;
+    const botMessage = (body) => `<div class="message"><div class="avatar bot">Bot</div><div><div class="message-name">陪玩服务 Bot <span class="message-time">刚刚</span></div><div class="message-body">${body}</div></div></div>`;
+    const userMessage = (body, player = false) => `<div class="message"><div class="avatar" style="background:${player ? '#b35c7d' : '#6d5bd0'}">${player ? '陪' : '用'}</div><div><div class="message-name">${player ? '陪玩阿岚' : '用户小林'} <span class="message-time">刚刚</span></div><div class="message-body">${body}</div></div></div>`;
+    const actions = (buttons) => `<div class="discord-actions">${buttons.map(([label, cls = '', action = null, disabled = false]) => {
+      const resolvedAction = action || (cls === 'secondary' ? 'noop' : 'advance');
+      return `<button class="discord-btn ${cls}" data-action="${resolvedAction}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+    }).join('')}</div>`;
+    const dashShell = (active, role, content) => `<div class="dashboard"><aside class="dash-side"><div class="dash-brand">陪玩业务 Dashboard</div><div class="dash-nav"><div class="dash-nav-item ${active === '工作台' ? 'active' : ''}">工作台</div><div class="dash-nav-item ${active === '客服任务' ? 'active' : ''}">客服任务</div><div class="dash-nav-item ${active === '订单' ? 'active' : ''}">订单管理</div><div class="dash-nav-item">用户与陪玩</div><div class="dash-nav-item ${active === '礼物' ? 'active' : ''}">礼物与审批</div><div class="dash-nav-item">收益计划</div><div class="dash-nav-item ${active === '周报' ? 'active' : ''}">周报与汇总</div><div class="dash-nav-item ${active === '结算' ? 'active' : ''}">周期结算</div><div class="dash-nav-item">权限与审计</div></div><div class="dash-role">当前权限<br><b>${role}</b></div></aside><section class="dash-main">${content}</section></div>`;
+    const detailGrid = (items) => `<div class="detail-grid">${items.map(([a,b]) => `<div class="detail-item"><small>${a}</small><b>${b}</b></div>`).join('')}</div>`;
+    const transitionView = (from, to, text) => `<div class="transition-view"><div class="transition-content"><div class="transition-route"><div class="route-person"><b>${from}</b><span>当前界面保留业务状态</span></div><div class="route-arrow">→</div><div class="route-person"><b>${to}</b><span>接收关联任务并继续处理</span></div></div><h2>处理视角切换</h2><p>${text}</p><button class="control-btn primary" data-action="advance">进入下一处理界面 →</button></div></div>`;
+
+    function renderProductView(view) {
+      switch (view) {
+        case 'entry': return discordShell('陪玩服务中心', botMessage(`<div class="embed"><h3>陪玩服务中心</h3><p>用于创建订单，以及查询个人订单、消费与账户余额。</p>${moneyFields([['账户状态','已绑定'],['当前余额','$200.00'],['可用余额','$200.00']])}${actions([['创建订单','success'],['我的服务中心','secondary']])}</div>`));
+        case 'order-panel': return discordShell('订单-1042', botMessage(`<div class="embed"><h3>订单 #P-1042 · 配置服务</h3><p>结构化选项在订单面板中逐步完成。提交一项后，Bot 更新同一条消息并加载下一项。</p><div class="field"><label>1. 游戏</label><select><option>无畏契约</option></select></div><div class="field"><label>2. 服务</label><select><option>娱乐陪玩</option></select></div><div class="field"><label>3. 区服</label><select><option>北美</option></select></div><div class="field"><label>4. 时长</label><select><option>2 小时 · $120.00</option></select></div><div class="field"><label>5. 语言</label><select><option>中文</option></select></div><div class="inline-feedback">Discord 原生下拉每次提交后更新消息；关联选项不会在一个打开的弹窗中实时变化。</div>${actions([['填写补充备注','secondary','advance'],['查看完整确认','success']])}</div>`), '仅用户、Bot 与客服可见');
+        case 'order-notes': return `<div class="modal-wrap"><div class="modal"><div class="modal-head"><h3>补充订单备注</h3><p>Discord Modal · 仅一个可选文本字段</p></div><div class="modal-body"><div class="field"><label>补充备注（可选）</label><textarea>希望轻松交流，不急着上分。</textarea><small>提交后返回原订单消息。Modal 使用纵向布局，不承载游戏、服务、区服或时长选择。</small></div></div><div class="modal-foot"><button class="discord-btn secondary">取消</button><button class="discord-btn" data-action="advance">提交</button></div></div></div>`;
+        case 'order-confirm': return discordShell('订单-1042', botMessage(`<div class="embed"><h3>订单 #P-1042 · 请最后确认</h3><div class="embed-grid"><div class="embed-field"><small>游戏 / 服务</small><b>无畏契约 · 娱乐陪玩</b></div><div class="embed-field"><small>区服 / 语言</small><b>北美 · 中文</b></div><div class="embed-field"><small>开始方式 / 时长</small><b>尽快开始 · 2 小时</b></div><div class="embed-field"><small>预计价格</small><b>$120.00</b></div></div>${moneyFields([['总余额','$200.00'],['本单预留','$120.00'],['提交后可用','$80.00']])}<p style="margin-top:10px">提交后开始自动派单；开始服务前取消通常释放全部预留。</p>${actions([['确认并开始派单','success'],['修改需求','secondary']])}</div>`));
+        case 'dispatch': return discordShell('订单-1042', botMessage(`<div class="embed warning"><h3>正在匹配陪玩</h3><p>筛选条件：Discord 在线、可接单、无畏契约、北美区、中文。</p><div class="embed-grid"><div class="embed-field"><small>已通知</small><b>4 位符合条件的陪玩</b></div><div class="embed-field"><small>等待时间</small><b>00:18</b></div></div>${moneyFields([['订单金额','$120.00'],['订单预留','$120.00'],['正式消费','$0.00']])}${actions([['演示陪玩接单','success'],['联系在线客服','secondary']])}</div>`));
+        case 'player-offer': return discordShell('陪玩工作台', botMessage(`<div class="embed"><h3>新订单 #P-1042</h3><p>这是一笔与你的标签和当前状态匹配的即时订单。</p><div class="embed-grid"><div class="embed-field"><small>游戏 / 区服</small><b>无畏契约 · 北美</b></div><div class="embed-field"><small>开始方式 / 时长</small><b>尽快开始 · 2 小时</b></div><div class="embed-field"><small>服务要求</small><b>娱乐陪玩 · 中文</b></div><div class="embed-field"><small>预计陪玩收入</small><b>$84.00</b></div></div>${actions([['接单并加入用户频道','success'],['暂时无法接单','secondary']])}</div>`), '陪玩状态：在线 · 可接单');
+        case 'private-order': return discordShell('订单-1042', userMessage('我已完成服务准备。', true) + botMessage(`<div class="embed success"><h3>订单 #P-1042 · 全体陪玩已就绪</h3><div class="embed-grid"><div class="embed-field"><small>客户视图</small><b>用户小林 · 只读进度</b></div><div class="embed-field"><small>陪玩</small><b>陪玩阿岚 · 已就绪</b></div><div class="embed-field"><small>当前状态</small><b>服务中</b></div><div class="embed-field"><small>预计结束</small><b>22:00</b></div></div>${actions([['演示订单完成','success'],['追加时长','secondary'],['赠送礼物','secondary'],['报告问题','danger']])}</div>`), '仅用户、陪玩、Bot 与客服可见');
+        case 'order-complete': return discordShell('我的服务中心', botMessage(`<div class="embed success"><h3>订单已完成</h3><p>本次服务与资金记录已保存。</p>${moneyFields([['订单消费','$120.00'],['订单预留','$0.00'],['当前可用','$80.00']])}<div class="embed-grid"><div class="embed-field"><small>服务对象</small><b>陪玩阿岚</b></div><div class="embed-field"><small>完成时间</small><b>今天 22:03</b></div><div class="embed-field"><small>消费历史</small><b>#P-1042 · 已完成</b></div><div class="embed-field"><small>推荐隐私</small><b>被推荐用户看不到返佣给了谁</b></div></div><div class="inline-feedback">系统禁止自荐。“我的收益”仅展示当前用户作为合法受益人有权领取的记录；当前用户自身消费不会产生本人返佣。</div>${actions([['返回场景列表','secondary','finish']])}</div>`));
+        case 'limited-balance': return discordShell('订单-2051', botMessage(`<div class="embed"><h3>订单 #P-2051 · 服务中</h3><p>用户小林正在接受陪玩阿岚的服务。</p>${moneyFields([['总余额 $50.00','$50.00'],['订单预留 $30.00','$30.00'],['当前可用 $20.00','$20.00']])}${actions([['赠送礼物',''],['联系客服','secondary']])}</div>`));
+        case 'limited-catalog': return discordShell('订单-2051', botMessage(`<div class="embed"><h3>向陪玩阿岚赠送礼物</h3><p>所有启用礼物均可选择，接收人由订单固定。</p><div class="discord-actions"><button class="discord-btn success">小心意 · $18</button><button class="discord-btn" data-action="show-insufficient">庆祝花束 · $28</button><button class="discord-btn">星光礼盒 · $88</button></div><div class="inline-feedback">选择后由统一 API 实时读取余额和全部活动预留。</div></div>`));
+        case 'limited-result': return discordShell('订单-2051', botMessage(`<div class="embed danger"><h3>还差 $8.00</h3><p>暂时无法确认庆祝花束。</p><div class="inline-feedback">未创建礼物请求、预留、消费、客服任务或消息任务。</div>${actions([['前往充值','secondary','recharge'],['刷新余额','secondary','advance'],['返回礼物','secondary']])}</div>`));
+        case 'limited-refresh': return discordShell('订单-2051', botMessage(`<div class="embed danger"><h3>刷新后仍差 $8.00</h3><p>充值链接不会被当作充值成功。</p>${actions([['前往充值','secondary','recharge'],['刷新余额','secondary','advance'],['返回礼物','secondary']])}</div>`));
+        case 'limited-recharge': return discordShell('订单-2051', botMessage(`<div class="embed success"><h3>余额已足够</h3><p>继续原订单、陪玩阿岚和庆祝花束；当前价格 $28.00。</p>${actions([['基于当前价格确认','success','advance'],['返回礼物','secondary']])}</div>`));
+        case 'limited-changed': return discordShell('订单-2051', botMessage(`<div class="embed"><h3>礼物价格已更新</h3><p>庆祝花束由 $28.00 更新为 $30.00，旧确认已失效。</p><div class="inline-feedback">请基于新 catalogVersion 和价格重新确认。</div>${actions([['确认当前 $30.00','success','advance'],['返回礼物','secondary']])}</div>`));
+        case 'affordable-gift': return discordShell('订单-2051', botMessage(`<div class="embed success"><h3>小心意 · 请求已提交</h3><p>接收人：陪玩阿岚。礼物请求已进入客服核对流程。</p>${moneyFields([['订单预留','$30.00'],['礼物预留','$18.00'],['剩余可用','$2.00']])}<div class="inline-feedback">余额和预留金额由系统统一计算，客服无需进行人工核算。</div>${actions([['返回场景列表','secondary','finish']])}</div>`));
+        case 'dispatch-wait': return discordShell('订单-3108', botMessage(`<div class="embed warning"><h3>正在匹配陪玩</h3><p>系统已通知 4 位符合条件的在线陪玩，目前尚未接单。</p><div class="embed-grid"><div class="embed-field"><small>等待时间</small><b>04:52</b></div><div class="embed-field"><small>自动处理</small><b>00:08 后转入客服任务</b></div></div>${moneyFields([['订单金额','$120.00'],['订单预留','$120.00'],['正式消费','$0.00']])}${actions([['演示派单超时','danger'],['继续等待','secondary']])}</div>`));
+        case 'handoff': return transitionView('用户小林 · Discord', '客服小周 · Dashboard', '系统保留用户原来的订单频道，同时把派单记录、等待时间和可处理动作交给客服。');
+        case 'dispatch-task': return dashShell('客服任务', 'L1 基础客服', `<div class="dash-page-head"><div><h2>客服任务</h2><p>自动流程未完成的事项统一进入客服任务队列</p></div><span class="status red">1 条超时</span></div><div class="metric-row"><div class="metric"><span>待认领</span><strong>3</strong></div><div class="metric"><span>即将超时</span><strong>1</strong></div><div class="metric"><span>我处理中</span><strong>2</strong></div><div class="metric"><span>今日解决</span><strong>18</strong></div></div><div class="dash-panel"><div class="panel-head"><h3>#T-3108 · 派单超时</h3><span class="status amber">待认领</span></div><div class="panel-body">${detailGrid([['订单','#P-3108'],['用户','用户小林'],['已通知','4 位陪玩'],['等待','05:00'],['自动流程','已暂停'],['订单要求','北美 · 中文 · 今晚']])}<div class="notice">L1 可认领任务、联系用户、继续等待或提交转派；无权修改价格或直接释放预留。</div><div class="dash-actions" style="margin-top:12px"><button class="dash-btn">认领任务</button><button class="dash-btn">联系用户</button><button class="dash-btn primary" data-action="advance">确认继续等待并提交转派</button></div></div></div>`);
+        case 'dispatch-manual': return dashShell('订单', 'L2 客服主管', `<div class="dash-page-head"><div><h2>订单 #P-3108</h2><p>派单超时 · 客服已完成用户确认</p></div><span class="status amber">等待主管处理</span></div><div class="dash-panel"><div class="panel-head"><h3>候选与派单记录</h3><span class="status blue">版本 3</span></div><div class="panel-body">${detailGrid([['核心条件','北美 · 中文 · 无畏契约'],['原候选','4 人'],['允许新增','1 人，仍满足核心条件'],['订单金额','$120.00'],['当前预留','$120.00'],['申请人','客服小周']])}<div class="notice">主管只能在规则允许的范围内扩大候选，不会静默删除用户的核心要求。</div><div class="dash-actions" style="margin-top:12px"><button class="dash-btn">查看沟通记录</button><button class="dash-btn primary" data-action="advance">批准并重新派单</button></div></div></div>`);
+        case 'dispatch-recovered': return discordShell('订单-3108', botMessage(`<div class="embed success"><h3>陪玩已接单</h3><p>陪玩阿岚已加入对应的私密订单频道。</p><div class="embed-grid"><div class="embed-field"><small>陪玩</small><b>陪玩阿岚</b></div><div class="embed-field"><small>预计开始</small><b>今晚 20:08</b></div><div class="embed-field"><small>客服任务</small><b>已解决</b></div><div class="embed-field"><small>下一步</small><b>双方确认就绪</b></div></div>${actions([['返回场景列表','secondary','finish']])}</div>`));
+        case 'gift-request': return discordShell('订单-1042', botMessage(`<div class="embed"><h3>赠送星光礼盒</h3><p>接收陪玩由当前订单固定：陪玩阿岚。</p>${moneyFields([['内部账本余额','$768.00'],['已有订单预留','$120.00'],['礼物后可用','$128.00']])}<div class="embed-grid"><div class="embed-field"><small>礼物</small><b>星光礼盒</b></div><div class="embed-field"><small>金额</small><b>$520.00</b></div><div class="embed-field"><small>客服核对</small><b>必需</b></div><div class="embed-field"><small>预留有效期</small><b>30 分钟</b></div></div>${actions([['确认请求并预留 $520','success'],['取消','secondary']])}</div>`));
+        case 'handoff-gift': return transitionView('用户小林 · Discord', '客服小周 · Dashboard', '用户端返回订单等待状态。客服任务包含礼物内容、接收人、余额校验结果，以及私聊和语音频道入口。');
+        case 'gift-task': return dashShell('客服任务', 'L1 基础客服', `<div class="dash-page-head"><div><h2>礼物核对 #G-2088</h2><p>客服小周处理中</p></div><span class="status amber">等待核对</span></div><div class="dash-panel"><div class="panel-head"><h3>请求信息</h3><span class="status green">$520.00 已预留</span></div><div class="panel-body">${detailGrid([['用户 / 陪玩','用户小林 / 陪玩阿岚'],['礼物 / 金额','星光礼盒 / $520.00'],['关联订单','#P-1042 · 服务中'],['预留到期','剩余 24:18'],['私聊用户','可用'],['语音频道','订单语音-1042']])}<div class="dash-actions" style="margin-top:12px"><button class="dash-btn">加入语音频道</button><button class="dash-btn">私聊用户</button><button class="dash-btn warning">暂停自动流程</button><button class="dash-btn primary" data-action="advance">已核对，提交审批</button></div><div class="notice">L1 只负责联系、核对和留内部备注，不能执行最终消费。</div></div></div>`);
+        case 'gift-approval': return dashShell('礼物', 'L2 客服主管', `<div class="dash-page-head"><div><h2>礼物审批 #G-2088</h2><p>主管陈姐 · 常规金额审批</p></div><span class="status blue">等待决定</span></div><div class="dash-panel"><div class="panel-head"><h3>审批摘要</h3><span class="status green">预留有效</span></div><div class="panel-body">${detailGrid([['申请人','客服小周'],['审批人','主管陈姐'],['用户 / 目标','用户小林 / 陪玩阿岚'],['礼物金额','$520.00'],['核对结果','品类、目标、金额均已确认'],['重复保护','同一请求只执行一次']])}<div class="notice success">批准后才完成消费；消费成功后再发送公开播报。</div><div class="dash-actions" style="margin-top:12px"><button class="dash-btn danger">拒绝并释放预留</button><button class="dash-btn primary" data-action="advance">批准并正式消费</button></div></div></div>`);
+        case 'gift-broadcast': return discordShell('礼物播报', botMessage(`<div class="embed success"><h3>礼物播报</h3><p><b style="color:#fff">用户小林</b> 向 <b style="color:#fff">陪玩阿岚</b> 送出了「星光礼盒」。</p><div class="embed-grid"><div class="embed-field"><small>礼物状态</small><b>已正式消费</b></div><div class="embed-field"><small>播报状态</small><b>发送成功</b></div></div><div class="inline-feedback">播报失败时仅重试消息，不重复执行消费。公开内容不包含余额或支付信息。</div>${actions([['返回场景列表','secondary','finish']])}</div>`), '公开频道');
+        case 'issue-report': return discordShell('订单-4821', botMessage(`<div class="embed danger"><h3>订单 #P-4821 · 服务中</h3><p>服务异常可从当前订单提交，客服任务将自动关联订单与沟通记录。</p>${moneyFields([['订单金额','$120.00'],['订单预留','$120.00'],['正式消费','$0.00']])}${actions([['报告服务问题','danger'],['联系客服','secondary']])}</div>`));
+        case 'handoff-dispute': return transitionView('用户与陪玩 · Discord', '客服小周 · Dashboard', '双方的订单面板显示“客服处理中”。系统暂停自动完成与取消，把时间线和联系入口交给客服。');
+        case 'dispute-task': return dashShell('客服任务', 'L1 基础客服', `<div class="dash-page-head"><div><h2>服务争议 #T-4821</h2><p>客服小周处理中 · 自动流程已暂停</p></div><span class="status red">需要处理</span></div><div class="dash-panel"><div class="panel-head"><h3>事实与建议</h3><span class="status amber">等待主管审批</span></div><div class="panel-body">${detailGrid([['订单金额','$120.00'],['用户说明','服务中断约 60 分钟'],['陪玩说明','网络故障，已提供 60 分钟'],['可核对记录','语音进入/退出时间'],['客服建议','实际消费 $60.00'],['资金权限','L1 无权执行']])}<div class="field"><label style="color:#55646b">内部处理记录</label><textarea style="color:#24353d;background:#fff;border-color:#c6d1d5">已分别联系双方，确认完成约一半服务。建议消费 $60.00，释放剩余 $60.00。</textarea></div><div class="dash-actions" style="margin-top:12px"><button class="dash-btn">联系双方</button><button class="dash-btn warning">暂停自动流程</button><button class="dash-btn primary" data-action="advance">提交部分结案审批</button></div></div></div>`);
+        case 'partial-resolution': return dashShell('订单', 'L2 客服主管', `<div class="dash-page-head"><div><h2>部分结案审批 #P-4821</h2><p>主管陈姐 · 金额在常规审批范围内</p></div><span class="status blue">等待决定</span></div><div class="metric-row"><div class="metric"><span>原订单</span><strong>$120</strong></div><div class="metric"><span>正式消费</span><strong style="color:var(--green)">$60</strong></div><div class="metric"><span>释放预留</span><strong>$60</strong></div><div class="metric"><span>净结果</span><strong>部分结案</strong></div></div><div class="dash-panel"><div class="panel-head"><h3>审批依据</h3><span class="status green">证据齐全</span></div><div class="panel-body">${detailGrid([['申请人','客服小周'],['审批人','主管陈姐'],['处理理由','已完成约一半服务'],['版本检查','最新订单状态一致'],['审计方式','新增结案记录'],['删除原记录','不允许']])}<div class="dash-actions" style="margin-top:12px"><button class="dash-btn danger">退回补充信息</button><button class="dash-btn primary" data-action="advance">批准：消费 60，释放 60</button></div></div></div>`);
+        case 'final-history': return discordShell('我的服务中心', botMessage(`<div class="embed warning"><h3>订单 #P-4821 · 部分结案</h3><p>客服处理结果已写入消费历史。</p>${moneyFields([['原订单','$120.00'],['实际消费','$60.00'],['已释放','$60.00']])}<div class="embed-grid"><div class="embed-field"><small>处理结论</small><b>已完成约一半服务</b></div><div class="embed-field"><small>客服记录</small><b>可从原订单继续咨询</b></div><div class="embed-field"><small>账务方式</small><b>新增更正，不覆盖原记录</b></div><div class="embed-field"><small>第三方退款</small><b>需要时另行调用</b></div></div>${actions([['返回场景列表','secondary','finish']])}</div>`));
+        case 'player-weekly-report': return discordShell('我的 Profile', botMessage(`<div class="embed success"><h3>阿岚 · 2026-W29 周报</h3><p>仅陪玩阿岚本人可见。</p>${moneyFields([['待确认收益','$168.00'],['可结算收益','$1,246.00'],['已归入批次','$980.00']])}<div class="embed-grid"><div class="embed-field"><small>完成订单</small><b>18 单</b></div><div class="embed-field"><small>服务时长</small><b>32 小时</b></div><div class="embed-field"><small>报告状态</small><b>正常</b></div><div class="embed-field"><small>转账操作</small><b>不在 Discord 发起</b></div></div>${actions([['查看店铺周报','success']])}</div>`), 'ephemeral · 仅本人可见');
+        case 'store-weekly-report': return dashShell('周报', 'L2 客服主管', `<div class="dash-page-head"><div><h2>店铺周报 · 2026-W29</h2><p>当前修订 v2 · 旧修订保持只读</p></div><span class="status amber">1 项待复核</span></div><div class="metric-row"><div class="metric"><span>完成订单</span><strong>286</strong></div><div class="metric"><span>服务时长</span><strong>514h</strong></div><div class="metric"><span>可结算收益</span><strong>$18,462</strong></div><div class="metric"><span>已归批</span><strong>$15,220</strong></div></div><div class="dash-panel"><div class="panel-head"><h3>报告修订</h3><span class="status blue">当前 v2</span></div><div class="panel-body">${detailGrid([['v2','补充跨期调整'],['v1','系统周期生成'],['异常项目','1'],['历史覆盖','禁止']])}<div class="dash-actions" style="margin-top:12px"><button class="dash-btn">导出当前修订</button><button class="dash-btn primary" data-action="advance">进入结算批次</button></div></div></div>`);
+        case 'settlement-export': return dashShell('结算', 'L3 运营负责人', `<div class="dash-page-head"><div><h2>结算批次 #SET-2026-W29</h2><p>系统生成清单，不控制银行转账</p></div><span class="status amber">待复核</span></div><div class="metric-row"><div class="metric"><span>陪玩人数</span><strong>24</strong></div><div class="metric"><span>净应付</span><strong>$18,462</strong></div><div class="metric"><span>异常项目</span><strong>1</strong></div><div class="metric"><span>币种</span><strong>USD</strong></div></div><div class="dash-panel"><div class="panel-head"><h3>复核与导出</h3><span class="status blue">高额批次独立复核</span></div><div class="panel-body">${detailGrid([['数据来源','订单收益与调整流水'],['转账方式','银行或第三方平台'],['完整银行卡','系统不保存'],['导出行为','不发起转账']])}<div class="notice">创建人不能批准自己创建的高额手动批次。</div><div class="dash-actions" style="margin-top:12px"><button class="dash-btn">提交复核</button><button class="dash-btn primary" data-action="advance">导出并演示外部完成</button></div></div></div>`);
+        case 'settlement-results': return dashShell('结算', 'L3 运营负责人', `<div class="dash-page-head"><div><h2>登记外部付款结果</h2><p>#SET-2026-W29 · 只登记已经确认的事实</p></div><span class="status amber">部分完成</span></div><div class="dash-panel"><div class="panel-head"><h3>逐条结果</h3><span class="status blue">必须附证据</span></div><div class="panel-body">${detailGrid([['陪玩阿岚','成功 · $1,218 · EXT-8821'],['陪玩小北','未选择 · 保持未登记'],['陪玩可可','失败 · $720 · 第三方拒绝'],['自动标失败','禁止']])}<div class="notice success">只提交明确选择且填写第三方批次号或说明的条目。失败条目可重试，成功条目不可重复登记。</div>${actions([['结束演示并返回场景列表','secondary','finish']])}</div></div>`);
+        default: return `<div class="transition-view"><div class="transition-content"><h2>画面准备中</h2></div></div>`;
+      }
+    }
+
+    function currentStory() { return STORIES.find((story) => story.id === state.storyId); }
+
+    function startStory(id) {
+      state.storyId = id;
+      state.step = 0;
+      state.inline = null;
+      $('welcomeView').hidden = true;
+      $('storyView').hidden = false;
+      window.scrollTo(0, 0);
+      renderStep();
+    }
+
+    function renderStep() {
+      const story = currentStory();
+      if (!story) return;
+      const step = story.steps[state.step];
+      document.documentElement.style.setProperty('--teal', story.color);
+      $('storyTitle').textContent = story.title;
+      $('stepTitle').textContent = step.title;
+      $('stepCount').textContent = `第 ${state.step + 1} / ${story.steps.length} 步`;
+      $('storyDuration').textContent = story.duration;
+      $('progressFill').style.width = `${((state.step + 1) / story.steps.length) * 100}%`;
+      $('viewpointIcon').textContent = step.icon;
+      $('viewpointName').textContent = step.who;
+      $('viewpointLocation').textContent = step.where;
+      $('productStage').innerHTML = renderProductView(step.view);
+      $('plainNow').textContent = step.now;
+      $('plainMoney').textContent = step.money;
+      $('plainNext').textContent = step.next;
+      $('prevButton').disabled = state.step === 0;
+      $('nextButton').textContent = state.step === story.steps.length - 1 ? '结束演示并返回场景列表' : '下一步 →';
+      $('stepHint').textContent = state.step === story.steps.length - 1 ? '本场景演示结束' : '产品界面中的主要操作按钮可用于推进演示';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function goStep(delta) {
+      const story = currentStory();
+      if (!story) return;
+      const next = state.step + delta;
+      if (next < 0) return;
+      if (next >= story.steps.length) returnToStories();
+      else { state.step = next; state.inline = null; renderStep(); }
+    }
+
+    function returnToStories() {
+      state.storyId = null;
+      state.step = 0;
+      state.inline = null;
+      $('storyView').hidden = true;
+      $('welcomeView').hidden = false;
+      document.documentElement.style.setProperty('--teal', '#087f73');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function handleAction(action) {
+      if (action === 'advance' || action === 'choose-affordable') return goStep(1);
+      if (action === 'finish') return returnToStories();
+      if (action === 'recharge') {
+        const target = $('inlineFeedback') || document.querySelector('.inline-feedback');
+        if (target) {
+          target.innerHTML = '<b>已打开客服充值指引。</b> 客服核对收据并在 Dashboard 登记后，用户刷新即可看到内部 USD 余额；本次演示不进行真实支付。';
+          target.style.color = '#d8f1e2';
+          target.style.borderColor = '#4e7b61';
+          target.style.background = '#293c31';
+        }
+      }
+    }
+
+    document.querySelectorAll('[data-story]').forEach((button) => button.addEventListener('click', () => startStory(button.dataset.story)));
+    $('storyListButton').addEventListener('click', returnToStories);
+    $('prevButton').addEventListener('click', () => goStep(-1));
+    $('nextButton').addEventListener('click', () => goStep(1));
+    $('productStage').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]');
+      if (button && !button.disabled) handleAction(button.dataset.action);
+    });
+    document.addEventListener('keydown', (event) => {
+      if ($('storyView').hidden) return;
+      if (event.key === 'ArrowRight') goStep(1);
+      if (event.key === 'ArrowLeft') goStep(-1);
+      if (event.key === 'Escape') returnToStories();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,2276 @@
+{
+  "schemaVersion": "2.0.0",
+  "fixtureSetId": "discord-companion-p0-acceptance-v2-0",
+  "generatedFor": "prototype-p0",
+  "syntheticDataOnly": true,
+  "containsRealSecrets": false,
+  "defaults": {
+    "currency": "CAT",
+    "moneyFormat": "MINOR_UNITS_INTEGER",
+    "timeStorage": "UTC",
+    "displayTimezone": "America/Edmonton",
+    "commissionRounding": "FLOOR_MINOR_UNIT",
+    "orderMode": "IMMEDIATE_ONLY",
+    "paymentMode": "RESERVE_ON_SUBMIT_CAPTURE_ON_COMPLETION",
+    "l2GiftLimitMinor": 200000,
+    "l2RefundLimitMinor": 50000,
+    "dualApprovalLimitMinor": 500000,
+    "readinessTimeoutMinutes": 10,
+    "customerNoShowReviewMinutes": 15,
+    "completionReviewMinutes": 30,
+    "dispatchTimeoutMinutes": 5,
+    "giftReviewReminderMinutes": 10,
+    "stepUpValidityMinutes": 15,
+    "consumptionPageSize": 2
+  },
+  "clock": {
+    "baseUtc": "2026-07-15T18:00:00Z",
+    "plus10m": "2026-07-15T18:10:00Z",
+    "plus15m": "2026-07-15T18:15:00Z",
+    "plus30m": "2026-07-15T18:30:00Z"
+  },
+  "discord": {
+    "guild": {
+      "id": "420020437815864916",
+      "name": "P0 Acceptance Guild"
+    },
+    "channels": {
+      "publicEntry": "764293383367267866",
+      "dispatch": "895614381340834659",
+      "staffReview": "318923270359484074",
+      "giftBroadcast": "375578995002938203",
+      "orderCategory": "995552662248982514",
+      "archiveCategory": "756788211002364338"
+    },
+    "roles": {
+      "staffL1": "761273840881849935",
+      "staffL2": "486986013299862564",
+      "staffL3": "221839854291964322",
+      "staffL4": "437583140260520765",
+      "playerValorant": "590379974644724768"
+    },
+    "bot": {
+      "applicationId": "152651955545855641",
+      "userId": "590692129921308532",
+      "serviceToken": null
+    }
+  },
+  "users": [
+    {
+      "id": "3236f70c-83f2-5092-a174-65621ac5c6e9",
+      "displayName": "Test Unbound",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "802511462291611015"
+    },
+    {
+      "id": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "displayName": "Test Customer A",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "466466420687469746"
+    },
+    {
+      "id": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "displayName": "Test Customer B",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "711048050006944923"
+    },
+    {
+      "id": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "displayName": "Test Referrer",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "407962198628251803"
+    },
+    {
+      "id": "4bc75616-3ac1-54c3-9ebd-d41f2ef3b495",
+      "displayName": "Promoter Fixed Customer",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "322267516086475468"
+    },
+    {
+      "id": "3f7be762-2a05-5730-bdd0-ffb917a980a9",
+      "displayName": "Promoter Percent Customer",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "877384108800925344"
+    },
+    {
+      "id": "d24a04d6-38ef-5cd2-a8d8-7eae921cf1f0",
+      "displayName": "Player Lifetime Customer",
+      "role": "CUSTOMER",
+      "status": "ACTIVE",
+      "discordUserId": "720086646455481214"
+    }
+  ],
+  "players": [
+    {
+      "id": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "displayName": "Test Player Eligible A",
+      "discordUserId": "141805317896046543",
+      "reviewStatus": "ACTIVE",
+      "availability": "AVAILABLE",
+      "discordPresence": "ONLINE",
+      "gameTags": [
+        "VALORANT"
+      ],
+      "serviceTags": [
+        "CASUAL"
+      ],
+      "hasActiveOrder": false
+    },
+    {
+      "id": "ea951f85-70b4-5c2e-82b8-889bf06a037b",
+      "displayName": "Test Player Eligible B",
+      "discordUserId": "958387220738695948",
+      "reviewStatus": "ACTIVE",
+      "availability": "AVAILABLE",
+      "discordPresence": "ONLINE",
+      "gameTags": [
+        "VALORANT"
+      ],
+      "serviceTags": [
+        "CASUAL"
+      ],
+      "hasActiveOrder": false
+    },
+    {
+      "id": "ea8b99e5-ab65-5c51-811c-cc5136f1e4e7",
+      "displayName": "Test Player Pending",
+      "discordUserId": "474020236809793717",
+      "reviewStatus": "PENDING_REVIEW",
+      "availability": "AVAILABLE",
+      "discordPresence": "ONLINE",
+      "gameTags": [
+        "VALORANT"
+      ],
+      "serviceTags": [
+        "CASUAL"
+      ],
+      "hasActiveOrder": false
+    },
+    {
+      "id": "6efbc7b8-00a3-5256-881c-54b812994b2c",
+      "displayName": "Test Player Offline",
+      "discordUserId": "791460328043781979",
+      "reviewStatus": "ACTIVE",
+      "availability": "AVAILABLE",
+      "discordPresence": "OFFLINE",
+      "gameTags": [
+        "VALORANT"
+      ],
+      "serviceTags": [
+        "CASUAL"
+      ],
+      "hasActiveOrder": false
+    },
+    {
+      "id": "cc668e9f-db64-5f31-b0ff-a9b7a8ee5b5e",
+      "displayName": "Test Player Busy",
+      "discordUserId": "668488887056719917",
+      "reviewStatus": "ACTIVE",
+      "availability": "BUSY",
+      "discordPresence": "ONLINE",
+      "gameTags": [
+        "VALORANT"
+      ],
+      "serviceTags": [
+        "CASUAL"
+      ],
+      "hasActiveOrder": true
+    },
+    {
+      "id": "f1c3624a-3813-5ad0-b1ae-6e66d8affec4",
+      "displayName": "Test Player Wrong Tag",
+      "discordUserId": "708317436608051715",
+      "reviewStatus": "ACTIVE",
+      "availability": "AVAILABLE",
+      "discordPresence": "ONLINE",
+      "gameTags": [
+        "APEX"
+      ],
+      "serviceTags": [
+        "RANKED"
+      ],
+      "hasActiveOrder": false
+    }
+  ],
+  "staffAccounts": [
+    {
+      "id": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "discordUserId": "274817944588530501",
+      "level": "L1_SUPPORT",
+      "requestedLevel": null,
+      "status": "ACTIVE",
+      "permissionsVersion": 1,
+      "mfaEnrolled": false
+    },
+    {
+      "id": "49614c76-a1f4-5fce-9249-52b1cd245ff5",
+      "discordUserId": "136717982259433440",
+      "level": "L1_SUPPORT",
+      "requestedLevel": null,
+      "status": "ACTIVE",
+      "permissionsVersion": 1,
+      "mfaEnrolled": false
+    },
+    {
+      "id": "b98af1ae-4373-513c-8e38-6aaec3b643da",
+      "discordUserId": "997471409404287276",
+      "level": "L2_SUPERVISOR",
+      "requestedLevel": null,
+      "status": "ACTIVE",
+      "permissionsVersion": 2,
+      "mfaEnrolled": false
+    },
+    {
+      "id": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d",
+      "discordUserId": "318386206642948611",
+      "level": "L3_OPERATIONS",
+      "requestedLevel": null,
+      "status": "ACTIVE",
+      "permissionsVersion": 3,
+      "mfaEnrolled": true,
+      "stepUpAt": "2026-07-15T17:55:00Z"
+    },
+    {
+      "id": "a76ba848-961d-5a62-81cf-bccbd3895c9b",
+      "discordUserId": "376011618771971258",
+      "level": "L4_ADMIN_OWNER",
+      "requestedLevel": null,
+      "status": "ACTIVE",
+      "permissionsVersion": 4,
+      "mfaEnrolled": true,
+      "stepUpAt": "2026-07-15T17:55:00Z"
+    }
+  ],
+  "staffSessions": [
+    {
+      "id": "15d2fee6-4944-50fd-a40a-8ed7bd434b11",
+      "staffId": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "sessionHash": "sha256:test-session-l1-only",
+      "permissionsVersion": 1,
+      "expiresAt": "2026-07-15T22:00:00Z",
+      "revokedAt": null
+    },
+    {
+      "id": "b346aad2-4847-5e41-b004-1c5bfd5487c9",
+      "staffId": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d",
+      "sessionHash": "sha256:test-session-l3-active",
+      "permissionsVersion": 3,
+      "expiresAt": "2026-07-15T22:00:00Z",
+      "revokedAt": null
+    }
+  ],
+  "roleMappings": [
+    {
+      "discordRoleId": "761273840881849935",
+      "targetLevel": "L1_SUPPORT",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "discordRoleId": "486986013299862564",
+      "targetLevel": "L2_SUPERVISOR",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "discordRoleId": "221839854291964322",
+      "targetLevel": "L3_OPERATIONS",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "discordRoleId": "437583140260520765",
+      "targetLevel": "L4_ADMIN_OWNER",
+      "enabled": true,
+      "version": 1
+    }
+  ],
+  "internalWallet": {
+    "balances": [
+      {
+        "id": "582d2b8d-0552-5958-b3d7-20c00f207322",
+        "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+        "availableMinor": 1000000,
+        "currency": "USD"
+      },
+      {
+        "id": "b1b302b8-224c-5c78-90ec-aeb9aac6f1af",
+        "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+        "availableMinor": 9999,
+        "currency": "USD"
+      },
+      {
+        "id": "0d0d7d29-e38c-5205-a88a-c3597501fcc5",
+        "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+        "availableMinorAtRequest": 300000,
+        "availableMinorAtApproval": 1000,
+        "currency": "USD"
+      }
+    ],
+    "behaviors": [
+      {
+        "id": "ae569eea-1761-5d5e-8685-af0cc27e8dec",
+        "operation": "READ_WALLET",
+        "result": "DATABASE_UNAVAILABLE",
+        "requestAccepted": false
+      },
+      {
+        "id": "777b6c62-c88e-51a5-9365-b1ebce812c6f",
+        "operation": "RELEASE_RESERVATION_TRANSACTION",
+        "result": "ROLLED_BACK",
+        "requestAccepted": false
+      },
+      {
+        "id": "a6efde70-33f5-544a-bf70-9a30a66289b8",
+        "operation": "CAPTURE_RESERVATION_TRANSACTION",
+        "result": "RESPONSE_LOST_AFTER_COMMIT",
+        "requestAccepted": true,
+        "replayResult": "ORIGINAL_RESULT"
+      }
+    ]
+  },
+  "serviceCatalog": [
+    {
+      "id": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "game": "VALORANT",
+      "service": "CASUAL",
+      "region": "NA",
+      "billingUnitMinutes": 60,
+      "minUnits": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "currency": "CAT",
+      "enabled": true,
+      "version": 1
+    },
+    {
+      "id": "688d8eec-dda1-51bb-87ea-d95e15b3ced5",
+      "game": "VALORANT",
+      "service": "CASUAL",
+      "region": "NA",
+      "billingUnitMinutes": 60,
+      "minUnits": 1,
+      "customerUnitPriceMinor": 12000,
+      "playerUnitPayoutMinor": 8000,
+      "currency": "USD",
+      "enabled": true,
+      "version": 2
+    },
+    {
+      "id": "c6747336-17ff-53ca-b002-a4ed12816b5c",
+      "game": "APEX",
+      "service": "CASUAL",
+      "region": "NA",
+      "billingUnitMinutes": 60,
+      "minUnits": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "currency": "USD",
+      "enabled": false,
+      "version": 1
+    },
+    {
+      "id": "38d2913e-7127-5995-96bb-b0cbd984222c",
+      "game": "VALORANT",
+      "service": "COACHING",
+      "region": "NA",
+      "billingUnitMinutes": 60,
+      "minUnits": 1,
+      "customerUnitPriceMinor": 15000,
+      "playerUnitPayoutMinor": null,
+      "currency": "USD",
+      "enabled": false,
+      "version": 1
+    }
+  ],
+  "giftCatalog": [
+    {
+      "id": "773c1601-b36c-5659-b458-b5dcfd65ddc5",
+      "name": "Gift 1999",
+      "priceMinor": 199900,
+      "currency": "USD",
+      "enabled": true
+    },
+    {
+      "id": "837b0060-ac48-54c4-bb0a-937682733191",
+      "name": "Gift 2000",
+      "priceMinor": 200000,
+      "currency": "USD",
+      "enabled": true
+    },
+    {
+      "id": "a37da8f2-22aa-5c89-9fb1-490091516d2b",
+      "name": "Gift 2001",
+      "priceMinor": 200100,
+      "currency": "USD",
+      "enabled": true
+    },
+    {
+      "id": "5712a3dd-8372-5fb4-911e-0a265c36b715",
+      "name": "Gift 5000",
+      "priceMinor": 500000,
+      "currency": "USD",
+      "enabled": true
+    }
+  ],
+  "orders": [
+    {
+      "id": "41003285-d241-53cf-8878-b158bc11f754",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": null,
+      "status": "DRAFT",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "catalogVersion": 1,
+      "billingUnitMinutes": 60,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "760836189627965017",
+      "panelMessageId": "494374859049656299"
+    },
+    {
+      "id": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": null,
+      "status": "PENDING_DISPATCH",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "catalogVersion": 1,
+      "billingUnitMinutes": 60,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "839043374356051624",
+      "panelMessageId": "977951495727945748"
+    },
+    {
+      "id": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "status": "ACCEPTED",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "catalogVersion": 1,
+      "billingUnitMinutes": 60,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "208965594714218363",
+      "panelMessageId": "315497736285708210",
+      "voiceChannelId": "499982348652128293",
+      "acceptedAt": "2026-07-15T18:00:00Z"
+    },
+    {
+      "id": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "status": "IN_SERVICE",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "catalogVersion": 1,
+      "billingUnitMinutes": 60,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "768153470874355622",
+      "panelMessageId": "536383211274333027",
+      "voiceChannelId": "944753254768633826",
+      "serviceStartedAt": "2026-07-15T18:00:00Z"
+    },
+    {
+      "id": "13ff53d7-c14d-5d9e-afeb-e25dbbfb556b",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "status": "PENDING_CONFIRMATION",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "catalogVersion": 1,
+      "billingUnitMinutes": 60,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "391875521789066375",
+      "panelMessageId": "396715497885787468",
+      "completionRequestedAt": "2026-07-15T18:00:00Z",
+      "confirmationDueAt": "2026-07-15T18:30:00Z"
+    },
+    {
+      "id": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "status": "COMPLETED",
+      "catalogVersion": 1,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD"
+    },
+    {
+      "id": "9a3bbaef-4a42-5623-a743-94cf84079f53",
+      "customerId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "playerId": "ea951f85-70b4-5c2e-82b8-889bf06a037b",
+      "status": "ACCEPTED",
+      "catalogVersion": 1,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "134451996596330662"
+    },
+    {
+      "id": "d514f60d-903b-5af2-b3ca-5189882d8b6d",
+      "customerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "playerId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "status": "EXCEPTION",
+      "catalogVersion": 1,
+      "unitCount": 50,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 500000,
+      "expectedPlayerEarningMinor": 350000,
+      "currency": "USD"
+    },
+    {
+      "id": "af422107-8f46-54fa-ab95-cf6927cfa69c",
+      "customerId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "playerId": "ea951f85-70b4-5c2e-82b8-889bf06a037b",
+      "status": "COMPLETED",
+      "catalogVersion": 1,
+      "unitCount": 1,
+      "customerUnitPriceMinor": 10000,
+      "playerUnitPayoutMinor": 7000,
+      "amountMinor": 10000,
+      "expectedPlayerEarningMinor": 7000,
+      "currency": "USD",
+      "channelId": "588340892312644895",
+      "panelMessageId": "410307830799018918"
+    }
+  ],
+  "giftRequests": [
+    {
+      "id": "b490e6f9-937a-577d-a82a-4979e03e0fe0",
+      "giftId": "773c1601-b36c-5659-b458-b5dcfd65ddc5",
+      "senderId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "receiverId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "priceMinor": 199900,
+      "currency": "USD",
+      "status": "PENDING_REVIEW"
+    },
+    {
+      "id": "ea918148-3a21-56d2-816b-79cb7e79913b",
+      "giftId": "837b0060-ac48-54c4-bb0a-937682733191",
+      "senderId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "receiverId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "priceMinor": 200000,
+      "currency": "USD",
+      "status": "PENDING_REVIEW"
+    },
+    {
+      "id": "353e6839-ced1-5191-a106-8ce919dcfa22",
+      "giftId": "a37da8f2-22aa-5c89-9fb1-490091516d2b",
+      "senderId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "receiverId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "priceMinor": 200100,
+      "currency": "USD",
+      "status": "PENDING_REVIEW"
+    },
+    {
+      "id": "76ab608d-8fd2-56c5-bf27-fddfabf7de1e",
+      "giftId": "5712a3dd-8372-5fb4-911e-0a265c36b715",
+      "senderId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "receiverId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "priceMinor": 500000,
+      "currency": "USD",
+      "status": "PENDING_REVIEW"
+    },
+    {
+      "id": "100eddae-2401-54fc-b512-e29743ecb50a",
+      "giftId": "837b0060-ac48-54c4-bb0a-937682733191",
+      "senderId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "receiverId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "priceMinor": 200000,
+      "currency": "USD",
+      "status": "CAPTURED",
+      "externalTransactionId": "cbb60123-1917-5470-828e-9c42e7343934"
+    }
+  ],
+  "transactions": [
+    {
+      "id": "ce060602-c531-532e-aa0b-c5805fe29894",
+      "provider": "TEST_PROVIDER",
+      "type": "ORDER_CHARGE",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "orderId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "externalRef": "provider_debit_order_001",
+      "idempotencyKey": "order:5f595253-b681-51dd-9c3b-19be5e3c419c:capture",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "cbb60123-1917-5470-828e-9c42e7343934",
+      "provider": "TEST_PROVIDER",
+      "type": "GIFT_CHARGE",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "giftRequestId": "100eddae-2401-54fc-b512-e29743ecb50a",
+      "externalRef": "provider_debit_gift_001",
+      "idempotencyKey": "gift:100eddae-2401-54fc-b512-e29743ecb50a:debit",
+      "amountMinor": 200000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "b1317906-4118-53b4-9c5e-a61daeec90db",
+      "provider": "TEST_PROVIDER",
+      "type": "ORDER_CHARGE",
+      "userId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "orderId": "af422107-8f46-54fa-ab95-cf6927cfa69c",
+      "externalRef": "provider_debit_order_paid_001",
+      "idempotencyKey": "order:af422107-8f46-54fa-ab95-cf6927cfa69c:capture",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "2d63257a-5aa5-5c31-9491-c72988f59c0b",
+      "provider": "TEST_PROVIDER",
+      "type": "ORDER_REFUND",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "sourceTransactionId": "ce060602-c531-532e-aa0b-c5805fe29894",
+      "refundId": "ad7ade9b-85f6-569d-98b5-7281de490797",
+      "externalRef": "provider_refund_order_full_001",
+      "idempotencyKey": "order:5f595253-b681-51dd-9c3b-19be5e3c419c:refund:full",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "ab0722a3-b1b6-5946-be35-096cd910090f",
+      "provider": "TEST_PROVIDER",
+      "type": "GIFT_REFUND",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "sourceTransactionId": "cbb60123-1917-5470-828e-9c42e7343934",
+      "externalRef": "provider_refund_gift_001",
+      "idempotencyKey": "gift:100eddae-2401-54fc-b512-e29743ecb50a:refund",
+      "amountMinor": 200000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "c43879a5-e602-5da7-883d-f74a4678a202",
+      "provider": "TEST_PROVIDER",
+      "type": "ORDER_REFUND",
+      "userId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "sourceTransactionId": "b1317906-4118-53b4-9c5e-a61daeec90db",
+      "refundId": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "externalRef": "provider_refund_order_partial_001",
+      "idempotencyKey": "order:af422107-8f46-54fa-ab95-cf6927cfa69c:refund:partial",
+      "amountMinor": 3000,
+      "currency": "USD",
+      "status": "SUCCEEDED"
+    }
+  ],
+  "staffTasks": [
+    {
+      "id": "bdd7e8b7-f76d-53c0-afff-7295c2c55ae4",
+      "type": "CANCELLATION_ASSIST",
+      "status": "OPEN",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "claimedBy": null
+    },
+    {
+      "id": "62eaad16-80fa-5f20-afa3-2ad9b7b3e98f",
+      "type": "GIFT_REVIEW",
+      "status": "VERIFIED",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "giftRequestId": "b490e6f9-937a-577d-a82a-4979e03e0fe0",
+      "claimedBy": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "voiceChannelId": "944753254768633826"
+    },
+    {
+      "id": "8eab0b48-21f8-52f5-96ed-3da11f39f42f",
+      "type": "GIFT_REVIEW",
+      "status": "VERIFIED",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "giftRequestId": "ea918148-3a21-56d2-816b-79cb7e79913b",
+      "claimedBy": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "voiceChannelId": "944753254768633826"
+    },
+    {
+      "id": "bc99888b-d391-5eff-b843-d9a1364ecae0",
+      "type": "GIFT_REVIEW",
+      "status": "VERIFIED",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "giftRequestId": "353e6839-ced1-5191-a106-8ce919dcfa22",
+      "claimedBy": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "voiceChannelId": "944753254768633826"
+    },
+    {
+      "id": "29e139c3-199d-57bc-a6bd-9a4ce97710d0",
+      "type": "GIFT_REVIEW",
+      "status": "VERIFIED",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "giftRequestId": "76ab608d-8fd2-56c5-bf27-fddfabf7de1e",
+      "claimedBy": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21",
+      "voiceChannelId": "944753254768633826"
+    },
+    {
+      "id": "a8410498-e010-5703-9258-c1feb2c2b163",
+      "type": "PLAYER_START_LATE",
+      "contextCode": "PLAYER_START_LATE",
+      "status": "OPEN",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "claimedBy": null
+    }
+  ],
+  "giftReviewScenarios": [
+    {
+      "id": "b5c1ebc4-eaf3-52d5-a386-ef8715750dd2",
+      "giftRequestId": "b490e6f9-937a-577d-a82a-4979e03e0fe0",
+      "staffTaskId": "62eaad16-80fa-5f20-afa3-2ad9b7b3e98f"
+    },
+    {
+      "id": "a6860d17-f40b-59a5-a79b-a0a26dc310ee",
+      "giftRequestId": "ea918148-3a21-56d2-816b-79cb7e79913b",
+      "staffTaskId": "8eab0b48-21f8-52f5-96ed-3da11f39f42f"
+    },
+    {
+      "id": "80b4a77c-df4b-5b85-aa23-95b1a04df3c2",
+      "giftRequestId": "353e6839-ced1-5191-a106-8ce919dcfa22",
+      "staffTaskId": "bc99888b-d391-5eff-b843-d9a1364ecae0"
+    },
+    {
+      "id": "341bfb2a-ba0a-53a3-a156-9bd1a89858d9",
+      "giftRequestId": "76ab608d-8fd2-56c5-bf27-fddfabf7de1e",
+      "staffTaskId": "29e139c3-199d-57bc-a6bd-9a4ce97710d0"
+    }
+  ],
+  "resolutions": [
+    {
+      "id": "1256dc2c-3ec7-5401-91e8-ba4249b99326",
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "targetStatus": "COMPLETED",
+      "reasonCode": "SERVICE_INTERRUPTED",
+      "refundAmountMinor": 4000,
+      "playerEarningMinor": 4200,
+      "currency": "USD",
+      "evidenceNote": "Synthetic acceptance evidence"
+    },
+    {
+      "id": "be044610-2cf9-5ee1-b11c-561038b497fc",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "targetStatus": "CANCELLED",
+      "reasonCode": "INVALID_TEST_AMOUNT",
+      "refundAmountMinor": 20000,
+      "playerEarningMinor": 9000,
+      "currency": "USD",
+      "evidenceNote": "Synthetic invalid boundary"
+    }
+  ],
+  "refundBoundaries": [
+    {
+      "id": "227582da-b662-5e05-8842-55c79e39d8a8",
+      "amountMinor": 49900,
+      "currency": "USD",
+      "expectedRoute": "L2_EXECUTE"
+    },
+    {
+      "id": "b2c4d14c-df32-5c4b-9815-9562eb229d11",
+      "amountMinor": 50000,
+      "currency": "USD",
+      "expectedRoute": "L2_EXECUTE"
+    },
+    {
+      "id": "f1df810c-af65-5eab-9bc3-e05d0cc6435e",
+      "amountMinor": 50100,
+      "currency": "USD",
+      "expectedRoute": "L3_APPROVAL"
+    },
+    {
+      "id": "2698be98-6876-5089-a23c-67cf5fecc9b6",
+      "amountMinor": 500000,
+      "currency": "USD",
+      "expectedRoute": "L3_REQUEST_L4_REVIEW"
+    }
+  ],
+  "referrals": [
+    {
+      "id": "53fdedd9-d52a-5b3c-8646-176d57476d3d",
+      "referrerId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "referredId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "relationType": "CUSTOMER_TO_CUSTOMER",
+      "rateBps": 200,
+      "boundAt": "2026-07-01T00:00:00Z",
+      "boundBeforeFirstConsumption": true
+    },
+    {
+      "id": "cdfb9647-9f4a-5cf9-b2d7-555c5925e626",
+      "referrerId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "referredId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "relationType": "CUSTOMER_TO_CUSTOMER",
+      "rateBps": 500,
+      "boundAt": "2026-07-01T00:00:00Z",
+      "boundBeforeFirstConsumption": true
+    }
+  ],
+  "invalidReferrals": [
+    {
+      "id": "f2db097f-2115-54c2-8fb7-b093d6ab12fb",
+      "referrerId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "referredId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "reason": "SELF_REFERRAL"
+    },
+    {
+      "id": "0df55f67-057c-543d-aa44-ceaa3dbeb186",
+      "referrerId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "referredId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "reason": "REFERRER_ALREADY_BOUND"
+    },
+    {
+      "id": "3e4c6162-94d3-5822-8b38-d970a4d3ce58",
+      "referrerId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "referredId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "reason": "BOUND_AFTER_FIRST_CONSUMPTION"
+    }
+  ],
+  "consumptionLedger": [
+    {
+      "id": "f494377b-10d4-52e6-bcad-6f0295e3899c",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "type": "ORDER",
+      "sourceId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "POSTED",
+      "occurredAt": "2026-07-15T18:40:00Z"
+    },
+    {
+      "id": "b93bf0c0-7ec5-5add-88f7-0c890ed55196",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "type": "GIFT",
+      "sourceId": "100eddae-2401-54fc-b512-e29743ecb50a",
+      "amountMinor": 200000,
+      "currency": "USD",
+      "status": "POSTED",
+      "occurredAt": "2026-07-15T18:45:00Z"
+    },
+    {
+      "id": "3d4d4c9d-7690-53b5-966c-88ec5514373d",
+      "userId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "type": "ORDER",
+      "sourceId": "b63f1aa6-58fe-585e-92e5-133b4a9b2081",
+      "amountMinor": 12345,
+      "currency": "USD",
+      "status": "POSTED",
+      "occurredAt": "2026-07-15T18:50:00Z"
+    }
+  ],
+  "commissions": [
+    {
+      "id": "1b0cef76-9a2b-565e-a381-69e61da45e68",
+      "referralId": "53fdedd9-d52a-5b3c-8646-176d57476d3d",
+      "beneficiaryUserId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "sourceConsumptionEntryId": "f494377b-10d4-52e6-bcad-6f0295e3899c",
+      "baseAmountMinor": 10000,
+      "rateBps": 200,
+      "amountMinor": 200,
+      "currency": "USD",
+      "status": "PENDING"
+    }
+  ],
+  "playerEarnings": [
+    {
+      "id": "ea8469f0-6360-5bb3-b38c-849de0b3e33a",
+      "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "orderId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "baseUnits": 1,
+      "unitPayoutMinor": 7000,
+      "amountMinor": 7000,
+      "currency": "USD",
+      "status": "PENDING",
+      "confirmedByStaffId": null,
+      "paidAt": null
+    },
+    {
+      "id": "acbe7fdd-d531-5ca5-bef5-5848d3f5b4ec",
+      "playerUserId": "ea951f85-70b4-5c2e-82b8-889bf06a037b",
+      "orderId": "af422107-8f46-54fa-ab95-cf6927cfa69c",
+      "baseUnits": 1,
+      "unitPayoutMinor": 7000,
+      "amountMinor": 7000,
+      "currency": "USD",
+      "status": "PAID",
+      "confirmedByStaffId": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d",
+      "paidAt": "2026-07-15T18:55:00Z"
+    }
+  ],
+  "approvalRequests": [
+    {
+      "id": "4104bdc4-26bd-51d0-9632-b4fc80c0df48",
+      "action": "GIFT_APPROVE",
+      "targetType": "GIFT_REQUEST",
+      "targetId": "76ab608d-8fd2-56c5-bf27-fddfabf7de1e",
+      "amountMinor": 500000,
+      "currency": "USD",
+      "requestedBy": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d",
+      "requiredLevel": "L4_ADMIN_OWNER",
+      "status": "PENDING",
+      "approvedBy": null,
+      "expiresAt": "2026-07-15T19:00:00Z"
+    }
+  ],
+  "outboxJobs": [
+    {
+      "id": "ee757905-82dd-5ded-9a03-b2acc0a6395b",
+      "type": "GIFT_BROADCAST",
+      "status": "FAILED",
+      "attempts": 1,
+      "payloadRef": "100eddae-2401-54fc-b512-e29743ecb50a",
+      "runAfter": "2026-07-15T18:05:00Z",
+      "lastError": "SYNTHETIC_DISCORD_TIMEOUT"
+    }
+  ],
+  "retiredPaymentWebhookRequest": {
+    "method": "POST",
+    "path": "/api/v1/webhooks/payment",
+    "body": { "type": "PAYMENT_EVENT_MUST_NOT_BE_ACCEPTED" },
+    "expectedStatus": 404,
+    "expectedWalletEntryDelta": 0
+  },
+  "idempotencyKeys": {
+    "orderSubmit": "order:41003285-d241-53cf-8878-b158bc11f754:submit",
+    "orderConfirm": "order:13ff53d7-c14d-5d9e-afeb-e25dbbfb556b:confirm",
+    "giftApprove": "gift:ea918148-3a21-56d2-816b-79cb7e79913b:debit",
+    "orderRefund": "order:dc2a1d82-b519-5719-a7ba-64956694b165:refund:full"
+  },
+  "authTestInputs": {
+    "invalidBotToken": "NOT_A_VALID_TEST_TOKEN",
+    "forgedActorHeaders": {
+      "X-Actor-Discord-User-Id": "376011618771971258",
+      "X-Actor-Guild-Id": "420020437815864916",
+      "X-Claimed-Level": "L4_ADMIN_OWNER"
+    },
+    "l1SessionHash": "sha256:test-session-l1-only",
+    "secretSentinels": [
+      "[TEST_SENTINEL_BOT_TOKEN]",
+      "[TEST_SENTINEL_RECEIPT_STORAGE_KEY]",
+      "[TEST_SENTINEL_DASHBOARD_SESSION]",
+      "[TEST_SENTINEL_CSRF_VALUE]"
+    ]
+  },
+  "recovery": {
+    "discordCreateChannelFailure": {
+      "operation": "CREATE_CHANNEL",
+      "result": "MISSING_PERMISSIONS"
+    },
+    "deletedPanel": {
+      "orderId": "8dabfcd0-b8c2-5dea-a3d9-65902c62acb1",
+      "deletedMessageId": "536383211274333027",
+      "expectedReplacementId": "349757806650592558"
+    },
+    "databaseSnapshot": {
+      "id": "3ef75d13-9a70-5170-a048-5f6ff85a9f0e",
+      "capturedAt": "2026-07-15T19:00:00Z",
+      "synthetic": true,
+      "expectedCoreTableCount": 19
+    }
+  },
+  "financialRecordSet": {
+    "orderIds": [
+      "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "af422107-8f46-54fa-ab95-cf6927cfa69c"
+    ],
+    "transactionIds": [
+      "ce060602-c531-532e-aa0b-c5805fe29894",
+      "cbb60123-1917-5470-828e-9c42e7343934",
+      "b1317906-4118-53b4-9c5e-a61daeec90db",
+      "2d63257a-5aa5-5c31-9491-c72988f59c0b",
+      "ab0722a3-b1b6-5946-be35-096cd910090f",
+      "c43879a5-e602-5da7-883d-f74a4678a202"
+    ],
+    "refundIds": [
+      "ad7ade9b-85f6-569d-98b5-7281de490797",
+      "ca0788fd-aeb1-5b04-8815-e2c86ae97742"
+    ],
+    "consumptionIds": [
+      "f494377b-10d4-52e6-bcad-6f0295e3899c",
+      "b93bf0c0-7ec5-5add-88f7-0c890ed55196"
+    ],
+    "earningIds": [
+      "ea8469f0-6360-5bb3-b38c-849de0b3e33a",
+      "acbe7fdd-d531-5ca5-bef5-5848d3f5b4ec"
+    ],
+    "earningAdjustmentIds": [
+      "aa4389ca-df88-5ef4-bb68-2c6afe6c6e68"
+    ],
+    "commissionIds": [
+      "1b0cef76-9a2b-565e-a381-69e61da45e68"
+    ],
+    "commissionAdjustmentIds": [
+      "2cee1c09-5803-5b98-bdda-1647d45a4985"
+    ],
+    "mutationPolicy": "APPEND_ONLY_ADJUSTMENTS"
+  },
+  "supplementalAcceptanceFixtures": {
+    "contracts": {
+      "mainSpec": "outputs/Discord陪玩业务Bot最小原型设计开发文档.html",
+      "openapi": "outputs/P0开发交付包/02-API/openapi.yaml",
+      "schema": "outputs/P0开发交付包/03-数据模型/schema.prisma"
+    },
+    "environment": {
+      "currency": "CAT",
+      "guildId": "420020437815864916",
+      "syntheticOnly": true
+    },
+    "routeInventory": { "source": "apps/api/src", "mutationAuditRequired": true },
+    "customerHistory": { "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02", "orderCount": 2, "consumptionCount": 2 },
+    "dmFailure": { "operation": "SEND_PRIVATE_MESSAGE", "result": "SYNTHETIC_MISSING_PERMISSIONS" },
+    "giftPriceChanged": { "giftCatalogId": "837b0060-ac48-54c4-bb0a-937682733191", "requestedVersion": 1, "currentVersion": 2 },
+    "giftUnaffordable": { "priceMinor": 288800, "availableMinor": 64800, "shortfallMinor": 224000, "currency": "CAT" },
+    "invalidWalletDisplayConfig": { "WALLET_DISPLAY_NAME": "", "WALLET_DISPLAY_SYMBOL": "$" },
+    "lateAdjustment": { "sourceType": "ORDER", "amountMinor": -500, "currency": "USD", "occurredAfterReport": true },
+    "settlementApproved": { "id": "00000000-0000-0000-0000-00000000a601", "status": "APPROVED", "currency": "USD", "itemCount": 2 },
+    "settlementExported": { "id": "00000000-0000-0000-0000-00000000a602", "status": "EXPORTED", "currency": "USD", "exportVersion": 1 },
+    "settlementHigh": { "id": "00000000-0000-0000-0000-00000000a603", "amountMinor": 500000, "currency": "USD", "createdBy": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d" },
+    "settlementRace": { "id": "00000000-0000-0000-0000-00000000a604", "expectedVersion": 1, "concurrentVersion": 2 },
+    "settlementSchedule": { "timezone": "America/Toronto", "weekday": 1, "localTime": "09:00" },
+    "walletEntries": [
+      { "id": "00000000-0000-0000-0000-000000007901", "entryType": "TOP_UP_CREDIT", "direction": "CREDIT", "amountMinor": 10000, "currency": "CAT" },
+      { "id": "00000000-0000-0000-0000-000000007902", "entryType": "ORDER_CAPTURE_DEBIT", "direction": "DEBIT", "amountMinor": 12000, "currency": "CAT" }
+    ],
+    "walletMinorValues": [0, 1, 10, 100, 10000, 500000],
+    "walletDisplayConfig": { "displayName": "猫条", "symbol": "CAT", "subunitsPerCat": 10, "locked": true },
+    "topUpPaymentEvidence": { "paidCurrency": "USD", "rateCatPerUsd": 10 },
+    "weeklyPeriod": { "start": "2026-07-13", "end": "2026-07-20", "timezone": "America/Toronto" },
+    "weeklyReport": { "id": "00000000-0000-0000-0000-00000000a605", "status": "READY", "currency": "USD", "currentRevision": 1 },
+    "weeklyReports": [
+      { "id": "00000000-0000-0000-0000-00000000a605", "status": "READY", "currency": "USD" },
+      { "id": "00000000-0000-0000-0000-00000000a606", "status": "SUPERSEDED", "currency": "USD" }
+    ],
+    "m10NineEligiblePlayers": [
+      { "id": "00000000-0000-0000-0000-000000010001", "displayName": "M10 Player 1", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010002", "displayName": "M10 Player 2", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010003", "displayName": "M10 Player 3", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010004", "displayName": "M10 Player 4", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010005", "displayName": "M10 Player 5", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010006", "displayName": "M10 Player 6", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010007", "displayName": "M10 Player 7", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010008", "displayName": "M10 Player 8", "eligible": true },
+      { "id": "00000000-0000-0000-0000-000000010009", "displayName": "M10 Player 9", "eligible": true }
+    ],
+    "m10NineReadyPlayers": [
+      "00000000-0000-0000-0000-000000010001", "00000000-0000-0000-0000-000000010002", "00000000-0000-0000-0000-000000010003",
+      "00000000-0000-0000-0000-000000010004", "00000000-0000-0000-0000-000000010005", "00000000-0000-0000-0000-000000010006",
+      "00000000-0000-0000-0000-000000010007", "00000000-0000-0000-0000-000000010008", "00000000-0000-0000-0000-000000010009"
+    ],
+    "m10NineServiceProjects": [
+      { "id": "00000000-0000-0000-0000-000000011001", "code": "DELTA_TECH", "name": "三角洲技术护航", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011002", "code": "DELTA_FUN", "name": "三角洲娱乐陪玩", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011003", "code": "VALORANT_RANKED", "name": "瓦洛兰特上分", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011004", "code": "VALORANT_FUN", "name": "瓦洛兰特娱乐", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011005", "code": "LOL_RANKED", "name": "英雄联盟上分", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011006", "code": "LOL_FUN", "name": "英雄联盟娱乐", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011007", "code": "APEX_RANKED", "name": "Apex 上分", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011008", "code": "APEX_FUN", "name": "Apex 娱乐", "active": true },
+      { "id": "00000000-0000-0000-0000-000000011009", "code": "CHAT", "name": "语音聊天", "active": true }
+    ],
+    "m10TechCatalog": { "id": "00000000-0000-0000-0000-000000011001", "code": "DELTA_TECH", "name": "三角洲技术护航", "unitPriceMinor": 6000, "currency": "USD", "active": true },
+    "m10FunCatalog": { "id": "00000000-0000-0000-0000-000000011002", "code": "DELTA_FUN", "name": "三角洲娱乐陪玩", "unitPriceMinor": 3000, "currency": "USD", "active": true },
+    "m10EligibleReplacement": { "id": "00000000-0000-0000-0000-000000010010", "displayName": "M10 Eligible Replacement", "reviewStatus": "ACTIVE", "gameTags": ["VALORANT"], "serviceTags": ["CASUAL"], "hasActiveOrder": false },
+    "m10OrderTwoActivePlayers": { "id": "00000000-0000-0000-0000-000000010011", "status": "ACCEPTED", "participantIds": ["00000000-0000-0000-0000-000000010001", "00000000-0000-0000-0000-000000010002"] },
+    "m10DeltaEscortPackage": { "id": "00000000-0000-0000-0000-000000012001", "code": "DELTA_ESCORT", "name": "三角洲护航套餐", "status": "ACTIVE", "slotCatalogIds": ["00000000-0000-0000-0000-000000011001", "00000000-0000-0000-0000-000000011001"] },
+    "m10PackageDefaultOrder": { "id": "00000000-0000-0000-0000-000000013001", "status": "DRAFT", "compositionMode": "PACKAGE_DEFAULT", "servicePackageVersionId": "00000000-0000-0000-0000-000000012001", "requirementCount": 2 },
+    "m11TwoCollectingOrders": [{ "id": "00000000-0000-0000-0000-000000014001", "status": "PENDING_DISPATCH", "poolStatus": "COLLECTING" }, { "id": "00000000-0000-0000-0000-000000014002", "status": "PENDING_DISPATCH", "poolStatus": "COLLECTING" }],
+    "m11SelectionPoolEmpty": { "id": "00000000-0000-0000-0000-000000014010", "status": "SELECTION", "applicationCount": 0 },
+    "m11SelectionPoolCollecting": { "id": "00000000-0000-0000-0000-000000014013", "status": "COLLECTING", "applicationCount": 1, "waitMinutes": null, "closesAt": null },
+    "m11SelectionPoolOne": { "id": "00000000-0000-0000-0000-000000014014", "status": "SELECTION", "applicationCount": 1, "applicants": ["00000000-0000-0000-0000-000000010001"] },
+    "discordOrderChannel": { "id": "764293383367267867", "guildId": "420020437815864916", "kind": "PRIVATE_ORDER" },
+    "cancelledOrder": { "id": "00000000-0000-0000-0000-000000014015", "status": "CANCELLED", "reservationStatus": "RELEASED" },
+    "m11SelectionPoolPartial": { "id": "00000000-0000-0000-0000-000000014011", "status": "FINALIZED", "selectedCount": 1, "remainingSlotCount": 2 },
+    "m11SelectionPoolNine": { "id": "00000000-0000-0000-0000-000000014012", "status": "SELECTION", "applicationCount": 9, "applicants": ["00000000-0000-0000-0000-000000010001", "00000000-0000-0000-0000-000000010002", "00000000-0000-0000-0000-000000010003", "00000000-0000-0000-0000-000000010004", "00000000-0000-0000-0000-000000010005", "00000000-0000-0000-0000-000000010006", "00000000-0000-0000-0000-000000010007", "00000000-0000-0000-0000-000000010008", "00000000-0000-0000-0000-000000010009"] },
+    "m11SelectionPoolNineRequirements": { "id": "00000000-0000-0000-0000-000000014016", "status": "COLLECTING", "requirementIds": ["00000000-0000-0000-0000-000000011001", "00000000-0000-0000-0000-000000011002", "00000000-0000-0000-0000-000000011003", "00000000-0000-0000-0000-000000011004", "00000000-0000-0000-0000-000000011005", "00000000-0000-0000-0000-000000011006", "00000000-0000-0000-0000-000000011007", "00000000-0000-0000-0000-000000011008", "00000000-0000-0000-0000-000000011009"] },
+    "m11DiscordRetry": { "failuresBeforeSuccess": 2, "terminalFailureAttempts": 8 },
+    "m13SevenCollections": {
+      "orders": ["00000000-0000-0000-0000-000000013001"],
+      "users": ["83d15e39-2937-572e-ac85-6c7ccac86e02"],
+      "players": ["00000000-0000-0000-0000-000000010001"],
+      "serviceCatalog": ["00000000-0000-0000-0000-000000011001"],
+      "servicePackages": ["00000000-0000-0000-0000-000000012001"],
+      "giftCatalog": ["GIFT_TEST_1999"],
+      "giftRequests": ["GIFT_REQUEST_TEST"]
+    },
+    "m13DuplicateSortValues": [
+      { "id": "00000000-0000-0000-0000-000000015001", "displayName": "同名项目", "amountMinor": 1000, "version": 1, "createdAt": "2026-07-15T18:00:00Z" },
+      { "id": "00000000-0000-0000-0000-000000015002", "displayName": "同名项目", "amountMinor": 1000, "version": 1, "createdAt": "2026-07-15T18:00:00Z" },
+      { "id": "00000000-0000-0000-0000-000000015003", "displayName": null, "amountMinor": null, "version": 1, "createdAt": null }
+    ],
+    "m13ThreePages": { "pageSize": 2, "itemIds": ["00000000-0000-0000-0000-000000015001", "00000000-0000-0000-0000-000000015002", "00000000-0000-0000-0000-000000015003", "00000000-0000-0000-0000-000000015004", "00000000-0000-0000-0000-000000015005", "00000000-0000-0000-0000-000000015006"] },
+    "m13Cursor": { "resource": "orders", "actorGuildId": "420020437815864916", "actorScope": "GUILD", "filters": { "status": "COMPLETED" }, "sortBy": "createdAt", "sortDirection": "desc", "sortValue": "2026-07-15T18:00:00Z", "id": "00000000-0000-0000-0000-000000015001" },
+    "m13SlowFirstRequest": { "firstDelayMs": 500, "secondDelayMs": 10, "winningSortBy": "amountMinor", "winningSortDirection": "asc" },
+    "m13TwoGuilds": [{ "id": "420020437815864916", "name": "P0 Acceptance Guild" }, { "id": "420020437815864917", "name": "P0 Isolation Guild" }],
+    "m14DashboardSummary": { "guildId": "420020437815864916", "todayOrderCount": 3, "inProgressOrderCount": 2, "pendingStaffTaskCount": 3, "exceptionCount": 1, "currency": "USD" },
+    "m14MixedTasks": [{ "id": "00000000-0000-0000-0000-000000016001", "status": "OPEN", "responseStatus": "OVERDUE" }, { "id": "00000000-0000-0000-0000-000000016002", "status": "OPEN", "responseStatus": "PENDING" }, { "id": "00000000-0000-0000-0000-000000016003", "status": "CLAIMED", "responseStatus": "NOT_REQUIRED" }],
+    "m14TaskMissingGuild": { "id": "00000000-0000-0000-0000-000000016004", "status": "OPEN", "guildId": null, "channelId": "764293383367267866" },
+    "m14TaskWithChannels": { "id": "00000000-0000-0000-0000-000000016005", "status": "OPEN", "guildId": "420020437815864916", "channelId": "764293383367267866", "voiceChannelId": "895614381340834659" },
+    "m14ThreePages": { "pageSize": 2, "taskIds": ["00000000-0000-0000-0000-000000016001", "00000000-0000-0000-0000-000000016002", "00000000-0000-0000-0000-000000016003", "00000000-0000-0000-0000-000000016004", "00000000-0000-0000-0000-000000016005"] },
+    "m14UnclaimedTask": { "id": "00000000-0000-0000-0000-000000016006", "publicId": "T-M14-UNCLAIMED", "status": "OPEN", "claimedBy": null },
+    "m14OrdersWithContext": [{ "id": "00000000-0000-0000-0000-000000016101", "publicId": "P-M14-01", "status": "PENDING_DISPATCH", "customerDisplayName": "Test Customer A", "serviceSummary": "VALORANT · FUN", "amountMinor": 12000, "currency": "USD" }]
+    ,"m15InServiceComplaint": { "id": "00000000-0000-0000-0000-000000017001", "status": "IN_SERVICE", "supportReason": "CONNECTION_INTERRUPTION" }
+    ,"m15CompletedOrder": { "id": "00000000-0000-0000-0000-000000017002", "status": "COMPLETED", "capturedMinor": 12000, "refundableMinor": 12000 }
+    ,"m15TranscriptEvents": [{ "eventId": "m15-created", "eventType": "CREATED" }, { "eventId": "m15-deleted", "eventType": "DELETED" }]
+    ,"m15BotConfig": { "version": 3, "operationalFields": ["giftBroadcastChannelId"], "securityFields": ["staffRoleIds"] }
+    ,"m15WrongWalletEntries": [{ "id": "00000000-0000-0000-0000-000000017101", "entryType": "TOP_UP" }, { "id": "00000000-0000-0000-0000-000000017102", "entryType": "CASH_REFUND_DEBIT" }]
+    ,"m15OpenCandidatePools": [{ "id": "00000000-0000-0000-0000-000000017201", "status": "COLLECTING" }, { "id": "00000000-0000-0000-0000-000000017202", "status": "COLLECTING" }]
+    ,"m15CustomerProfile": { "id": "83d15e39-2937-572e-ac85-6c7ccac86e02", "displayName": "Test Customer A", "version": 1 }
+    ,"m15PendingElevation": { "staffId": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d", "requestedLevel": "L4_ADMIN_OWNER", "status": "PENDING_APPROVAL" }
+    ,"m15OnlyOwner": { "staffId": "a76ba848-961d-5a62-81cf-bccbd3895c9b", "level": "L4_ADMIN_OWNER", "isLastOwner": true }
+  },
+  "m17BotRuntime": {
+    "restart": { "gatewayReady": false, "criticalInitializationComplete": false },
+    "apiHealth": { "statusBeforeInitialization": 503, "statusAfterInitialization": 200 },
+    "dmInteraction": { "guildId": null, "discordUserId": "466466420687469746", "mustSendApiRequest": false },
+    "apiTimeout": { "timeoutMs": 5, "expectedCode": "GATEWAY_TIMEOUT" },
+    "apiNonJson": { "statusCode": 502, "contentType": "text/html", "expectedCode": "INVALID_RESPONSE" }
+  },
+  "m18ApiErrors": {
+    "conflict": { "statusCode": 409, "code": "CONFLICT", "message": "The page state is stale.", "requestId": "req_m18_fixture_conflict" },
+    "internal": { "statusCode": 500, "code": "INTERNAL_ERROR", "message": "The operation failed before a trusted result was returned.", "requestId": "req_m18_fixture_internal" },
+    "forbidden": { "statusCode": 403, "code": "FORBIDDEN", "message": "The actor is not allowed to perform this operation.", "requestId": "req_m18_fixture_forbidden" }
+  },
+  "m19ProjectionFailures": {
+    "dashboardStale": { "firstResponseVersion": 7, "latestResponseVersion": 8, "firstDelayMs": 500, "latestDelayMs": 10 },
+    "discordMissingMessage": { "statusCode": 404, "consumer": "DISCORD_STAFF_CARD", "recoverBy": "RECREATE_STABLE_PROJECTION" },
+    "workerDelay": { "targetSeconds": 5, "alertAfterSeconds": 30, "maxAttempts": 5, "consumer": "DISCORD_STAFF_CARD" },
+    "outboxFailure": { "eventId": "evt_m19_projection_failure", "attempt": 5, "status": "FAILED", "requestId": "req_m19_projection_failure" },
+    "orderStateMatrix": { "statuses": ["DRAFT", "PENDING_DISPATCH", "ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION", "COMPLETED", "CANCELLED", "EXCEPTION"], "consumers": ["CUSTOMER_PANEL", "PLAYER_VIEW", "STAFF_CARD", "SUPPORT_DASHBOARD"] }
+  },
+  "m20ActionUx": {
+    "legacyComponent": { "customId": "bc:dispatch:legacy", "expectedRecovery": "REFRESH_CURRENT_PANEL" },
+    "mobileDesktop": { "viewports": [{ "name": "mobile", "width": 375 }, { "name": "desktop", "width": 1440 }] },
+    "paginatedOrders": { "pageSize": 2, "cursors": [null, "orders-page-2", "orders-page-3"] },
+    "paginatedConsumptions": { "pageSize": 2, "cursors": [null, "consumptions-page-2", "consumptions-page-3"] },
+    "selectionWithApplicants": { "stage": "SELECTION", "applicantDiscordUserIds": ["466466420687469746", "466466420687469747"] }
+  },
+  "m22StandaloneGifts": {
+    "playerOtherGuild": { "playerProfileId": "f530dad4-7e76-5268-85da-97e47d05aa22", "guildId": "520020437815864917", "reviewStatus": "ACTIVE" },
+    "playerPaused": { "playerProfileId": "d93c5910-7881-5a22-abf5-445071957309", "guildId": "420020437815864916", "reviewStatus": "PAUSED" },
+    "customerBalance": { "ledgerBalanceMinor": 18800, "reservedMinor": 5200, "availableMinor": 13600, "currency": "USD" },
+    "activeGift": { "giftCatalogVersionId": "837b0060-ac48-54c4-bb0a-937682733191", "status": "ACTIVE", "priceMinor": 5200, "currency": "USD" },
+    "concurrentGift": { "availableMinor": 5200, "requestAmountsMinor": [5200, 5200], "expectedSuccessfulReservations": 1 },
+    "anonymousGift": { "origin": "STANDALONE", "senderVisibility": "ANONYMOUS", "publicSenderName": "匿名老板", "internalSenderId": "83d15e39-2937-572e-ac85-6c7ccac86e02" },
+    "broadcastRetry": { "eventId": "evt_m22_anonymous_gift", "attempts": 2, "expectedCaptures": 1, "expectedActiveMessages": 1 },
+    "giftEntryChannel": { "guildId": "420020437815864916", "channelId": "675578995002938206", "configField": "gift_entry_channel_id", "managedByBot": true },
+    "staffL1Mfa": { "staffAccountId": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21", "level": "L1_SUPPORT", "status": "ACTIVE", "permissionsVersion": 1, "mfaEnrolled": true, "method": "TOTP" },
+    "customerAuthorizationMessage": { "guildId": "420020437815864916", "channelId": "675578995002938207", "messageId": "675578995002938208", "authorDiscordUserId": "466466420687469746", "intent": "STAFF_ASSISTED_GIFT", "contentStored": false }
+  },
+  "fixtureIndex": {
+    "FX-API-CONFLICT": "/m18ApiErrors/conflict",
+    "FX-API-FORBIDDEN": "/m18ApiErrors/forbidden",
+    "FX-API-HEALTH": "/m17BotRuntime/apiHealth",
+    "FX-API-INTERNAL": "/m18ApiErrors/internal",
+    "FX-API-NON-JSON": "/m17BotRuntime/apiNonJson",
+    "FX-API-TIMEOUT": "/m17BotRuntime/apiTimeout",
+    "FX-BOT-RESTART": "/m17BotRuntime/restart",
+    "FX-DM-INTERACTION": "/m17BotRuntime/dmInteraction",
+    "FX-DASHBOARD-STALE": "/m19ProjectionFailures/dashboardStale",
+    "FX-DISCORD-MISSING-MESSAGE": "/m19ProjectionFailures/discordMissingMessage",
+    "FX-ORDER-STATE-MATRIX": "/m19ProjectionFailures/orderStateMatrix",
+    "FX-OUTBOX-FAILURE": "/m19ProjectionFailures/outboxFailure",
+    "FX-WORKER-DELAY": "/m19ProjectionFailures/workerDelay",
+    "FX-LEGACY-COMPONENT": "/m20ActionUx/legacyComponent",
+    "FX-MOBILE-DESKTOP": "/m20ActionUx/mobileDesktop",
+    "FX-ORDER-DRAFT": "/orders/0",
+    "FX-PAGINATED-CONSUMPTIONS": "/m20ActionUx/paginatedConsumptions",
+    "FX-PAGINATED-ORDERS": "/m20ActionUx/paginatedOrders",
+    "FX-SELECTION-WITH-APPLICANTS": "/m20ActionUx/selectionWithApplicants",
+    "FX-PLAYER-OTHER-GUILD": "/m22StandaloneGifts/playerOtherGuild",
+    "FX-PLAYER-PAUSED": "/m22StandaloneGifts/playerPaused",
+    "FX-CUSTOMER-BALANCE": "/m22StandaloneGifts/customerBalance",
+    "FX-GIFT-ACTIVE": "/m22StandaloneGifts/activeGift",
+    "FX-CONCURRENT-GIFT": "/m22StandaloneGifts/concurrentGift",
+    "FX-STANDALONE-GIFT-ANONYMOUS": "/m22StandaloneGifts/anonymousGift",
+    "FX-GIFT-BROADCAST-RETRY": "/m22StandaloneGifts/broadcastRetry",
+    "FX-GIFT-ENTRY-CHANNEL": "/m22StandaloneGifts/giftEntryChannel",
+    "FX-CUSTOMER-AUTH-MESSAGE": "/m22StandaloneGifts/customerAuthorizationMessage",
+    "FX-STAFF-L1-MFA": "/m22StandaloneGifts/staffL1Mfa",
+    "FX-CAT-WALLET": "/m7Wallet/accounts/0",
+    "FX-CUSTOMER": "/users/1",
+    "FX-DISCORD-ACTOR-CONTEXT": "/discord/bot",
+    "FX-NEW-DISCORD-MEMBER": "/users/2",
+    "FX-ONBOARDING-CHANNEL": "/supplementalAcceptanceFixtures/environment",
+    "FX-PENDING-COMPANION": "/players/0",
+    "FX-PENDING-PRODUCT-ROLE-TASK": "/players/0",
+    "FX-PRODUCTION-ENV": "/supplementalAcceptanceFixtures/environment",
+    "FX-REGISTERED-PLAYER": "/users/1",
+    "FX-ACTIVE-RESERVATION": "/fundReservations/0",
+    "FX-BOT-ACTOR": "/discord/bot",
+    "FX-CONTRACTS": "/supplementalAcceptanceFixtures/contracts",
+    "FX-CUSTOMER-A": "/users/1",
+    "FX-CUSTOMER-ASSIGNED": "/users/1",
+    "FX-CUSTOMER-HISTORY": "/supplementalAcceptanceFixtures/customerHistory",
+    "FX-CUSTOMER-REFERRED": "/referrals/0",
+    "FX-CUSTOMER-UNASSIGNED": "/users/2",
+    "FX-DISCORD-ACCOUNT-A": "/users/1",
+    "FX-DM-FAILURE": "/supplementalAcceptanceFixtures/dmFailure",
+    "FX-EARNING-CONFIRMED": "/playerEarnings/1",
+    "FX-ENV": "/supplementalAcceptanceFixtures/environment",
+    "FX-GIFT-PRICE-CHANGED": "/supplementalAcceptanceFixtures/giftPriceChanged",
+    "FX-GIFT-UNAFFORDABLE": "/supplementalAcceptanceFixtures/giftUnaffordable",
+    "FX-INVALID-WALLET-DISPLAY-CONFIG": "/supplementalAcceptanceFixtures/invalidWalletDisplayConfig",
+    "FX-JOB-RETRY": "/outboxJobs/0",
+    "FX-LATE-ADJUSTMENT": "/supplementalAcceptanceFixtures/lateAdjustment",
+    "FX-PLAYER-A": "/players/0",
+    "FX-PLAYER-B": "/players/1",
+    "FX-ROUTE-INVENTORY": "/supplementalAcceptanceFixtures/routeInventory",
+    "FX-SETTLEMENT-APPROVED": "/supplementalAcceptanceFixtures/settlementApproved",
+    "FX-SETTLEMENT-EXPORTED": "/supplementalAcceptanceFixtures/settlementExported",
+    "FX-SETTLEMENT-HIGH": "/supplementalAcceptanceFixtures/settlementHigh",
+    "FX-SETTLEMENT-RACE": "/supplementalAcceptanceFixtures/settlementRace",
+    "FX-SETTLEMENT-SCHEDULE": "/supplementalAcceptanceFixtures/settlementSchedule",
+    "FX-STAFF-L4": "/staffAccounts/4",
+    "FX-TOP-UP-SUCCESS": "/m7Wallet/topUps/0",
+    "FX-TOPUP-REFERENCE": "/m7Wallet/topUps/0",
+    "FX-USER-REGISTERED": "/users/1",
+    "FX-WALLET": "/m7Wallet/accounts/0",
+    "FX-WALLET-A": "/m7Wallet/accounts/0",
+    "FX-WALLET-AVAILABLE-HIGH": "/m7Wallet/accounts/0",
+    "FX-WALLET-AVAILABLE-LOW": "/m7Wallet/accounts/1",
+    "FX-WALLET-BALANCE": "/balanceSummaries/0",
+    "FX-WALLET-DISPLAY-CONFIG": "/supplementalAcceptanceFixtures/walletDisplayConfig",
+    "FX-WALLET-ENTRIES": "/supplementalAcceptanceFixtures/walletEntries",
+    "FX-WALLET-ENTRY": "/supplementalAcceptanceFixtures/walletEntries/0",
+    "FX-WALLET-MINOR-VALUES": "/supplementalAcceptanceFixtures/walletMinorValues",
+    "FX-WEBHOOK": "/retiredPaymentWebhookRequest",
+    "FX-WEEKLY-PERIOD": "/supplementalAcceptanceFixtures/weeklyPeriod",
+    "FX-WEEKLY-REPORT": "/supplementalAcceptanceFixtures/weeklyReport",
+    "FX-WEEKLY-REPORTS": "/supplementalAcceptanceFixtures/weeklyReports",
+    "FX-USER-UNBOUND": "/users/0",
+    "FX-USER-CUSTOMER-A": "/users/1",
+    "FX-USER-CUSTOMER-B": "/users/2",
+    "FX-SERVICE-ACTIVE-V1": "/serviceCatalog/0",
+    "FX-SERVICE-ACTIVE-V2": "/serviceCatalog/1",
+    "FX-SERVICE-DISABLED": "/serviceCatalog/2",
+    "FX-SERVICE-MISSING-PAYOUT": "/serviceCatalog/3",
+    "FX-GUILD": "/discord/guild",
+    "FX-BOT": "/discord/bot",
+    "FX-STAFF-L1": "/staffAccounts/0",
+    "FX-STAFF-L1-CLAIMED": "/staffAccounts/0",
+    "FX-STAFF-L1-B": "/staffAccounts/1",
+    "FX-STAFF-L2": "/staffAccounts/2",
+    "FX-STAFF-L3": "/staffAccounts/3",
+    "FX-STAFF-L3-STEPUP": "/staffAccounts/3",
+    "FX-STAFF-L4-A": "/staffAccounts/4",
+    "FX-STAFF-L4-A-STEPUP": "/staffAccounts/4",
+    "FX-STAFF-L1-SESSION": "/staffSessions/0",
+    "FX-ORDER-DRAFT-A": "/orders/0",
+    "FX-ORDER-PENDING-DISPATCH": "/orders/1",
+    "FX-ORDER-ACCEPTED-A": "/orders/2",
+    "FX-ORDER-IN-SERVICE": "/orders/3",
+    "FX-ORDER-PENDING-CONFIRMATION": "/orders/4",
+    "FX-ORDER-COMPLETED-10000": "/orders/5",
+    "FX-ORDER-CUSTOMER-B": "/orders/6",
+    "FX-ORDER-REFUNDABLE": "/orders/7",
+    "FX-ORDER-REFUNDABLE-5000": "/orders/7",
+    "FX-PLAYER-ACTIVE-AVAILABLE": "/players/0",
+    "FX-PLAYER-ELIGIBLE": "/players/0",
+    "FX-PLAYER-ELIGIBLE-B": "/players/1",
+    "FX-ELIGIBLE-REPLACEMENT": "/supplementalAcceptanceFixtures/m10EligibleReplacement",
+    "FX-ORDER-TWO-ACTIVE-PLAYERS": "/supplementalAcceptanceFixtures/m10OrderTwoActivePlayers",
+    "FX-MULTI-PLAYER-ORDER": "/supplementalAcceptanceFixtures/m10OrderTwoActivePlayers",
+    "FX-PLAYER": "/players/0",
+    "FX-PLAYER-ASSIGNED": "/players/0",
+    "FX-PLAYER-OTHER": "/players/1",
+    "FX-PLAYER-ACTIVE-BUSY-ORDER": "/players/4",
+    "FX-PLAYER-POOL": "/players",
+    "FX-NINE-ELIGIBLE-PLAYERS": "/supplementalAcceptanceFixtures/m10NineEligiblePlayers",
+    "FX-NINE-READY-PLAYERS": "/supplementalAcceptanceFixtures/m10NineReadyPlayers",
+    "FX-NINE-SERVICE-PROJECTS": "/supplementalAcceptanceFixtures/m10NineServiceProjects",
+    "FX-TECH-CATALOG-A": "/supplementalAcceptanceFixtures/m10TechCatalog",
+    "FX-FUN-CATALOG-A": "/supplementalAcceptanceFixtures/m10FunCatalog",
+    "FX-PACKAGE-DELTA-ESCORT": "/supplementalAcceptanceFixtures/m10DeltaEscortPackage",
+    "FX-ORDER-PACKAGE-DEFAULT": "/supplementalAcceptanceFixtures/m10PackageDefaultOrder",
+    "FX-TWO-ORDERS-COLLECTING": "/supplementalAcceptanceFixtures/m11TwoCollectingOrders",
+    "FX-SELECTION-POOL-EMPTY": "/supplementalAcceptanceFixtures/m11SelectionPoolEmpty",
+    "FX-SELECTION-POOL-COLLECTING": "/supplementalAcceptanceFixtures/m11SelectionPoolCollecting",
+    "FX-SELECTION-POOL-WITH-ONE-APPLICATION": "/supplementalAcceptanceFixtures/m11SelectionPoolOne",
+    "FX-SELECTION-POOL-NO-APPLICATION": "/supplementalAcceptanceFixtures/m11SelectionPoolEmpty",
+    "FX-SELECTION-POOL-PARTIAL": "/supplementalAcceptanceFixtures/m11SelectionPoolPartial",
+    "FX-SELECTION-POOL-WITH-NINE-APPLICATIONS": "/supplementalAcceptanceFixtures/m11SelectionPoolNine",
+    "FX-SELECTION-POOL-WITH-NINE-REQUIREMENTS": "/supplementalAcceptanceFixtures/m11SelectionPoolNineRequirements",
+    "FX-STAFF": "/staffAccounts/0",
+    "FX-DISCORD-RETRY": "/supplementalAcceptanceFixtures/m11DiscordRetry",
+    "FX-DISCORD-ORDER-CHANNEL": "/supplementalAcceptanceFixtures/discordOrderChannel",
+    "FX-ORDER-CANCELLED": "/supplementalAcceptanceFixtures/cancelledOrder",
+    "FX-M13-SEVEN-COLLECTIONS": "/supplementalAcceptanceFixtures/m13SevenCollections",
+    "FX-M13-DUPLICATE-SORT-VALUES": "/supplementalAcceptanceFixtures/m13DuplicateSortValues",
+    "FX-M13-THREE-PAGES": "/supplementalAcceptanceFixtures/m13ThreePages",
+    "FX-M13-CURSOR": "/supplementalAcceptanceFixtures/m13Cursor",
+    "FX-M13-SLOW-FIRST-REQUEST": "/supplementalAcceptanceFixtures/m13SlowFirstRequest",
+    "FX-M14-DASHBOARD-SUMMARY": "/supplementalAcceptanceFixtures/m14DashboardSummary",
+    "FX-M14-MIXED-TASKS": "/supplementalAcceptanceFixtures/m14MixedTasks",
+    "FX-M14-TASK-MISSING-GUILD": "/supplementalAcceptanceFixtures/m14TaskMissingGuild",
+    "FX-M14-TASK-WITH-CHANNELS": "/supplementalAcceptanceFixtures/m14TaskWithChannels",
+    "FX-M14-THREE-PAGES": "/supplementalAcceptanceFixtures/m14ThreePages",
+    "FX-M14-UNCLAIMED-TASK": "/supplementalAcceptanceFixtures/m14UnclaimedTask",
+    "FX-M14-ORDERS-WITH-CONTEXT": "/supplementalAcceptanceFixtures/m14OrdersWithContext",
+    "FX-M15-IN-SERVICE-COMPLAINT": "/supplementalAcceptanceFixtures/m15InServiceComplaint",
+    "FX-M15-COMPLETED-ORDER": "/supplementalAcceptanceFixtures/m15CompletedOrder",
+    "FX-M15-TRANSCRIPT-EVENTS": "/supplementalAcceptanceFixtures/m15TranscriptEvents",
+    "FX-M15-BOT-CONFIG": "/supplementalAcceptanceFixtures/m15BotConfig",
+    "FX-STAFF-L3-L4": "/staffAccounts",
+    "FX-M15-WRONG-OFFLINE-TOPUP": "/supplementalAcceptanceFixtures/m15WrongWalletEntries/0",
+    "FX-M15-WRONG-REFUND": "/supplementalAcceptanceFixtures/m15WrongWalletEntries/1",
+    "FX-M15-PLAYER-ACTIVE": "/players/0",
+    "FX-M15-OPEN-CANDIDATE-POOLS": "/supplementalAcceptanceFixtures/m15OpenCandidatePools",
+    "FX-M15-CUSTOMER-PROFILE": "/supplementalAcceptanceFixtures/m15CustomerProfile",
+    "FX-STAFF-L1-L2": "/staffAccounts",
+    "FX-M15-STAFF-ACCOUNTS": "/staffAccounts",
+    "FX-M15-PENDING-ELEVATION": "/supplementalAcceptanceFixtures/m15PendingElevation",
+    "FX-M15-ONLY-OWNER": "/supplementalAcceptanceFixtures/m15OnlyOwner",
+    "FX-STAFF-L4-A-B": "/staffAccounts/4",
+    "FX-TWO-GUILDS": "/supplementalAcceptanceFixtures/m13TwoGuilds",
+    "FX-ORDER-MULTI-REQUIREMENTS": "/supplementalAcceptanceFixtures/m10PackageDefaultOrder",
+    "FX-STAFF-L1-L4": "/staffAccounts",
+    "FX-PLAYER-ACTIVE": "/players/0",
+    "FX-PLAYER-ACTIVE-MATCHED": "/players/0",
+    "FX-GIFT-CATALOG": "/giftCatalog",
+    "FX-GIFT-REQUEST": "/giftRequests/0",
+    "FX-L3-STAFF": "/staffAccounts/3",
+    "FX-RESERVATION-ORDER-ACTIVE": "/fundReservations/0",
+    "FX-BALANCE-SUFFICIENT": "/internalWallet/balances/0",
+    "FX-BALANCE-INSUFFICIENT": "/internalWallet/balances/1",
+    "FX-BALANCE-BECOMES-INSUFFICIENT": "/internalWallet/balances/2",
+    "FX-IDEMPOTENCY-ORDER-SUBMIT": "/idempotencyKeys/orderSubmit",
+    "FX-IDEMPOTENCY-CONFIRM": "/idempotencyKeys/orderConfirm",
+    "FX-IDEMPOTENCY-GIFT-APPROVE": "/idempotencyKeys/giftApprove",
+    "FX-DISPATCH-NO-ACCEPT": "/defaults/dispatchTimeoutMinutes",
+    "FX-CLOCK-PLUS-10M": "/clock/plus10m",
+    "FX-CLOCK-PLUS-15M": "/clock/plus15m",
+    "FX-CLOCK-PLUS-30M": "/clock/plus30m",
+    "FX-TRANSACTION-CHARGED": "/transactions/0",
+    "FX-WALLET-READ-FAILURE": "/internalWallet/behaviors/0",
+    "FX-WALLET-RELEASE-TRANSACTION-FAILURE": "/internalWallet/behaviors/1",
+    "FX-WALLET-CAPTURE-RESPONSE-LOST": "/internalWallet/behaviors/2",
+    "FX-RESOLUTION-PARTIAL": "/resolutions/0",
+    "FX-RESOLUTION-OUT-OF-RANGE": "/resolutions/1",
+    "FX-STAFF-TASK-OPEN": "/staffTasks/0",
+    "FX-GIFT-1999": "/giftCatalog/0",
+    "FX-GIFT-REQUEST-VERIFIED": "/giftReviewScenarios/1",
+    "FX-GIFT-REQUEST-1999": "/giftReviewScenarios/0",
+    "FX-GIFT-REQUEST-2000": "/giftReviewScenarios/1",
+    "FX-GIFT-REQUEST-2001": "/giftReviewScenarios/2",
+    "FX-GIFT-REQUEST-5000": "/giftReviewScenarios/3",
+    "FX-APPROVAL-GIFT-5000-BY-L3": "/approvalRequests/0",
+    "FX-GIFT-CAPTURED-UNANNOUNCED": "/giftRequests/4",
+    "FX-OUTBOX-BROADCAST-FAILED": "/outboxJobs/0",
+    "FX-CONSUMPTION-PAGESET": "/consumptionLedger",
+    "FX-CONSUMPTION-ODD-AMOUNT": "/consumptionLedger/2",
+    "FX-CONSUMPTION-SOURCE-A": "/consumptionLedger/0",
+    "FX-REFERRAL-2PCT": "/referrals/0",
+    "FX-REFERRAL-5PCT": "/referrals/1",
+    "FX-REFERRAL-INVALID-SELF": "/invalidReferrals/0",
+    "FX-REFERRAL-INVALID-DUPLICATE": "/invalidReferrals/1",
+    "FX-REFERRAL-INVALID-LATE": "/invalidReferrals/2",
+    "FX-COMMISSION-PENDING-A": "/commissions/0",
+    "FX-REFUND-PARTIAL": "/refundScenarios/1",
+    "FX-EARNING-PENDING-A": "/playerEarnings/0",
+    "FX-EARNING-PAID-A": "/playerEarnings/1",
+    "FX-REFUND-499": "/refundBoundaries/0",
+    "FX-REFUND-500": "/refundBoundaries/1",
+    "FX-REFUND-501": "/refundBoundaries/2",
+    "FX-FINANCIAL-RECORDS": "/financialRecordSet",
+    "FX-ROLE-MAPPINGS": "/roleMappings",
+    "FX-DISCORD-MEMBER-NO-STAFF": "/users/0",
+    "FX-DISCORD-ROLE-L3": "/discord/roles/staffL3",
+    "FX-DISCORD-ROLE-L4-PENDING": "/discord/roles/staffL4",
+    "FX-STAFF-L3-ACTIVE-SESSION": "/staffSessions/1",
+    "FX-BOT-TOKEN-INVALID": "/authTestInputs/invalidBotToken",
+    "FX-ACTOR-HEADERS-L4": "/authTestInputs/forgedActorHeaders",
+    "FX-RETIRED-PAYMENT-WEBHOOK-REQUEST": "/retiredPaymentWebhookRequest",
+    "FX-DISCORD-FAIL-CREATE-CHANNEL": "/recovery/discordCreateChannelFailure",
+    "FX-DISCORD-PANEL-DELETED": "/recovery/deletedPanel",
+    "FX-DATABASE-SNAPSHOT-A": "/recovery/databaseSnapshot",
+    "FX-SECRET-SENTINELS": "/authTestInputs/secretSentinels",
+    "FX-ORDER-CONFIRMATION-SUMMARY": "/orderConfirmationSummaries/0",
+    "FX-BALANCE-SUMMARY": "/balanceSummaries/0",
+    "FX-MATCHING-PROGRESS": "/matchingScenarios/0",
+    "FX-PLAYER-WORKBENCH": "/playerWorkbenchScenarios/0",
+    "FX-READINESS-NONE": "/readinessScenarios/0",
+    "FX-READINESS-PARTIAL-PLAYERS": "/readinessScenarios/1",
+    "FX-READINESS-ALL-BUT-ONE-PLAYER": "/readinessScenarios/2",
+    "FX-READINESS-TIMEOUT": "/readinessScenarios/3",
+    "FX-CANCELLATION-PREVIEW-AUTO": "/cancellationPreviews/0",
+    "FX-CANCELLATION-PREVIEW-MANUAL": "/cancellationPreviews/1",
+    "FX-CANCELLATION-PREVIEW-STALE": "/cancellationPreviews/2",
+    "FX-CANCELLATION-PREVIEW-EXPIRED": "/cancellationPreviews/3",
+    "FX-RESERVATION-ORDER-PENDING": "/fundReservations/0",
+    "FX-RESERVATION-GIFT-PENDING": "/fundReservations/1",
+    "FX-RESERVATION-CONCURRENT-OVERSPEND": "/reservationScenarios/0",
+    "FX-RESERVATION-ORDER-RELEASE": "/fundReservations/2",
+    "FX-RESERVATION-ORDER-CAPTURE": "/fundReservations/3",
+    "FX-RESERVATION-DISPUTE": "/fundReservations/4",
+    "FX-RESERVATION-PARTIAL-RESOLUTION": "/fundReservations/5",
+    "FX-RESERVATION-GIFT-RELEASE": "/fundReservations/6",
+    "FX-GIFT-RESERVATION-INSUFFICIENT": "/reservationScenarios/1",
+    "FX-SUPPORT-AUTOMATION-PAUSED": "/supportAutomationScenarios/0",
+    "FX-SUPPORT-AUTOMATION-RESUMABLE": "/supportAutomationScenarios/1",
+    "FX-REFERRAL-PROMOTER-FIXED": "/referralAttributionScenarios/0",
+    "FX-REFERRAL-PROMOTER-PERCENT": "/referralAttributionScenarios/1",
+    "FX-REFERRAL-PLAYER-LIFETIME": "/referralAttributionScenarios/2",
+    "FX-REFERRAL-MUTEX": "/referralAttributionScenarios/3",
+    "FX-REFERRAL-CONFIDENTIAL": "/referralConfidentialityScenarios/0",
+    "FX-REFERRAL-BENEFICIARY-VIEW": "/referralConfidentialityScenarios/1",
+    "FX-REFERRAL-ADJUSTMENT": "/referralConfidentialityScenarios/2",
+    "FX-TRANSACTION-TIMELINE": "/transactionTimelineScenarios/0",
+    "FX-TRANSACTION-TIMELINE-REDACTED": "/transactionTimelineScenarios/1",
+    "FX-METRICS-SNAPSHOT": "/metricsSnapshot"
+  },
+  "idStrategy": {
+    "internalEntityIds": "DETERMINISTIC_UUID_V5",
+    "discordIds": "DETERMINISTIC_18_DIGIT_TEST_SNOWFLAKE",
+    "manualChannelReferences": "EXPLICIT_SYNTHETIC_TEST_FORMAT"
+  },
+  "refunds": [
+    {
+      "id": "ad7ade9b-85f6-569d-98b5-7281de490797",
+      "sourceExternalTransactionId": "ce060602-c531-532e-aa0b-c5805fe29894",
+      "refundTransactionId": "2d63257a-5aa5-5c31-9491-c72988f59c0b",
+      "beneficiaryUserId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "orderId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "externalRefundRef": "provider_refund_order_full_001",
+      "idempotencyKey": "order:5f595253-b681-51dd-9c3b-19be5e3c419c:refund:full",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "SUCCEEDED",
+      "reasonCode": "POST_SERVICE_REFUND",
+      "reasonNote": "Synthetic full post-service refund"
+    },
+    {
+      "id": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "sourceExternalTransactionId": "b1317906-4118-53b4-9c5e-a61daeec90db",
+      "refundTransactionId": "c43879a5-e602-5da7-883d-f74a4678a202",
+      "beneficiaryUserId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+      "orderId": "af422107-8f46-54fa-ab95-cf6927cfa69c",
+      "externalRefundRef": "provider_refund_order_partial_001",
+      "idempotencyKey": "order:af422107-8f46-54fa-ab95-cf6927cfa69c:refund:partial",
+      "amountMinor": 3000,
+      "currency": "USD",
+      "status": "SUCCEEDED",
+      "reasonCode": "SERVICE_INTERRUPTED",
+      "reasonNote": "Synthetic partial refund"
+    }
+  ],
+  "refundScenarios": [
+    {
+      "id": "a1cd9df8-faa9-5eda-8c40-1f4975fdca97",
+      "sourceTransactionId": "ce060602-c531-532e-aa0b-c5805fe29894",
+      "refundTransactionId": "2d63257a-5aa5-5c31-9491-c72988f59c0b",
+      "refundId": "ad7ade9b-85f6-569d-98b5-7281de490797",
+      "refundTransactionStatus": "SUCCEEDED",
+      "sourceDebitAggregateStatus": "REFUNDED"
+    },
+    {
+      "id": "a9d0f78f-2753-5704-88af-df0fd008cc51",
+      "sourceTransactionId": "b1317906-4118-53b4-9c5e-a61daeec90db",
+      "refundTransactionId": "c43879a5-e602-5da7-883d-f74a4678a202",
+      "refundId": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "refundTransactionStatus": "SUCCEEDED",
+      "sourceDebitAggregateStatus": "PARTIALLY_REFUNDED"
+    }
+  ],
+  "playerEarningAdjustments": [
+    {
+      "id": "aa4389ca-df88-5ef4-bb68-2c6afe6c6e68",
+      "playerEarningId": "acbe7fdd-d531-5ca5-bef5-5848d3f5b4ec",
+      "type": "REVERSAL_DEBIT",
+      "sourceRefundId": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "sourceResolutionId": null,
+      "amountMinor": 2100,
+      "currency": "USD",
+      "reason": "Synthetic partial-refund earning reversal",
+      "idempotencyKey": "earning:acbe7fdd-d531-5ca5-bef5-5848d3f5b4ec:refund:ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "createdByStaffId": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d"
+    }
+  ],
+  "commissionAdjustments": [
+    {
+      "id": "2cee1c09-5803-5b98-bdda-1647d45a4985",
+      "commissionId": "1b0cef76-9a2b-565e-a381-69e61da45e68",
+      "type": "REVERSAL_DEBIT",
+      "sourceRefundId": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "amountMinor": 60,
+      "currency": "USD",
+      "reason": "Synthetic partial-refund commission reversal",
+      "idempotencyKey": "commission:1b0cef76-9a2b-565e-a381-69e61da45e68:refund:ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+      "createdByStaffId": "944491fd-fea4-5fd4-9489-38f5ba7f2b2d"
+    }
+  ],
+  "baselineVersion": "v0.7",
+  "fundReservations": [
+    {
+      "id": "77dc6ebf-2d12-5b29-8576-219b3cc07e91",
+      "sourceType": "ORDER",
+      "sourceId": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "PENDING",
+      "idempotencyKey": "reservation:order:dc2a1d82-b519-5719-a7ba-64956694b165",
+      "version": 1,
+      "createdAt": "2026-07-16T16:00:00Z",
+      "expiresAt": "2026-07-16T16:30:00Z"
+    },
+    {
+      "id": "ceb6661e-316c-50f5-b74f-e72f1edd3cd2",
+      "sourceType": "GIFT",
+      "sourceId": "ea918148-3a21-56d2-816b-79cb7e79913b",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 200000,
+      "currency": "USD",
+      "status": "PENDING",
+      "idempotencyKey": "reservation:gift:ea918148-3a21-56d2-816b-79cb7e79913b",
+      "version": 1,
+      "createdAt": "2026-07-16T16:01:00Z",
+      "expiresAt": "2026-07-16T16:11:00Z"
+    },
+    {
+      "id": "085a1e32-4876-5022-b932-d3d7db86bb86",
+      "sourceType": "ORDER",
+      "sourceId": "0c5026d3-56c7-5c08-9faa-74583cc20c15",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "RELEASED",
+      "idempotencyKey": "reservation:order:released",
+      "version": 2,
+      "releasedMinor": 10000,
+      "releaseReason": "ORDER_CANCELLED"
+    },
+    {
+      "id": "17b8a20a-1450-59fd-b27b-38dd843d84d2",
+      "sourceType": "ORDER",
+      "sourceId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "CAPTURED",
+      "idempotencyKey": "reservation:order:captured",
+      "version": 2,
+      "capturedMinor": 10000
+    },
+    {
+      "id": "d718235c-8ad3-5146-b0a6-b62eb3ea50b5",
+      "sourceType": "ORDER",
+      "sourceId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 10000,
+      "currency": "USD",
+      "status": "DISPUTED",
+      "idempotencyKey": "reservation:order:dispute",
+      "version": 2,
+      "holdReason": "ORDER_DISPUTE"
+    },
+    {
+      "id": "ae94e8e1-bd76-530f-b90a-0056c84af74d",
+      "sourceType": "ORDER",
+      "sourceId": "ba11dcd2-f989-5064-85e3-8f2211446c6b",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 20000,
+      "currency": "USD",
+      "status": "CAPTURED",
+      "idempotencyKey": "reservation:order:partial-resolution",
+      "version": 3,
+      "capturedMinor": 12000,
+      "releasedMinor": 8000
+    },
+    {
+      "id": "c38af6a6-37d7-586d-bdf4-524d9126287c",
+      "sourceType": "GIFT",
+      "sourceId": "e94a3e57-ca03-5304-80bc-0b95651a35a7",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 200000,
+      "currency": "USD",
+      "status": "RELEASED",
+      "idempotencyKey": "reservation:gift:released",
+      "version": 2,
+      "releasedMinor": 200000,
+      "releaseReason": "GIFT_REJECTED"
+    },
+    {
+      "id": "287489d9-7138-5a56-a457-a88a64dfcf87",
+      "sourceType": "ORDER",
+      "sourceId": "60823503-c7be-509e-abc0-6ff456171a27",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "amountMinor": 15000,
+      "currency": "USD",
+      "status": "PENDING",
+      "idempotencyKey": "reservation:concurrent:winner",
+      "version": 1
+    }
+  ],
+  "balanceSummaries": [
+    {
+      "id": "8d0e07c9-2a96-531f-83b1-f7d86a6fde21",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "ledgerBalanceMinor": 300000,
+      "reservedMinor": 210000,
+      "availableMinor": 90000,
+      "currency": "USD",
+      "calculatedAt": "2026-07-16T16:02:00Z",
+      "activeReservationIds": [
+        "77dc6ebf-2d12-5b29-8576-219b3cc07e91",
+        "ceb6661e-316c-50f5-b74f-e72f1edd3cd2"
+      ]
+    }
+  ],
+  "orderConfirmationSummaries": [
+    {
+      "id": "cbbad588-0d81-59c3-8935-85ea477ca82c",
+      "orderId": "41003285-d241-53cf-8878-b158bc11f754",
+      "serviceCatalogId": "2723d4a9-461a-5f60-89cd-5fe61ba07f6d",
+      "game": "VALORANT",
+      "service": "CASUAL",
+      "region": "NA",
+      "durationMinutes": 60,
+      "tags": [
+        "MANDARIN",
+        "CASUAL"
+      ],
+      "notes": "Synthetic confirmation note",
+      "priceMinor": 10000,
+      "ledgerBalanceMinor": 300000,
+      "reservedMinor": 210000,
+      "availableMinor": 90000,
+      "currency": "USD",
+      "cancellationRule": {
+        "automatable": true,
+        "method": "RELEASE_RESERVATION",
+        "etaSeconds": 0
+      },
+      "complete": true
+    }
+  ],
+  "reservationScenarios": [
+    {
+      "id": "841ceef4-ad2a-5666-b2a8-a073c200ef97",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "ledgerBalanceMinor": 50000,
+      "reservedMinorBefore": 30000,
+      "availableMinorBefore": 20000,
+      "intents": [
+        {
+          "intentId": "a87b48c6-d02f-5adc-aa6c-fb1705004be1",
+          "sourceType": "ORDER",
+          "amountMinor": 15000
+        },
+        {
+          "intentId": "7175b701-7cca-5a0e-bae6-2d4ccabd3d7d",
+          "sourceType": "GIFT",
+          "amountMinor": 10000
+        }
+      ],
+      "winningReservationId": "287489d9-7138-5a56-a457-a88a64dfcf87",
+      "rejectedIntentId": "7175b701-7cca-5a0e-bae6-2d4ccabd3d7d",
+      "rejectedErrorCode": "AVAILABLE_BALANCE_INSUFFICIENT",
+      "reservedMinorAfter": 45000,
+      "availableMinorAfter": 5000
+    },
+    {
+      "id": "58e2af23-b424-5f1c-8b8b-17342b489d9e",
+      "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "giftId": "5712a3dd-8372-5fb4-911e-0a265c36b715",
+      "ledgerBalanceMinor": 300000,
+      "reservedMinor": 210000,
+      "availableMinor": 90000,
+      "giftPriceMinor": 500000,
+      "shortfallMinor": 410000,
+      "confirmEnabled": false,
+      "rechargeEntryVisible": true,
+      "reservationCreated": false
+    }
+  ],
+  "matchingScenarios": [
+    {
+      "id": "367cede3-be8c-5370-9759-73f015baf6ce",
+      "orderId": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "phase": "NOTIFYING_CANDIDATES",
+      "candidateIds": [
+        "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+        "ea951f85-70b4-5c2e-82b8-889bf06a037b"
+      ],
+      "notifiedCandidateCount": 2,
+      "dispatchChannelId": "895614381340834659",
+      "timeoutAt": "2026-07-16T16:07:00Z",
+      "timeoutNextStep": "SUPPORT_REVIEW",
+      "acceptedPlayerSummary": {
+        "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+        "displayName": "Test Player Eligible A",
+        "gameTags": [
+          "VALORANT"
+        ],
+        "serviceTags": [
+          "CASUAL"
+        ],
+        "nextAction": "CONFIRM_READINESS"
+      }
+    }
+  ],
+  "playerWorkbenchScenarios": [
+    {
+      "id": "56a15a20-6f91-5048-8429-d30fd31dbbde",
+      "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "reviewStatus": "ACTIVE",
+      "discordPresence": "ONLINE",
+      "availability": "AVAILABLE",
+      "eligible": true,
+      "currentOrderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "matchingOrderIds": [
+        "dc2a1d82-b519-5719-a7ba-64956694b165"
+      ],
+      "orderChannelId": "208965594714218363",
+      "dispatchChannelId": "895614381340834659",
+      "requirementSummary": {
+        "game": "VALORANT",
+        "service": "CASUAL",
+        "region": "NA",
+        "durationMinutes": 60,
+        "tags": [
+          "MANDARIN"
+        ]
+      },
+      "acceptanceCountdownSeconds": 180,
+      "pendingEarningMinor": 7000,
+      "currency": "USD",
+      "nextActions": [
+        "OPEN_ORDER",
+        "SET_AVAILABILITY",
+        "CONFIRM_READINESS"
+      ]
+    }
+  ],
+  "readinessScenarios": [
+    {
+      "id": "70dbc438-3733-5386-9ead-3e58aeb255a8",
+      "readinessStatus": "WAITING_PLAYERS",
+      "participants": [
+        {"participantId": "38d3c15e-448d-5e52-8b7f-d70908470221", "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba", "readyAt": null},
+        {"participantId": "d1467a1f-4f91-52d7-a591-34bc1bd4422c", "playerUserId": "f2c82acd-e8f5-5097-81ba-34734fa9ae44", "readyAt": null}
+      ],
+      "expectedOrderStatus": "ACCEPTED",
+      "billingStarted": false,
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "customerUserId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "timeoutAt": "2026-07-16T16:15:00Z"
+    },
+    {
+      "id": "ced987a3-30e6-5f86-9ac5-1da7bbe64385",
+      "readinessStatus": "PARTIAL_PLAYERS_READY",
+      "participants": [
+        {"participantId": "38d3c15e-448d-5e52-8b7f-d70908470221", "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba", "readyAt": "2026-07-16T16:05:00Z"},
+        {"participantId": "d1467a1f-4f91-52d7-a591-34bc1bd4422c", "playerUserId": "f2c82acd-e8f5-5097-81ba-34734fa9ae44", "readyAt": null}
+      ],
+      "expectedOrderStatus": "ACCEPTED",
+      "billingStarted": false,
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "customerUserId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "timeoutAt": "2026-07-16T16:15:00Z"
+    },
+    {
+      "id": "31946804-a8ca-58c0-a783-2ebc6d21956f",
+      "readinessStatus": "ALL_BUT_ONE_PLAYER_READY",
+      "participants": [
+        {"participantId": "38d3c15e-448d-5e52-8b7f-d70908470221", "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba", "readyAt": "2026-07-16T16:05:00Z"},
+        {"participantId": "d1467a1f-4f91-52d7-a591-34bc1bd4422c", "playerUserId": "f2c82acd-e8f5-5097-81ba-34734fa9ae44", "readyAt": null}
+      ],
+      "expectedOrderStatus": "ACCEPTED",
+      "billingStarted": false,
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "customerUserId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "timeoutAt": "2026-07-16T16:15:00Z"
+    },
+    {
+      "id": "390e4325-e1f3-57f0-b895-aa22a2fcd7e0",
+      "readinessStatus": "EXPIRED",
+      "participants": [
+        {"participantId": "38d3c15e-448d-5e52-8b7f-d70908470221", "playerUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba", "readyAt": "2026-07-16T16:05:00Z"},
+        {"participantId": "d1467a1f-4f91-52d7-a591-34bc1bd4422c", "playerUserId": "f2c82acd-e8f5-5097-81ba-34734fa9ae44", "readyAt": null}
+      ],
+      "expectedOrderStatus": "ACCEPTED",
+      "billingStarted": false,
+      "supportTaskId": "a8410498-e010-5703-9258-c1feb2c2b163",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "customerUserId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+      "timeoutAt": "2026-07-16T16:15:00Z"
+    }
+  ],
+  "cancellationPreviews": [
+    {
+      "id": "bf191beb-5d9f-513d-920c-fe823829b496",
+      "orderId": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "reservationId": "77dc6ebf-2d12-5b29-8576-219b3cc07e91",
+      "orderVersion": 3,
+      "reservationVersion": 1,
+      "automatable": true,
+      "estimatedReleaseMinor": 10000,
+      "estimatedRefundMinor": 0,
+      "method": "RELEASE_RESERVATION",
+      "etaSeconds": 0,
+      "previewToken": "cancel-preview-auto-v3-r1",
+      "expiresAt": "2026-07-16T16:10:00Z"
+    },
+    {
+      "id": "bab5ab0b-600c-5dbb-8ad4-6b06d31d4999",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "reservationId": "d718235c-8ad3-5146-b0a6-b62eb3ea50b5",
+      "orderVersion": 5,
+      "reservationVersion": 2,
+      "automatable": false,
+      "estimatedReleaseMinor": 0,
+      "estimatedRefundMinor": 0,
+      "method": "STAFF_REVIEW",
+      "etaSeconds": 600,
+      "previewToken": "cancel-preview-manual-v5-r2",
+      "expiresAt": "2026-07-16T16:10:00Z"
+    },
+    {
+      "id": "8fffcaa4-3b50-5761-83eb-6e3b2001deae",
+      "orderId": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "reservationId": "77dc6ebf-2d12-5b29-8576-219b3cc07e91",
+      "orderVersion": 2,
+      "reservationVersion": 1,
+      "currentOrderVersion": 4,
+      "currentReservationVersion": 2,
+      "automatable": true,
+      "expectedErrorCode": "STALE_CANCELLATION_PREVIEW",
+      "previewToken": "cancel-preview-stale-v2-r1"
+    },
+    {
+      "id": "e0dd30e2-a767-5371-b5e3-67022611fa30",
+      "orderId": "dc2a1d82-b519-5719-a7ba-64956694b165",
+      "reservationId": "77dc6ebf-2d12-5b29-8576-219b3cc07e91",
+      "orderVersion": 3,
+      "reservationVersion": 1,
+      "automatable": true,
+      "previewToken": "cancel-preview-expired-v3-r1",
+      "expiresAt": "2026-07-16T15:59:00Z",
+      "expectedErrorCode": "CANCELLATION_PREVIEW_EXPIRED"
+    }
+  ],
+  "supportAutomationScenarios": [
+    {
+      "id": "dddbe37c-2d66-50d3-9d06-148d23976ba3",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "staffTaskId": "bdd7e8b7-f76d-53c0-afff-7295c2c55ae4",
+      "pausedByStaffId": "b98af1ae-4373-513c-8e38-6aaec3b643da",
+      "automationStatus": "PAUSED",
+      "reservationId": "d718235c-8ad3-5146-b0a6-b62eb3ea50b5",
+      "reservationDisposition": "RETAIN",
+      "orderVersion": 5,
+      "auditReason": "CUSTOMER_SUPPORT_TAKEOVER"
+    },
+    {
+      "id": "bdf39d96-5ad0-533c-9b91-6b0a5311f7b6",
+      "orderId": "a178b799-ef78-503c-8e0c-288465f1f75d",
+      "staffTaskId": "bdd7e8b7-f76d-53c0-afff-7295c2c55ae4",
+      "resumedByStaffId": "b98af1ae-4373-513c-8e38-6aaec3b643da",
+      "automationStatus": "RESUMABLE",
+      "reservationId": "d718235c-8ad3-5146-b0a6-b62eb3ea50b5",
+      "requiredRevalidation": [
+        "ORDER_VERSION",
+        "RESERVATION_VERSION",
+        "PLAYER_ELIGIBILITY",
+        "READINESS"
+      ],
+      "expectedNextStatus": "ACCEPTED"
+    }
+  ],
+  "referralPrograms": [
+    {
+      "id": "5982c807-1087-5262-bd28-d2e0899fb86b",
+      "code": "PROMOTER_FIRST_PURCHASE",
+      "calculation": "FIXED_AMOUNT",
+      "fixedAmountMinor": 500,
+      "currency": "USD",
+      "eligibleSources": [
+        "FIRST_ELIGIBLE_ORDER"
+      ],
+      "settlementLimit": 1,
+      "confidential": true
+    },
+    {
+      "id": "b902f400-dbff-5085-8c20-06bdef96ef5f",
+      "code": "PROMOTER_FIRST_PURCHASE",
+      "calculation": "FIRST_NET_CONSUMPTION_PERCENT",
+      "rateBps": 200,
+      "eligibleSources": [
+        "FIRST_ELIGIBLE_ORDER",
+        "FIRST_ELIGIBLE_GIFT"
+      ],
+      "settlementLimit": 1,
+      "confidential": true
+    },
+    {
+      "id": "b3910e19-9781-5d22-9f7d-de23964f9bec",
+      "code": "PLAYER_LIFETIME",
+      "calculation": "NET_CONSUMPTION_PERCENT",
+      "rateBps": 300,
+      "eligibleSources": [
+        "ORDER",
+        "GIFT"
+      ],
+      "settlementLimit": null,
+      "confidential": true
+    }
+  ],
+  "referralAttributionScenarios": [
+    {
+      "id": "1ae040f6-562f-54a7-ab3f-f185c8f3b876",
+      "programId": "5982c807-1087-5262-bd28-d2e0899fb86b",
+      "beneficiaryUserId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "referredUserId": "4bc75616-3ac1-54c3-9ebd-d41f2ef3b495",
+      "source": "INVITE_CODE",
+      "status": "FULFILLED",
+      "settlementCount": 1,
+      "amountMinor": 500,
+      "currency": "USD",
+      "futureEligible": false
+    },
+    {
+      "id": "ceb2de66-8029-5568-b056-803e0354c94f",
+      "programId": "b902f400-dbff-5085-8c20-06bdef96ef5f",
+      "beneficiaryUserId": "8968e261-da3b-5277-9558-c3d1cb35aaa5",
+      "referredUserId": "3f7be762-2a05-5730-bdd0-ffb917a980a9",
+      "source": "ADMIN_BINDING",
+      "status": "FULFILLED",
+      "settlementCount": 1,
+      "netFirstConsumptionMinor": 10000,
+      "rateBps": 200,
+      "amountMinor": 200,
+      "currency": "USD",
+      "futureEligible": false
+    },
+    {
+      "id": "b7dc118c-4646-5db8-851a-ec23e7dd7535",
+      "programId": "b3910e19-9781-5d22-9f7d-de23964f9bec",
+      "beneficiaryUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "referredUserId": "d24a04d6-38ef-5cd2-a8d8-7eae921cf1f0",
+      "source": "PLAYER_INVITE",
+      "status": "ACTIVE",
+      "eligibleNetOrderMinor": 30000,
+      "eligibleNetGiftMinor": 20000,
+      "rateBps": 300,
+      "amountMinor": 1500,
+      "currency": "USD",
+      "futureEligible": true
+    },
+    {
+      "id": "db3358d5-b1b8-52dc-9466-0181b703e928",
+      "referredUserId": "4bc75616-3ac1-54c3-9ebd-d41f2ef3b495",
+      "existingProgramId": "5982c807-1087-5262-bd28-d2e0899fb86b",
+      "attemptedProgramId": "b3910e19-9781-5d22-9f7d-de23964f9bec",
+      "expectedErrorCode": "REFERRAL_SOURCE_ALREADY_BOUND",
+      "existingAttributionPreserved": true
+    }
+  ],
+  "referralConfidentialityScenarios": [
+    {
+      "id": "a31392fc-eb50-5f03-8e1a-e3bbcd315ec2",
+      "referredUserId": "4bc75616-3ac1-54c3-9ebd-d41f2ef3b495",
+      "forbiddenFields": [
+        "beneficiaryUserId",
+        "programCode",
+        "relationType",
+        "rateBps",
+        "amountMinor",
+        "commissionStatus"
+      ],
+      "surfaces": [
+        "USER_API",
+        "DISCORD",
+        "ERROR",
+        "EXPORT",
+        "NOTIFICATION"
+      ],
+      "userApiResponse": {
+        "referralEligible": false
+      },
+      "discordNotification": "消费记录已更新",
+      "accessMatrix": {
+        "L1_SUPPORT": "NO_BENEFICIARY_OR_AMOUNT",
+        "L2_SUPERVISOR": "TASK_SCOPED_LIMITED",
+        "L3_OPERATIONS": "MANAGE_AND_AUDIT",
+        "L4_ADMIN_OWNER": "FULL_AUDIT"
+      }
+    },
+    {
+      "id": "849321a2-6193-5129-9d65-d7ec0b0520cc",
+      "currentBeneficiaryUserId": "93fc8b0a-4c60-59e4-9358-40127cdb0aba",
+      "programCode": "PLAYER_LIFETIME",
+      "visibleAmountMinor": 1500,
+      "currency": "USD",
+      "sourceUserDisplay": "用户 ****3812",
+      "sourceUserIdExposed": false,
+      "otherBeneficiaryRecordsVisible": false
+    },
+    {
+      "id": "a7d70f2c-058d-5a50-9110-6899dc50871e",
+      "commissionId": "1b0cef76-9a2b-565e-a381-69e61da45e68",
+      "commissionAdjustmentId": "2cee1c09-5803-5b98-bdda-1647d45a4985",
+      "type": "REVERSAL_DEBIT",
+      "amountMinor": 60,
+      "direction": "DECREASE",
+      "originalCommissionUnchanged": true
+    }
+  ],
+  "transactionTimelineScenarios": [
+    {
+      "id": "97f9127d-910b-5c44-902b-de93072f6c3a",
+      "orderId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "correlationId": "98ba1f69-40b6-54ea-aef6-307b5ecbc1d4",
+      "events": [
+        {
+          "id": "e3682a5a-1946-5489-8caf-d8f09094be99",
+          "eventType": "RESERVATION_CREATED",
+          "sourceId": "17b8a20a-1450-59fd-b27b-38dd843d84d2",
+          "occurredAt": "2026-07-16T16:00:00Z",
+          "amountMinor": 10000
+        },
+        {
+          "id": "40c3d694-05b5-55c8-905b-0c35eeb87ee1",
+          "eventType": "RESERVATION_CAPTURED",
+          "sourceId": "17b8a20a-1450-59fd-b27b-38dd843d84d2",
+          "occurredAt": "2026-07-16T16:30:00Z",
+          "amountMinor": 10000
+        },
+        {
+          "id": "a1bad3d3-bd9c-5f38-94fa-3c890d56e065",
+          "eventType": "CONSUMPTION_POSTED",
+          "sourceId": "f494377b-10d4-52e6-bcad-6f0295e3899c",
+          "occurredAt": "2026-07-16T16:31:00Z",
+          "amountMinor": 10000
+        },
+        {
+          "id": "5aebae70-dbc8-5755-bb4d-8cdb8b3bf842",
+          "eventType": "PLAYER_EARNING_CREATED",
+          "sourceId": "ea8469f0-6360-5bb3-b38c-849de0b3e33a",
+          "occurredAt": "2026-07-16T16:31:00Z",
+          "amountMinor": 7000
+        },
+        {
+          "id": "bca9a44b-2e9b-5c7d-81ec-1345cb3d9af7",
+          "eventType": "COMMISSION_CREATED",
+          "sourceId": "1b0cef76-9a2b-565e-a381-69e61da45e68",
+          "occurredAt": "2026-07-16T16:31:00Z",
+          "amountMinor": 200
+        },
+        {
+          "id": "a817b0c3-e58c-59d9-8b1d-1957dfdb12c7",
+          "eventType": "ORDER_REFUND_SUCCEEDED",
+          "sourceId": "ca0788fd-aeb1-5b04-8815-e2c86ae97742",
+          "occurredAt": "2026-07-16T16:40:00Z",
+          "amountMinor": 3000
+        },
+        {
+          "id": "67fc5406-3d8b-5a7a-9ca3-a6246fa6fe4e",
+          "eventType": "PLAYER_EARNING_ADJUSTMENT",
+          "sourceId": "aa4389ca-df88-5ef4-bb68-2c6afe6c6e68",
+          "occurredAt": "2026-07-16T16:41:00Z",
+          "amountMinor": 2100
+        },
+        {
+          "id": "014f661b-d324-5e44-8acc-4c7a09d3374c",
+          "eventType": "COMMISSION_ADJUSTMENT",
+          "sourceId": "2cee1c09-5803-5b98-bdda-1647d45a4985",
+          "occurredAt": "2026-07-16T16:41:00Z",
+          "amountMinor": 60
+        },
+        {
+          "id": "c0aa8239-42cb-559b-9888-2242178b40f7",
+          "eventType": "AUDIT_RECORDED",
+          "sourceId": "b497e61d-72b2-52b2-b8f2-e04a2b1eb660",
+          "occurredAt": "2026-07-16T16:42:00Z"
+        }
+      ]
+    },
+    {
+      "id": "d3ddba55-872f-5258-8f79-33b035f28899",
+      "orderId": "5f595253-b681-51dd-9c3b-19be5e3c419c",
+      "viewerLevel": "L1_SUPPORT",
+      "visibleEventTypes": [
+        "RESERVATION_CREATED",
+        "RESERVATION_CAPTURED",
+        "CONSUMPTION_POSTED",
+        "ORDER_REFUND_SUCCEEDED"
+      ],
+      "hiddenFields": [
+        "beneficiaryUserId",
+        "commissionAmountMinor",
+        "referralProgramCode"
+      ],
+      "amountVisibility": "TASK_SCOPED_ONLY"
+    }
+  ],
+  "m7Wallet": {
+    "accounts": [
+      {
+        "id": "a072158b-f0ef-52c7-a974-b4911ed39539",
+        "userId": "83d15e39-2937-572e-ac85-6c7ccac86e02",
+        "currency": "USD",
+        "ledgerBalanceMinor": 750000,
+        "reservedMinor": 10000,
+        "availableMinor": 740000,
+        "status": "ACTIVE"
+      },
+      {
+        "id": "e5528603-5941-52d1-849d-f024038503e5",
+        "userId": "65259d40-14d4-5ed2-9f65-3bbae9cdeb2b",
+        "currency": "USD",
+        "ledgerBalanceMinor": 2000,
+        "reservedMinor": 1000,
+        "availableMinor": 1000,
+        "status": "ACTIVE"
+      }
+    ],
+    "topUps": [
+      {
+        "id": "7bea111c-aee6-5639-b1ad-c86ec06ddcb4",
+        "walletAccountId": "a072158b-f0ef-52c7-a974-b4911ed39539",
+        "amountMinor": 500000,
+        "currency": "USD",
+        "paymentChannel": "PAYPAL",
+        "externalTransactionId": "paypal-test-txn-5000",
+        "paidAt": "2026-07-15T17:55:00Z",
+        "note": "Synthetic receipt verified",
+        "attachment": null,
+        "createdByStaffId": "c99b9d39-8df0-53aa-940c-c3bfb2ef8b21"
+      },
+      {
+        "id": "0f45f692-38f7-5621-a64f-14522326c136",
+        "walletAccountId": "a072158b-f0ef-52c7-a974-b4911ed39539",
+        "amountMinor": 500001,
+        "currency": "USD",
+        "paymentChannel": "STRIPE",
+        "externalTransactionId": "stripe-test-txn-over-5000",
+        "paidAt": "2026-07-15T17:56:00Z",
+        "note": "Synthetic L2 threshold fixture",
+        "attachment": {
+          "mediaType": "application/pdf",
+          "sizeBytes": 2048,
+          "sha256": "2af11f4ee4011ef18a7f6205fd631add7870af25c4c2b77a0bbaf692d441dc7a"
+        },
+        "createdByStaffId": "b98af1ae-4373-513c-8e38-6aaec3b643da"
+      }
+    ],
+    "externalRefundDebits": [
+      {
+        "id": "1b39a525-a444-5eeb-9198-c827bf94c585",
+        "walletAccountId": "a072158b-f0ef-52c7-a974-b4911ed39539",
+        "amountMinor": 25000,
+        "currency": "USD",
+        "paymentChannel": "PAYPAL",
+        "externalTransactionId": "paypal-test-refund-1",
+        "refundedAt": "2026-07-15T17:58:00Z",
+        "note": "Synthetic externally completed refund",
+        "createdByStaffId": "b98af1ae-4373-513c-8e38-6aaec3b643da"
+      }
+    ],
+    "auditAttempts": [
+      {
+        "action": "wallet.top_up.create",
+        "outcome": "SUCCESS",
+        "actorSource": "DASHBOARD",
+        "changeCount": 3
+      },
+      {
+        "action": "wallet.top_up.create",
+        "outcome": "REJECTED",
+        "actorSource": "DASHBOARD",
+        "reason": "INSUFFICIENT_PERMISSION"
+      },
+      {
+        "action": "order.timeout.process",
+        "outcome": "FAILURE",
+        "actorSource": "SYSTEM_JOB",
+        "jobId": "m7-synthetic-job-1",
+        "retryAttempt": 2
+      }
+    ]
+  },
+  "metricsSnapshot": {
+    "id": "376b11b8-e94e-58c2-9f5e-e461f4240469",
+    "windowStart": "2026-07-16T06:00:00Z",
+    "windowEnd": "2026-07-17T06:00:00Z",
+    "timezone": "America/Edmonton",
+    "todayOrderCount": 12,
+    "activeOrderCount": 3,
+    "pendingTaskCount": 4,
+    "completedNetConsumptionMinor": 86000,
+    "giftNetConsumptionMinor": 22000,
+    "reservedTotalMinor": 35000,
+    "dispatchSuccessRateBps": 8750,
+    "exceptionCount": 2,
+    "sourceFacts": {
+      "submittedOrderIds": [
+        "bb64a9f0-a9f1-5e5b-8371-81680db43e9a",
+        "125cd190-b301-54a6-b39e-ee1f19743484",
+        "482198d2-bebb-5987-a923-b78c8b34a821",
+        "c9560e33-a881-5fec-9406-dbc085764da7",
+        "c63b80b0-ced9-5a6b-a76a-d9262f35cd14",
+        "957ff6df-e1aa-5d80-8232-9f3374844598",
+        "36829781-a0ab-546e-b5ff-805bcc69ec0a",
+        "91c20e3a-a9c4-57dd-ae6a-5a0efed21eef",
+        "df40e19a-d9d6-5f87-a903-7aaf6f84226d",
+        "880e9124-a424-5416-896c-390fe6e70840",
+        "0845d2c7-5857-529c-87aa-674018d4d725",
+        "b70f7f63-03a6-5f10-b94e-36099796855d"
+      ],
+      "activeOrderIds": [
+        "d6da0d1f-b96b-5fb0-a6c5-332c727d40d2",
+        "0c55475e-3812-5994-9051-bec4c5199096",
+        "9ce4ab9d-f279-5c0b-9f48-c09680270624"
+      ],
+      "pendingTaskIds": [
+        "c665b1d8-c046-57d7-a368-2080bd253dd2",
+        "4ab6626c-14c4-5cd4-a62a-febee1f510b2",
+        "ee41acb0-487d-54d6-9148-517ac69d9fd8",
+        "8f8a0f15-c0c3-5f28-b0b7-91261cfd9f2d"
+      ],
+      "activeReservationIds": [
+        "a8117066-372a-51c3-a15e-15f8409b9e9e",
+        "1177fc10-60d8-545a-85b4-91b68f6cfdb0"
+      ],
+      "dispatchAttemptCount": 8,
+      "dispatchAcceptedCount": 7,
+      "exceptionEventIds": [
+        "77f7e21a-165d-57c8-9c5b-9a662a09ce0f",
+        "21a73cb5-045f-5a65-a055-1f7fdda4ec3a"
+      ]
+    }
+  }
+}

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>下一阶段功能路线图 · Prototype P0 v1.0</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #66707a;
+      --line: #d9dee3;
+      --soft: #f5f7f8;
+      --blue: #2457c5;
+      --blue-soft: #eef3ff;
+      --green: #13795b;
+      --green-soft: #eef8f4;
+      --amber: #8a6100;
+      --amber-soft: #fff7df;
+      --red: #b42318;
+      --white: #fff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--white);
+      font: 15px/1.68 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+    a { color: var(--blue); }
+    header { border-bottom: 1px solid var(--line); background: #f8fafc; }
+    .wrap { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
+    .hero { padding: 44px 0 34px; }
+    .eyebrow { color: var(--blue); font-size: 13px; font-weight: 750; }
+    h1 { max-width: 850px; margin: 8px 0 12px; font-size: 34px; line-height: 1.2; letter-spacing: 0; }
+    h2 { margin: 0 0 16px; font-size: 23px; line-height: 1.3; letter-spacing: 0; }
+    h3 { margin: 0; font-size: 17px; line-height: 1.4; letter-spacing: 0; }
+    p { margin: 0 0 12px; }
+    .lead { max-width: 920px; color: var(--muted); font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 22px; color: var(--muted); font-size: 13px; }
+    nav { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, .97); }
+    nav .wrap { display: flex; gap: 22px; overflow-x: auto; padding-top: 11px; padding-bottom: 11px; }
+    nav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+    nav a:hover { color: var(--blue); }
+    main section { padding: 34px 0; border-bottom: 1px solid var(--line); }
+    .notice { padding: 15px 17px; border-left: 4px solid var(--amber); background: var(--amber-soft); }
+    .legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); }
+    .legend div { min-width: 0; padding: 15px 16px; border-right: 1px solid var(--line); }
+    .legend div:last-child { border-right: 0; }
+    .legend strong { display: block; margin-bottom: 4px; }
+    .legend span { color: var(--muted); font-size: 13px; }
+    .tone-p0 { border-top: 4px solid var(--green); background: var(--green-soft); }
+    .tone-next { border-top: 4px solid var(--blue); background: var(--blue-soft); }
+    .tone-nice { border-top: 4px solid var(--amber); background: var(--amber-soft); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; min-width: 780px; }
+    th, td { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th:last-child, td:last-child { border-right: 0; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: var(--soft); font-size: 13px; }
+    .status { display: inline-block; padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; font-weight: 750; white-space: nowrap; }
+    .status-p0 { color: var(--green); border-color: #9fcdbd; background: var(--green-soft); }
+    .status-next { color: var(--blue); border-color: #b9c7e8; background: var(--blue-soft); }
+    .status-nice { color: var(--amber); border-color: #dfc77b; background: var(--amber-soft); }
+    .sequence { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; border: 1px solid var(--line); }
+    .sequence div { min-width: 0; padding: 14px 16px; border-right: 1px solid var(--line); }
+    .sequence div:last-child { border-right: 0; }
+    .sequence b { display: block; color: var(--blue); font-size: 12px; }
+    .sequence span { display: block; margin-top: 4px; font-weight: 700; }
+    .capabilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .capability { border: 1px solid var(--line); border-radius: 6px; background: var(--white); }
+    .capability header { display: flex; align-items: flex-start; gap: 12px; padding: 15px 16px; border-bottom: 1px solid var(--line); background: var(--soft); }
+    .capability-id { flex: 0 0 auto; color: var(--blue); font: 750 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .capability-body { padding: 4px 16px 12px; }
+    dl { margin: 0; }
+    .capability-row { display: grid; grid-template-columns: 82px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .capability-row:last-child { border-bottom: 0; }
+    dt { color: var(--muted); font-size: 13px; font-weight: 700; }
+    dd { min-width: 0; margin: 0; }
+    code { padding: 1px 5px; border-radius: 3px; background: var(--soft); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+    .gate { display: grid; grid-template-columns: 190px 1fr; border-top: 1px solid var(--line); }
+    .gate div { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .gate div:nth-child(odd) { border-left: 1px solid var(--line); background: var(--soft); font-weight: 700; }
+    footer { padding: 28px 0 42px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 820px) {
+      .wrap { width: min(100% - 24px, 1160px); }
+      .hero { padding: 30px 0 26px; }
+      h1 { font-size: 28px; }
+      .legend, .sequence, .capabilities { grid-template-columns: 1fr; }
+      .legend div, .sequence div { border-right: 0; border-bottom: 1px solid var(--line); }
+      .legend div:last-child, .sequence div:last-child { border-bottom: 0; }
+      .gate { grid-template-columns: 1fr; }
+      .gate div:nth-child(odd) { border-bottom: 0; }
+    }
+    @media print {
+      nav { display: none; }
+      .hero, main section { padding: 18px 0; }
+      .capability { break-inside: avoid; }
+      a { color: var(--ink) !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div class="eyebrow">PRODUCT ROADMAP · POST-P0 · v1.0</div>
+      <h1>下一阶段功能路线图</h1>
+      <p class="lead">在不扩大 Prototype P0 的前提下，定义 P0 稳定后必须评估的产品能力、依赖关系和进入顺序。路线图描述产品方向，不代表代码已经实现，也不自动形成排期或交付承诺。</p>
+      <div class="meta"><span>主线：P1-01 — P1-06</span><span>状态：下一阶段候选</span><span>边界：全部明确排除于 P0</span><span>竞品参考访问：2026-07-16</span></div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="wrap">
+      <a href="#scope">分层边界</a>
+      <a href="#p0-parity">P0 对标</a>
+      <a href="#next">下一阶段主线</a>
+      <a href="#sequence">依赖与顺序</a>
+      <a href="#nice">Nice to Have</a>
+      <a href="#gates">进入门槛</a>
+      <a href="../index.html">返回交付包</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="scope">
+      <div class="wrap">
+        <h2>分层边界</h2>
+        <div class="notice">
+          <strong>比较口径：</strong>本文根据 <a href="https://lilihuyu.com/">lilihuyu.com 公开产品介绍</a>（访问于 2026-07-16）与陪玩运营场景作产品推断。推断只用于识别能力缺口，不是对竞品合同、内部实现、性能、合规性或实际交付范围的事实声明。
+        </div>
+        <div class="legend">
+          <div class="tone-p0"><strong>当前 P0</strong><span>已进入规格、API、数据、UI、Backlog 或验收计划；状态是“已规划/已契约”，不等于已实现。</span></div>
+          <div class="tone-next"><strong>下一阶段必要能力</strong><span>本路线图主体。必须等 P0 运行证据稳定后再立项，并重新完成设计、契约与验收。</span></div>
+          <div class="tone-nice"><strong>Nice to Have</strong><span>只保留战略选项；没有 P0 或下一阶段承诺，不应提前污染核心模型。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="p0-parity">
+      <div class="wrap">
+        <h2>当前 P0 对标矩阵</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>公开介绍所反映的产品信号（推断）</th><th>P0 已纳入的响应</th><th>机器可追踪落点</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>订单与客服协作需要统一工作台。</td><td>订单、客服任务、礼物审核与异常处理统一进入 API 驱动的 Bot/Dashboard 工作流。</td><td>01 UI/UX、02 OpenAPI、06 Backlog、07 验收</td><td><span class="status status-p0">P0 已规划</span></td></tr>
+              <tr><td>选人效率依赖透明报名和可恢复的客户终选。</td><td>ACTIVE + 同 Guild + 需求标签复核、无自然截止候选池、报名/撤回投影、客户原子终选与零人重新招募/取消分支。</td><td>02 OpenAPI、03 数据模型、07 验收</td><td><span class="status status-p0">P0 开发中</span></td></tr>
+              <tr><td>运营规模化需要细粒度权限和可审计执行。</td><td>权限按 L1&lt;L2&lt;L3&lt;L4 累积继承，高级别自动拥有低级全部执行权限；一般礼物和退款采用最低等级直接执行，高额 ≥500000 必须 L4；高额手动结算批次则必须由不同人员复核，角色继承不能绕过自批禁止。全部高风险操作均保留原因、step-up/MFA 与不可篡改审计。</td><td>02 OpenAPI、03 数据模型、05 配置</td><td><span class="status status-p0">P0 已规划</span></td></tr>
+              <tr><td>财务与结算需要业务事实处于同一时间线。</td><td>内部账本余额、资金预留、消费、退款、陪玩收益、返佣和追加冲正统一关联业务来源。</td><td>02 OpenAPI、03 数据模型、04 适配器</td><td><span class="status status-p0">P0 已规划</span></td></tr>
+              <tr><td>经营判断需要最低限度的实时指标。</td><td>今日订单、进行中、待处理、净消费、礼物净消费、预留总额、派单成功率与异常数。</td><td>01 Dashboard、02 summary API、07 验收</td><td><span class="status status-p0">P0 已规划</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>实现声明：</strong>上表只说明这些能力已被当前 P0 交付文档覆盖；是否实现、部署或通过验收，必须由代码、迁移、测试与运行证据单独证明。</p>
+      </div>
+    </section>
+
+    <section id="next">
+      <div class="wrap">
+        <h2>下一阶段必要能力</h2>
+        <div class="sequence">
+          <div><b>N1 · 供给可识别</b><span>P1-01 → P1-02</span>先建立可信档案，再开放客户选择。</div>
+          <div><b>N2 · 时间与财务可计划</b><span>P1-03 + P1-04</span>预约排班与经营/对账能力并行深化。</div>
+          <div><b>N3 · 运营入口可扩展</b><span>P1-05 → P1-06</span>先稳定多渠道身份与路由，再扩展移动处理。</div>
+        </div>
+
+        <div class="capabilities">
+          <article class="capability" id="p1-01">
+            <header><span class="capability-id">P1-01</span><h3>陪玩档案、试音与审核材料</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>让供给质量、技能、风格和历史审核形成可追溯档案，为选择、匹配和运营质检提供可信输入。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>P0 陪玩身份、状态、标签、隐私分级与审计稳定；定义材料保存、授权、过期和删除政策。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>音频/图片隐私、内容审核、虚假材料、主观评分偏差，以及材料泄露给无权限角色。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N1 首项；先做内部审核档案，再决定哪些字段可面向用户展示。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>Prototype 只保存准入状态与运营标签，不上传试音、作品集、公开评分或完整个人主页。</dd></div>
+            </dl></div>
+          </article>
+
+          <article class="capability" id="p1-02">
+            <header><span class="capability-id">P1-02</span><h3>公开陪玩目录、偏好与指定陪玩</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>把档案转化为下单前可浏览、收藏、表达偏好或强指定的供给目录；与 P0 仅在本单报名候选中终选正式陪玩区分。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>P1-01 可公开档案字段、可服务时间事实、价格版本，以及 P0 候选池报名/终选稳定；指定失败后的降级规则明确。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>热门陪玩拥堵、选择歧视、价格/状态过期、绕过准入，以及指定失败导致订单体验变差。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N1 第二项；先支持目录浏览与偏好表达，再评估强指定和显式降级。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>P0 只允许客户在某一订单的有效报名候选中终选正式陪玩；不提供下单前浏览、排行、收藏、优先名单或强指定。</dd></div>
+            </dl></div>
+          </article>
+
+          <article class="capability" id="p1-03">
+            <header><span class="capability-id">P1-03</span><h3>预约、班次与可服务时间</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>把即时供给扩展到可计划服务，降低高峰缺人和临时爽约，支持陪玩自助维护班次。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>P1-01/02 的身份与选择策略、统一时区、班次容量、预留期限、改期/取消和资金释放规则。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>时区与夏令时、超卖、临时变更、长期资金占用、跨日服务和排班劳动合规。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N2；先单次预约和明确班次，再考虑周期排班、候补或复杂容量优化。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>P0 订单为 <code>IMMEDIATE_ONLY</code>，不接受未来时间、不做班表、候补或改期。</dd></div>
+            </dl></div>
+          </article>
+
+          <article class="capability" id="p1-04">
+            <header><span class="capability-id">P1-04</span><h3>经营分析、财务对账与导出</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>从最低运营统计升级为可核对的收入、退款、预留、收益、返佣、绩效和异常分析，支持标准化导出。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>P0 账务事实、事件时间、币种、版本、冲正链、第三方流水镜像与数据权限达到稳定口径。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>口径漂移、重复/迟到事件、PII 泄露、导出越权、报表与原始账不一致，以及把缓存误当账本。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N2；先对账差异和受控 CSV 导出，再增加趋势、绩效和可配置报表。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>P0 只提供最小实时摘要和对象级时间线，不做完整 BI、月结、税务报表、批量导出或自动发报。</dd></div>
+            </dl></div>
+          </article>
+
+          <article class="capability" id="p1-05">
+            <header><span class="capability-id">P1-05</span><h3>多 Discord Server 与更多服务渠道</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>让同一业务核心服务多个 Discord Server，并为其他语音/客服渠道保留一致的订单与任务入口。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>所有对象具备显式 guild/channel scope；身份映射、幂等、消息 Outbox、权限配置和渠道适配器边界稳定。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>跨 Server 数据泄露、身份碰撞、重复消息、渠道能力不对称、权限语义漂移和运维复杂度上升。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N3；先同一组织多 Discord Server，再以一个额外渠道验证适配器，不同时铺开。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>P0 只面向单测试 Guild 与 Sapphire Bot，不做跨 Server 搜索、共享角色或其他渠道连接器。</dd></div>
+            </dl></div>
+          </article>
+
+          <article class="capability" id="p1-06">
+            <header><span class="capability-id">P1-06</span><h3>移动运营界面与通知中心</h3></header>
+            <div class="capability-body"><dl>
+              <div class="capability-row"><dt>价值</dt><dd>让客服和管理人员在移动场景完成认领、核对、审批与异常响应，并统一管理待办、升级和送达状态。</dd></div>
+              <div class="capability-row"><dt>前置</dt><dd>任务/审批 API、capabilities、step-up、深链、通知偏好、去重、已读状态和安全会话策略稳定。</dd></div>
+              <div class="capability-row"><dt>风险</dt><dd>锁屏泄密、推送重复/延迟、移动误操作、弱网重放、会话失窃和高风险操作缺少足够上下文。</dd></div>
+              <div class="capability-row"><dt>顺序</dt><dd>N3；先响应式任务/审批，再做站内通知中心，最后评估原生推送或轻量 App。</dd></div>
+              <div class="capability-row"><dt>P0 排除</dt><dd>P0 仅保证 Dashboard 基本响应式与现有 Discord 通知，不做原生 App、推送编排或全渠道收件箱。</dd></div>
+            </dl></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="sequence">
+      <div class="wrap">
+        <h2>依赖与进入顺序</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>阶段</th><th>能力</th><th>必须先证明</th><th>阶段退出证据</th></tr></thead>
+            <tbody>
+              <tr><td>N1</td><td>P1-01、P1-02</td><td>P0 陪玩准入、标签、候选池报名/终选、隐私权限和审计稳定。</td><td>档案字段分级通过评审；选择/降级规则无超卖且不绕过候选资格。</td></tr>
+              <tr><td>N2</td><td>P1-03、P1-04</td><td>P0 资金预留、状态事件、冲正和第三方流水镜像能够对账。</td><td>预约容量并发测试通过；样本账期差异可解释，导出权限与脱敏通过测试。</td></tr>
+              <tr><td>N3</td><td>P1-05、P1-06</td><td>scope、Actor Context、Outbox、任务/审批和 step-up 在单 Guild 上稳定。</td><td>跨 Server 隔离 E2E 通过；移动端关键操作在弱网和重复通知下保持幂等。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="nice">
+      <div class="wrap">
+        <h2>附录：Nice to Have</h2>
+        <p>以下能力不进入 P1-01—P1-06，也没有近期交付承诺。只有当核心闭环和下一阶段主线产生明确规模证据时才重新评估。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>候选能力</th><th>潜在价值</th><th>重新评估触发条件</th><th>主要约束</th></tr></thead>
+            <tbody>
+              <tr><td>微信 / 邮箱认证</td><td>扩大非 Discord 用户与工作人员入口。</td><td>出现稳定的非 Discord 获客或后台账号需求。</td><td>账号合并、验证安全、隐私同意与身份恢复。</td></tr>
+              <tr><td>白标、定制域名与可配置组件</td><td>支持品牌化交付和不同团队的界面差异。</td><td>至少两个付费组织需要独立品牌且核心流程一致。</td><td>主题隔离、域名证书、组件兼容和升级成本。</td></tr>
+              <tr><td>多租户 / 多门店 / 分支机构</td><td>支持组织级隔离、分店运营和集团视图。</td><td>单组织多 Server 已稳定，且真实客户要求组织级结算。</td><td>租户隔离、密钥、账务、权限继承与数据迁移。</td></tr>
+              <tr><td>连接器市场</td><td>以标准适配器扩展客服、支付、语音和数据工具。</td><td>至少三个重复渠道需求且适配器契约成熟。</td><td>权限授权、密钥托管、版本兼容和第三方 SLA。</td></tr>
+              <tr><td>营销自动化、VIP、优惠券与活动</td><td>促进复购、分层运营和活动转化。</td><td>核心留存、毛利和风控口径稳定，并有可测量的增长假设。</td><td>滥用、补贴核算、隐私、规则爆炸和用户公平性。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="gates">
+      <div class="wrap">
+        <h2>下一阶段立项门槛</h2>
+        <div class="gate">
+          <div>P0 证据</div><div>P0 blocker 全部通过，并有真实运行周期的订单、预留、派单、任务和异常数据。</div>
+          <div>问题证据</div><div>每个 P1 项目必须绑定可量化问题，不因竞品存在某功能而直接复制。</div>
+          <div>范围重签</div><div>立项时重新产出 UI、OpenAPI、数据迁移、权限、配置、Backlog 和验收；本页不能代替规格。</div>
+          <div>安全评审</div><div>涉及档案、音频、导出、多渠道、推送或新身份时，先完成隐私、授权和数据保留评审。</div>
+          <div>顺序纪律</div><div>按依赖推进；不得为 Nice to Have 提前引入多租户、营销或连接器复杂度。</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">下一阶段功能路线图 · v1.0 · 产品推断不构成竞品事实或交付承诺 · <a href="../index.html">返回 P0 开发交付包</a></div></footer>
+</body>
+</html>

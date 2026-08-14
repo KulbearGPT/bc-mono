@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>P0 业务配置说明</title>
+  <style>
+    :root {
+      --ink: #182026;
+      --muted: #58646d;
+      --line: #d8dde1;
+      --paper: #ffffff;
+      --canvas: #f3f5f6;
+      --nav: #17242c;
+      --accent: #b94d32;
+      --accent-soft: #f8e9e5;
+      --ok: #246b4a;
+      --ok-soft: #e6f2eb;
+      --warn: #8a5a10;
+      --warn-soft: #fff3d8;
+      --code: #edf1f3;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+      letter-spacing: 0;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 30px 22px;
+      overflow: auto;
+      color: #e8eef1;
+      background: var(--nav);
+    }
+
+    aside h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    aside p {
+      margin: 0 0 24px;
+      color: #aebbc2;
+      font-size: 12px;
+    }
+
+    nav a {
+      display: block;
+      padding: 7px 0;
+      color: #ccd6db;
+      font-size: 13px;
+      text-decoration: none;
+    }
+
+    nav a:hover { color: #ffffff; }
+
+    main {
+      width: min(1040px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 54px 0 80px;
+    }
+
+    .cover {
+      padding-bottom: 34px;
+      border-bottom: 4px solid var(--ink);
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 42px 0 16px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid var(--line);
+      font-size: 23px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      margin: 27px 0 10px;
+      font-size: 16px;
+    }
+
+    .cover h2 {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      font-size: 38px;
+      line-height: 1.25;
+    }
+
+    .lead {
+      max-width: 800px;
+      margin: 17px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px 34px;
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .meta strong { color: var(--ink); }
+
+    p, li { font-size: 14px; }
+    ul, ol { padding-left: 22px; }
+    li + li { margin-top: 6px; }
+    code {
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 14px 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      background: #f8fafb;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    table {
+      width: 100%;
+      margin: 14px 0 24px;
+      border-collapse: collapse;
+      background: var(--paper);
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #ffffff;
+      background: #2c3a42;
+      font-weight: 650;
+    }
+
+    tbody tr:nth-child(even) { background: #f8fafb; }
+
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      font-size: 14px;
+    }
+
+    .callout.ok {
+      border-color: var(--ok);
+      background: var(--ok-soft);
+    }
+
+    .callout.warn {
+      border-color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .files {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .file {
+      padding: 15px;
+      border: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    .file a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .file p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 3px;
+      color: #ffffff;
+      background: var(--ok);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .badge.example { background: var(--warn); }
+
+    .permission-list code {
+      display: inline-block;
+      margin: 2px 3px 2px 0;
+      white-space: nowrap;
+    }
+
+    .checklist { list-style: none; padding-left: 0; }
+    .checklist li {
+      position: relative;
+      padding-left: 25px;
+    }
+    .checklist li::before {
+      position: absolute;
+      left: 0;
+      content: "□";
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    footer {
+      margin-top: 48px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 820px) {
+      .layout { display: block; }
+      aside { position: static; height: auto; }
+      nav { display: none; }
+      main { width: min(100% - 30px, 1040px); padding-top: 32px; }
+      .cover h2 { font-size: 30px; }
+      .files { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; }
+    }
+
+    @media print {
+      body { background: #ffffff; }
+      .layout { display: block; }
+      aside { display: none; }
+      main { width: 100%; padding: 0; }
+      a { color: inherit; text-decoration: none; }
+      h2 { break-after: avoid; }
+      table, pre, .callout { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h1>P0 业务配置</h1>
+      <p>Prototype 开发交付包 · v2.0</p>
+      <nav>
+        <a href="#purpose">1. 用途与文件</a>
+        <a href="#principles">2. 配置原则</a>
+        <a href="#validation">3. 启动校验</a>
+        <a href="#discord">4. Discord 配置</a>
+        <a href="#catalog">5. 目录与双价格</a>
+        <a href="#gift-referral">6. 资金、礼物与返佣</a>
+        <a href="#dispatch">7. 匹配、就绪与工作台</a>
+        <a href="#access">8. 权限与审批</a>
+        <a href="#reason-notify">9. 原因码与通知</a>
+        <a href="#import">10. 导入与变更</a>
+        <a href="#release">11. 生产启用门槛</a>
+        <a href="#assumptions">12. 关键假设</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="cover">
+        <p class="kicker">Prototype P0 · Business Configuration</p>
+        <h2>P0 业务配置说明</h2>
+        <p class="lead">把 P0 资金预留、全体有效陪玩就绪、取消预览、工作台、运营指标、双返佣计划及既有业务默认值转换为可校验、可导入、可版本化的配置基线，供统一业务 API、Sapphire Bot、React Dashboard 和测试共同使用。</p>
+        <div class="meta">
+          <span><strong>上位规格：</strong>Discord 陪玩业务 Bot 最小原型设计开发文档 v1.0</span>
+          <span><strong>配置版本：</strong>3.0.0</span>
+          <span><strong>适用范围：</strong>P0 Prototype</span>
+        </div>
+      </header>
+
+      <section id="purpose">
+        <h2>1. 用途与文件</h2>
+        <p>本目录不替代主规格。主规格决定业务边界；本目录负责把可配置内容变成开发团队可以直接读取和校验的格式。</p>
+        <div class="files">
+          <div class="file">
+            <a href="business-config.example.yaml">business-config.example.yaml</a>
+            <p>完整开发示例。部署级开关为关闭，业务目录示例均未启用。</p>
+          </div>
+          <div class="file">
+            <a href="business-config.schema.json">business-config.schema.json</a>
+            <p>JSON Schema Draft 2020-12，用于 API 启动和配置发布前校验。</p>
+          </div>
+          <div class="file">
+            <a href="seed-data.csv">seed-data.csv</a>
+            <p>可导入的扁平初始化清单，适合数据库种子和运营确认。</p>
+          </div>
+          <div class="file">
+            <a href="../../Discord陪玩业务Bot最小原型设计开发文档.html">上位设计开发文档</a>
+            <p>唯一上位规格；状态机、数据模型、API 和验收均以该文档为准。</p>
+          </div>
+        </div>
+        <div class="callout warn">
+          <strong>安全默认：</strong>示例配置设置为 <code>deployment.enabled=false</code> 和 <code>example_only=true</code>。未确认的游戏、区服、服务、双价格、礼物、陪玩标签及 Discord ID 均标记为 <code>UNAPPROVED_EXAMPLE</code>，不得进入生产。
+        </div>
+      </section>
+
+      <section id="principles">
+        <h2>2. 配置原则</h2>
+        <table>
+          <thead>
+            <tr><th>原则</th><th>执行方式</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>统一业务入口</td><td>配置由统一业务 API 读取和执行业务校验。Bot 与 Dashboard 不复制价格、阈值、返佣或权限逻辑。</td></tr>
+            <tr><td>金额统一</td><td>除充值付款证据外，所有内部业务事实固定使用整数 CAT subunits；10 subunits = 1 CAT，禁止浮点金额。</td></tr>
+            <tr><td>客户展示单位</td><td>客户钱包与消费界面固定使用名称“猫条”、符号 <code>CAT</code> 与每 CAT 10 个 subunits；不提供名称、符号或比例配置。</td></tr>
+            <tr><td>充值付款证据</td><td>付款币种固定 USD，表单录入 USD cents、付款方式和 receipt；固定 <code>1 USD cent = 1 CAT subunit</code>，不建立汇率表或第二账本。</td></tr>
+            <tr><td>比例统一</td><td>比例使用 basis points。2% 写作 <code>200</code>，5% 写作 <code>500</code>。</td></tr>
+            <tr><td>稳定标识</td><td>业务 ID 使用小写字母、数字和下划线；原因码和状态使用大写稳定标识；Discord ID 保存为字符串。</td></tr>
+            <tr><td>版本化</td><td>目录、双价格、礼物、返佣、权限和阈值变更创建新版本并记录操作者、原因和生效时间，不覆盖订单快照。</td></tr>
+            <tr><td>禁止硬删除</td><td>订单、资金镜像、消费、收益、礼物、返佣、退款和审计记录没有硬删除配置；纠错使用冲正、禁用或追加更正。</td></tr>
+            <tr><td>资金单一入口</td><td>所有订单、礼物及其他消费都必须经过统一业务 API；<code>all_spend_via_unified_api</code> 固定为 <code>true</code>，本地预留模式不能被其他入口绕过。</td></tr>
+            <tr><td>安全失败</td><td>缺字段、引用不存在、配置未批准、Discord 权限不足或生产仍使用示例 ID 时，API 启动失败或拒绝发布。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="validation">
+        <h2>3. 启动校验</h2>
+        <p>API 是唯一读取业务配置并访问 PostgreSQL 的进程。推荐在 API 启动时先把 YAML 解析为对象，再用 JSON Schema 校验；Bot 与 Dashboard 从 API 获取公开配置和 capabilities。</p>
+        <pre>business-config.example.yaml
+          │ YAML parse
+          ▼
+business-config.schema.json
+          │ structural validation
+          ▼
+P0 semantic validation
+          │ references / uniqueness / Discord reachability
+          ▼
+versioned configuration snapshot in PostgreSQL</pre>
+
+        <h3>3.1 Schema 强制校验</h3>
+        <ul>
+          <li>金额为不小于零且不超过 JavaScript 安全整数范围的整数；正价格必须大于零。</li>
+          <li><code>PROMOTER_FIRST_PURCHASE</code> 与 <code>PLAYER_LIFETIME</code> 两个计划必须同时存在，且比例使用 1–10000 basis points 的正整数。</li>
+          <li>Discord Snowflake 为 17–20 位非零开头数字字符串。</li>
+          <li>稳定业务 ID 匹配 <code>^[a-z][a-z0-9_]{2,63}$</code>；原因码使用大写格式。</li>
+          <li>未批准示例必须同时满足 <code>enabled=false</code>，中文名称必须包含“示例”和“未确认”。</li>
+          <li><code>permissionCode</code> 的 79 个稳定标识必须与角色配置、CSV 权限行及 API <code>x-required-permissions</code> 精确相等；不接受别名或迁移层。</li>
+          <li><code>access_control.inheritance.mode</code> 固定为 <code>CUMULATIVE</code>：高级别自动继承全部低级别执行权限，级别顺序只能是 L1、L2、L3、L4。</li>
+          <li>L1 权限集合不能出现扣款、退款执行、人工结案、转派、目录修改、收益修改、权限修改等破坏性操作。</li>
+          <li><code>funding</code>、<code>readiness</code>、<code>cancellation</code>、<code>player_workspace</code> 和 <code>operations_dashboard</code> 均为必填；运营指标固定为八项。</li>
+          <li><code>all_spend_via_unified_api</code> 必须为 <code>true</code>；订单和礼物资金生命周期触发器不得被配置改写为其他阶段。</li>
+          <li>L2 送礼上限固定为 200000 CAT subunits，退款上限固定为 50000 CAT subunits；500000 CAT subunits 起最低要求 L4 直接执行，不强制独立复核人。</li>
+        </ul>
+
+        <h3>3.2 API 语义校验</h3>
+        <ul>
+          <li>所有 ID 唯一；服务引用的游戏、区服和标签必须存在，启用服务只能引用已启用条目。</li>
+          <li>每个启用服务必须同时具有客户单价和陪玩结算单价，并保存正整数版本号。</li>
+          <li>礼物播报模板必须包含 <code>{sender_name}</code>、<code>{receiver_name}</code> 和 <code>{gift_name}</code>。</li>
+          <li>同一 Guild 内频道 ID 和角色 ID 不得重复；Discord API 必须确认对象存在且 Bot 具备所需权限。</li>
+          <li>只读时间不得晚于归档时间；归档 Job 只能移动频道和收紧权限，不能删除订单数据。</li>
+          <li><code>reservedMinor</code> 必须由有效 <code>FundReservation</code> 剩余金额汇总得到，不能作为可编辑余额字段；<code>availableMinor = ledgerBalanceMinor - reservedMinor</code>。</li>
+          <li>订单和礼物统一使用内部钱包的 <code>LOCAL_RESERVATION</code>；提交或批准前必须由统一 API 在同一事务重算内部账本余额和有效预留。</li>
+          <li>推荐来源对被推荐用户在用户 API、Discord、错误、导出和通知中均不可见；L1 不能看到受益人或金额。</li>
+          <li>生产环境要求 <code>deployment.enabled=true</code>、<code>example_only=false</code>，且不存在已启用的 <code>UNAPPROVED_EXAMPLE</code>。</li>
+          <li>生产启动前必须关闭一次性 L4 bootstrap；已存在 L4 后再次设置 bootstrap 应拒绝启动。</li>
+        </ul>
+      </section>
+
+      <section id="discord">
+        <h2>4. Discord 配置</h2>
+        <table>
+          <thead><tr><th>配置</th><th>用途</th><th>启动要求</th></tr></thead>
+          <tbody>
+            <tr><td><code>guild_id</code></td><td>Prototype 唯一 Discord Server。</td><td>Bot 已加入且 ID 与部署环境一致。</td></tr>
+            <tr><td><code>public_entry_channel_id</code></td><td>部署“创建订单”和“我的服务中心”公共入口。</td><td>Bot 可查看、发消息、嵌入链接和管理自身消息。</td></tr>
+            <tr><td><code>gift_entry_channel_id</code></td><td>部署独立送礼的常驻入口消息。</td><td>Bot 可查看、发消息、嵌入链接和管理自身消息；具体陪玩资格仍由 API 返回。</td></tr>
+            <tr><td><code>private_order_category_id</code></td><td>创建私密订单文字频道。</td><td>必须为当前 Guild 的 Category；Bot 可管理频道和权限覆盖。</td></tr>
+            <tr><td><code>order_archive_category_id</code></td><td>移动只读或待归档订单频道；可为空。</td><td>非空时必须为当前 Guild 的 Category，普通用户不能浏览其他订单。</td></tr>
+            <tr><td><code>dispatch_channel_id</code></td><td>集中发送派单卡片和匹配提醒。</td><td>仅陪玩与工作人员可见。</td></tr>
+            <tr><td><code>player_workbench_channel_id</code></td><td>发布陪玩工作台入口。</td><td>Bot 可查看、发送消息和管理自身消息。</td></tr>
+            <tr><td><code>gift_review_channel_id</code></td><td>接收礼物核对请求。</td><td>用户和陪玩不可见，Bot 可发送核对卡片。</td></tr>
+            <tr><td><code>gift_broadcast_channel_id</code></td><td>扣款成功后的礼物公开播报。</td><td>Bot 可发消息；失败只重试播报。</td></tr>
+            <tr><td><code>review_broadcast_channel_id</code></td><td>老板明确同意后的五星好评聚合播报。</td><td>Bot 可发消息；只能投递 API 生成的五星安全快照，失败只重试播报。</td></tr>
+            <tr><td><code>staff_task_channel_id</code></td><td>接收取消、爽约、完成超时、用户求助和异常客服任务。</td><td>用户和陪玩不可见。</td></tr>
+            <tr><td><code>operations_alert_channel_id</code></td><td>权限变化、Role 同步异常和失败 Job 告警。</td><td>仅 L3/L4 与 Bot 可见。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>4.1 Role 映射</h3>
+        <table>
+          <thead><tr><th>Discord Role</th><th>内部级别</th><th>同步规则</th></tr></thead>
+          <tbody>
+            <tr><td><code>player_role_id</code></td><td>陪玩身份</td><td>由 L4 维护安全映射；拒绝 <code>@everyone</code>、Bot/集成 Role 和 Bot 无法管理的 Role。</td></tr>
+            <tr><td><code>staff_l1_role_id</code></td><td><code>L1_SUPPORT</code></td><td>可自动创建或更新内部工作人员账号。</td></tr>
+            <tr><td><code>staff_l2_role_id</code></td><td><code>L2_SUPERVISOR</code></td><td>可自动升级，生效时撤销旧会话。</td></tr>
+            <tr><td><code>staff_l3_role_id</code></td><td><code>L3_OPERATIONS</code></td><td>首次获得只创建待确认升级，由现有 L4 批准。</td></tr>
+            <tr><td><code>staff_l4_role_id</code></td><td><code>L4_ADMIN_OWNER</code></td><td>首次获得由另一名现有 L4 确认；初始化例外仅可使用一次。</td></tr>
+            <tr><td><code>staff_notification_role_id</code></td><td>日常客服任务提醒</td><td>可为空；L3/L4 可作为运营通知目标维护。</td></tr>
+            <tr><td><code>operations_notification_role_id</code></td><td>运营告警提醒</td><td>可为空；L3/L4 可作为运营通知目标维护。</td></tr>
+          </tbody>
+        </table>
+        <p>移除或降低 Role 时，API 立即降低内部权限、递增权限版本并撤销 Dashboard 会话。Discord Role 只是身份映射信号，不能直接授权扣款、退款、配置或权限变更。</p>
+
+        <div class="callout warn">
+          <strong>字段迁移：</strong>旧键 <code>order_category_id</code>、<code>archive_category_id</code>、<code>staff_channel_id</code> 已从现行配置中删除，分别迁移为 <code>private_order_category_id</code>、<code>order_archive_category_id</code>、<code>staff_task_channel_id</code>。新配置、Schema、CSV 和通知引用只接受新键；部署迁移时应在同一版本变更中改名，禁止继续读取旧键或保留双写别名。
+        </div>
+
+        <h3>4.2 <code>/bot-config</code> 精简配置面</h3>
+        <p>Slash Command 只开放常用运营配置，不把整份业务配置暴露到 Discord。时间与规则字段按下表校验，礼物播报模板只允许 <code>{sender_name}</code>、<code>{receiver_name}</code> 和 <code>{gift_name}</code> 三个占位符。</p>
+        <table>
+          <thead><tr><th>字段</th><th>范围或类型</th><th>最低级别</th></tr></thead>
+          <tbody>
+            <tr><td><code>readiness_timeout_minutes</code></td><td>1–30 分钟</td><td>L3</td></tr>
+            <tr><td><code>completion_confirmation_minutes</code></td><td>5–120 分钟</td><td>L3</td></tr>
+            <tr><td><code>gift_review_reminder_minutes</code></td><td>1–60 分钟</td><td>L3</td></tr>
+            <tr><td><code>channel_archive_after_completion_minutes</code></td><td>订单完成或取消后的频道清理等待，0–60 分钟，默认 60；删除前必须完整回填 transcript</td><td>L3</td></tr>
+            <tr><td><code>gift_broadcast_template</code></td><td>1–500 字符；仅批准占位符</td><td>L3</td></tr>
+          </tbody>
+        </table>
+        <p>功能开关为 <code>new_orders_enabled</code>、<code>gift_requests_enabled</code> 和 <code>maintenance_notice</code>。候选池招募固定由客户手动开始和终止，不提供自动派单开关、轮次上限或自然截止配置；其他开关只阻止对应的新请求，不回写正在处理的业务事实。</p>
+        <ul>
+          <li><code>bot_config.read</code> 与 <code>bot_config.operational.manage</code> 从 L3 起累积授予，L4 自动拥有；频道、通知 Role、时间、模板和开关属于日常运营配置。</li>
+          <li><code>welcome_dm.send</code> 从 L2 起累积授予，仅允许具 Discord 服务器管理权限的员工通过专用接口取得玩家入口频道并重发迎新私信；不得返回完整 Bot 配置或可管理字段。</li>
+          <li><code>bot_config.security.manage</code> 仅授予 L4，用于陪玩及 L1–L4 身份 Role 映射；自有 API 必须结合有效 <code>staff_account</code>、等级和权限码最终授权，不能只信任 Discord Role。</li>
+          <li>频道使用 Channel Select，Role 使用 Role Select；保存前检查对象属于当前 Guild、类型适用且 Bot 拥有查看、发送消息或管理频道/Role 的必要权限。</li>
+          <li>命令消息仅操作者可见。每次修改先校验并展示旧值、新值和错误；API 校验通过后签发绑定操作者、Guild、版本、规范化变更和原因的短期 Token，“确认应用”必须携带该 Token，确认后记录原因、操作者、前后值和时间并立即刷新对应 Guild 缓存。</li>
+          <li>Bot Token、数据库连接、支付密钥、Webhook/OAuth Secret、游戏与服务目录、价格、礼物目录和返佣规则不在 Discord 中配置。</li>
+        </ul>
+      </section>
+
+      <section id="catalog">
+        <h2>5. 目录与双价格</h2>
+        <p>每个可下单服务由游戏、区服、服务、计价单位、最低单位数、客户单价和陪玩结算单价组成。订单提交时必须保存目录版本和双价格快照。</p>
+        <table>
+          <thead><tr><th>字段</th><th>规则</th><th>示例文件中的值</th></tr></thead>
+          <tbody>
+            <tr><td><code>billing_unit_minutes</code></td><td>计价单位分钟数，正整数。</td><td>60 分钟，仅作未确认示例。</td></tr>
+            <tr><td><code>min_units</code></td><td>最低购买单位数，正整数。</td><td>2 单位，仅作未确认示例。</td></tr>
+            <tr><td><code>customer_unit_price_minor</code></td><td>用户每单位支付金额。</td><td>6000 CAT subunits，仅作未确认示例。</td></tr>
+            <tr><td><code>player_unit_payout_minor</code></td><td>陪玩每单位结算金额。</td><td>4000 CAT subunits，仅作未确认示例。</td></tr>
+            <tr><td><code>version</code></td><td>发布后不可覆盖；改价创建新版本。</td><td>1。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <strong>目录启用门槛：</strong>业务负责人确认游戏、区服、服务名称、计价单位、最低单位数和双价格后，将条目的 <code>classification</code> 改为 <code>P0_APPROVED</code>，再由 L3 在 Dashboard 创建版本并启用。不能只修改 <code>enabled</code> 绕过批准标记。
+        </div>
+      </section>
+
+      <section id="gift-referral">
+        <h2>6. 资金、礼物与返佣</h2>
+        <h3>6.1 余额与预留</h3>
+        <p>内部只追加 CAT 钱包账本提供账户与余额事实，自有系统同时记录 <code>FundReservation</code>。统一余额摘要使用 <code>ledgerBalanceMinor</code>、<code>reservedMinor</code>、<code>availableMinor</code>、<code>currency</code>、<code>calculatedAt</code> 和 <code>stale</code>；其中 <code>reservedMinor</code> 是有效预留剩余金额之和，<code>availableMinor = ledgerBalanceMinor - reservedMinor</code>。</p>
+        <table>
+          <thead><tr><th>配置</th><th>P0 规则</th></tr></thead>
+          <tbody>
+            <tr><td>预留模式</td><td>固定 <code>LOCAL_RESERVATION</code>。内部钱包是唯一余额事实，不调用供应商 hold/capture/release。</td></tr>
+            <tr><td>统一入口</td><td><code>all_spend_via_unified_api=true</code> 为不可修改约束。本地模式下，任何消费入口都不能绕过统一业务 API。</td></tr>
+            <tr><td>订单候选池</td><td>订单预留没有基于等待时长的 TTL。时间流逝、零报名、客户终止招募、Worker 重启或旧截止任务都不得释放；只有客户取消、合法拒绝或明确失败事件才释放。</td></tr>
+            <tr><td>礼物 TTL</td><td>待批准礼物预留默认 30 分钟；拒绝、过期或撤回时释放。</td></tr>
+            <tr><td>余额过期</td><td>内部账本余额快照超过 30 秒即阻止新预留，主动刷新并告警。</td></tr>
+            <tr><td>预留缺口</td><td>当 <code>ledgerBalanceMinor &lt; reservedMinor</code> 时，阻止新消费、保留已有预留并创建客服任务；不得静默删减预留。</td></tr>
+            <tr><td>充值方式</td><td>用户提交付款 receipt 后由客服在 Dashboard 登记内部 CAT 充值；不配置第三方充值 URL，图片/PDF 附件可选。</td></tr>
+            <tr><td>展示边界</td><td>客户、客服、目录、审批、陪玩收益、返佣、周报和结算事实统一显示固定猫条/CAT；陪玩结算另显示线下实际支付 USD 作为人工转账辅助，不建立第二账本。</td></tr>
+            <tr><td>充值付款证据</td><td>客服录入正整数 USD cents、付款方式与 receipt 编号；系统固定按 <code>1 USD cent = 1 CAT subunit</code> 入账，不支持可配置汇率或其他付款币种。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <strong>固定资金生命周期：</strong>订单在用户确认提交时预留，在订单完成时捕获；客户手动终止候选池只结束本轮报名并保持原预留，用户取消、合法拒绝或明确失败时释放，争议时保持，部分结案按决议捕获并释放剩余。候选池没有自然截止，也不按等待时长释放订单预留。礼物在创建请求时预留，在批准时捕获，拒绝、过期或撤回时释放。每次创建、捕获和释放都必须携带业务来源、幂等键和版本，并由统一 API 做并发控制。
+        </div>
+
+        <h3>6.2 礼物目录与客服任务</h3>
+        <ul>
+          <li>订单入口只接受订单内当前有效的 <code>participantIds</code>，独立入口只接受 API 返回的同 Guild ACTIVE <code>playerProfileId</code>；真实接收人由 API 推导，客户端不能提交任意 <code>receiver_id</code>。</li>
+          <li>礼物可在 <code>ACCEPTED</code>、<code>IN_SERVICE</code>、<code>PENDING_CONFIRMATION</code> 和完成后 24 小时内发起。</li>
+          <li>所有礼物强制进入客服核对；L1 可认领和提交审批，但不能批准或扣款。</li>
+          <li>所有已启用礼物保持可选择；用户选择后先做只读余额检查。余额不足时不创建礼物、预留、客服任务或 Outbox，而是显示差额、充值入口、刷新余额和返回操作；余额足够并最终确认后才创建预留。</li>
+          <li>批准时捕获已有预留，不由客服人工计算余额；本地模式再次读取内部账本余额并原子校验。捕获成功后才写消费事实并经 Outbox 播报，播报失败只重试消息。</li>
+          <li>示例中的三种礼物及价格均未获得业务批准，因此默认禁用。</li>
+        </ul>
+
+        <h3>6.3 两个返佣计划</h3>
+        <table>
+          <thead><tr><th>计划</th><th>受益人</th><th>基数与结算</th></tr></thead>
+          <tbody>
+            <tr><td><code>PROMOTER_FIRST_PURCHASE</code><br>业务称“老板带新”</td><td><code>PROMOTER</code></td><td>首笔符合条件净订单或净礼物消费；奖励可配置为固定最小货币单位或百分比，只结算一次，结算后永久结束。</td></tr>
+            <tr><td><code>PLAYER_LIFETIME</code></td><td><code>PLAYER</code></td><td>按配置选择净订单消费、净礼物消费或两者；对每笔长期符合条件的净消费按配置比例结算。</td></tr>
+          </tbody>
+        </table>
+        <ul>
+          <li>邀请码和管理员手工绑定均可用；一个被推荐用户只允许一个有效来源，两个计划互斥，禁止自荐和重复身份互荐。</li>
+          <li>被推荐用户不能通过用户 API、Discord、错误、导出或通知得知受益人、关系类型、比例、金额或状态，也不能自行绑定、改绑或纠错。</li>
+          <li>推广者或陪玩只查看自己的收益，来源用户默认脱敏；L1 不看受益人和金额，L2 仅按任务有限查看，L3/L4 可执行经审计的绑定、纠错、确认和审计。</li>
+          <li>退款与结案以追加 <code>Adjustment</code> 冲正；金额存非负绝对值，由 <code>type</code> 表达方向，原返佣和绑定记录不可覆盖或删除。</li>
+          <li>Prototype 仅记录、确认和人工标记发放，不自动转账。</li>
+        </ul>
+      </section>
+
+      <section id="dispatch">
+        <h2>7. 匹配、就绪、取消与工作台</h2>
+        <h3>7.1 陪玩标签</h3>
+        <p>标签分为 <code>GAME</code>、<code>SERVICE</code>、<code>REGION</code> 和可选的 <code>LANGUAGE</code>。P0 候选池报名强制匹配前三类；语言标签可以展示或人工筛选，但默认不作为阻断条件。示例标签均未确认并保持禁用。</p>
+
+        <h3>7.2 候选池报名与匹配透明</h3>
+        <p>候选陪玩报名必须满足准入状态 <code>ACTIVE</code>、同 Guild，并匹配游戏、服务和区服标签；Discord Presence、旧 availability 和现有活动订单只作诊断信息，不阻止报名。报名不占正式订单席位、不创建参与明细，也不增加资金预留。客户手动终止无时限招募后，从完整报名池原子选择一名或多名正式陪玩；系统不按报名先后自动决定入选者。</p>
+
+        <h3>7.3 全体有效陪玩就绪与取消预览</h3>
+        <table>
+          <thead><tr><th>流程</th><th>规则</th><th>到期或异常</th></tr></thead>
+          <tbody>
+            <tr><td>全体有效陪玩就绪</td><td>订单从 <code>ACCEPTED</code> 出发，客户不提交 readiness；只有所有当前有效陪玩均确认才自动进入 <code>IN_SERVICE</code>。</td><td>10 分钟后仍有陪玩未确认时暂停自动化并创建客服任务；不能绕过其他有效陪玩开始计费。</td></tr>
+            <tr><td>取消影响预览</td><td>自动取消或申请客服前，展示可自动处理性、预计释放金额、预计退款金额、处理方式和时效。</td><td>预览 60 秒过期；过期必须刷新。执行时 API 仍须原子重验，不把预览当作最终裁决。</td></tr>
+          </tbody>
+        </table>
+        <p>系统不配置 <code>order.start</code> 权限，也不暴露绕过全体有效陪玩就绪的开始接口。需要人工判断时创建接管任务；客服只能处理阻塞原因，服务开始仍须满足全体有效陪玩就绪，旧调用一律拒绝并审计。</p>
+
+        <h3>7.4 陪玩工作台</h3>
+        <p>陪玩使用独立工作台查看客服审核资格、可报名候选池、本人报名、正式订单、需求详情、无截止招募状态、收益摘要和下一步动作。陪玩端不提供在线或接单开关；报名、撤回、确认就绪和请求完成均调用统一业务 API。</p>
+
+        <h3>7.5 运营工作台与八项指标</h3>
+        <p>运营 Dashboard 支持接管、暂停、恢复、转派和提交审批。L1 只能提交审批；接管、暂停、恢复和转派最低为 L2，且 API 继续按对象状态、金额和动态审批级别校验。</p>
+        <table>
+          <thead><tr><th>指标 ID</th><th>单位 / 窗口</th><th>定义</th></tr></thead>
+          <tbody>
+            <tr><td><code>TODAY_ORDER_COUNT</code></td><td>COUNT / BUSINESS_DAY</td><td>业务时区当日创建的订单数量。</td></tr>
+            <tr><td><code>IN_PROGRESS_ORDER_COUNT</code></td><td>COUNT / POINT_IN_TIME</td><td>当前处于派单、已接单、服务中或待完成确认状态的订单数量。</td></tr>
+            <tr><td><code>PENDING_STAFF_TASK_COUNT</code></td><td>COUNT / POINT_IN_TIME</td><td>当前待认领或处理中且尚未解决的客服任务数量。</td></tr>
+            <tr><td><code>COMPLETED_ORDER_NET_CONSUMPTION_MINOR</code></td><td>MINOR / BUSINESS_DAY</td><td>当日完成订单捕获金额减退款与追加冲正。</td></tr>
+            <tr><td><code>GIFT_NET_CONSUMPTION_MINOR</code></td><td>MINOR / BUSINESS_DAY</td><td>当日礼物捕获金额减追加冲正。</td></tr>
+            <tr><td><code>ACTIVE_RESERVED_MINOR</code></td><td>MINOR / POINT_IN_TIME</td><td>全部有效 <code>FundReservation</code> 剩余金额之和。</td></tr>
+            <tr><td><code>DISPATCH_SUCCESS_RATE_BPS</code></td><td>BASIS_POINTS / BUSINESS_DAY</td><td>当日成功接单数除以发起派单数并乘以 10000；分母为零时为零。</td></tr>
+            <tr><td><code>EXCEPTION_COUNT</code></td><td>COUNT / POINT_IN_TIME</td><td>未关闭的余额过期、预留缺口、就绪超时、取消或自动化异常数量。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>7.6 其他时限</h3>
+        <table>
+          <thead><tr><th>时限</th><th>值</th><th>到期处理</th></tr></thead>
+          <tbody>
+            <tr><td>候选池招募/选秀</td><td>无自然截止</td><td>只由客户开始、终止、重新招募或取消；系统不自动续轮、选人或释放订单预留。</td></tr>
+            <tr><td>用户未出现核对点</td><td>15 分钟</td><td>创建客服任务；不自动裁决。</td></tr>
+            <tr><td>完成确认</td><td>30 分钟</td><td>创建 <code>COMPLETION_REVIEW</code>；不自动完成或生成收益。</td></tr>
+            <tr><td>送礼任务无人认领提醒</td><td>10 分钟</td><td>提醒值班客服；不自动批准或拒绝。</td></tr>
+            <tr><td>订单频道只读</td><td>完成后立即</td><td>保留查看，收紧发送权限。</td></tr>
+            <tr><td>订单频道 transcript 与删除</td><td>终态后最多 1 小时</td><td>实时消息事件封存成功后删除 Discord 频道；订单和 transcript 数据不删除，失败进入可重试 Job。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="access">
+        <h2>8. 权限与审批</h2>
+        <div class="notice"><strong>统一解析规则：</strong>有效权限等于当前级别与所有低级别权限的并集；端点声明的是最低级别。一般礼物和退款允许达到最低级别的同一名人员发起并执行，但原因、step-up、对象重验和不可变审计仍为强制条件。周期结算是明确例外：高额手动批次必须由不同人员复核，角色继承不能绕过自批禁止。</div>
+        <table>
+          <thead><tr><th>级别</th><th>数据范围</th><th>权限码数量</th><th>P0 核心边界</th></tr></thead>
+          <tbody>
+            <tr><td><code>L1_SUPPORT</code></td><td>自己的任务与动作</td><td>30</td><td>可查看内部钱包、核对 receipt 并提交处理建议；不能执行充值、渠道退款扣款、Adjustment、状态结案、接管、恢复或转派。</td></tr>
+            <tr><td><code>L2_SUPERVISOR</code></td><td>团队</td><td>59</td><td>继承 L1，可在近期 step-up 有效时按 USD cents receipt 登记 CAT 充值，并在余额充足时登记渠道退款扣款，处理常规审批、接管、暂停、恢复或转派。</td></tr>
+            <tr><td><code>L3_OPERATIONS</code></td><td>全部业务</td><td>75</td><td>继承 L2，可通过关联原流水的只追加 Adjustment 纠错，并维护目录、陪玩、收益、返佣、策略和日常 Bot 配置。</td></tr>
+            <tr><td><code>L4_ADMIN_OWNER</code></td><td>全部系统</td><td>81</td><td>继承 L3，管理账号、身份 Role 映射及 Bot 安全配置；仍不能硬删除钱包、财务、推荐绑定、Adjustment 或审计记录。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>8.1 Canonical 权限码注册表</h3>
+        <p>以下 81 个稳定标识是 Schema、角色配置、CSV 种子和 API <code>x-required-permissions</code> 共同使用的唯一注册表。权限码只表示授权能力，仍须同时通过 API 的认证方案、对象归属、数据范围、对象状态、金额阈值和动态审批级别。</p>
+        <table>
+          <thead><tr><th>领域</th><th>Canonical 权限码</th></tr></thead>
+          <tbody>
+            <tr><td>身份、自助与工作台</td><td class="permission-list"><code data-permission-code="account.self.read">account.self.read</code> <code data-permission-code="balance.self.read">balance.self.read</code> <code data-permission-code="commission.self.read">commission.self.read</code> <code data-permission-code="consumption.self.read">consumption.self.read</code> <code data-permission-code="dashboard.view">dashboard.view</code> <code data-permission-code="dashboard.operations.view">dashboard.operations.view</code> <code data-permission-code="staff.session.active">staff.session.active</code></td></tr>
+            <tr><td>访问、审批与安全</td><td class="permission-list"><code data-permission-code="access.manage">access.manage</code> <code data-permission-code="access.read">access.read</code> <code data-permission-code="access.role_sync">access.role_sync</code> <code data-permission-code="approval.approve">approval.approve</code> <code data-permission-code="approval.create">approval.create</code> <code data-permission-code="approval.read">approval.read</code> <code data-permission-code="approval.reject">approval.reject</code> <code data-permission-code="audit.read">audit.read</code> <code data-permission-code="bot_config.operational.manage">bot_config.operational.manage</code> <code data-permission-code="bot_config.read">bot_config.read</code> <code data-permission-code="bot_config.security.manage">bot_config.security.manage</code> <code data-permission-code="mfa.manage_self">mfa.manage_self</code> <code data-permission-code="policy.manage">policy.manage</code> <code data-permission-code="policy.read">policy.read</code> <code data-permission-code="step_up.execute">step_up.execute</code> <code data-permission-code="welcome_dm.send">welcome_dm.send</code></td></tr>
+            <tr><td>服务目录</td><td class="permission-list"><code data-permission-code="catalog.manage">catalog.manage</code> <code data-permission-code="catalog.read">catalog.read</code> <code data-permission-code="service.estimate">service.estimate</code> <code data-permission-code="service.read">service.read</code></td></tr>
+            <tr><td>礼物</td><td class="permission-list"><code data-permission-code="gift.approve">gift.approve</code> <code data-permission-code="gift.assist">gift.assist</code> <code data-permission-code="gift.read">gift.read</code> <code data-permission-code="gift.reject">gift.reject</code> <code data-permission-code="gift.request">gift.request</code> <code data-permission-code="gift_catalog.manage">gift_catalog.manage</code> <code data-permission-code="gift_catalog.read">gift_catalog.read</code> <code data-permission-code="gift_request.read">gift_request.read</code></td></tr>
+            <tr><td>订单、派单与在线</td><td class="permission-list"><code data-permission-code="dispatch.execute">dispatch.execute</code> <code data-permission-code="order.accept">order.accept</code> <code data-permission-code="order.cancel">order.cancel</code> <code data-permission-code="order.cancellation.preview">order.cancellation.preview</code> <code data-permission-code="order.confirm">order.confirm</code> <code data-permission-code="order.create">order.create</code> <code data-permission-code="order.estimate">order.estimate</code> <code data-permission-code="order.pause">order.pause</code> <code data-permission-code="order.read">order.read</code> <code data-permission-code="order.readiness.confirm">order.readiness.confirm</code> <code data-permission-code="order.reassign">order.reassign</code> <code data-permission-code="order.request_completion">order.request_completion</code> <code data-permission-code="order.resolve">order.resolve</code> <code data-permission-code="order.resume">order.resume</code> <code data-permission-code="order.submit">order.submit</code> <code data-permission-code="order.takeover">order.takeover</code> <code data-permission-code="order.update">order.update</code> <code data-permission-code="presence.sync">presence.sync</code></td></tr>
+            <tr><td>陪玩</td><td class="permission-list"><code data-permission-code="player.approve">player.approve</code> <code data-permission-code="player.availability.manage_self">player.availability.manage_self</code> <code data-permission-code="player.read">player.read</code> <code data-permission-code="player.status.manage">player.status.manage</code> <code data-permission-code="player.tags.manage">player.tags.manage</code> <code data-permission-code="player.workspace.read">player.workspace.read</code></td></tr>
+            <tr><td>客服任务与异步任务</td><td class="permission-list"><code data-permission-code="job.read">job.read</code> <code data-permission-code="job.retry">job.retry</code> <code data-permission-code="staff_task.claim">staff_task.claim</code> <code data-permission-code="staff_task.read">staff_task.read</code> <code data-permission-code="staff_task.request">staff_task.request</code> <code data-permission-code="staff_task.resolve">staff_task.resolve</code> <code data-permission-code="staff_task.verify">staff_task.verify</code></td></tr>
+            <tr><td>财务、钱包与返佣</td><td class="permission-list"><code data-permission-code="commission.manage">commission.manage</code> <code data-permission-code="commission.read">commission.read</code> <code data-permission-code="earnings.manage">earnings.manage</code> <code data-permission-code="earnings.read">earnings.read</code> <code data-permission-code="funding.reservation.read">funding.reservation.read</code> <code data-permission-code="funding.reservation.reconcile">funding.reservation.reconcile</code> <code data-permission-code="referral.manage">referral.manage</code> <code data-permission-code="referral.read">referral.read</code> <code data-permission-code="referral.self.read">referral.self.read</code> <code data-permission-code="refund.execute">refund.execute</code> <code data-permission-code="wallet.read">wallet.read</code> <code data-permission-code="wallet.top_up">wallet.top_up</code> <code data-permission-code="wallet.external_refund">wallet.external_refund</code> <code data-permission-code="wallet.adjust">wallet.adjust</code></td></tr>
+            <tr><td>用户运营</td><td class="permission-list"><code data-permission-code="user.read">user.read</code> <code data-permission-code="user.risk.manage">user.risk.manage</code> <code data-permission-code="user.status.manage">user.status.manage</code></td></tr>
+          </tbody>
+        </table>
+        <div class="callout warn">
+          <strong>服务身份边界：</strong><code>access.role_sync</code>、<code>presence.sync</code> 和历史兼容代码 <code>dispatch.execute</code> 只允许 Bot 或受限内部服务身份。<code>dispatch.manual</code> 仅作为已退役权限代码保留，不授予客服代客选人或定向派单能力；现行 P0 由客户本人开始、终止候选池并原子终选，客服只接收通知并协助。当前 P0 不注册支付 Webhook 服务身份或权限。
+        </div>
+        <p>L1 新增的 <code>order.cancellation.preview</code>、<code>order.readiness.confirm</code>、<code>player.workspace.read</code> 和 <code>referral.self.read</code> 均为预览、自身确认或自身读取能力。<code>dashboard.operations.view</code>、预留明细、接管、暂停、恢复和完整推荐关系读取从 L2 起，预留对账从 L3 起。</p>
+
+        <h3>8.2 金额路由</h3>
+        <table>
+          <thead><tr><th>动作</th><th>L2 可直接执行</th><th>L3 可直接执行</th><th>L4 可直接执行</th></tr></thead>
+          <tbody>
+            <tr><td>礼物预留捕获</td><td>≤ 200000 CAT subunits</td><td>&gt; 200000 且 &lt; 500000 CAT subunits</td><td>任何金额；≥ 500000 CAT subunits 时最低要求 L4</td></tr>
+            <tr><td>退款</td><td>≤ 50000 CAT subunits</td><td>&gt; 50000 且 &lt; 500000 CAT subunits</td><td>任何金额；≥ 500000 CAT subunits 时最低要求 L4</td></tr>
+          </tbody>
+        </table>
+        <p><strong>钱包专用边界：</strong>人工充值最低要求完成近期验证的 L2；付款金额以正整数 USD cents 记录为 receipt 证据，并固定按 <code>1 USD cent = 1 CAT subunit</code> 入账；渠道退款扣款最低要求 L2，并以锁定后的 <code>availableMinor</code> 校验，禁止扣成负数；只追加 Adjustment 最低要求 L3 且必须关联原 WalletEntry。</p>
+        <p>L3 与 L4 必须启用 MFA；送礼、退款、停权、配置、权限、集成和紧急停机要求 15 分钟内完成 step-up。金额门槛由 API 强制执行，Discord 和 Dashboard 只负责展示结果。</p>
+      </section>
+
+      <section id="reason-notify">
+        <h2>9. 原因码与通知</h2>
+        <h3>9.1 原因码</h3>
+        <p>高风险、人工动作和自动升级事件使用稳定原因码，避免自由文本成为唯一依据。余额过期、预留缺口、就绪超时和预览过期可由系统记录；接管、暂停、恢复、绑定纠错和返佣冲正要求工作人员说明，涉及关系纠错或资金冲正时要求证据。</p>
+        <table>
+          <thead><tr><th>场景</th><th>代表性原因码</th></tr></thead>
+          <tbody>
+            <tr><td>取消与退款</td><td><code>DRAFT_CANCELLED_BY_CUSTOMER</code>、<code>DISPATCH_TIMEOUT_CANCELLED_BY_CUSTOMER</code></td></tr>
+            <tr><td>爽约与争议</td><td><code>PLAYER_NO_SHOW</code>、<code>CUSTOMER_NO_SHOW</code>、<code>SERVICE_INTERRUPTED</code>、<code>COMPLETION_DISPUTE</code></td></tr>
+            <tr><td>礼物</td><td><code>GIFT_DETAILS_MISMATCH</code>、<code>GIFT_CUSTOMER_WITHDREW</code>、<code>INSUFFICIENT_BALANCE</code></td></tr>
+            <tr><td>资金与就绪</td><td><code>RESERVATION_BALANCE_STALE</code>、<code>RESERVATION_DEFICIT_DETECTED</code>、<code>READINESS_TIMEOUT_ESCALATED</code>、<code>CANCELLATION_PREVIEW_EXPIRED</code></td></tr>
+            <tr><td>人工控制</td><td><code>STAFF_TAKEOVER_REQUESTED</code>、<code>AUTOMATION_PAUSED_BY_STAFF</code>、<code>AUTOMATION_RESUMED_BY_STAFF</code></td></tr>
+            <tr><td>推荐关系</td><td><code>REFERRAL_BINDING_CORRECTION</code>、<code>REFERRAL_ADJUSTMENT_REVERSAL</code></td></tr>
+            <tr><td>运营与安全</td><td><code>PLAYER_PAUSED_FOR_RISK</code>、<code>ACCOUNT_SUSPENDED_FOR_RISK</code>、<code>STAFF_ACCESS_CHANGE</code></td></tr>
+            <tr><td>冲正与恢复</td><td><code>MANUAL_EARNING_CORRECTION</code>、<code>MANUAL_COMMISSION_CORRECTION</code>、<code>FAILED_JOB_MANUAL_RETRY</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>9.2 通知开关</h3>
+        <table>
+          <thead><tr><th>通知</th><th>默认目标</th><th>公开性</th></tr></thead>
+          <tbody>
+            <tr><td>订单状态</td><td>订单频道或 ephemeral</td><td>私密</td></tr>
+            <tr><td>派单</td><td>集中派单频道</td><td>仅陪玩与员工</td></tr>
+            <tr><td>客服任务与审批</td><td>客服处理频道，审批可附加私信</td><td>仅员工</td></tr>
+            <tr><td>礼物播报</td><td>礼物播报频道</td><td>公开；仅在扣款成功后</td></tr>
+            <tr><td>返佣</td><td>受益人私信或 ephemeral</td><td>仅当前受益人本人；来源用户默认脱敏，被推荐用户不可见关系</td></tr>
+            <tr><td>权限变化与失败 Job</td><td>运营告警频道</td><td>仅 L3/L4</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="import">
+        <h2>10. 导入与变更</h2>
+        <h3>10.1 推荐导入顺序</h3>
+        <ol>
+          <li>部署元数据、业务币种与时区。</li>
+          <li>Discord Guild、频道和角色映射。</li>
+          <li>游戏、区服、服务、双价格和陪玩标签。</li>
+          <li>资金预留模式、余额过期/缺口策略及订单和礼物生命周期。</li>
+          <li>礼物目录、推荐绑定/隐私规则及 <code>PROMOTER_FIRST_PURCHASE</code>、<code>PLAYER_LIFETIME</code> 两个计划。</li>
+          <li>派单透明度、全体有效陪玩就绪、取消预览、陪玩工作台、运营控制、八项指标、其他超时、归档和通知策略。</li>
+          <li>81 个权限码、四级角色矩阵、金额门槛、MFA 和原因码。</li>
+        </ol>
+
+        <h3>10.2 CSV 约定</h3>
+        <p><code>record_type + record_id</code> 作为导入自然键；空列表示该类型不使用该字段。<code>metadata_json</code> 存放无法直接展开的一对多字段。导入器必须先做整批校验，再在单个数据库事务中写入；任何一行失败都不产生部分配置。</p>
+
+        <h3>10.3 变更控制</h3>
+        <ul>
+          <li>L3 可管理服务、礼物、返佣、原因码、通知和普通业务阈值；每次发布必须填写 <code>BUSINESS_CONFIG_CHANGE</code> 原因。</li>
+          <li>L4 管理 Discord Role 映射、非支付类受控集成、密钥和权限策略，并执行 step-up；支付渠道不接入系统。</li>
+          <li>价格或礼物变更创建新版本；旧订单、旧礼物请求和历史流水继续使用原快照。</li>
+          <li>生产配置发布保存配置哈希、版本、操作者、批准链和发布时间，支持回滚到上一版本，但回滚不改写历史业务记录。</li>
+        </ul>
+      </section>
+
+      <section id="release">
+        <h2>11. 生产启用门槛</h2>
+        <ul class="checklist">
+          <li>替换全部示例 Discord Snowflake，并由 API 验证 Guild、频道、分类和 Role 均存在。</li>
+          <li>业务负责人确认至少一个游戏、一个区服、一个服务及客户/陪玩双价格。</li>
+          <li>业务负责人确认礼物名称、价格、返佣资格和播报文案。</li>
+          <li>验证 <code>LOCAL_RESERVATION</code>、<code>all_spend_via_unified_api=true</code>、CAT-only 内部金额数据库约束与固定 USD receipt 付款证据，且不存在绕过统一 API 的消费入口。</li>
+          <li>并发验证订单提交即预留、完成才捕获，以及礼物请求即预留、批准才捕获；验证取消、无人接单、拒绝、失败、争议和部分结案分支。</li>
+          <li>验证余额快照过期与 <code>ledgerBalanceMinor &lt; reservedMinor</code> 时阻止新消费、保留有效预留并创建告警或客服任务。</li>
+          <li>运营确认陪玩标签、审核流程、派单频道和客服处理频道。</li>
+          <li>验证匹配阶段和已通知报名数展示、全体有效陪玩就绪后才进入 <code>IN_SERVICE</code>、就绪超时转客服，以及 60 秒取消预览过期与执行原子重验。</li>
+          <li>验证陪玩工作台与运营工作台动作完整，八项指标 ID、单位、窗口和定义与配置一致。</li>
+          <li>L1–L4 测试账号完成 Role 映射，配置权限数分别为 30、59、75、81；验证 L1 任意金额充值均被拒绝，充值要求 L2+ 和近期 step-up，渠道退款要求 L2 且不得使 availableMinor 为负，Adjustment 要求 L3。</li>
+          <li>验证两个返佣计划互斥、首笔一次性与陪玩长期计算正确；被推荐用户无法从 API、Discord、错误、导出或通知发现关系。</li>
+          <li>验证礼物和退款的 50000、200000 和 500000 CAT subunits 边界，确认 L2、L3、L4 的最低级别路由、高级别向下继承及 L4 高额直接执行；另行验证高额手动结算禁止创建人自批。</li>
+          <li>L3/L4 完成 MFA，step-up 有效期为 15 分钟。</li>
+          <li>所有未批准示例保持禁用或已从生产配置移除。</li>
+          <li>关闭一次性 L4 bootstrap，并确认角色降级会立即撤销会话。</li>
+          <li>通过 Schema、语义引用、Discord 可达性和种子导入事务测试。</li>
+          <li>确认交易、消费、收益、返佣和审计表不存在硬删除 API 或 Dashboard 操作。</li>
+          <li>最后将 <code>example_only</code> 改为 <code>false</code>，经 L3 发布并按敏感配置策略完成复核后再启用部署。</li>
+        </ul>
+      </section>
+
+      <section id="assumptions">
+        <h2>12. 关键假设</h2>
+        <ul>
+          <li>Prototype 只运行在一个 Discord Server、以 CAT subunit 作为唯一内部账本单位，并只接受即时订单。</li>
+          <li>内部 CAT 钱包是客户余额、充值、消费与退款的唯一资金事实来源；第三方支付渠道由工作人员在线下核对，系统不读取或写入渠道 API。</li>
+          <li><code>reservedMinor</code> 只来自有效预留，所有消费入口经过统一业务 API；客户与员工的内部业务金额固定显示 CAT，不形成第二账本。</li>
+          <li>示例时区可按实际业务运营区配置；时区不改变 CAT 资金口径。</li>
+          <li>主规格中的订单面板示例采用无畏契约、北美、2 小时和 1,200.0 CAT，因此示例服务使用 60 分钟单位、最低 2 单位和客户单价 600.0 CAT；示例仅用于数据结构与测试。</li>
+          <li>三种礼物的名称和价格仅为开发数据，未构成经营决定。</li>
+          <li>语言标签保留在配置结构中，但 P0 候选池报名只强制匹配游戏、服务和区服。</li>
+        </ul>
+      </section>
+
+      <footer>
+        P0 业务配置说明 · v3.0.0 · 仅覆盖 prototype 核心范围
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

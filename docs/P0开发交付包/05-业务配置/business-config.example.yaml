@@ -1,0 +1,960 @@
+schema_version: "3.0.0"
+config_id: prototype_p0_example
+
+deployment:
+  label: "开发示例配置（未批准用于生产）"
+  environment: development
+  enabled: false
+  example_only: true
+
+pilot:
+  business_environment: SANDBOX
+  phase: CORE_ORDER
+  display_roles:
+    staff_minimum_level: L2_SUPERVISOR
+    owner_level: L4_ADMIN_OWNER
+
+business:
+  currency: CAT
+  timezone: Asia/Shanghai
+  money_storage: MINOR_UNITS_INTEGER
+  order_mode: IMMEDIATE_ONLY
+  max_active_orders_per_customer: 1
+  max_active_orders_per_player: 1
+
+discord:
+  guild_id: "1200000000000000001"
+  presence_intent_enabled: true
+  channels:
+    public_entry_channel_id: "1200000000000000011"
+    gift_entry_channel_id: "1200000000000000028"
+    private_order_category_id: "1200000000000000012"
+    order_archive_category_id: "1200000000000000013"
+    dispatch_channel_id: "1200000000000000014"
+    player_workbench_channel_id: "1200000000000000018"
+    gift_review_channel_id: "1200000000000000019"
+    gift_broadcast_channel_id: "1200000000000000016"
+    review_broadcast_channel_id: "1200000000000000020"
+    staff_task_channel_id: "1200000000000000015"
+    operations_alert_channel_id: "1200000000000000017"
+  roles:
+    player_role_id: "1200000000000000021"
+    staff_l1_role_id: "1200000000000000022"
+    staff_l2_role_id: "1200000000000000023"
+    staff_l3_role_id: "1200000000000000024"
+    staff_l4_role_id: "1200000000000000025"
+    staff_notification_role_id: "1200000000000000026"
+    operations_notification_role_id: "1200000000000000027"
+  role_sync:
+    l1_l2_auto_apply: true
+    l3_l4_require_l4_confirmation: true
+    downgrade_revokes_sessions: true
+  bootstrap_l4_discord_user_id: "1200000000000000031"
+
+catalog:
+  games:
+    - id: valorant_example
+      label_zh: "示例：无畏契约（未确认）"
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+  regions:
+    - id: valorant_na_example
+      game_id: valorant_example
+      label_zh: "示例：北美区服（未确认）"
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+  services:
+    - id: valorant_entertainment_hourly_example
+      game_id: valorant_example
+      region_ids:
+        - valorant_na_example
+      label_zh: "示例：娱乐陪玩每小时（未确认）"
+      billing_unit_minutes: 60
+      min_units: 2
+      customer_unit_price_minor: 6000
+      player_unit_payout_minor: 4000
+      currency: CAT
+      version: 1
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+
+gifts:
+  catalog:
+    - id: gift_flower_example
+      label_zh: "示例：鲜花礼物（未确认）"
+      price_minor: 5200
+      currency: CAT
+      commission_eligible: true
+      broadcast_template: "{sender_name} 向 {receiver_name} 赠送了 {gift_name}"
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+    - id: gift_cake_example
+      label_zh: "示例：蛋糕礼物（未确认）"
+      price_minor: 18800
+      currency: CAT
+      commission_eligible: true
+      broadcast_template: "{sender_name} 向 {receiver_name} 赠送了 {gift_name}"
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+    - id: gift_rocket_example
+      label_zh: "示例：火箭礼物（未确认）"
+      price_minor: 52000
+      currency: CAT
+      commission_eligible: true
+      broadcast_template: "{sender_name} 向 {receiver_name} 赠送了 {gift_name}"
+      enabled: false
+      classification: UNAPPROVED_EXAMPLE
+  receiver_policy: ORDER_OR_STANDALONE_ACTIVE_PLAYER
+  manual_review_required: true
+  eligible_order_statuses:
+    - ACCEPTED
+    - IN_SERVICE
+    - PENDING_CONFIRMATION
+    - COMPLETED
+  post_completion_window_minutes: 1440
+
+funding:
+  currency: CAT
+  balance_fact_source: INTERNAL_APPEND_ONLY_LEDGER
+  balance_summary_fields:
+    - ledgerBalanceMinor
+    - reservedMinor
+    - availableMinor
+    - currency
+    - calculatedAt
+    - version
+  available_minor_formula: ledgerBalanceMinor - reservedMinor
+  all_spend_via_unified_api: true
+  negative_balance_allowed: false
+  top_up:
+    immediate_credit: true
+    paid_currency: USD
+    usd_cent_to_cat_subunit: 1
+    minimum_level: L2_SUPERVISOR
+    recent_step_up_required: true
+    unique_reference_fields:
+      - paymentMethod
+      - receiptNumber
+    required_fields:
+      - paidAmountUsdCents
+      - paidCurrency
+      - paymentMethod
+      - receiptNumber
+      - paidAt
+      - note
+      - reasonCode
+  receipt_attachment:
+    optional: true
+    maximum_bytes: 10485760
+    allowed_media_types:
+      - image/jpeg
+      - image/png
+      - image/webp
+      - application/pdf
+    private_storage_required: true
+  external_refund:
+    require_sufficient_available_minor: true
+    negative_balance_allowed: false
+  reservation_ttls:
+    gift_pending_approval_minutes: 30
+    expiry_action: RELEASE_AND_CREATE_STAFF_TASK
+  lifecycle:
+    order:
+      reserve_on: ORDER_SUBMITTED
+      capture_on: ORDER_COMPLETED
+      release_on:
+        - ORDER_CANCELLED
+        - ORDER_RESERVATION_EXPIRED
+        - ORDER_REJECTED
+        - ORDER_FAILED
+      dispute_on: ORDER_DISPUTED
+      dispute_action: KEEP_RESERVED
+      partial_resolution_action: CAPTURE_RESOLVED_AND_RELEASE_REMAINDER
+    gift:
+      reserve_on: GIFT_REQUESTED
+      capture_on: GIFT_APPROVED
+      release_on:
+        - GIFT_REJECTED
+        - GIFT_EXPIRED
+        - GIFT_WITHDRAWN
+  record_invariants:
+    reserved_minor_source: SUM_ACTIVE_FUND_RESERVATIONS
+    business_source_required: true
+    idempotency_key_required: true
+    version_required: true
+    concurrency_control: UNIFIED_API_ATOMIC
+    all_non_read_operations_audited: true
+    success_business_and_audit_same_transaction: true
+
+referral:
+  enabled: true
+  binding:
+    methods:
+      - INVITE_CODE
+      - ADMIN_MANUAL
+    one_active_source_per_referred_user: true
+    programs_mutually_exclusive: true
+    prevent_self_referral: true
+    prevent_duplicate_identity_referral: true
+    referred_user_can_modify: false
+    changes_are_audited: true
+  privacy:
+    referred_user_visibility: NONE
+    blocked_surfaces:
+      - USER_API
+      - DISCORD
+      - ERROR
+      - EXPORT
+      - NOTIFICATION
+    beneficiary_visibility: SELF_ONLY
+    source_user_display: MASKED_BY_DEFAULT
+    l1_visibility: NO_BENEFICIARY_OR_AMOUNT
+    l2_visibility: TASK_SCOPED_LIMITED
+    l3_l4_visibility: FULL_AUDITED
+  adjustments:
+    append_only: true
+    hard_delete_allowed: false
+    amount_storage: NON_NEGATIVE_ABSOLUTE_VALUE
+    direction_source: ADJUSTMENT_TYPE
+  programs:
+    PROMOTER_FIRST_PURCHASE:
+      enabled: true
+      beneficiary_type: PROMOTER
+      eligible_sources:
+        - ORDER_NET_CONSUMPTION
+        - GIFT_NET_CONSUMPTION
+      binding_deadline: BEFORE_FIRST_ELIGIBLE_NET_CONSUMPTION
+      reward_mode: PERCENT_BPS
+      fixed_amount_minor: null
+      rate_bps: 200
+      settlement_trigger: FIRST_ELIGIBLE_NET_CONSUMPTION
+      max_settlements: 1
+      after_settlement: PERMANENTLY_ENDED
+    PLAYER_LIFETIME:
+      enabled: true
+      beneficiary_type: PLAYER
+      eligible_sources:
+        - ORDER_NET_CONSUMPTION
+        - GIFT_NET_CONSUMPTION
+      rate_bps: 200
+      settlement_trigger: EACH_ELIGIBLE_NET_CONSUMPTION
+      duration: LIFETIME
+  automatic_payout_enabled: false
+
+player_tags:
+  - id: tag_game_valorant_example
+    category: GAME
+    label_zh: "示例：无畏契约（未确认）"
+    enabled: false
+    classification: UNAPPROVED_EXAMPLE
+  - id: tag_service_entertainment_example
+    category: SERVICE
+    label_zh: "示例：娱乐陪玩（未确认）"
+    enabled: false
+    classification: UNAPPROVED_EXAMPLE
+  - id: tag_region_na_example
+    category: REGION
+    label_zh: "示例：北美区服（未确认）"
+    enabled: false
+    classification: UNAPPROVED_EXAMPLE
+  - id: tag_language_zh_example
+    category: LANGUAGE
+    label_zh: "示例：中文交流（未确认）"
+    enabled: false
+    classification: UNAPPROVED_EXAMPLE
+
+dispatch:
+  manual_controlled: true
+  no_deadline: true
+  required_review_status: ACTIVE
+  guild_scope_required: true
+  match_tag_categories:
+    - GAME
+    - SERVICE
+    - REGION
+  application_reserves_player: false
+  finalization_policy: CUSTOMER_ATOMIC_SELECTION
+  transparency:
+    visible_stages:
+      - COLLECTING
+      - SELECTION
+      - ACCEPTED
+    show_active_applicants: true
+    show_customer_next_step: true
+    show_accepted_player_summary: true
+
+readiness:
+  required_parties:
+    - ALL_ACTIVE_PLAYERS
+  transition_from: ACCEPTED
+  transition_to: IN_SERVICE
+  start_policy: ALL_ACTIVE_PLAYERS_READY
+  player_can_start_unilaterally: false
+  readiness_timeout_minutes: 10
+  timeout_action: PAUSE_AUTOMATION_AND_CREATE_STAFF_TASK
+
+cancellation:
+  preview_required_before:
+    - AUTO_CANCEL
+    - REQUEST_STAFF
+  preview_fields:
+    - automaticEligibility
+    - estimatedReleaseMinor
+    - estimatedRefundMinor
+    - processingMethod
+    - expectedTiming
+  preview_expiry_seconds: 60
+  expired_preview_action: REQUIRE_REFRESH
+  execute_revalidates_atomically: true
+  manual_review_action: CREATE_STAFF_TAKEOVER_TASK
+
+player_workspace:
+  enabled: true
+  sections:
+    - QUALIFICATION
+    - SELECTION_POOLS
+    - APPLICATIONS
+    - CURRENT_ORDER
+    - REQUIREMENT_DETAILS
+    - READINESS
+    - EARNINGS_SUMMARY
+    - NEXT_ACTION
+  availability_controls: []
+  presence_diagnostic_only: true
+  actions:
+    - APPLY_TO_SELECTION_POOL
+    - WITHDRAW_APPLICATION
+    - CONFIRM_READINESS
+    - REQUEST_COMPLETION
+
+operations_dashboard:
+  enabled: true
+  staff_controls:
+    takeover:
+      enabled: true
+      permission_code: order.takeover
+      minimum_level: L2_SUPERVISOR
+    pause:
+      enabled: true
+      permission_code: order.pause
+      minimum_level: L2_SUPERVISOR
+    resume:
+      enabled: true
+      permission_code: order.resume
+      minimum_level: L2_SUPERVISOR
+    reassign:
+      enabled: true
+      permission_code: order.reassign
+      minimum_level: L2_SUPERVISOR
+    submit_for_approval:
+      enabled: true
+      permission_code: approval.create
+      minimum_level: L1_SUPPORT
+  metrics:
+    - id: TODAY_ORDER_COUNT
+      label_zh: 今日订单
+      unit: COUNT
+      window: BUSINESS_DAY
+      definition: 业务时区当日创建的订单数量。
+    - id: IN_PROGRESS_ORDER_COUNT
+      label_zh: 进行中订单
+      unit: COUNT
+      window: POINT_IN_TIME
+      definition: 当前处于派单、已接单、服务中或待完成确认状态的订单数量。
+    - id: PENDING_STAFF_TASK_COUNT
+      label_zh: 待处理任务
+      unit: COUNT
+      window: POINT_IN_TIME
+      definition: 当前状态为待认领或处理中且尚未解决的客服任务数量。
+    - id: COMPLETED_ORDER_NET_CONSUMPTION_MINOR
+      label_zh: 已完成净消费
+      unit: MINOR
+      window: BUSINESS_DAY
+      definition: 当日完成订单已捕获金额减去退款与追加冲正后的净消费。
+    - id: GIFT_NET_CONSUMPTION_MINOR
+      label_zh: 礼物净消费
+      unit: MINOR
+      window: BUSINESS_DAY
+      definition: 当日已批准并捕获的礼物金额减去追加冲正后的净消费。
+    - id: ACTIVE_RESERVED_MINOR
+      label_zh: 预留总额
+      unit: MINOR
+      window: POINT_IN_TIME
+      definition: 当前全部有效 FundReservation 剩余金额之和，即 reservedMinor 的运营汇总。
+    - id: DISPATCH_SUCCESS_RATE_BPS
+      label_zh: 派单成功率
+      unit: BASIS_POINTS
+      window: BUSINESS_DAY
+      definition: 当日成功接单的派单订单数除以已发起派单订单数并乘以 10000，分母为零时返回零。
+    - id: EXCEPTION_COUNT
+      label_zh: 异常数
+      unit: COUNT
+      window: POINT_IN_TIME
+      definition: 当前未关闭的余额过期、预留缺口、就绪超时、取消或自动化异常数量。
+
+timeouts:
+  customer_no_show_review_minutes: 15
+  completion_confirmation_minutes: 30
+  gift_review_reminder_minutes: 10
+  channel_read_only_after_completion_minutes: 0
+  channel_archive_after_completion_minutes: 60
+
+feature_flags:
+  new_orders_enabled: true
+  gift_requests_enabled: true
+  maintenance_notice: false
+
+access_control:
+  inheritance:
+    mode: CUMULATIVE
+    level_order:
+      - L1_SUPPORT
+      - L2_SUPERVISOR
+      - L3_OPERATIONS
+      - L4_ADMIN_OWNER
+    permission_resolution: UNION_LOWER_OR_EQUAL
+    minimum_level_semantics: ACTOR_RANK_GTE_REQUIRED_RANK
+  approval_execution:
+    mode: MINIMUM_LEVEL_DIRECT
+    self_approval_allowed: true
+    separate_high_value_reviewer_required: false
+    higher_level_direct_execution: true
+    reason_required: true
+    step_up_required_for_sensitive_actions: true
+    immutable_audit_required: true
+  levels:
+    L1_SUPPORT:
+      display_name_zh: 基础客服
+      rank: 1
+      inherits: null
+      scope: SELF
+      permissions:
+        - account.self.read
+        - approval.create
+        - audit.read
+        - balance.self.read
+        - commission.self.read
+        - consumption.self.read
+        - dashboard.view
+        - order.cancellation.preview
+        - gift.assist
+        - gift.read
+        - gift.request
+        - gift_request.read
+        - mfa.manage_self
+        - order.create
+        - order.estimate
+        - order.read
+        - order.participants.manage
+        - order.readiness.confirm
+        - order.update
+        - player.availability.manage_self
+        - player.read
+        - player.workspace.read
+        - referral.self.read
+        - service.estimate
+        - service.read
+        - staff.session.active
+        - staff_task.claim
+        - staff_task.read
+        - staff_task.request
+        - staff_task.verify
+        - user.read
+        - wallet.read
+        - wallet.top_up
+    L2_SUPERVISOR:
+      display_name_zh: 客服主管
+      rank: 2
+      inherits: L1_SUPPORT
+      scope: TEAM
+      permissions:
+        - account.self.read
+        - approval.approve
+        - approval.create
+        - approval.read
+        - approval.reject
+        - audit.read
+        - balance.self.read
+        - catalog.read
+        - commission.read
+        - commission.self.read
+        - consumption.self.read
+        - dashboard.view
+        - dashboard.operations.view
+        - earnings.read
+        - funding.reservation.read
+        - gift.approve
+        - gift.assist
+        - gift.read
+        - gift.reject
+        - gift.request
+        - gift_catalog.read
+        - gift_request.read
+        - job.read
+        - job.retry
+        - mfa.manage_self
+        - order.accept
+        - order.cancel
+        - order.cancellation.preview
+        - order.confirm
+        - order.create
+        - order.estimate
+        - order.pause
+        - order.read
+        - order.participants.manage
+        - order.readiness.confirm
+        - order.reassign
+        - order.request_completion
+        - order.resolve
+        - order.resume
+        - order.submit
+        - order.takeover
+        - order.update
+        - player.availability.manage_self
+        - player.read
+        - player.tags.manage
+        - player.workspace.read
+        - referral.read
+        - referral.self.read
+        - refund.execute
+        - service.estimate
+        - service.read
+        - staff.session.active
+        - staff_task.claim
+        - staff_task.read
+        - staff_task.request
+        - staff_task.resolve
+        - staff_task.verify
+        - user.read
+        - user.risk.manage
+        - wallet.external_refund
+        - wallet.read
+        - wallet.top_up
+        - welcome_dm.send
+    L3_OPERATIONS:
+      display_name_zh: 运营负责人
+      rank: 3
+      inherits: L2_SUPERVISOR
+      scope: ALL_BUSINESS
+      permissions:
+        - account.self.read
+        - approval.approve
+        - approval.create
+        - approval.read
+        - approval.reject
+        - audit.read
+        - balance.self.read
+        - bot_config.operational.manage
+        - bot_config.read
+        - catalog.manage
+        - catalog.read
+        - commission.manage
+        - commission.read
+        - commission.self.read
+        - consumption.self.read
+        - dashboard.view
+        - dashboard.operations.view
+        - earnings.manage
+        - earnings.read
+        - funding.reservation.read
+        - funding.reservation.reconcile
+        - gift.approve
+        - gift.assist
+        - gift.read
+        - gift.reject
+        - gift.request
+        - gift_catalog.manage
+        - gift_catalog.read
+        - gift_request.read
+        - job.read
+        - job.retry
+        - mfa.manage_self
+        - order.accept
+        - order.cancel
+        - order.cancellation.preview
+        - order.confirm
+        - order.create
+        - order.estimate
+        - order.pause
+        - order.read
+        - order.participants.manage
+        - order.readiness.confirm
+        - order.reassign
+        - order.request_completion
+        - order.resolve
+        - order.resume
+        - order.submit
+        - order.takeover
+        - order.update
+        - player.approve
+        - player.availability.manage_self
+        - player.read
+        - player.status.manage
+        - player.tags.manage
+        - player.workspace.read
+        - policy.manage
+        - policy.read
+        - referral.manage
+        - referral.read
+        - referral.self.read
+        - refund.execute
+        - service.estimate
+        - service.read
+        - staff.session.active
+        - staff_task.claim
+        - staff_task.read
+        - staff_task.request
+        - staff_task.resolve
+        - staff_task.verify
+        - step_up.execute
+        - user.read
+        - user.risk.manage
+        - user.status.manage
+        - wallet.adjust
+        - wallet.external_refund
+        - wallet.read
+        - wallet.top_up
+        - welcome_dm.send
+    L4_ADMIN_OWNER:
+      display_name_zh: 管理员或所有者
+      rank: 4
+      inherits: L3_OPERATIONS
+      scope: ALL_SYSTEM
+      permissions:
+        - access.manage
+        - access.read
+        - access.role_sync
+        - account.self.read
+        - approval.approve
+        - approval.create
+        - approval.read
+        - approval.reject
+        - audit.read
+        - balance.self.read
+        - bot_config.operational.manage
+        - bot_config.read
+        - bot_config.security.manage
+        - catalog.manage
+        - catalog.read
+        - commission.manage
+        - commission.read
+        - commission.self.read
+        - consumption.self.read
+        - dashboard.view
+        - dashboard.operations.view
+        - dispatch.manual
+        - dispatch.execute
+        - earnings.manage
+        - earnings.read
+        - funding.reservation.read
+        - funding.reservation.reconcile
+        - gift.approve
+        - gift.assist
+        - gift.read
+        - gift.reject
+        - gift.request
+        - gift_catalog.manage
+        - gift_catalog.read
+        - gift_request.read
+        - job.read
+        - job.retry
+        - mfa.manage_self
+        - order.accept
+        - order.cancel
+        - order.cancellation.preview
+        - order.confirm
+        - order.create
+        - order.estimate
+        - order.pause
+        - order.read
+        - order.participants.manage
+        - order.readiness.confirm
+        - order.reassign
+        - order.request_completion
+        - order.resolve
+        - order.resume
+        - order.submit
+        - order.takeover
+        - order.update
+        - player.approve
+        - player.availability.manage_self
+        - player.read
+        - player.status.manage
+        - player.tags.manage
+        - player.workspace.read
+        - policy.manage
+        - policy.read
+        - presence.sync
+        - referral.manage
+        - referral.read
+        - referral.self.read
+        - refund.execute
+        - service.estimate
+        - service.read
+        - staff.session.active
+        - staff_task.claim
+        - staff_task.read
+        - staff_task.request
+        - staff_task.resolve
+        - staff_task.verify
+        - step_up.execute
+        - user.read
+        - user.risk.manage
+        - user.status.manage
+        - wallet.adjust
+        - wallet.external_refund
+        - wallet.read
+        - wallet.top_up
+        - welcome_dm.send
+  amount_thresholds:
+    currency: CAT
+    l2_gift_limit_minor: 200000
+    l2_refund_limit_minor: 50000
+    l4_direct_execution_from_minor: 500000
+  high_value_execution:
+    enabled: true
+    minimum_level: L4_ADMIN_OWNER
+    separate_reviewer_required: false
+    same_actor_may_initiate_and_execute: true
+    applies_to:
+      - GIFT_CHARGE
+      - REFUND
+  mfa_step_up:
+    required_levels:
+      - L3_OPERATIONS
+      - L4_ADMIN_OWNER
+    validity_minutes: 15
+    required_actions:
+      - GIFT_CHARGE
+      - REFUND
+      - ACCOUNT_SUSPEND
+      - CONFIG_CHANGE
+      - ACCESS_CHANGE
+      - INTEGRATION_CHANGE
+      - EMERGENCY_STOP
+  immutable_record_types:
+    - ORDER
+    - ORDER_EVENT
+    - ORDER_RESOLUTION
+    - EXTERNAL_TRANSACTION
+    - FUND_RESERVATION
+    - CONSUMPTION_LEDGER
+    - PLAYER_EARNING
+    - GIFT_REQUEST
+    - COMMISSION
+    - REFERRAL_BINDING
+    - ADJUSTMENT
+    - REFUND
+    - AUDIT_LOG
+
+reason_codes:
+  - id: DRAFT_CANCELLED_BY_CUSTOMER
+    label_zh: 用户取消草稿订单
+    enabled: true
+    applies_to: [ORDER_CANCEL]
+    requires_note: false
+    requires_evidence: false
+  - id: DISPATCH_TIMEOUT_CANCELLED_BY_CUSTOMER
+    label_zh: 派单超时后用户选择取消并释放预留
+    enabled: true
+    applies_to: [ORDER_CANCEL]
+    requires_note: false
+    requires_evidence: false
+  - id: PLAYER_NO_SHOW
+    label_zh: 陪玩未按时开始或未出现
+    enabled: true
+    applies_to: [ORDER_RESOLUTION, REFUND, PLAYER_STATUS]
+    requires_note: true
+    requires_evidence: true
+  - id: CUSTOMER_NO_SHOW
+    label_zh: 用户未出现或无法联系
+    enabled: true
+    applies_to: [ORDER_RESOLUTION, REFUND]
+    requires_note: true
+    requires_evidence: true
+  - id: SERVICE_INTERRUPTED
+    label_zh: 服务中断或提前结束
+    enabled: true
+    applies_to: [ORDER_RESOLUTION, REFUND, EARNING_ADJUSTMENT]
+    requires_note: true
+    requires_evidence: true
+  - id: COMPLETION_DISPUTE
+    label_zh: 完成状态或服务结果存在争议
+    enabled: true
+    applies_to: [ORDER_RESOLUTION, REFUND, EARNING_ADJUSTMENT]
+    requires_note: true
+    requires_evidence: true
+  - id: AUTOMATION_FAILURE
+    label_zh: 自动化或第三方接口异常
+    enabled: true
+    applies_to: [ORDER_RESOLUTION, REFUND, JOB_RETRY]
+    requires_note: true
+    requires_evidence: false
+  - id: GIFT_DETAILS_MISMATCH
+    label_zh: 礼物品类、目标或金额与用户确认不一致
+    enabled: true
+    applies_to: [GIFT_REJECT]
+    requires_note: true
+    requires_evidence: false
+  - id: GIFT_CUSTOMER_WITHDREW
+    label_zh: 用户在扣款前撤回送礼请求
+    enabled: true
+    applies_to: [GIFT_REJECT]
+    requires_note: true
+    requires_evidence: false
+  - id: INSUFFICIENT_BALANCE
+    label_zh: 第三方账户实时余额不足
+    enabled: true
+    applies_to: [GIFT_REJECT, ORDER_CANCEL]
+    requires_note: false
+    requires_evidence: false
+  - id: PLAYER_REVIEW_APPROVED
+    label_zh: 陪玩审核通过
+    enabled: true
+    applies_to: [PLAYER_STATUS]
+    requires_note: true
+    requires_evidence: true
+  - id: PLAYER_PAUSED_FOR_RISK
+    label_zh: 因运营风险暂停陪玩接单
+    enabled: true
+    applies_to: [PLAYER_STATUS]
+    requires_note: true
+    requires_evidence: true
+  - id: ACCOUNT_SUSPENDED_FOR_RISK
+    label_zh: 因风险暂停用户或陪玩账户
+    enabled: true
+    applies_to: [ACCOUNT_STATUS]
+    requires_note: true
+    requires_evidence: true
+  - id: MANUAL_EARNING_CORRECTION
+    label_zh: 陪玩收益人工冲正
+    enabled: true
+    applies_to: [EARNING_ADJUSTMENT]
+    requires_note: true
+    requires_evidence: true
+  - id: MANUAL_COMMISSION_CORRECTION
+    label_zh: 返佣人工冲正
+    enabled: true
+    applies_to: [COMMISSION_ADJUSTMENT]
+    requires_note: true
+    requires_evidence: true
+  - id: BUSINESS_CONFIG_CHANGE
+    label_zh: 业务配置变更
+    enabled: true
+    applies_to: [CONFIG_CHANGE]
+    requires_note: true
+    requires_evidence: false
+  - id: STAFF_ACCESS_CHANGE
+    label_zh: 工作人员权限或角色变更
+    enabled: true
+    applies_to: [ACCESS_CHANGE]
+    requires_note: true
+    requires_evidence: true
+  - id: FAILED_JOB_MANUAL_RETRY
+    label_zh: 失败任务人工重试
+    enabled: true
+    applies_to: [JOB_RETRY]
+    requires_note: true
+    requires_evidence: false
+  - id: RESERVATION_BALANCE_STALE
+    label_zh: 内部余额版本冲突并阻止新预留
+    enabled: true
+    applies_to: [FUNDING_RESERVATION]
+    requires_note: false
+    requires_evidence: false
+  - id: RESERVATION_DEFICIT_DETECTED
+    label_zh: 内部账本余额低于有效预留总额
+    enabled: true
+    applies_to: [FUNDING_RESERVATION]
+    requires_note: false
+    requires_evidence: false
+  - id: READINESS_TIMEOUT_ESCALATED
+    label_zh: 仍有有效陪玩未就绪并转客服处理
+    enabled: true
+    applies_to: [READINESS, STAFF_CONTROL]
+    requires_note: false
+    requires_evidence: false
+  - id: CANCELLATION_PREVIEW_EXPIRED
+    label_zh: 取消影响预览已过期并要求刷新
+    enabled: true
+    applies_to: [CANCELLATION_PREVIEW]
+    requires_note: false
+    requires_evidence: false
+  - id: STAFF_TAKEOVER_REQUESTED
+    label_zh: 工作人员接管关键业务阶段
+    enabled: true
+    applies_to: [STAFF_CONTROL]
+    requires_note: true
+    requires_evidence: false
+  - id: AUTOMATION_PAUSED_BY_STAFF
+    label_zh: 工作人员暂停自动处理
+    enabled: true
+    applies_to: [STAFF_CONTROL]
+    requires_note: true
+    requires_evidence: false
+  - id: AUTOMATION_RESUMED_BY_STAFF
+    label_zh: 工作人员恢复自动处理
+    enabled: true
+    applies_to: [STAFF_CONTROL]
+    requires_note: true
+    requires_evidence: false
+  - id: REFERRAL_BINDING_CORRECTION
+    label_zh: 管理员纠正推荐来源绑定
+    enabled: true
+    applies_to: [REFERRAL_BINDING]
+    requires_note: true
+    requires_evidence: true
+  - id: REFERRAL_ADJUSTMENT_REVERSAL
+    label_zh: 退款或结案追加返佣冲正
+    enabled: true
+    applies_to: [COMMISSION_ADJUSTMENT]
+    requires_note: true
+    requires_evidence: true
+
+notifications:
+  order_status:
+    enabled: true
+    channel_ref: null
+    dm_enabled: false
+    ephemeral_enabled: true
+  dispatch:
+    enabled: true
+    channel_ref: dispatch_channel_id
+    dm_enabled: false
+    ephemeral_enabled: false
+  staff_task:
+    enabled: true
+    channel_ref: staff_task_channel_id
+    dm_enabled: false
+    ephemeral_enabled: false
+  gift_broadcast:
+    enabled: true
+    channel_ref: gift_broadcast_channel_id
+    dm_enabled: false
+    ephemeral_enabled: false
+    gift_broadcast_template: "{sender_name} 向 {receiver_name} 赠送了 {gift_name}"
+  five_star_review_broadcast:
+    enabled: true
+    channel_ref: review_broadcast_channel_id
+    dm_enabled: false
+    ephemeral_enabled: false
+  approval:
+    enabled: true
+    channel_ref: staff_task_channel_id
+    dm_enabled: true
+    ephemeral_enabled: false
+  commission:
+    enabled: true
+    channel_ref: null
+    dm_enabled: true
+    ephemeral_enabled: true
+  role_access_change:
+    enabled: true
+    channel_ref: operations_alert_channel_id
+    dm_enabled: true
+    ephemeral_enabled: false
+  outbox_failure:
+    enabled: true
+    channel_ref: operations_alert_channel_id
+    dm_enabled: false
+    ephemeral_enabled: false

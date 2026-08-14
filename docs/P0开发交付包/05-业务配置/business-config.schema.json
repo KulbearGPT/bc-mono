@@ -1,0 +1,1479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.internal/schemas/business-config.schema.json",
+  "title": "Discord Companion Service P0 Business Configuration",
+  "description": "Startup validation schema for the prototype P0 business configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "config_id",
+    "deployment",
+    "pilot",
+    "business",
+    "discord",
+    "catalog",
+    "gifts",
+    "funding",
+    "referral",
+    "player_tags",
+    "dispatch",
+    "readiness",
+    "cancellation",
+    "player_workspace",
+    "operations_dashboard",
+    "timeouts",
+    "feature_flags",
+    "access_control",
+    "reason_codes",
+    "notifications"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "3.0.0"
+    },
+    "config_id": {
+      "$ref": "#/$defs/stableId"
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "environment", "enabled", "example_only"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 120
+        },
+        "environment": {
+          "enum": ["development", "test", "production"]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "example_only": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "example_only": { "const": true }
+            },
+            "required": ["example_only"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "enabled": { "const": false }
+            }
+          }
+        }
+      ]
+    },
+    "pilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_environment", "phase", "display_roles"],
+      "properties": {
+        "business_environment": { "enum": ["SANDBOX", "PRODUCTION"] },
+        "phase": { "enum": ["CORE_ORDER", "CORE_ORDER_AND_GIFTS", "OFF"] },
+        "display_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["staff_minimum_level", "owner_level"],
+          "properties": {
+            "staff_minimum_level": { "const": "L2_SUPERVISOR" },
+            "owner_level": { "const": "L4_ADMIN_OWNER" }
+          }
+        }
+      }
+    },
+    "business": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currency", "timezone", "money_storage", "order_mode", "max_active_orders_per_customer", "max_active_orders_per_player"],
+      "properties": {
+        "currency": { "const": "CAT" },
+        "timezone": {
+          "type": "string",
+          "pattern": "^(?:UTC|[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)+)$"
+        },
+        "money_storage": { "const": "MINOR_UNITS_INTEGER" },
+        "order_mode": { "const": "IMMEDIATE_ONLY" },
+        "max_active_orders_per_customer": { "const": 1 },
+        "max_active_orders_per_player": { "const": 1 }
+      }
+    },
+    "discord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["guild_id", "presence_intent_enabled", "channels", "roles", "role_sync", "bootstrap_l4_discord_user_id"],
+      "properties": {
+        "guild_id": { "$ref": "#/$defs/snowflake" },
+        "presence_intent_enabled": { "const": true },
+        "channels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "public_entry_channel_id",
+            "gift_entry_channel_id",
+            "private_order_category_id",
+            "order_archive_category_id",
+            "dispatch_channel_id",
+            "player_workbench_channel_id",
+            "gift_review_channel_id",
+            "gift_broadcast_channel_id",
+            "review_broadcast_channel_id",
+            "staff_task_channel_id",
+            "operations_alert_channel_id"
+          ],
+          "properties": {
+            "public_entry_channel_id": { "$ref": "#/$defs/snowflake" },
+            "gift_entry_channel_id": { "$ref": "#/$defs/snowflake" },
+            "private_order_category_id": { "$ref": "#/$defs/snowflake" },
+            "order_archive_category_id": {
+              "anyOf": [
+                { "$ref": "#/$defs/snowflake" },
+                { "type": "null" }
+              ]
+            },
+            "dispatch_channel_id": { "$ref": "#/$defs/snowflake" },
+            "player_workbench_channel_id": { "$ref": "#/$defs/snowflake" },
+            "gift_review_channel_id": { "$ref": "#/$defs/snowflake" },
+            "gift_broadcast_channel_id": { "$ref": "#/$defs/snowflake" },
+            "review_broadcast_channel_id": { "$ref": "#/$defs/snowflake" },
+            "staff_task_channel_id": { "$ref": "#/$defs/snowflake" },
+            "operations_alert_channel_id": { "$ref": "#/$defs/snowflake" }
+          }
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["player_role_id", "staff_l1_role_id", "staff_l2_role_id", "staff_l3_role_id", "staff_l4_role_id", "staff_notification_role_id", "operations_notification_role_id"],
+          "properties": {
+            "player_role_id": { "$ref": "#/$defs/snowflake" },
+            "staff_l1_role_id": { "$ref": "#/$defs/snowflake" },
+            "staff_l2_role_id": { "$ref": "#/$defs/snowflake" },
+            "staff_l3_role_id": { "$ref": "#/$defs/snowflake" },
+            "staff_l4_role_id": { "$ref": "#/$defs/snowflake" },
+            "staff_notification_role_id": {
+              "anyOf": [
+                { "$ref": "#/$defs/snowflake" },
+                { "type": "null" }
+              ]
+            },
+            "operations_notification_role_id": {
+              "anyOf": [
+                { "$ref": "#/$defs/snowflake" },
+                { "type": "null" }
+              ]
+            }
+          }
+        },
+        "role_sync": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["l1_l2_auto_apply", "l3_l4_require_l4_confirmation", "downgrade_revokes_sessions"],
+          "properties": {
+            "l1_l2_auto_apply": { "const": true },
+            "l3_l4_require_l4_confirmation": { "const": true },
+            "downgrade_revokes_sessions": { "const": true }
+          }
+        },
+        "bootstrap_l4_discord_user_id": { "$ref": "#/$defs/snowflake" }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["games", "regions", "services"],
+      "properties": {
+        "games": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/game" }
+        },
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/region" }
+        },
+        "services": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/service" }
+        }
+      }
+    },
+    "gifts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalog", "receiver_policy", "manual_review_required", "eligible_order_statuses", "post_completion_window_minutes"],
+      "properties": {
+        "catalog": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/gift" }
+        },
+        "receiver_policy": { "const": "ORDER_OR_STANDALONE_ACTIVE_PLAYER" },
+        "manual_review_required": { "const": true },
+        "eligible_order_statuses": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 4,
+          "items": {
+            "enum": ["ACCEPTED", "IN_SERVICE", "PENDING_CONFIRMATION", "COMPLETED"]
+          },
+          "allOf": [
+            { "contains": { "const": "ACCEPTED" } },
+            { "contains": { "const": "IN_SERVICE" } },
+            { "contains": { "const": "PENDING_CONFIRMATION" } },
+            { "contains": { "const": "COMPLETED" } }
+          ]
+        },
+        "post_completion_window_minutes": { "const": 1440 }
+      }
+    },
+    "funding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "balance_fact_source",
+        "balance_summary_fields",
+        "available_minor_formula",
+        "all_spend_via_unified_api",
+        "negative_balance_allowed",
+        "top_up",
+        "receipt_attachment",
+        "external_refund",
+        "reservation_ttls",
+        "lifecycle",
+        "record_invariants"
+      ],
+      "properties": {
+        "currency": { "const": "CAT" },
+        "balance_fact_source": { "const": "INTERNAL_APPEND_ONLY_LEDGER" },
+        "balance_summary_fields": {
+          "const": ["ledgerBalanceMinor", "reservedMinor", "availableMinor", "currency", "calculatedAt", "version"]
+        },
+        "available_minor_formula": { "const": "ledgerBalanceMinor - reservedMinor" },
+        "all_spend_via_unified_api": { "const": true },
+        "negative_balance_allowed": { "const": false },
+        "top_up": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["immediate_credit", "paid_currency", "usd_cent_to_cat_subunit", "minimum_level", "recent_step_up_required", "unique_reference_fields", "required_fields"],
+          "properties": {
+            "immediate_credit": { "const": true },
+            "paid_currency": { "const": "USD" },
+            "usd_cent_to_cat_subunit": { "const": 1 },
+            "minimum_level": { "const": "L2_SUPERVISOR" },
+            "recent_step_up_required": { "const": true },
+            "unique_reference_fields": { "const": ["paymentMethod", "receiptNumber"] },
+            "required_fields": { "const": ["paidAmountUsdCents", "paidCurrency", "paymentMethod", "receiptNumber", "paidAt", "note", "reasonCode"] }
+          }
+        },
+        "receipt_attachment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["optional", "maximum_bytes", "allowed_media_types", "private_storage_required"],
+          "properties": {
+            "optional": { "const": true },
+            "maximum_bytes": { "const": 10485760 },
+            "allowed_media_types": { "const": ["image/jpeg", "image/png", "image/webp", "application/pdf"] },
+            "private_storage_required": { "const": true }
+          }
+        },
+        "external_refund": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["require_sufficient_available_minor", "negative_balance_allowed"],
+          "properties": {
+            "require_sufficient_available_minor": { "const": true },
+            "negative_balance_allowed": { "const": false }
+          }
+        },
+        "reservation_ttls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gift_pending_approval_minutes", "expiry_action"],
+          "properties": {
+            "gift_pending_approval_minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+            "expiry_action": { "const": "RELEASE_AND_CREATE_STAFF_TASK" }
+          }
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["order", "gift"],
+          "properties": {
+            "order": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reserve_on",
+                "capture_on",
+                "release_on",
+                "dispute_on",
+                "dispute_action",
+                "partial_resolution_action"
+              ],
+              "properties": {
+                "reserve_on": { "const": "ORDER_SUBMITTED" },
+                "capture_on": { "const": "ORDER_COMPLETED" },
+                "release_on": {
+                  "const": ["ORDER_CANCELLED", "ORDER_RESERVATION_EXPIRED", "ORDER_REJECTED", "ORDER_FAILED"]
+                },
+                "dispute_on": { "const": "ORDER_DISPUTED" },
+                "dispute_action": { "const": "KEEP_RESERVED" },
+                "partial_resolution_action": { "const": "CAPTURE_RESOLVED_AND_RELEASE_REMAINDER" }
+              }
+            },
+            "gift": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reserve_on", "capture_on", "release_on"],
+              "properties": {
+                "reserve_on": { "const": "GIFT_REQUESTED" },
+                "capture_on": { "const": "GIFT_APPROVED" },
+                "release_on": {
+                  "const": ["GIFT_REJECTED", "GIFT_EXPIRED", "GIFT_WITHDRAWN"]
+                }
+              }
+            }
+          }
+        },
+        "record_invariants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reserved_minor_source",
+            "business_source_required",
+            "idempotency_key_required",
+            "version_required",
+            "concurrency_control",
+            "all_non_read_operations_audited",
+            "success_business_and_audit_same_transaction"
+          ],
+          "properties": {
+            "reserved_minor_source": { "const": "SUM_ACTIVE_FUND_RESERVATIONS" },
+            "business_source_required": { "const": true },
+            "idempotency_key_required": { "const": true },
+            "version_required": { "const": true },
+            "concurrency_control": { "const": "UNIFIED_API_ATOMIC" },
+            "all_non_read_operations_audited": { "const": true },
+            "success_business_and_audit_same_transaction": { "const": true }
+          }
+        }
+      }
+    },
+    "referral": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "binding",
+        "privacy",
+        "adjustments",
+        "programs",
+        "automatic_payout_enabled"
+      ],
+      "properties": {
+        "enabled": { "const": true },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "methods",
+            "one_active_source_per_referred_user",
+            "programs_mutually_exclusive",
+            "prevent_self_referral",
+            "prevent_duplicate_identity_referral",
+            "referred_user_can_modify",
+            "changes_are_audited"
+          ],
+          "properties": {
+            "methods": { "const": ["INVITE_CODE", "ADMIN_MANUAL"] },
+            "one_active_source_per_referred_user": { "const": true },
+            "programs_mutually_exclusive": { "const": true },
+            "prevent_self_referral": { "const": true },
+            "prevent_duplicate_identity_referral": { "const": true },
+            "referred_user_can_modify": { "const": false },
+            "changes_are_audited": { "const": true }
+          }
+        },
+        "privacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "referred_user_visibility",
+            "blocked_surfaces",
+            "beneficiary_visibility",
+            "source_user_display",
+            "l1_visibility",
+            "l2_visibility",
+            "l3_l4_visibility"
+          ],
+          "properties": {
+            "referred_user_visibility": { "const": "NONE" },
+            "blocked_surfaces": {
+              "const": ["USER_API", "DISCORD", "ERROR", "EXPORT", "NOTIFICATION"]
+            },
+            "beneficiary_visibility": { "const": "SELF_ONLY" },
+            "source_user_display": { "const": "MASKED_BY_DEFAULT" },
+            "l1_visibility": { "const": "NO_BENEFICIARY_OR_AMOUNT" },
+            "l2_visibility": { "const": "TASK_SCOPED_LIMITED" },
+            "l3_l4_visibility": { "const": "FULL_AUDITED" }
+          }
+        },
+        "adjustments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["append_only", "hard_delete_allowed", "amount_storage", "direction_source"],
+          "properties": {
+            "append_only": { "const": true },
+            "hard_delete_allowed": { "const": false },
+            "amount_storage": { "const": "NON_NEGATIVE_ABSOLUTE_VALUE" },
+            "direction_source": { "const": "ADJUSTMENT_TYPE" }
+          }
+        },
+        "programs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["PROMOTER_FIRST_PURCHASE", "PLAYER_LIFETIME"],
+          "properties": {
+            "PROMOTER_FIRST_PURCHASE": { "$ref": "#/$defs/promoterFirstPurchaseProgram" },
+            "PLAYER_LIFETIME": { "$ref": "#/$defs/playerLifetimeProgram" }
+          }
+        },
+        "automatic_payout_enabled": { "const": false }
+      }
+    },
+    "player_tags": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/playerTag" }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manual_controlled",
+        "no_deadline",
+        "required_review_status",
+        "guild_scope_required",
+        "match_tag_categories",
+        "application_reserves_player",
+        "finalization_policy",
+        "transparency"
+      ],
+      "properties": {
+        "manual_controlled": { "const": true },
+        "no_deadline": { "const": true },
+        "required_review_status": { "const": "ACTIVE" },
+        "guild_scope_required": { "const": true },
+        "match_tag_categories": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 3,
+          "items": { "enum": ["GAME", "SERVICE", "REGION", "LANGUAGE"] },
+          "allOf": [
+            { "contains": { "const": "GAME" } },
+            { "contains": { "const": "SERVICE" } },
+            { "contains": { "const": "REGION" } }
+          ]
+        },
+        "application_reserves_player": { "const": false },
+        "finalization_policy": { "const": "CUSTOMER_ATOMIC_SELECTION" },
+        "transparency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "visible_stages",
+            "show_active_applicants",
+            "show_customer_next_step",
+            "show_accepted_player_summary"
+          ],
+          "properties": {
+            "visible_stages": {
+              "const": ["COLLECTING", "SELECTION", "ACCEPTED"]
+            },
+            "show_active_applicants": { "const": true },
+            "show_customer_next_step": { "const": true },
+            "show_accepted_player_summary": { "const": true }
+          }
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_parties",
+        "transition_from",
+        "transition_to",
+        "start_policy",
+        "player_can_start_unilaterally",
+        "readiness_timeout_minutes",
+        "timeout_action"
+      ],
+      "properties": {
+        "required_parties": { "const": ["ALL_ACTIVE_PLAYERS"] },
+        "transition_from": { "const": "ACCEPTED" },
+        "transition_to": { "const": "IN_SERVICE" },
+        "start_policy": { "const": "ALL_ACTIVE_PLAYERS_READY" },
+        "player_can_start_unilaterally": { "const": false },
+        "readiness_timeout_minutes": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "timeout_action": { "const": "PAUSE_AUTOMATION_AND_CREATE_STAFF_TASK" }
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview_required_before",
+        "preview_fields",
+        "preview_expiry_seconds",
+        "expired_preview_action",
+        "execute_revalidates_atomically",
+        "manual_review_action"
+      ],
+      "properties": {
+        "preview_required_before": { "const": ["AUTO_CANCEL", "REQUEST_STAFF"] },
+        "preview_fields": {
+          "const": [
+            "automaticEligibility",
+            "estimatedReleaseMinor",
+            "estimatedRefundMinor",
+            "processingMethod",
+            "expectedTiming"
+          ]
+        },
+        "preview_expiry_seconds": { "type": "integer", "minimum": 15, "maximum": 300 },
+        "expired_preview_action": { "const": "REQUIRE_REFRESH" },
+        "execute_revalidates_atomically": { "const": true },
+        "manual_review_action": { "const": "CREATE_STAFF_TAKEOVER_TASK" }
+      }
+    },
+    "player_workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "sections", "availability_controls", "presence_diagnostic_only", "actions"],
+      "properties": {
+        "enabled": { "const": true },
+        "sections": {
+          "const": [
+            "QUALIFICATION",
+            "SELECTION_POOLS",
+            "APPLICATIONS",
+            "CURRENT_ORDER",
+            "REQUIREMENT_DETAILS",
+            "READINESS",
+            "EARNINGS_SUMMARY",
+            "NEXT_ACTION"
+          ]
+        },
+        "availability_controls": { "const": [] },
+        "presence_diagnostic_only": { "const": true },
+        "actions": {
+          "const": ["APPLY_TO_SELECTION_POOL", "WITHDRAW_APPLICATION", "CONFIRM_READINESS", "REQUEST_COMPLETION"]
+        }
+      }
+    },
+    "operations_dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "staff_controls", "metrics"],
+      "properties": {
+        "enabled": { "const": true },
+        "staff_controls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["takeover", "pause", "resume", "reassign", "submit_for_approval"],
+          "properties": {
+            "takeover": {
+              "allOf": [
+                { "$ref": "#/$defs/staffControl" },
+                { "type": "object", "properties": { "permission_code": { "const": "order.takeover" }, "minimum_level": { "const": "L2_SUPERVISOR" } } }
+              ]
+            },
+            "pause": {
+              "allOf": [
+                { "$ref": "#/$defs/staffControl" },
+                { "type": "object", "properties": { "permission_code": { "const": "order.pause" }, "minimum_level": { "const": "L2_SUPERVISOR" } } }
+              ]
+            },
+            "resume": {
+              "allOf": [
+                { "$ref": "#/$defs/staffControl" },
+                { "type": "object", "properties": { "permission_code": { "const": "order.resume" }, "minimum_level": { "const": "L2_SUPERVISOR" } } }
+              ]
+            },
+            "reassign": {
+              "allOf": [
+                { "$ref": "#/$defs/staffControl" },
+                { "type": "object", "properties": { "permission_code": { "const": "order.reassign" }, "minimum_level": { "const": "L2_SUPERVISOR" } } }
+              ]
+            },
+            "submit_for_approval": {
+              "allOf": [
+                { "$ref": "#/$defs/staffControl" },
+                { "type": "object", "properties": { "permission_code": { "const": "approval.create" }, "minimum_level": { "const": "L1_SUPPORT" } } }
+              ]
+            }
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "TODAY_ORDER_COUNT" }, "unit": { "const": "COUNT" }, "window": { "const": "BUSINESS_DAY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "IN_PROGRESS_ORDER_COUNT" }, "unit": { "const": "COUNT" }, "window": { "const": "POINT_IN_TIME" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "PENDING_STAFF_TASK_COUNT" }, "unit": { "const": "COUNT" }, "window": { "const": "POINT_IN_TIME" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "COMPLETED_ORDER_NET_CONSUMPTION_MINOR" }, "unit": { "const": "MINOR" }, "window": { "const": "BUSINESS_DAY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "GIFT_NET_CONSUMPTION_MINOR" }, "unit": { "const": "MINOR" }, "window": { "const": "BUSINESS_DAY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "ACTIVE_RESERVED_MINOR" }, "unit": { "const": "MINOR" }, "window": { "const": "POINT_IN_TIME" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "DISPATCH_SUCCESS_RATE_BPS" }, "unit": { "const": "BASIS_POINTS" }, "window": { "const": "BUSINESS_DAY" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/metricDefinition" }, { "type": "object", "properties": { "id": { "const": "EXCEPTION_COUNT" }, "unit": { "const": "COUNT" }, "window": { "const": "POINT_IN_TIME" } } }] }
+          ]
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customer_no_show_review_minutes",
+        "completion_confirmation_minutes",
+        "gift_review_reminder_minutes",
+        "channel_read_only_after_completion_minutes",
+        "channel_archive_after_completion_minutes"
+      ],
+      "properties": {
+        "customer_no_show_review_minutes": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "completion_confirmation_minutes": { "type": "integer", "minimum": 5, "maximum": 120 },
+        "gift_review_reminder_minutes": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "channel_read_only_after_completion_minutes": { "type": "integer", "minimum": 0, "maximum": 10080 },
+        "channel_archive_after_completion_minutes": { "type": "integer", "minimum": 0, "maximum": 60 }
+      }
+    },
+    "feature_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["new_orders_enabled", "gift_requests_enabled", "maintenance_notice"],
+      "properties": {
+        "new_orders_enabled": { "type": "boolean" },
+        "gift_requests_enabled": { "type": "boolean" },
+        "maintenance_notice": { "type": "boolean" }
+      }
+    },
+    "access_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inheritance", "approval_execution", "levels", "amount_thresholds", "high_value_execution", "mfa_step_up", "immutable_record_types"],
+      "properties": {
+        "inheritance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "level_order", "permission_resolution", "minimum_level_semantics"],
+          "properties": {
+            "mode": { "const": "CUMULATIVE" },
+            "level_order": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "prefixItems": [
+                { "const": "L1_SUPPORT" },
+                { "const": "L2_SUPERVISOR" },
+                { "const": "L3_OPERATIONS" },
+                { "const": "L4_ADMIN_OWNER" }
+              ],
+              "items": false
+            },
+            "permission_resolution": { "const": "UNION_LOWER_OR_EQUAL" },
+            "minimum_level_semantics": { "const": "ACTOR_RANK_GTE_REQUIRED_RANK" }
+          }
+        },
+        "approval_execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "self_approval_allowed", "separate_high_value_reviewer_required", "higher_level_direct_execution", "reason_required", "step_up_required_for_sensitive_actions", "immutable_audit_required"],
+          "properties": {
+            "mode": { "const": "MINIMUM_LEVEL_DIRECT" },
+            "self_approval_allowed": { "const": true },
+            "separate_high_value_reviewer_required": { "const": false },
+            "higher_level_direct_execution": { "const": true },
+            "reason_required": { "const": true },
+            "step_up_required_for_sensitive_actions": { "const": true },
+            "immutable_audit_required": { "const": true }
+          }
+        },
+        "levels": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["L1_SUPPORT", "L2_SUPERVISOR", "L3_OPERATIONS", "L4_ADMIN_OWNER"],
+          "properties": {
+            "L1_SUPPORT": { "$ref": "#/$defs/l1Policy" },
+            "L2_SUPERVISOR": { "$ref": "#/$defs/l2Policy" },
+            "L3_OPERATIONS": { "$ref": "#/$defs/l3Policy" },
+            "L4_ADMIN_OWNER": { "$ref": "#/$defs/l4Policy" }
+          }
+        },
+        "amount_thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["currency", "l2_gift_limit_minor", "l2_refund_limit_minor", "l4_direct_execution_from_minor"],
+          "properties": {
+            "currency": { "const": "CAT" },
+            "l2_gift_limit_minor": { "const": 200000 },
+            "l2_refund_limit_minor": { "const": 50000 },
+            "l4_direct_execution_from_minor": { "const": 500000 }
+          }
+        },
+        "high_value_execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "minimum_level", "separate_reviewer_required", "same_actor_may_initiate_and_execute", "applies_to"],
+          "properties": {
+            "enabled": { "const": true },
+            "minimum_level": { "const": "L4_ADMIN_OWNER" },
+            "separate_reviewer_required": { "const": false },
+            "same_actor_may_initiate_and_execute": { "const": true },
+            "applies_to": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 2,
+              "items": { "enum": ["GIFT_CHARGE", "REFUND"] },
+              "allOf": [
+                { "contains": { "const": "GIFT_CHARGE" } },
+                { "contains": { "const": "REFUND" } }
+              ]
+            }
+          }
+        },
+        "mfa_step_up": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required_levels", "validity_minutes", "required_actions"],
+          "properties": {
+            "required_levels": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 2,
+              "items": { "enum": ["L3_OPERATIONS", "L4_ADMIN_OWNER"] },
+              "allOf": [
+                { "contains": { "const": "L3_OPERATIONS" } },
+                { "contains": { "const": "L4_ADMIN_OWNER" } }
+              ]
+            },
+            "validity_minutes": { "const": 15 },
+            "required_actions": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 4,
+              "items": {
+                "enum": [
+                  "GIFT_CHARGE",
+                  "REFUND",
+                  "ACCOUNT_SUSPEND",
+                  "CONFIG_CHANGE",
+                  "ACCESS_CHANGE",
+                  "INTEGRATION_CHANGE",
+                  "EMERGENCY_STOP"
+                ]
+              }
+            }
+          }
+        },
+        "immutable_record_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 11,
+          "items": {
+            "enum": [
+              "ORDER",
+              "ORDER_EVENT",
+              "ORDER_RESOLUTION",
+              "EXTERNAL_TRANSACTION",
+              "FUND_RESERVATION",
+              "CONSUMPTION_LEDGER",
+              "PLAYER_EARNING",
+              "GIFT_REQUEST",
+              "COMMISSION",
+              "REFERRAL_BINDING",
+              "ADJUSTMENT",
+              "REFUND",
+              "AUDIT_LOG"
+            ]
+          },
+          "allOf": [
+            { "contains": { "const": "EXTERNAL_TRANSACTION" } },
+            { "contains": { "const": "FUND_RESERVATION" } },
+            { "contains": { "const": "CONSUMPTION_LEDGER" } },
+            { "contains": { "const": "PLAYER_EARNING" } },
+            { "contains": { "const": "REFERRAL_BINDING" } },
+            { "contains": { "const": "ADJUSTMENT" } },
+            { "contains": { "const": "AUDIT_LOG" } }
+          ]
+        }
+      }
+    },
+    "reason_codes": {
+      "type": "array",
+      "minItems": 8,
+      "items": { "$ref": "#/$defs/reasonCode" }
+    },
+    "notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order_status",
+        "dispatch",
+        "staff_task",
+        "gift_broadcast",
+        "five_star_review_broadcast",
+        "approval",
+        "commission",
+        "role_access_change",
+        "outbox_failure"
+      ],
+      "properties": {
+        "order_status": { "$ref": "#/$defs/notificationPolicy" },
+        "dispatch": { "$ref": "#/$defs/notificationPolicy" },
+        "staff_task": { "$ref": "#/$defs/notificationPolicy" },
+        "gift_broadcast": {
+          "allOf": [
+            { "$ref": "#/$defs/notificationPolicy" },
+            { "type": "object", "required": ["gift_broadcast_template"] }
+          ]
+        },
+        "five_star_review_broadcast": { "$ref": "#/$defs/notificationPolicy" },
+        "approval": { "$ref": "#/$defs/notificationPolicy" },
+        "commission": { "$ref": "#/$defs/notificationPolicy" },
+        "role_access_change": { "$ref": "#/$defs/notificationPolicy" },
+        "outbox_failure": { "$ref": "#/$defs/notificationPolicy" }
+      }
+    }
+  },
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$"
+    },
+    "reasonId": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+    },
+    "snowflake": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{16,19}$"
+    },
+    "minorAmount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positiveMinorAmount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "basisPoints": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "positiveBasisPoints": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "classification": {
+      "enum": ["P0_APPROVED", "UNAPPROVED_EXAMPLE"]
+    },
+    "exampleGuard": {
+      "if": {
+        "type": "object",
+        "properties": {
+          "classification": { "const": "UNAPPROVED_EXAMPLE" }
+        },
+        "required": ["classification"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "enabled": { "const": false },
+          "label_zh": {
+            "type": "string",
+            "pattern": "^示例：.*（未确认）$"
+          }
+        }
+      }
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label_zh", "enabled", "classification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "enabled": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/classification" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/exampleGuard" }
+      ]
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "game_id", "label_zh", "enabled", "classification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "game_id": { "$ref": "#/$defs/stableId" },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "enabled": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/classification" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/exampleGuard" }
+      ]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "game_id",
+        "region_ids",
+        "label_zh",
+        "billing_unit_minutes",
+        "min_units",
+        "customer_unit_price_minor",
+        "player_unit_payout_minor",
+        "currency",
+        "version",
+        "enabled",
+        "classification"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "game_id": { "$ref": "#/$defs/stableId" },
+        "region_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "billing_unit_minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+        "min_units": { "type": "integer", "minimum": 1, "maximum": 168 },
+        "customer_unit_price_minor": { "$ref": "#/$defs/positiveMinorAmount" },
+        "player_unit_payout_minor": { "$ref": "#/$defs/positiveMinorAmount" },
+        "currency": { "const": "CAT" },
+        "version": { "type": "integer", "minimum": 1 },
+        "enabled": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/classification" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/exampleGuard" }
+      ]
+    },
+    "gift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label_zh", "price_minor", "currency", "commission_eligible", "broadcast_template", "enabled", "classification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "price_minor": { "$ref": "#/$defs/positiveMinorAmount" },
+        "currency": { "const": "CAT" },
+        "commission_eligible": { "type": "boolean" },
+        "broadcast_template": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 500,
+          "allOf": [
+            { "pattern": "\\{sender_name\\}" },
+            { "pattern": "\\{receiver_name\\}" },
+            { "pattern": "\\{gift_name\\}" }
+          ]
+        },
+        "enabled": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/classification" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/exampleGuard" }
+      ]
+    },
+    "playerTag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "label_zh", "enabled", "classification"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stableId" },
+        "category": { "enum": ["GAME", "SERVICE", "REGION", "LANGUAGE"] },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "enabled": { "type": "boolean" },
+        "classification": { "$ref": "#/$defs/classification" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/exampleGuard" }
+      ]
+    },
+    "eligibleNetConsumptionSources": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "enum": ["ORDER_NET_CONSUMPTION", "GIFT_NET_CONSUMPTION"]
+      }
+    },
+    "promoterFirstPurchaseProgram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "beneficiary_type",
+        "eligible_sources",
+        "binding_deadline",
+        "reward_mode",
+        "fixed_amount_minor",
+        "rate_bps",
+        "settlement_trigger",
+        "max_settlements",
+        "after_settlement"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "beneficiary_type": { "const": "PROMOTER" },
+        "eligible_sources": { "$ref": "#/$defs/eligibleNetConsumptionSources" },
+        "binding_deadline": { "const": "BEFORE_FIRST_ELIGIBLE_NET_CONSUMPTION" },
+        "reward_mode": { "enum": ["FIXED_MINOR", "PERCENT_BPS"] },
+        "fixed_amount_minor": {
+          "anyOf": [
+            { "$ref": "#/$defs/positiveMinorAmount" },
+            { "type": "null" }
+          ]
+        },
+        "rate_bps": {
+          "anyOf": [
+            { "$ref": "#/$defs/positiveBasisPoints" },
+            { "type": "null" }
+          ]
+        },
+        "settlement_trigger": { "const": "FIRST_ELIGIBLE_NET_CONSUMPTION" },
+        "max_settlements": { "const": 1 },
+        "after_settlement": { "const": "PERMANENTLY_ENDED" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "reward_mode": { "const": "FIXED_MINOR" } },
+            "required": ["reward_mode"]
+          },
+          "then": {
+            "properties": {
+              "fixed_amount_minor": { "$ref": "#/$defs/positiveMinorAmount" },
+              "rate_bps": { "const": null }
+            }
+          },
+          "else": {
+            "properties": {
+              "fixed_amount_minor": { "const": null },
+              "rate_bps": { "$ref": "#/$defs/positiveBasisPoints" }
+            }
+          }
+        }
+      ]
+    },
+    "playerLifetimeProgram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "beneficiary_type",
+        "eligible_sources",
+        "rate_bps",
+        "settlement_trigger",
+        "duration"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "beneficiary_type": { "const": "PLAYER" },
+        "eligible_sources": { "$ref": "#/$defs/eligibleNetConsumptionSources" },
+        "rate_bps": { "$ref": "#/$defs/positiveBasisPoints" },
+        "settlement_trigger": { "const": "EACH_ELIGIBLE_NET_CONSUMPTION" },
+        "duration": { "const": "LIFETIME" }
+      }
+    },
+    "staffControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "permission_code", "minimum_level"],
+      "properties": {
+        "enabled": { "const": true },
+        "permission_code": { "$ref": "#/$defs/permissionCode" },
+        "minimum_level": {
+          "enum": ["L1_SUPPORT", "L2_SUPERVISOR", "L3_OPERATIONS", "L4_ADMIN_OWNER"]
+        }
+      }
+    },
+    "metricDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label_zh", "unit", "window", "definition"],
+      "properties": {
+        "id": {
+          "enum": [
+            "TODAY_ORDER_COUNT",
+            "IN_PROGRESS_ORDER_COUNT",
+            "PENDING_STAFF_TASK_COUNT",
+            "COMPLETED_ORDER_NET_CONSUMPTION_MINOR",
+            "GIFT_NET_CONSUMPTION_MINOR",
+            "ACTIVE_RESERVED_MINOR",
+            "DISPATCH_SUCCESS_RATE_BPS",
+            "EXCEPTION_COUNT"
+          ]
+        },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "unit": { "enum": ["COUNT", "MINOR", "BASIS_POINTS"] },
+        "window": { "enum": ["BUSINESS_DAY", "POINT_IN_TIME"] },
+        "definition": { "type": "string", "minLength": 10, "maxLength": 500 }
+      }
+    },
+    "permissionCode": {
+      "enum": [
+        "access.manage",
+        "access.read",
+        "access.role_sync",
+        "account.self.read",
+        "approval.approve",
+        "approval.create",
+        "approval.read",
+        "approval.reject",
+        "audit.read",
+        "balance.self.read",
+        "bot_config.operational.manage",
+        "bot_config.read",
+        "bot_config.security.manage",
+        "catalog.read",
+        "catalog.manage",
+        "commission.manage",
+        "commission.read",
+        "commission.self.read",
+        "consumption.self.read",
+        "dashboard.view",
+        "dashboard.operations.view",
+        "dispatch.execute",
+        "dispatch.manual",
+        "earnings.read",
+        "earnings.manage",
+        "funding.reservation.read",
+        "funding.reservation.reconcile",
+        "gift.approve",
+        "gift.assist",
+        "gift.read",
+        "gift.reject",
+        "gift.request",
+        "gift_catalog.manage",
+        "gift_catalog.read",
+        "gift_request.read",
+        "job.read",
+        "job.retry",
+        "mfa.manage_self",
+        "order.accept",
+        "order.cancel",
+        "order.cancellation.preview",
+        "order.confirm",
+        "order.create",
+        "order.estimate",
+        "order.experience_review.comment",
+        "order.experience_review.create",
+        "order.experience_review.publish",
+        "order.experience_review.read",
+        "order.pause",
+        "order.read",
+        "order.participants.manage",
+        "order.readiness.confirm",
+        "order.reassign",
+        "order.request_completion",
+        "order.resolve",
+        "order.resume",
+        "order.submit",
+        "order.takeover",
+        "order.update",
+        "player.approve",
+        "player.availability.manage_self",
+        "player.read",
+        "player.status.manage",
+        "player.tags.manage",
+        "player.workspace.read",
+        "policy.manage",
+        "policy.read",
+        "presence.sync",
+        "referral.manage",
+        "referral.read",
+        "referral.self.read",
+        "refund.execute",
+        "service.estimate",
+        "service.read",
+        "staff.session.active",
+        "staff_task.claim",
+        "staff_task.read",
+        "staff_task.request",
+        "staff_task.resolve",
+        "staff_task.verify",
+        "step_up.execute",
+        "user.read",
+        "user.risk.manage",
+        "user.status.manage",
+        "wallet.adjust",
+        "wallet.external_refund",
+        "wallet.read",
+        "wallet.top_up",
+        "welcome_dm.send"
+      ]
+    },
+    "scope": {
+      "enum": ["SELF", "TEAM", "ALL_BUSINESS", "ALL_SYSTEM"]
+    },
+    "staffPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name_zh", "rank", "inherits", "scope", "permissions"],
+      "properties": {
+        "display_name_zh": { "type": "string", "minLength": 2, "maxLength": 40 },
+        "rank": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "inherits": {
+          "type": ["string", "null"],
+          "enum": [null, "L1_SUPPORT", "L2_SUPERVISOR", "L3_OPERATIONS"]
+        },
+        "scope": { "$ref": "#/$defs/scope" },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/permissionCode" }
+        }
+      }
+    },
+    "l1Policy": {
+      "allOf": [
+        { "$ref": "#/$defs/staffPolicy" },
+        {
+          "type": "object",
+          "properties": {
+            "rank": { "const": 1 },
+            "inherits": { "const": null },
+            "scope": { "const": "SELF" },
+            "permissions": {
+              "not": {
+                "type": "array",
+                "contains": {
+                  "enum": [
+                    "access.manage",
+                    "access.role_sync",
+                    "approval.approve",
+                    "approval.reject",
+                    "bot_config.operational.manage",
+                    "bot_config.read",
+                    "bot_config.security.manage",
+                    "catalog.manage",
+                    "commission.manage",
+                    "dashboard.operations.view",
+                    "dispatch.execute",
+                    "dispatch.manual",
+                    "earnings.manage",
+                    "funding.reservation.read",
+                    "funding.reservation.reconcile",
+                    "gift.approve",
+                    "gift.reject",
+                    "gift_catalog.manage",
+                    "job.retry",
+                    "order.accept",
+                    "order.cancel",
+                    "order.confirm",
+                    "order.pause",
+                    "order.reassign",
+                    "order.request_completion",
+                    "order.resolve",
+                    "order.resume",
+                    "order.submit",
+                    "order.takeover",
+                    "player.approve",
+                    "player.status.manage",
+                    "player.tags.manage",
+                    "policy.manage",
+                    "presence.sync",
+                    "referral.manage",
+                    "referral.read",
+                    "refund.execute",
+                    "staff_task.resolve",
+                    "user.risk.manage",
+                    "user.status.manage",
+                    "wallet.adjust",
+                    "wallet.external_refund",
+                    "wallet.read",
+                    "wallet.top_up",
+                    "welcome_dm.send"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "l2Policy": {
+      "allOf": [
+        { "$ref": "#/$defs/staffPolicy" },
+        {
+          "type": "object",
+          "properties": {
+            "rank": { "const": 2 },
+            "inherits": { "const": "L1_SUPPORT" },
+            "scope": { "const": "TEAM" },
+            "permissions": {
+              "allOf": [
+                { "contains": { "const": "welcome_dm.send" } },
+                {
+                  "not": {
+                    "type": "array",
+                    "contains": {
+                      "enum": ["bot_config.operational.manage", "bot_config.read", "bot_config.security.manage"]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "l3Policy": {
+      "allOf": [
+        { "$ref": "#/$defs/staffPolicy" },
+        {
+          "type": "object",
+          "properties": {
+            "rank": { "const": 3 },
+            "inherits": { "const": "L2_SUPERVISOR" },
+            "scope": { "const": "ALL_BUSINESS" },
+            "permissions": {
+              "allOf": [
+                { "contains": { "const": "bot_config.read" } },
+                { "contains": { "const": "bot_config.operational.manage" } },
+                { "not": { "contains": { "const": "bot_config.security.manage" } } }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "l4Policy": {
+      "allOf": [
+        { "$ref": "#/$defs/staffPolicy" },
+        {
+          "type": "object",
+          "properties": {
+            "rank": { "const": 4 },
+            "inherits": { "const": "L3_OPERATIONS" },
+            "scope": { "const": "ALL_SYSTEM" },
+            "permissions": {
+              "allOf": [
+                { "contains": { "const": "bot_config.read" } },
+                { "contains": { "const": "bot_config.operational.manage" } },
+                { "contains": { "const": "bot_config.security.manage" } }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "reasonCode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label_zh", "enabled", "applies_to", "requires_note", "requires_evidence"],
+      "properties": {
+        "id": { "$ref": "#/$defs/reasonId" },
+        "label_zh": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "enabled": { "type": "boolean" },
+        "applies_to": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "ORDER_CANCEL",
+              "ORDER_RESOLUTION",
+              "REFUND",
+              "GIFT_REJECT",
+              "PLAYER_STATUS",
+              "ACCOUNT_STATUS",
+              "EARNING_ADJUSTMENT",
+              "COMMISSION_ADJUSTMENT",
+              "FUNDING_RESERVATION",
+              "READINESS",
+              "CANCELLATION_PREVIEW",
+              "STAFF_CONTROL",
+              "REFERRAL_BINDING",
+              "CONFIG_CHANGE",
+              "ACCESS_CHANGE",
+              "JOB_RETRY"
+            ]
+          }
+        },
+        "requires_note": { "type": "boolean" },
+        "requires_evidence": { "type": "boolean" }
+      }
+    },
+    "notificationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "channel_ref", "dm_enabled", "ephemeral_enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "channel_ref": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "public_entry_channel_id",
+            "gift_entry_channel_id",
+            "private_order_category_id",
+            "order_archive_category_id",
+            "dispatch_channel_id",
+            "player_workbench_channel_id",
+            "gift_review_channel_id",
+            "gift_broadcast_channel_id",
+            "review_broadcast_channel_id",
+            "staff_task_channel_id",
+            "operations_alert_channel_id"
+          ]
+        },
+        "dm_enabled": { "type": "boolean" },
+        "ephemeral_enabled": { "type": "boolean" },
+        "gift_broadcast_template": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?:[^{}]|\\{(?:sender_name|receiver_name|gift_name)\\})+$",
+          "allOf": [
+            { "pattern": "\\{sender_name\\}" },
+            { "pattern": "\\{receiver_name\\}" },
+            { "pattern": "\\{gift_name\\}" }
+          ]
+        }
+      }
+    }
+  }
+}

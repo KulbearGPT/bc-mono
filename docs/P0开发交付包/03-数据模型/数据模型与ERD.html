@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord 陪玩业务 Bot · P0 数据模型与 ERD</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #5d6874;
+      --line: #d8dee5;
+      --soft: #f5f7f9;
+      --paper: #ffffff;
+      --nav: #182a3a;
+      --blue: #176b9c;
+      --green: #297a58;
+      --amber: #9a6414;
+      --red: #a13b36;
+      --violet: #72539a;
+      --cyan: #327b80;
+      --radius: 6px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--soft);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.68;
+      letter-spacing: 0;
+    }
+    a { color: inherit; }
+    code, pre {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      letter-spacing: 0;
+    }
+    code {
+      padding: 1px 5px;
+      color: #154b68;
+      background: #eef4f7;
+      border: 1px solid #d8e5eb;
+      border-radius: 3px;
+      overflow-wrap: anywhere;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 30px 22px;
+      color: #e8eef3;
+      background: var(--nav);
+      overflow-y: auto;
+    }
+    .doc-mark {
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid rgba(255,255,255,.18);
+    }
+    .doc-mark strong { display: block; font-size: 17px; }
+    .doc-mark span { color: #aebdca; font-size: 12px; }
+    nav a {
+      display: block;
+      padding: 7px 8px;
+      color: #c9d5df;
+      text-decoration: none;
+      border-left: 2px solid transparent;
+    }
+    nav a:hover { color: #fff; border-left-color: #65b7d6; background: rgba(255,255,255,.05); }
+    main { min-width: 0; }
+    .hero {
+      padding: 56px clamp(28px, 6vw, 86px) 42px;
+      color: #fff;
+      background: #214f68;
+      border-bottom: 6px solid #d49b36;
+    }
+    .eyebrow { margin: 0 0 12px; color: #bfe1ee; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+    h1 { max-width: 900px; margin: 0 0 16px; font-size: 38px; line-height: 1.25; }
+    .hero p { max-width: 920px; margin: 0; color: #e1edf2; font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .meta span { padding: 5px 9px; color: #e7f3f7; border: 1px solid rgba(255,255,255,.32); border-radius: 4px; font-size: 12px; }
+    .content { max-width: 1220px; margin: 0 auto; padding: 38px clamp(24px, 5vw, 70px) 90px; }
+    section { padding: 32px 0; border-bottom: 1px solid var(--line); }
+    section:last-child { border-bottom: 0; }
+    h2 { margin: 0 0 18px; font-size: 26px; line-height: 1.3; }
+    h3 { margin: 26px 0 12px; font-size: 18px; }
+    h4 { margin: 0; font-size: 15px; }
+    p { margin: 9px 0; }
+    .lead { max-width: 900px; color: #374554; font-size: 16px; }
+    .callout {
+      margin: 18px 0;
+      padding: 15px 18px;
+      border-left: 4px solid var(--blue);
+      background: #edf5f9;
+    }
+    .callout.warn { border-left-color: var(--amber); background: #fbf5e9; }
+    .callout strong { display: block; margin-bottom: 3px; }
+    .stat-grid, .domain-grid, .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 20px 0;
+    }
+    .stat, .flow-box {
+      min-width: 0;
+      padding: 15px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .stat b { display: block; color: var(--blue); font-size: 25px; line-height: 1.1; }
+    .stat span { color: var(--muted); font-size: 12px; }
+    .ownership {
+      display: grid;
+      grid-template-columns: 1fr auto 1.4fr auto 1fr;
+      align-items: stretch;
+      gap: 10px;
+      margin: 24px 0;
+    }
+    .owner-box {
+      padding: 18px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--blue);
+      border-radius: var(--radius);
+    }
+    .owner-box.api { border-top-color: var(--green); }
+    .owner-box.third { border-top-color: var(--amber); }
+    .arrow { display: grid; place-items: center; color: var(--muted); font-size: 22px; }
+    .owner-box ul { margin: 8px 0 0; padding-left: 18px; }
+    .domain-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .domain {
+      min-width: 0;
+      padding: 16px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: var(--radius);
+    }
+    .domain.identity { border-left-color: var(--violet); }
+    .domain.catalog { border-left-color: var(--green); }
+    .domain.order { border-left-color: var(--blue); }
+    .domain.staff { border-left-color: var(--amber); }
+    .domain.money { border-left-color: var(--red); }
+    .domain.ledger { border-left-color: var(--cyan); }
+    .domain.reliability { border-left-color: #4a5560; }
+    .entities { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .entity {
+      padding: 4px 7px;
+      color: #273846;
+      background: #f4f6f8;
+      border: 1px solid #dce2e7;
+      border-radius: 3px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .erd {
+      margin: 16px 0;
+      padding: 20px;
+      overflow-x: auto;
+      color: #dce8ef;
+      background: #162631;
+      border: 1px solid #0d1b24;
+      border-radius: var(--radius);
+      font-size: 12px;
+      line-height: 1.62;
+      white-space: pre;
+    }
+    .flow-box { border-top: 4px solid var(--green); }
+    .flow-box b { display: block; margin-bottom: 6px; }
+    .flow-box p { color: var(--muted); font-size: 13px; }
+    table {
+      width: 100%;
+      margin: 16px 0 24px;
+      border-collapse: collapse;
+      background: var(--paper);
+      font-size: 13px;
+    }
+    th, td { padding: 10px 12px; text-align: left; vertical-align: top; border: 1px solid var(--line); }
+    th { color: #22394a; background: #edf1f4; font-weight: 700; }
+    td:first-child { white-space: nowrap; }
+    .tag {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .tag.fact { color: #155a40; background: #e7f3ec; }
+    .tag.mutable { color: #7b5414; background: #f8efd9; }
+    .tag.immutable { color: #8a302c; background: #f8e7e5; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 4px 0; }
+    .footer { padding: 24px clamp(24px, 5vw, 70px); color: #d0dbe2; background: #182a3a; font-size: 12px; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      nav { display: grid; grid-template-columns: repeat(2, 1fr); }
+      .ownership { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); }
+      .stat-grid, .flow-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      h1 { font-size: 30px; }
+      .domain-grid, .stat-grid, .flow-grid { grid-template-columns: 1fr; }
+      nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      td:first-child { white-space: normal; }
+    }
+    @media print {
+      body { background: #fff; font-size: 11px; }
+      .layout { display: block; }
+      aside { display: none; }
+      .hero { padding: 28px 36px; background: #fff; color: #111; border: 0; border-bottom: 2px solid #333; }
+      .hero p, .eyebrow { color: #333; }
+      .meta span { color: #333; border-color: #999; }
+      .content { max-width: none; padding: 10px 34px; }
+      section { break-inside: avoid; }
+      table { break-inside: auto; }
+      tr { break-inside: avoid; }
+      .erd { color: #111; background: #fff; border-color: #aaa; }
+      .footer { color: #333; background: #fff; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="doc-mark">
+        <strong>P0 数据模型</strong>
+        <span>Prototype 开发交付 · v1.0</span>
+      </div>
+      <nav aria-label="文档目录">
+        <a href="#overview">1. 模型目标</a>
+        <a href="#ownership">2. 数据所有权</a>
+        <a href="#domains">3. 领域划分</a>
+        <a href="#erd">4. ERD 关系图</a>
+        <a href="#flows">5. 核心数据流</a>
+        <a href="#dictionary">6. 实体字典</a>
+        <a href="#constraints">7. 关键约束</a>
+        <a href="#transactions">8. 事务边界</a>
+        <a href="#retention">9. 更新与删除</a>
+        <a href="#implementation">10. 实施说明</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Discord Companion Service · Prototype P0</p>
+        <h1>数据模型与实体关系设计</h1>
+        <p>面向统一业务 API 的 PostgreSQL / Prisma 数据模型。覆盖用户绑定、陪玩准入、即时订单、逐名陪玩就绪、资金预留、取消影响预览、礼物、两类互斥推荐计划、收益与全链路审计。</p>
+        <div class="meta">
+          <span>唯一上位规格：Bot 最小原型设计开发文档</span>
+          <span>架构：API 独占数据库</span>
+          <span>金额：minor units + currency</span>
+          <span>时间：UTC</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <section id="overview">
+          <h2>1. 模型目标</h2>
+          <p class="lead">这套模型的重点不是覆盖未来所有陪玩玩法，而是让 P0 的核心闭环在并发、失败重试和人工接管时仍然能对账、追责和恢复。</p>
+          <div class="stat-grid">
+            <div class="stat"><b>86</b><span>Prisma 数据实体</span></div>
+            <div class="stat"><b>81</b><span>状态/类型枚举</span></div>
+            <div class="stat"><b>4</b><span>后台权限级别</span></div>
+          </div>
+          <div class="callout">
+            <strong>事实来源</strong>
+            PostgreSQL 保存自有业务事实、内部 CAT 追加式账本和预留生命周期；外部支付渠道只提供由工作人员核对的 USD receipt 证据，不保存或决定系统余额。余额响应固定为 <code>ledgerBalanceMinor</code>、事件派生的 <code>reservedMinor</code> 与公式所得 <code>availableMinor</code>；可用余额不由客户端写入。
+          </div>
+          <div class="callout warn">
+            <strong>P0 边界</strong>
+            只支持即时单、单客户、单测试 Guild 和 CAT 内部币种；订单可包含多需求、多席位和多名正式陪玩。P0 支持开放候选池报名及客户从本单有效报名者中原子终选，但不支持下单前公开浏览、优先名单或强指定。预约/排期、排班、试听材料、多级返佣、自动提现、支付渠道 API 和第二账本均不进入 P0。
+          </div>
+        </section>
+
+        <section id="ownership">
+          <h2>2. 数据所有权</h2>
+          <div class="ownership">
+            <div class="owner-box">
+              <h4>Sapphire Bot / React Dashboard</h4>
+              <ul><li>采集交互</li><li>展示状态</li><li>携带真实 Actor Context</li></ul>
+            </div>
+            <div class="arrow">→</div>
+            <div class="owner-box api">
+              <h4>统一业务 API</h4>
+              <ul><li>唯一数据库访问者</li><li>状态机、RBAC、审批与幂等</li><li>事务、Outbox 与审计</li></ul>
+            </div>
+            <div class="arrow">↔</div>
+            <div class="owner-box third">
+              <h4>第三方系统</h4>
+              <ul><li>用户验证</li><li>余额查询</li><li>扣款与退款</li></ul>
+            </div>
+          </div>
+          <p>Bot 和 Dashboard 不直接访问 PostgreSQL，也不各自实现价格、状态迁移、金额阈值或权限判断。资金入口统一按 <code>user_id + currency</code> 串行化；幂等作用域为 <code>client + operation + actor + key</code>。</p>
+        </section>
+
+        <section id="domains">
+          <h2>3. 领域划分</h2>
+          <div class="domain-grid">
+            <article class="domain identity">
+              <h4>身份与权限</h4>
+              <p>内部用户、Discord 身份、四级员工、Role 映射、会话、策略版本和 Guild Bot 配置；外部账户表仅为升级兼容。</p>
+              <div class="entities"><span class="entity">users</span><span class="entity">discord_accounts</span><span class="entity">external_accounts</span><span class="entity">staff_accounts</span><span class="entity">staff_sessions</span><span class="entity">discord_role_mappings</span><span class="entity">staff_role_sync_events</span><span class="entity">role_permissions</span><span class="entity">policy_setting_versions</span><span class="entity">guild_bot_configs</span><span class="entity">guild_bot_config_events</span></div>
+            </article>
+            <article class="domain catalog">
+              <h4>陪玩与目录</h4>
+              <p>陪玩审核、可接单信号、技能标签、服务稳定身份和不可覆盖的双价格版本。</p>
+              <div class="entities"><span class="entity">player_profiles</span><span class="entity">skill_tags</span><span class="entity">player_skills</span><span class="entity">service_offerings</span><span class="entity">service_catalog_versions</span><span class="entity">service_version_skill_requirements</span></div>
+            </article>
+            <article class="domain order">
+              <h4>订单与候选池</h4>
+              <p>即时订单、逐陪玩 readiness、取消影响预览、追加式事件、候选池报名/终选和异常结案。</p>
+              <div class="entities"><span class="entity">orders</span><span class="entity">order_requirements</span><span class="entity">order_participants</span><span class="entity">order_events</span><span class="entity">selection_pools</span><span class="entity">selection_applications</span><span class="entity">cancellation_previews</span><span class="entity">order_resolutions</span></div>
+            </article>
+            <article class="domain staff">
+              <h4>客服与审批</h4>
+              <p>独立客服任务、认领、内部备注、审批快照及达到最低权限等级后的执行决定。</p>
+              <div class="entities"><span class="entity">staff_tasks</span><span class="entity">staff_task_notes</span><span class="entity">approval_requests</span><span class="entity">approval_decisions</span></div>
+            </article>
+            <article class="domain money">
+              <h4>礼物、预留与 CAT 钱包</h4>
+              <p>订单提交/礼物请求时 reserve，订单完成/礼物批准时 capture；余额从 WalletEntry 与有效预留派生。</p>
+              <div class="entities"><span class="entity">wallet_accounts</span><span class="entity">wallet_entries</span><span class="entity">top_ups</span><span class="entity">external_refund_debits</span><span class="entity">gift_catalog_items</span><span class="entity">gift_catalog_versions</span><span class="entity">gift_requests</span><span class="entity">user_currency_locks</span><span class="entity">fund_reservations</span><span class="entity">fund_reservation_events</span></div>
+            </article>
+            <article class="domain ledger">
+              <h4>消费、收益与返佣</h4>
+              <p>统一消费时间线、每单原始收益、版本化推荐计划、互斥归因和追加式冲正。</p>
+              <div class="entities"><span class="entity">consumption_entries</span><span class="entity">player_earnings</span><span class="entity">player_earning_adjustments</span><span class="entity">referral_program_versions</span><span class="entity">referral_attributions</span><span class="entity">commissions</span><span class="entity">commission_adjustments</span></div>
+            </article>
+            <article class="domain reliability">
+              <h4>可靠性与审计</h4>
+              <p>API 幂等、异步消息投递、风险信号和不可删除的操作者审计链。</p>
+              <div class="entities"><span class="entity">idempotency_records</span><span class="entity">outbox_events</span><span class="entity">risk_events</span><span class="entity">audit_logs</span></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="erd">
+          <h2>4. ERD 关系图</h2>
+          <p class="lead">以下为不依赖网络或脚本的纯文本 ERD。`1` 表示一条，`0..1` 表示可选一条，`*` 表示多条。</p>
+          <pre class="erd">IDENTITY / ACCESS
+User 1 ───── * DiscordAccount
+User 1 ───── * ExternalAccount (legacy migration compatibility only)
+User 1 ─── 0..1 PlayerProfile ───── * PlayerSkill * ───── 1 SkillTag
+User 1 ─── 0..1 StaffAccount ───── * StaffSession
+StaffAccount 1 ───── * StaffRoleSyncEvent (source + source_event_id unique)
+StaffAccount 1 ───── * ApprovalRequest ─── 0..1 ApprovalDecision
+DiscordRoleMapping * ───── 1 StaffAccount (created_by)
+GuildBotConfig 1 ───── * GuildBotConfigEvent (guild_id + version unique; append-only)
+StaffAccount 1 ───── * GuildBotConfig / GuildBotConfigEvent (updated_by / actor)
+
+CATALOG / ORDER / DISPATCH
+ServiceOffering 1 ───── * ServiceCatalogVersion
+ServiceCatalogVersion * ───── * SkillTag (through ServiceVersionSkillRequirement)
+ServiceCatalogVersion 1 ───── * Order (immutable version + price snapshot)
+User 1 ───── * Order (customer / assigned player)
+Order 1 ───── * OrderEvent
+Order 1 ───── * CancellationPreview
+Order 1 ───── * OrderResolution
+Order 1 ───── * DispatchAttempt ───── * DispatchCandidate * ───── 1 User (player)
+
+GIFT / RESERVATION / MONEY
+Order 1 ───── * StaffTask ───── * StaffTaskNote
+GiftRequest 1 ─── 0..1 StaffTask (GIFT_REVIEW)
+GiftCatalogItem 1 ───── * GiftCatalogVersion 1 ───── * GiftRequest
+Order 1 ───── * GiftRequest
+User 1 ───── * GiftRequest (sender / receiver)
+User 1 ───── * UserCurrencyLock (user_id + currency)
+User 1 ───── * FundReservation ───── * FundReservationEvent
+Order 1 ─── 0..1 FundReservation (ORDER source XOR)
+GiftRequest 1 ─── 0..1 FundReservation (GIFT source XOR)
+FundReservation 1 ─── 0..1 ExternalTransaction (capture mirror)
+ExternalTransaction 1 ───── * Refund
+
+LEDGERS / REFERRAL / RELIABILITY
+ExternalTransaction 1 ─── 0..1 ConsumptionEntry
+Refund 1 ─── 0..1 ConsumptionEntry (credit reversal)
+Order 1 ─── 0..1 PlayerEarning ───── * PlayerEarningAdjustment
+ReferralProgramVersion 1 ───── * ReferralAttribution
+User 1 ───── * ReferralAttribution (beneficiary / referred)
+ReferralAttribution 1 ───── * Commission
+ConsumptionEntry 1 ─── 0..1 Commission
+Refund 1 ───── * PlayerEarningAdjustment / CommissionAdjustment
+Order / GiftRequest / DispatchAttempt 1 ───── * OutboxEvent
+User / StaffAccount 1 ───── * AuditLog</pre>
+        </section>
+
+        <section id="flows">
+          <h2>5. 核心数据流</h2>
+          <div class="flow-grid">
+            <div class="flow-box"><b>订单提交 reserve</b><p>资金锁 → 内部账本余额 → 价格快照 → FundReservation/事件 → 订单提交 → 派单 Outbox；不提前 capture。</p></div>
+            <div class="flow-box"><b>候选池与 readiness</b><p>陪玩报名 → 客户原子终选正式阵容 → 正式陪玩逐名确认本人就绪 → 全部当前有效陪玩齐备后进入 IN_SERVICE；客户只读查看进度。</p></div>
+            <div class="flow-box"><b>礼物请求与批准</b><p>请求时 reserve → 客服核对/审批 → 批准后 capture → 消费/返佣 → 播报 Outbox。</p></div>
+            <div class="flow-box"><b>订单完成 capture</b><p>完成确认 → 捕获预留 → 消费流水 → 陪玩收益 → 计划化返佣 → 释放槽位 → 频道归档。</p></div>
+            <div class="flow-box"><b>取消影响预览</b><p>版本快照 → 自动处理性 → 预计 release/refund → 处理方式/时效 → 执行时锁内重算。</p></div>
+            <div class="flow-box"><b>退款收敛</b><p>退款镜像 → 外部成功 → 消费贷方 → 收益调整 → 返佣调整。原始记录不改金额。</p></div>
+            <div class="flow-box"><b>互斥推荐归因</b><p>计划版本 → 唯一有效来源 → PROMOTER 最多一次 / PLAYER 每个合格来源一次 → 非负调整。</p></div>
+            <div class="flow-box"><b>权限同步</b><p>source event 防重 → Discord Role 快照 → 四级内部权限 → 撤销旧会话 → 审计。</p></div>
+            <div class="flow-box"><b>Bot 配置变更</b><p>API staff 授权 → 字段与 Discord 对象校验 → expectedVersion 条件更新 → 当前 JSON + 只追加事件同事务提交 → 刷新 Guild 缓存。</p></div>
+          </div>
+        </section>
+
+        <section id="dictionary">
+          <h2>6. 实体字典</h2>
+          <h3>6.1 身份、陪玩与权限</h3>
+          <table>
+            <thead><tr><th>实体</th><th>职责</th><th>核心键/约束</th><th>性质</th></tr></thead>
+            <tbody>
+              <tr><td><code>users</code></td><td>自有业务用户主体；canonical 可写状态为 ACTIVE/PAUSED/SUSPENDED，DISABLED 仅供 L4 系统级停用。</td><td>UUID；状态索引；<code>row_version</code> 乐观锁。</td><td><span class="tag mutable">状态可变</span></td></tr>
+              <tr><td><code>discord_accounts</code></td><td>Discord 用户与内部用户映射。</td><td><code>(guild_id, discord_user_id)</code>、<code>(user_id, guild_id)</code> 唯一。</td><td><span class="tag fact">事实映射</span></td></tr>
+              <tr><td><code>external_accounts</code></td><td>早期 Provider 方案遗留表；当前 P0 不创建、不读取其余额，也不提供绑定入口。</td><td>仅为升级兼容保留旧约束；不得作为当前身份或资金事实来源。</td><td><span class="tag mutable">已退役兼容</span></td></tr>
+              <tr><td><code>player_profiles</code></td><td>陪玩准入、运营标签和 Discord Presence 诊断；报名只依据客服审核 ACTIVE、同 Guild 与需求标签。</td><td><code>user_id</code> 唯一；legacy availability 与 Presence 不授权；<code>row_version</code> 乐观锁。</td><td><span class="tag mutable">状态可变</span></td></tr>
+              <tr><td><code>staff_accounts</code></td><td>L1–L4 内部权限事实。</td><td><code>user_id</code> 唯一；权限版本控制会话。</td><td><span class="tag mutable">状态可变</span></td></tr>
+              <tr><td><code>discord_role_mappings</code></td><td>Discord Role 到请求级别的版本化映射。</td><td>版本唯一；两个当前映射槽位唯一。</td><td><span class="tag fact">版本追加</span></td></tr>
+              <tr><td><code>staff_role_sync_events</code></td><td>Role 同步输入与内部四级权限结果。</td><td><code>(source, source_event_id)</code> 唯一；只追加。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>guild_bot_configs</code></td><td>每个 Guild 当前一份经 Schema 校验的 Bot 配置；API 以版本号控制并发。</td><td><code>guild_id</code> 主键；<code>version &gt;= 1</code>；完整 <code>config_json</code>。</td><td><span class="tag mutable">版本当前态</span></td></tr>
+              <tr><td><code>guild_bot_config_events</code></td><td>配置变更前值、变更值、原因、真实 staff actor、来源和时间。</td><td><code>(guild_id, version)</code> 唯一；禁止更新和删除。</td><td><span class="tag immutable">只追加</span></td></tr>
+            </tbody>
+          </table>
+
+          <h3>6.2 服务、订单与派单</h3>
+          <table>
+            <thead><tr><th>实体</th><th>职责</th><th>核心键/约束</th><th>性质</th></tr></thead>
+            <tbody>
+              <tr><td><code>service_offerings</code></td><td>服务项目稳定身份。</td><td>业务代码和游戏/服务/区服组合唯一。</td><td><span class="tag mutable">可归档</span></td></tr>
+              <tr><td><code>service_catalog_versions</code></td><td>计价单位、最低单位和客户/陪玩双价格版本。</td><td>项目+版本唯一；一个活动版本；价格为正。</td><td><span class="tag fact">版本事实</span></td></tr>
+              <tr><td><code>orders / order_requirements / order_participants</code></td><td>即时订单、逐需求快照、正式参与人和逐陪玩 readiness。</td><td>客户活跃槽唯一；参与人按需求关联；全体当前有效参与人就绪才开始。</td><td><span class="tag mutable">受控状态</span></td></tr>
+              <tr><td><code>order_events</code></td><td>订单每次业务变化的顺序历史。</td><td><code>(order_id, sequence)</code> 唯一。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>cancellation_previews</code></td><td>取消前的自动处理性、预计 release/refund、方式与时效。</td><td>保存订单/预留版本；执行时锁内重算；过期索引。</td><td><span class="tag fact">影响快照</span></td></tr>
+              <tr><td><code>order_resolutions</code></td><td>异常人工结案的退款、收益和证据快照。</td><td>幂等键唯一；目标只能完成/取消。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>selection_pools</code></td><td>客户控制的无截止招募、选秀和终选当前态。</td><td>当前创建不写等待分钟或截止时间；版本化状态；事件只追加。</td><td><span class="tag mutable">受控状态</span></td></tr>
+              <tr><td><code>selection_applications</code></td><td>陪玩对具体需求的报名、撤回与终选结果。</td><td>候选池+需求+陪玩唯一；报名不占活动槽；决定事件只追加。</td><td><span class="tag mutable">受控状态</span></td></tr>
+            </tbody>
+          </table>
+
+          <h3>6.3 客服、礼物与资金镜像</h3>
+          <table>
+            <thead><tr><th>实体</th><th>职责</th><th>核心键/约束</th><th>性质</th></tr></thead>
+            <tbody>
+              <tr><td><code>staff_tasks</code></td><td>使用 API 同名 canonical 类型；自动化失败的细分原因保存在 <code>reason_code</code>。</td><td>礼物请求一对一；条件认领；<code>row_version</code> 乐观锁。</td><td><span class="tag mutable">受控状态</span></td></tr>
+              <tr><td><code>approval_requests</code></td><td>动作、金额、目标版本和影响的审批快照。</td><td>展示 ID 唯一；状态/级别/过期索引；<code>row_version</code> 乐观锁。</td><td><span class="tag mutable">终态封存</span></td></tr>
+              <tr><td><code>approval_decisions</code></td><td>达到最低权限等级后的最终执行决定。</td><td>每张申请最多一条决定。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>gift_catalog_versions</code></td><td>礼物名称、价格和播报模板版本。</td><td>项目+版本唯一；一个活动版本。</td><td><span class="tag fact">版本事实</span></td></tr>
+              <tr><td><code>gift_requests</code></td><td>请求时 reserve，客服核对/审批，批准后 capture，再播报。</td><td>订单入口由有效 participant 派生接收人；独立入口由同 Guild ACTIVE PlayerProfile 派生；状态/到期索引。</td><td><span class="tag mutable">受控状态</span></td></tr>
+              <tr><td><code>user_currency_locks</code></td><td>所有消费入口共用的用户+币种行锁。</td><td><code>(user_id, currency)</code> 主键；不保存任何余额。</td><td><span class="tag mutable">并发控制</span></td></tr>
+              <tr><td><code>fund_reservations</code></td><td>订单/礼物原始预留与当前生命周期。</td><td>来源 XOR 且各自唯一；用户+币种+状态索引；<code>row_version</code>。</td><td><span class="tag mutable">受控状态</span></td></tr>
+              <tr><td><code>fund_reservation_events</code></td><td>CREATED/CAPTURED/RELEASED 等金额和状态事实。</td><td><code>(fund_reservation_id, sequence)</code> 与幂等键唯一。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>external_transactions</code></td><td>预留 capture 的第三方订单/礼物镜像；退款聚合态保存在本表。</td><td>来源 XOR；必须关联同来源预留；外部引用和幂等键唯一。</td><td><span class="tag mutable">外部收敛</span></td></tr>
+              <tr><td><code>refunds</code></td><td>单次退款交易镜像，过程状态仅 UNKNOWN/PENDING/SUCCEEDED/FAILED。</td><td>幂等键唯一；必须关联原扣款。</td><td><span class="tag mutable">外部收敛</span></td></tr>
+            </tbody>
+          </table>
+
+          <h3>6.4 流水与可靠性</h3>
+          <table>
+            <thead><tr><th>实体</th><th>职责</th><th>核心键/约束</th><th>性质</th></tr></thead>
+            <tbody>
+              <tr><td><code>consumption_entries</code></td><td>订单/礼物消费与退款贷方的统一时间线。</td><td>来源+类型和幂等键唯一。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>player_earnings</code></td><td>每个订单一条原始陪玩收益；本表不创建冲正副本。</td><td><code>order_id</code> 唯一；金额快照不可改；<code>row_version</code> 乐观锁。</td><td><span class="tag mutable">仅状态可变</span></td></tr>
+              <tr><td><code>player_earning_adjustments</code></td><td>收益冲正与纠错；金额非负，方向由类型表达。</td><td>幂等键唯一；只追加。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>referral_program_versions</code></td><td><code>PROMOTER_FIRST_PURCHASE</code> 与 <code>PLAYER_LIFETIME</code> 的不可覆盖规则版本。</td><td>类型+版本唯一；每种类型一个 ACTIVE。</td><td><span class="tag fact">版本事实</span></td></tr>
+              <tr><td><code>referral_attributions</code></td><td>保密、互斥的受益人与被推荐用户归因。</td><td>两个计划共用一个有效来源唯一键；支持受控改绑链。</td><td><span class="tag mutable">受限状态</span></td></tr>
+              <tr><td><code>commissions</code></td><td>直接引用 attribution；推广者最多一次，陪玩每个合格来源一次。</td><td>消费来源唯一；推广者部分唯一索引；<code>row_version</code>。</td><td><span class="tag mutable">仅状态可变</span></td></tr>
+              <tr><td><code>commission_adjustments</code></td><td>返佣冲正与纠错；金额非负，方向由类型表达。</td><td>幂等键唯一；只追加。</td><td><span class="tag immutable">只追加</span></td></tr>
+              <tr><td><code>idempotency_records</code></td><td>Bot/Dashboard/System 写操作防重复。</td><td><code>(client_id, operation, actor_key, key)</code> 唯一；Interaction ID 唯一。</td><td><span class="tag mutable">技术状态</span></td></tr>
+              <tr><td><code>outbox_events</code></td><td>播报、派单、面板和频道同步的可靠异步投递。</td><td><code>dedupe_key</code> 唯一；人工重试使用 <code>row_version</code>。</td><td><span class="tag mutable">技术状态</span></td></tr>
+              <tr><td><code>audit_logs</code></td><td>所有写操作和高风险拒绝的真实操作者记录。</td><td>按目标、操作者、请求和 Interaction 检索。</td><td><span class="tag immutable">只追加</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="constraints">
+          <h2>7. 关键约束</h2>
+          <table>
+            <thead><tr><th>风险</th><th>数据库防线</th><th>API 防线</th></tr></thead>
+            <tbody>
+              <tr><td>一个用户/陪玩同时多单</td><td>两个 nullable 唯一活跃槽位。</td><td>状态迁移事务同步占用和释放。</td></tr>
+              <tr><td>并发订单/礼物超支</td><td><code>user_currency_locks</code> 与 append-only 预留事件；来源 XOR/唯一。</td><td>同一 <code>user_id + currency</code> advisory lock，重读内部账本余额后计算 <code>availableMinor</code>。</td></tr>
+              <tr><td>后台并发覆盖</td><td>User、PlayerProfile、Order、StaffTask、GiftRequest、FundReservation、ReferralAttribution、Commission、PlayerEarning、ApprovalRequest、OutboxEvent 保存 <code>row_version</code>。</td><td>以 <code>id + expectedVersion</code> 原子更新并递增；零行返回 409。</td></tr>
+              <tr><td>Presence/旧 availability 被误作门禁</td><td>报名事件保存资格快照；活动槽只在终选占用。</td><td>只按 ACTIVE 审批、同 Guild、需求标签和服务资格判断报名；Presence 仅诊断。</td></tr>
+              <tr><td>并发报名或终选</td><td>报名唯一键；订单与参与人行锁；活动槽唯一。</td><td>报名幂等；终选重验全部候选、版本和槽位后一次提交，失败零部分写入。</td></tr>
+              <tr><td>部分陪玩就绪即开始计费</td><td>逐参与人 <code>ready_at</code> 与订单状态约束。</td><td>只有全部当前有效陪玩就绪才写 SERVICE_STARTED；客户无 readiness；超时转客服。</td></tr>
+              <tr><td>取消影响过时</td><td>CancellationPreview 保存订单/预留版本与过期时间。</td><td>执行时锁内重算；不一致失效并返回新预览。</td></tr>
+              <tr><td>目录改价影响旧单</td><td>版本表和订单完整快照。</td><td>提交后拒绝更新快照金额。</td></tr>
+              <tr><td>礼物重复捕获</td><td>礼物预留、交易幂等键、消费来源唯一。</td><td>请求时 reserve，批准后 capture；未知结果先查询。</td></tr>
+              <tr><td>播报失败再次扣款</td><td>Outbox 独立状态和唯一去重键。</td><td>只重试播报，不重放扣款用例。</td></tr>
+              <tr><td>归因/返佣重复</td><td>有效来源部分唯一、推广者一次性部分唯一、消费来源唯一。</td><td>两个计划互斥；PLAYER 每个合格来源一次。</td></tr>
+              <tr><td>归因隐私泄漏</td><td>敏感字段保存在受限关系列。</td><td>通用快照、Discord、错误、通知和普通导出只带记录 ID。</td></tr>
+              <tr><td>退款覆盖原流水</td><td>退款、消费贷方和两个调整表独立追加。</td><td>净额由原值减调整合计计算。</td></tr>
+              <tr><td>冲正方向混乱</td><td>Adjustment 金额 <code>&gt;= 0</code>；记录只追加。</td><td><code>REVERSAL_DEBIT/CORRECTION_DEBIT/CORRECTION_CREDIT</code> 表达方向。</td></tr>
+              <tr><td>退款状态含义混用</td><td>Refund 使用四态；原扣款镜像单独保存退款聚合态。</td><td>成功退款累计后才派生 PARTIALLY_REFUNDED/REFUNDED。</td></tr>
+              <tr><td>Discord Role 越权/重放</td><td>四级内部权限；<code>(source, source_event_id)</code> 唯一。</td><td>API 不相信客户端 Role ID；重复事件无第二次副作用。</td></tr>
+              <tr><td>Bot 配置越权或并发覆盖</td><td><code>guild_id</code> 一行当前态；<code>(guild_id, version)</code> 事件唯一且事件不可改删。</td><td>API 解析有效 staff actor，逐字段执行 L3/L4 权限；以 <code>expectedVersion</code> 原子更新，冲突返回 <code>CONFIG_VERSION_CONFLICT</code>。</td></tr>
+              <tr><td>权限继承与高额执行</td><td>StaffLevel 固定顺序、累积 RolePermission、完整操作者外键。</td><td>高级别包含全部低级别执行权限；≥ 500000 CAT subunits 最低要求 L4，允许同一人发起并执行，仍强制原因、step-up 与审计。</td></tr>
+            </tbody>
+          </table>
+          <p>金额、来源 XOR、readiness、预留累计、归因一致性、部分唯一索引和不可变表更新限制由 PostgreSQL <code>CHECK</code>/触发器补齐。精确 SQL 与事务顺序见同目录《状态枚举与约束.md》。</p>
+        </section>
+
+        <section id="transactions">
+          <h2>8. 事务边界</h2>
+          <ol>
+            <li><strong>资金入口：</strong>先按 <code>client + operation + actor + key</code> 防重，再持有 <code>user_id + currency</code> advisory lock；每个短事务还锁定 <code>user_currency_locks</code> 行。</li>
+            <li><strong>订单：</strong>提交时创建预留和事件；客户终选时原子建立正式参与人；逐名记录有效陪玩 readiness；完成/结案成功时才 capture 并创建消费、收益与返佣。</li>
+            <li><strong>礼物：</strong>请求创建时 reserve 并创建客服任务；批准后 capture；拒绝、过期或撤回时 release；播报失败只重试 Outbox。</li>
+            <li><strong>取消：</strong>先创建影响预览；执行时锁订单、预览、资金锁和预留，版本一致并重算相同后才 release/refund 或转客服。</li>
+            <li><strong>退款成功：</strong>退款与原交易状态、消费贷方、收益和返佣调整同步收敛。</li>
+            <li><strong>归因与权限：</strong>推荐按被推荐用户串行化；Role 同步按 source event 防重，内部权限固定为 L1–L4。</li>
+          </ol>
+          <div class="callout warn"><strong>网络调用边界</strong>第三方 API 调用不能占用长数据库事务。advisory lock 跨最终余额读取和外部调用保持；调用前后用短事务登记/收敛。未知结果保持预留，不换幂等键、不提前释放。</div>
+        </section>
+
+        <section id="retention">
+          <h2>9. 更新与删除</h2>
+          <p><span class="tag immutable">只追加</span> 订单事件、预留事件、人工结案、客服备注、审批决定、消费流水、收益/返佣调整、Role 同步事件、Guild Bot 配置事件、风险事件和审计日志。</p>
+          <p><span class="tag mutable">状态可变</span> 订单、礼物、预留、取消预览、扣款/退款镜像、任务、审批、归因、收益、返佣和 Guild Bot 当前配置只允许改变受控字段；配置必须以版本更新并同步追加事件。</p>
+          <p><span class="tag fact">版本化</span> 服务目录、礼物目录、推荐计划、Role 映射和策略配置通过新版本替换。</p>
+          <p>所有财务和审计相关实体使用 `RESTRICT` 外键并禁止硬删除。纠错使用退款、冲正、禁用、归档或追加更正；L4 同样没有删除财务/审计流水的路径。</p>
+        </section>
+
+        <section id="implementation">
+          <h2>10. 实施说明</h2>
+          <ul>
+            <li><code>schema.prisma</code> 使用 PostgreSQL provider，并通过 <code>DATABASE_URL</code> 环境变量读取连接地址；不得把真实数据库凭据写入 Schema 或版本库。接入 API 工程后必须执行 <code>prisma validate</code>。</li>
+            <li>第一批 migration 必须补充《状态枚举与约束.md》列出的 `CHECK`、不可变触发器和 API 数据库角色权限。</li>
+            <li>API 响应的 <code>version</code> 映射 <code>row_version</code>；所有写操作以 <code>id + expectedVersion</code> 单条条件更新并原子递增，禁止“先查版本、后无条件更新”。</li>
+            <li>余额 DTO 固定为 <code>ledgerBalanceMinor</code>、<code>reservedMinor</code>、<code>availableMinor</code>、<code>currency</code>、<code>calculatedAt</code>；reserved/available 不建列。</li>
+            <li>归因受益人、计划、比例、金额和状态不得进入通用快照、Discord、错误、通知或普通导出。</li>
+            <li>客服任务类型与 OpenAPI 逐值同名：<code>ORDER_ASSIST</code>、<code>CANCELLATION_ASSIST</code>、<code>GIFT_REVIEW</code>、<code>PLAYER_START_LATE</code>、<code>PLAYER_NO_SHOW</code>、<code>CUSTOMER_NO_SHOW</code>、<code>SERVICE_INTERRUPTED</code>、<code>COMPLETION_REVIEW</code>、<code>DISPUTE</code>、<code>AUTOMATION_FAILURE</code>。</li>
+            <li><code>GuildBotConfig</code> 每个 Guild 一行，Bot 启动/重启时通过共享 API 重建缓存；<code>GuildBotConfigEvent</code> 只追加。配置 JSON 不得保存 Token、数据库/支付/Webhook/OAuth Secret、目录价格、礼物或返佣规则。</li>
+            <li>Bot 配置最终授权在 API：L3 管理日常字段，L4 继承 L3 并管理玩家与 L1–L4 Role 映射；Discord Role、Bot 本地缓存和客户端提交的级别均不能直接授权。</li>
+            <li>种子数据至少创建 L1–L4 权限矩阵、初始 CAT 金额策略、一个活动服务版本、一个活动礼物版本和单 Server 的 Role/频道配置。</li>
+            <li>迁移顺序：合成历史已捕获预留；<code>GiftRequest.PAID → CAPTURED</code>；旧 Referral 转 ProgramVersion/Attribution 并回填 Commission；Adjustment 方向显式化；最后启用检查与部分唯一索引。</li>
+            <li>数据库集成测试重点覆盖：并发订单+礼物、并发报名/终选、全陪玩 readiness、取消预览失效、CAT capture 原子性、推广者第二次奖励拒绝、陪玩逐来源去重和 Role 事件重放。</li>
+          </ul>
+          <h3>关键假设</h3>
+          <ul>
+            <li>订单提交 reserve、完成 capture；礼物请求 reserve、批准 capture。</li>
+            <li>订单和礼物各最多一条预留和一条原始 capture 镜像；重试使用同一记录和幂等键。</li>
+            <li>每个订单一条原始陪玩收益；退款和纠错以调整记录表达。</li>
+            <li><code>PROMOTER_FIRST_PURCHASE</code> 每个归因最多一笔；<code>PLAYER_LIFETIME</code> 每个合格消费来源最多一笔。</li>
+            <li>派单配置固定要求 ONLINE；IDLE、DND、OFFLINE、UNKNOWN 均不进入候选池。</li>
+            <li>两个推荐计划对同一被推荐用户互斥；Commission 只引用 Attribution，不引用泛化 Referral。</li>
+            <li>Prototype 内部阈值固定使用 CAT subunits，每条金额记录仍保存货币代码；充值付款证据另存 USD cents。</li>
+          </ul>
+        </section>
+      </div>
+
+      <footer class="footer">P0 数据模型交付 · 与 `schema.prisma` 及《状态枚举与约束.md》共同使用</footer>
+    </main>
+  </div>
+</body>
+</html>

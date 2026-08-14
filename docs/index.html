@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Blackcat Companion P0 规格、合同、原型、运行手册与验收状态入口">
+  <title>Blackcat Companion · P0 交付中心</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050812;
+      --panel: #0d1423;
+      --panel-soft: #111b2d;
+      --line: #22314a;
+      --text: #edf4ff;
+      --muted: #9cabc0;
+      --violet: #7968ff;
+      --cyan: #25b7bb;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef476f;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--bg); }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, rgb(121 104 255 / 20%), transparent 30rem),
+        radial-gradient(circle at 94% 16%, rgb(37 183 187 / 14%), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    a { color: inherit; }
+    a:focus-visible { outline: 3px solid rgb(37 183 187 / 55%); outline-offset: 4px; border-radius: 8px; }
+    .skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 10px 14px; background: white; color: #111827; transform: translateY(-160%); }
+    .skip-link:focus { transform: translateY(0); }
+    header, main, footer { width: min(1120px, calc(100% - 32px)); margin-inline: auto; }
+    header { padding: 72px 0 32px; }
+    .eyebrow { margin: 0 0 12px; color: var(--cyan); font: 700 12px/1.4 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { max-width: 820px; margin: 0; font-size: clamp(34px, 7vw, 68px); line-height: 1.04; letter-spacing: -.04em; }
+    .lead { max-width: 780px; margin: 22px 0 0; color: var(--muted); font-size: clamp(16px, 2.3vw, 20px); }
+    .status {
+      margin: 28px 0 0;
+      padding: 20px 22px;
+      border: 1px solid rgb(245 158 11 / 42%);
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgb(245 158 11 / 10%), rgb(13 20 35 / 92%));
+    }
+    .status strong { color: #ffd68a; }
+    .status p { margin: 6px 0 0; color: #d4dbea; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .metric { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgb(5 8 18 / 52%); }
+    .metric b { display: block; font: 800 24px/1 ui-monospace, monospace; }
+    .metric span { display: block; margin-top: 7px; color: var(--muted); font-size: 13px; }
+    main { padding: 18px 0 72px; }
+    section { margin-top: 42px; }
+    h2 { margin: 0 0 8px; font-size: 25px; }
+    .section-copy { margin: 0 0 18px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card {
+      display: block;
+      min-height: 160px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgb(17 27 45 / 96%), rgb(13 20 35 / 96%));
+      text-decoration: none;
+      box-shadow: 0 18px 46px rgb(0 0 0 / 22%);
+      transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+    }
+    .card:hover { border-color: rgb(121 104 255 / 65%); transform: translateY(-2px); background: linear-gradient(145deg, rgb(24 34 57 / 98%), rgb(13 25 41 / 98%)); }
+    .card small { color: var(--cyan); font: 700 11px/1.4 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .card h3 { margin: 11px 0 7px; font-size: 19px; }
+    .card p { margin: 0; color: var(--muted); }
+    .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+    .fact { padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+    .fact h3 { margin: 0 0 8px; font-size: 16px; }
+    .fact p { margin: 0; color: var(--muted); }
+    .warning { border-color: rgb(239 71 111 / 34%); }
+    footer { padding: 26px 0 42px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+    code { color: #c9d2ff; font-family: ui-monospace, monospace; }
+    @media (max-width: 760px) {
+      header { padding-top: 48px; }
+      .metrics, .grid, .facts { grid-template-columns: 1fr; }
+      .card { min-height: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#content">跳到主要内容</a>
+  <header>
+    <p class="eyebrow">Blackcat Companion · P0 Delivery Hub</p>
+    <h1>从合同进入，从证据判断，不把原型当成实现。</h1>
+    <p class="lead">这里汇总当前 P0 主规格、API/数据/交互合同、开发状态、运行手册和演示。业务客户端统一调用 API；内部资金以 CAT 记账；当前匹配采用候选池报名与客户终选。</p>
+    <div class="status" role="status">
+      <strong>发布状态：fail-closed，尚未 release ready</strong>
+      <p>M23-US-09 的已提交快照包含 317 项验收：228 项自动化回归覆盖、87 项等待真实外部执行，另有 2 项旧候选通过记录必须在最终候选重跑。数字变化时，以最新验收矩阵和证据为准。</p>
+      <div class="metrics" aria-label="候选验收快照">
+        <div class="metric"><b>317</b><span>验收总项</span></div>
+        <div class="metric"><b>228</b><span>自动化回归覆盖</span></div>
+        <div class="metric"><b>87</b><span>等待外部执行</span></div>
+        <div class="metric"><b>2</b><span>旧候选需重跑</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main id="content">
+    <section aria-labelledby="authority">
+      <h2 id="authority">权威规格与合同</h2>
+      <p class="section-copy">先读主规格，再按任务进入结构化合同。页面原型、PLANNED 状态和历史截图不能单独证明功能完成。</p>
+      <div class="grid">
+        <a class="card" href="Discord陪玩业务Bot最小原型设计开发文档.html">
+          <small>Primary specification</small>
+          <h3>主规格</h3>
+          <p>P0 业务目标、角色、流程、资金、权限、异常和验收边界。</p>
+        </a>
+        <a class="card" href="P0开发交付包/index.html">
+          <small>Structured contracts</small>
+          <h3>P0 开发交付包</h3>
+          <p>UI/UX、OpenAPI、Prisma、配置、backlog、验收合同与路线图的统一入口。</p>
+        </a>
+        <a class="card" href="P0开发交付包/02-API/openapi.yaml">
+          <small>API contract</small>
+          <h3>OpenAPI</h3>
+          <p>统一业务 API 的 operation、请求响应、错误和 Actor Context 合同。</p>
+        </a>
+        <a class="card" href="P0开发交付包/03-数据模型/数据模型与ERD.html">
+          <small>Data contract</small>
+          <h3>数据模型与 ERD</h3>
+          <p>当前数据实体、关系、状态和只追加事实；运行时 schema 仍需与迁移共同核对。</p>
+        </a>
+      </div>
+    </section>
+
+    <section aria-labelledby="delivery">
+      <h2 id="delivery">开发与验收状态</h2>
+      <p class="section-copy">状态页记录已完成 Story、证据和剩余阻断；每次判断候选都应重新生成验收矩阵。</p>
+      <div class="grid">
+        <a class="card" href="Codex-P0开发TODO.md">
+          <small>Implementation tracker</small>
+          <h3>P0 开发 TODO</h3>
+          <p>M0–M23 的 Story 状态、验收编号、命令和证据入口。</p>
+        </a>
+        <a class="card" href="P0开发交付包/07-验收测试/Prototype验收测试计划.html">
+          <small>Acceptance contract</small>
+          <h3>验收测试计划</h3>
+          <p>验收场景与执行分类；最终状态以仓库中的 acceptance matrix 和外部结果账本为准。</p>
+        </a>
+        <a class="card" href="runbooks/P0-UAT与发布检查表.md">
+          <small>Release procedure</small>
+          <h3>UAT 与发布检查表</h3>
+          <p>候选冻结、外部证据格式、脱敏、恢复演练、签署和 fail-closed 放行条件。</p>
+        </a>
+        <a class="card" href="P0外部UAT待执行清单.md">
+          <small>External execution view</small>
+          <h3>外部 UAT 待执行清单</h3>
+          <p>当前待执行项、旧候选重跑项、真实身份、进入界面、操作步骤和通过标准。</p>
+        </a>
+        <a class="card" href="runbooks/P0部署与恢复Runbook.md">
+          <small>Operations</small>
+          <h3>部署与恢复 Runbook</h3>
+          <p>不可变镜像、迁移、健康检查、Worker/Discord 恢复、备份演练和回滚。</p>
+        </a>
+      </div>
+    </section>
+
+    <section aria-labelledby="runtime">
+      <h2 id="runtime">当前不可混淆的运行边界</h2>
+      <div class="facts">
+        <div class="fact">
+          <h3>CAT 是内部唯一账本</h3>
+          <p>固定 <code>1 USD = 10 CAT</code>、<code>1 USD cent = 1 CAT subunit</code>。USD 只用于充值凭证和线下结算辅助，不连接支付 Provider。</p>
+        </div>
+        <div class="fact">
+          <h3>候选池，不是自动派单</h3>
+          <p>合格陪玩报名或撤回，客户完成终选；退役的自动派单开关、轮数和超时配置不得恢复。</p>
+        </div>
+        <div class="fact">
+          <h3>全陪玩逐名就绪</h3>
+          <p>客户只读查看进度。所有当前有效陪玩分别确认本人就绪后，API 才原子进入服务中。</p>
+        </div>
+        <div class="fact">
+          <h3>统一 API 与可信 Actor</h3>
+          <p>Bot 和 Dashboard 不决定最终权限、金额、Guild 归属或状态；Discord Role 也不是授权事实。</p>
+        </div>
+        <div class="fact">
+          <h3>只追加与可恢复</h3>
+          <p>资金、订单事件、收益、返佣、配置和审计只追加；Worker 重放沿用原幂等键，不重复业务写入。</p>
+        </div>
+        <div class="fact warning">
+          <h3>历史证据不是当前合同</h3>
+          <p>M0–M6 证据可能描述后来退役的 Provider、自动派单或双边 readiness。它们保留审计价值，但不能恢复为当前设计。</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="demos">
+      <h2 id="demos">原型与演示</h2>
+      <p class="section-copy">这些页面用于沟通流程和视觉，不代表对应运行时、权限、数据写入或真实 Discord 集成已经通过。</p>
+      <div class="grid">
+        <a class="card" href="陪玩业务系统非技术演示版.html">
+          <small>Product demo</small>
+          <h3>非技术演示版</h3>
+          <p>面向业务沟通的主要流程演示。</p>
+        </a>
+        <a class="card" href="陪玩业务系统第一版产品演示.html">
+          <small>Historical prototype</small>
+          <h3>第一版产品演示</h3>
+          <p>早期界面和流程记录；遇到冲突时以当前主规格与结构化合同为准。</p>
+        </a>
+        <a class="card" href="P0开发交付包/01-UIUX/Discord与Dashboard交互原型.html">
+          <small>Interaction prototype</small>
+          <h3>Discord 与 Dashboard 原型</h3>
+          <p>跨客户端交互映射和界面参考，不作为实现完成证据。</p>
+        </a>
+        <a class="card" href="runbooks/Railway-Sandbox测试部署手册.md">
+          <small>Sandbox guide</small>
+          <h3>Railway Sandbox</h3>
+          <p>当前 Service、Secret、Guild 对象、Bot 配置、CAT 测试数据与 smoke 步骤。</p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    文档对齐快照：2026-08-14。状态可能随后变化；发布判断必须回到当前源码、验收矩阵、候选证据和具名签署。
+  </footer>
+</body>
+</html>

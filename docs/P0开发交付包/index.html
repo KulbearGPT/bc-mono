@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord 陪玩业务 Prototype P0 开发交付包 v1.0</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #66707a;
+      --line: #d9dee3;
+      --soft: #f5f7f8;
+      --blue: #2457c5;
+      --blue-soft: #eef3ff;
+      --green: #13795b;
+      --green-soft: #eef8f4;
+      --amber: #8a6100;
+      --amber-soft: #fff7df;
+      --red: #b42318;
+      --white: #fff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--white);
+      font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+    a { color: var(--blue); }
+    header { border-bottom: 1px solid var(--line); background: #f8fafc; }
+    .wrap { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
+    .hero { padding: 42px 0 34px; }
+    .eyebrow { color: var(--blue); font-weight: 750; font-size: 13px; }
+    h1 { max-width: 850px; margin: 8px 0 12px; font-size: 34px; line-height: 1.2; letter-spacing: 0; }
+    h2 { margin: 0 0 16px; font-size: 22px; letter-spacing: 0; }
+    h3 { margin: 0 0 6px; font-size: 16px; letter-spacing: 0; }
+    p { margin: 0 0 12px; }
+    .lead { max-width: 920px; color: var(--muted); font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 22px; color: var(--muted); font-size: 13px; }
+    nav { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.97); }
+    nav .wrap { display: flex; gap: 22px; overflow-x: auto; padding-top: 11px; padding-bottom: 11px; }
+    nav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+    nav a:hover { color: var(--blue); }
+    nav .docs-home-link { color: var(--blue); font-weight: 750; }
+    main section { padding: 32px 0; border-bottom: 1px solid var(--line); }
+    .notice { padding: 15px 17px; border-left: 4px solid var(--green); background: var(--green-soft); }
+    .caution { margin-top: 12px; padding: 15px 17px; border-left: 4px solid var(--amber); background: var(--amber-soft); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .item { border: 1px solid var(--line); border-radius: 6px; padding: 17px; background: var(--white); }
+    .item p { color: var(--muted); }
+    .item a { color: var(--blue); font-weight: 700; text-decoration: none; }
+    .links { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; }
+    .links a { font-size: 13px; }
+    .tag { display: inline-block; margin-bottom: 8px; padding: 2px 8px; border: 1px solid #b9c7e8; border-radius: 4px; color: #23478f; background: var(--blue-soft); font-size: 12px; font-weight: 750; }
+    .tag-roadmap { color: var(--amber); border-color: #dfc77b; background: var(--amber-soft); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+    table { width: 100%; min-width: 760px; border-collapse: collapse; }
+    th, td { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th:last-child, td:last-child { border-right: 0; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: var(--soft); font-size: 13px; }
+    .status { display: inline-block; padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; font-weight: 750; white-space: nowrap; }
+    .status-plan { color: var(--green); border-color: #9fcdbd; background: var(--green-soft); }
+    .status-not-code { color: var(--red); border-color: #efb3ad; background: #fff2f0; }
+    .status-next { color: var(--blue); border-color: #b9c7e8; background: var(--blue-soft); }
+    code { padding: 1px 5px; border-radius: 3px; background: var(--soft); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+    ol, ul { margin: 0; padding-left: 22px; }
+    li { margin: 6px 0; }
+    .gate { display: grid; grid-template-columns: 190px 1fr; border-top: 1px solid var(--line); }
+    .gate div { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .gate div:nth-child(odd) { font-weight: 700; background: var(--soft); border-left: 1px solid var(--line); }
+    footer { padding: 28px 0 42px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 24px, 1160px); }
+      .hero { padding: 30px 0 26px; }
+      h1 { font-size: 28px; }
+      .grid { grid-template-columns: 1fr; }
+      .gate { grid-template-columns: 1fr; }
+      .gate div:nth-child(odd) { border-bottom: 0; }
+    }
+    @media print {
+      nav { display: none; }
+      .hero, main section { padding: 18px 0; }
+      .item { break-inside: avoid; }
+      a { color: var(--ink) !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap hero">
+      <div class="eyebrow">DEVELOPMENT HANDOFF · PROTOTYPE P0 · v1.0</div>
+      <h1>Discord 陪玩业务 Prototype P0 开发交付包</h1>
+      <p class="lead">面向产品、设计、后端、Sapphire Bot、Dashboard 与 QA 的统一开发输入。v1.0 对齐内部 CAT 钱包、无截止候选池、客户原子终选、多陪玩 readiness 与当前 fail-closed 验收状态。</p>
+      <div class="meta"><span>范围：即时单多席位核心闭环</span><span>管理权限：L1–L4</span><span>架构：统一业务 API</span><span>资金：内部 CAT 账本 + FundReservation</span><span>文档版本：v1.0</span></div>
+    </div>
+  </header>
+
+  <nav>
+    <div class="wrap">
+      <a class="docs-home-link" href="../index.html">团队文档中心</a>
+      <a href="#start">从这里开始</a>
+      <a href="#status">状态口径</a>
+      <a href="#parity">P0 对标</a>
+      <a href="#package">交付内容</a>
+      <a href="#roadmap">P1-01—P1-06</a>
+      <a href="#order">阅读顺序</a>
+      <a href="#changes">v1.0 变更</a>
+      <a href="#rules">共同约束</a>
+      <a href="#ready">开发门槛</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="start">
+      <div class="wrap">
+        <h2>从这里开始</h2>
+        <div class="notice">
+          <strong>唯一上位规格：</strong>
+          <a href="../Discord陪玩业务Bot最小原型设计开发文档.html">Discord 陪玩业务 Bot 最小原型设计开发文档 v1.0</a>。
+          发现冲突时，以主规格的 P0 范围、权限、资金预留、返佣隐私和验收边界为准；实现细节由 OpenAPI、数据模型和配置约束落地。
+        </div>
+        <div class="caution"><strong>重要状态声明：</strong>本包是设计与开发合同，不是已运行软件。页面、接口、模型、Backlog 和测试用例出现某项能力，只能证明它已被规划或契约化；“已实现”必须另有代码、迁移、测试和部署证据。</div>
+      </div>
+    </section>
+
+    <section id="status">
+      <div class="wrap">
+        <h2>规划与实现状态</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>范围</th><th>规划/契约状态</th><th>实现状态</th><th>判定证据</th></tr></thead>
+            <tbody>
+              <tr><td>Prototype P0 核心闭环</td><td><span class="status status-plan">现行合同 v1.0</span></td><td><span class="status status-not-code">开发候选；发布 fail-closed</span></td><td>实现状态必须结合源码、迁移、测试和 Story 证据判断，不能由本页或原型推断。</td></tr>
+              <tr><td>验收与发布</td><td><span class="status status-plan">317 项验收合同</span></td><td><span class="status status-not-code">87 项等待真实外部执行</span></td><td>228 项有自动化回归覆盖；2 项旧候选通过记录必须在最终候选重跑，M23-US-09 保持 IN_PROGRESS。</td></tr>
+              <tr><td>P1-01—P1-06</td><td><span class="status status-next">下一阶段候选</span></td><td><span class="status status-not-code">明确排除于 P0</span></td><td>08 路线图只定义价值、前置、风险与顺序；立项时必须重新签规格。</td></tr>
+              <tr><td>Nice to Have</td><td><span class="status status-next">战略备选</span></td><td><span class="status status-not-code">无近期承诺</span></td><td>仅在路线图附录保留，不进入 P0 或 P1 主线。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="parity">
+      <div class="wrap">
+        <h2>P0 竞品对标矩阵</h2>
+        <p>以下“竞品信号”是根据 <a href="https://lilihuyu.com/">lilihuyu.com 公开产品介绍</a>（访问于 2026-07-16）形成的产品推断，不是对竞品合同、内部实现或实际能力的事实声明。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>产品信号（推断）</th><th>P0 规划响应</th><th>主要交付落点</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>统一订单与客服协作工作台</td><td>订单、客服任务、礼物审核、异常与审批共用 API 驱动的 Bot/Dashboard 工作流。</td><td>01 UI/UX、02 API、06 Backlog、07 QA</td><td><span class="status status-plan">P0 已规划</span></td></tr>
+              <tr><td>候选池报名与客户终选</td><td>资格/标签服务端复核、无自然截止招募、报名/撤回投影、客户原子选择一个或多个正式陪玩，且不按报名先后自动选人。</td><td>02 API、03 数据、07 QA</td><td><span class="status status-plan">P0 开发中</span></td></tr>
+              <tr><td>细粒度权限与运营治理</td><td>权限按 L1&lt;L2&lt;L3&lt;L4 累积继承；一般礼物和退款按最低等级直接执行，高额 ≥500000 必须 L4。高额手动结算批次必须由不同人员复核，角色继承不能绕过自批禁止。全部高风险操作均保留原因、step-up/MFA 与不可篡改审计。</td><td>02 API、03 数据、05 配置</td><td><span class="status status-plan">P0 已规划</span></td></tr>
+              <tr><td>业务记账与资金可追踪</td><td>内部账本余额、资金预留、消费、退款、陪玩收益、两类互斥返佣和追加冲正处于同一业务时间线。</td><td>02 API、03 数据、04 适配器</td><td><span class="status status-plan">P0 已规划</span></td></tr>
+              <tr><td>最低运营统计</td><td>今日订单、进行中、待处理、净消费、礼物净消费、预留总额、派单成功率与异常数。</td><td>01 Dashboard、02 summary API、07 QA</td><td><span class="status status-plan">P0 已规划</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="package">
+      <div class="wrap">
+        <h2>交付内容</h2>
+        <div class="grid">
+          <article class="item">
+            <span class="tag">01 · PRODUCT DESIGN</span>
+            <h3>Discord 与 Dashboard UI/UX</h3>
+            <p>用户、陪玩、客服与管理角色的主要界面、状态、中文文案及交互到 API 的映射。</p>
+            <div class="links"><a href="01-UIUX/Discord与Dashboard交互原型.html">交互原型</a><a href="01-UIUX/界面文案清单.csv">文案 CSV</a><a href="01-UIUX/交互映射.csv">交互 CSV</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">02 · API CONTRACT</span>
+            <h3>统一业务 API</h3>
+            <p>Bot 与 Dashboard 共用的 OpenAPI 3.1 契约、Actor Context、幂等、权限、资金预留和错误模型。</p>
+            <div class="links"><a href="02-API/openapi.yaml">OpenAPI YAML</a><a href="02-API/API使用说明.md">API 使用说明</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">03 · DATA</span>
+            <h3>数据库与状态约束</h3>
+            <p>PostgreSQL/Prisma Schema、实体关系、预留生命周期、返佣隐私、不可变流水和状态迁移。</p>
+            <div class="links"><a href="03-数据模型/数据模型与ERD.html">数据模型与 ERD</a><a href="03-数据模型/schema.prisma">Prisma Schema</a><a href="03-数据模型/状态枚举与约束.md">状态与约束</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">04 · INTEGRATION</span>
+            <h3>内部 CAT 钱包与人工渠道核对</h3>
+            <p>内部账本、预留/捕获/释放、人工 receipt 充值、渠道退款扣款、幂等与旧支付适配器退役边界。</p>
+            <div class="links"><a href="04-支付集成/adapter-contract.yaml">契约 YAML</a><a href="04-支付集成/供应商接入核对清单.csv">核对 CSV</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">05 · CONFIG</span>
+            <h3>业务配置与种子数据</h3>
+            <p>频道、角色、权限、服务、礼物、预留策略、返佣计划、超时、金额阈值和原因码。</p>
+            <div class="links"><a href="05-业务配置/业务配置说明.html">配置说明</a><a href="05-业务配置/business-config.schema.json">JSON Schema</a><a href="05-业务配置/business-config.example.yaml">示例 YAML</a><a href="05-业务配置/seed-data.csv">种子 CSV</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">06 · DELIVERY</span>
+            <h3>开发 Backlog 与历史原型</h3>
+            <p>当前 M0—M8 Story、依赖和完成定义以 Backlog CSV/TODO 为准；HTML 保留 M0—M6 历史排期视图并明确 M7 覆盖关系。</p>
+            <div class="links"><a href="../Codex-P0开发TODO.md">Codex P0 执行清单</a><a href="06-开发计划/Prototype开发Backlog.html">历史 Backlog 视图</a><a href="06-开发计划/backlog.csv">当前 Backlog CSV</a></div>
+          </article>
+          <article class="item">
+            <span class="tag">07 · QA</span>
+            <h3>验收测试</h3>
+            <p>GIVEN/WHEN/THEN 场景、权限与金额边界、预留并发、钱包/审计异常和测试 fixtures。</p>
+            <div class="links"><a href="07-验收测试/Prototype验收测试计划.html">测试计划</a><a href="07-验收测试/acceptance-cases.csv">测试 CSV</a><a href="07-验收测试/test-fixtures.json">Fixtures JSON</a></div>
+          </article>
+          <article class="item">
+            <span class="tag tag-roadmap">08 · PRODUCT ROADMAP</span>
+            <h3>下一阶段功能路线图</h3>
+            <p>明确 P0 对标、P1-01—P1-06 必要能力、依赖顺序、风险与 Nice-to-have 非承诺边界。</p>
+            <div class="links"><a href="08-产品路线图/下一阶段功能路线图.html">打开路线图</a></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="roadmap">
+      <div class="wrap">
+        <h2>P1-01—P1-06 摘要</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>下一阶段必要能力</th><th>进入顺序</th><th>P0 边界</th></tr></thead>
+            <tbody>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-01">P1-01</a></td><td>陪玩档案、试音与审核材料</td><td>N1 首项</td><td>排除试音、作品集、公开评分与完整主页。</td></tr>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-02">P1-02</a></td><td>公开陪玩目录、偏好与指定陪玩</td><td>N1，依赖 P1-01</td><td>P0 仅从本单有效报名候选中终选；不提供下单前浏览、排行、收藏、优先名单或强指定。</td></tr>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-03">P1-03</a></td><td>预约、班次与可服务时间</td><td>N2</td><td>P0 为 <code>IMMEDIATE_ONLY</code>，不接未来时间。</td></tr>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-04">P1-04</a></td><td>经营分析、财务对账与导出</td><td>N2</td><td>P0 只做最低运营摘要，不做完整 BI/月结/批量导出。</td></tr>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-05">P1-05</a></td><td>多 Discord Server 与更多服务渠道</td><td>N3</td><td>P0 只面向单测试 Guild 与 Sapphire Bot。</td></tr>
+              <tr><td><a href="08-产品路线图/下一阶段功能路线图.html#p1-06">P1-06</a></td><td>移动运营界面与通知中心</td><td>N3，依赖任务/通知事实</td><td>P0 不做原生 App、推送编排或全渠道收件箱。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="order">
+      <div class="wrap">
+        <h2>推荐阅读顺序</h2>
+        <ol>
+          <li><strong>全员：</strong>先看本页“规划与实现状态”，再读主规格的 P0、非目标、权限、资金预留、返佣隐私和验收标准。</li>
+          <li><strong>产品与设计：</strong>审核 01 的交互原型、文案和映射，确认用户、陪玩与客服的每个关键状态都有反馈。</li>
+          <li><strong>后端与 Bot/Dashboard：</strong>先以 02 锁定接口，再以 03、04、05 锁定内部钱包持久化、人工渠道边界和启动配置。</li>
+          <li><strong>项目负责人：</strong>使用 06 拆 Sprint，保留 Story 的依赖与验收；以 07 建立自动化/UAT 放行证据。</li>
+          <li><strong>路线图评审：</strong>只有 P0 通过验收并产生运行证据后，才阅读 08 并按 PL 顺序立项；不得把路线图候选倒灌进 P0。</li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="changes">
+      <div class="wrap">
+        <h2>v1.0 变更摘要</h2>
+        <div class="gate">
+          <div>状态口径</div><div>明确“已规划/已契约”不等于“已实现”，本交付包不替代代码、迁移、测试或部署证据。</div>
+          <div>P0 对标</div><div>加入基于公开产品介绍的对标矩阵，并明确比较属于产品推断、不是竞品合同事实。</div>
+          <div>路线图</div><div>新增 08 产品路线图，以 P1-01—P1-06 定义下一阶段必要能力和依赖顺序。</div>
+          <div>范围隔离</div><div>每个 PL 项均写明 P0 排除；微信/邮箱、白标、多租户、连接器、营销/VIP 只在 Nice-to-have 附录保留。</div>
+          <div>P0 核心</div><div>内部 CAT 钱包成为唯一资金事实；L2+ 根据 USD receipt 按固定 1 USD cent = 1 CAT subunit 即时充值，渠道退款后登记非负 CAT 扣款，所有非只读操作进入只追加审计；猫条/CAT 名称、符号和比例不可配置。</div>
+          <div>招募与终选</div><div>客户手动开始和终止无截止候选池；陪玩按需求报名或撤回，客户原子终选正式陪玩。时间流逝、零报名和 Worker 重启均不自动选人、关闭候选池或释放订单预留。</div>
+          <div>服务开始</div><div>客户不提交 readiness；所有当前有效陪玩分别确认本人就绪后才进入 IN_SERVICE，超时只转客服。</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="rules">
+      <div class="wrap">
+        <h2>共同约束</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>主题</th><th>必须遵守</th></tr></thead>
+            <tbody>
+              <tr><td>业务事实来源</td><td>订单、预留、礼物、返佣、收益、审批与权限由统一 API 和 PostgreSQL 保存；Bot 与 Dashboard 不复制业务规则。</td></tr>
+              <tr><td>资金边界</td><td>内部 CAT 钱包保存账户、充值、真实余额、预留、消费和退款事实；第三方渠道仅由工作人员在线下核对，系统不读取或写入支付渠道 API。</td></tr>
+              <tr><td>余额口径</td><td><code>availableMinor = ledgerBalanceMinor - reservedMinor</code>；预留是记录合计，不是可手工编辑字段。</td></tr>
+              <tr><td>权限</td><td>L1 基础客服、L2 客服主管、L3 运营负责人、L4 管理员/所有者；权限按 L1&lt;L2&lt;L3&lt;L4 累积继承。一般礼物和退款允许达到最低等级的同一人员执行，高额 ≥500000 必须 L4；高额手动结算必须由不同人员复核。保留原因、step-up/MFA 和不可篡改审计，API 是最终授权点。</td></tr>
+              <tr><td>返佣隐私</td><td><code>PROMOTER_FIRST_PURCHASE</code> 与 <code>PLAYER_LIFETIME</code> 互斥；被推荐用户永远不得获知受益关系。</td></tr>
+              <tr><td>数据删除</td><td>订单、资金、消费、收益、礼物、返佣、退款与审计不硬删除；使用释放、冲正、禁用、归档或追加更正。</td></tr>
+              <tr><td>P0 非目标</td><td>不做下单前公开陪玩目录、优先名单或强指定、预约排班、完整 BI、多 Server/多渠道、原生移动端、白标、多租户、VIP 或营销系统；本单有效报名池内的客户终选属于 P0。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="ready">
+      <div class="wrap">
+        <h2>进入开发门槛</h2>
+        <div class="gate">
+          <div>UI 可追踪</div><div>每个 P0 按钮、Modal 和 Dashboard 写操作都有明确状态、反馈与 OpenAPI <code>operationId</code>。</div>
+          <div>接口可生成</div><div><code>openapi.yaml</code> 可被 OpenAPI 3.1 工具解析，并包含认证、权限、错误、幂等、预留和示例。</div>
+          <div>数据可迁移</div><div><code>schema.prisma</code> 通过格式与校验；不可变记录、唯一约束、预留生命周期和状态枚举明确。</div>
+          <div>配置可启动</div><div>业务配置通过 JSON Schema；测试 Guild、频道、Role、服务、预留策略和返佣计划已准备。</div>
+          <div>资金边界可验证</div><div>内部钱包充值、预留、捕获、释放、系统内退款、渠道退款扣款和只追加审计均有自动化证据；不要求支付渠道沙箱凭证。</div>
+          <div>故事可验收</div><div>Backlog 中每个 P0 Story 映射主规格与测试用例；P0 blocker 进入 CI 或明确 UAT 清单。</div>
+          <div>范围不倒灌</div><div>P1-01—P1-06 和 Nice to Have 不进入 P0 实现，除非重新审批范围并同步所有正式交付物。</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">Discord 陪玩业务 Prototype P0 开发交付包 · 主规格 v1.0 · 文档合同与自动化候选不等于外部 UAT 或发布签署完成 · 本包不构成支付合规或生产 SLA 承诺。</div></footer>
+</body>
+</html>

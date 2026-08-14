@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discord 陪玩业务 Prototype 开发 Backlog</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2317242b'/%3E%3Cpath d='M16 16h32v8H16zm0 12h24v8H16zm0 12h32v8H16z' fill='%23c36b3f'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --ink: #17242b;
+      --muted: #5d6a70;
+      --paper: #ffffff;
+      --wash: #f3f6f5;
+      --line: #d8e0de;
+      --teal: #1d5960;
+      --teal-soft: #e6f0f0;
+      --rust: #a44828;
+      --rust-soft: #f7ece7;
+      --green: #2e6b50;
+      --green-soft: #e8f2ec;
+      --amber: #8b630d;
+      --amber-soft: #fbf3dc;
+      --blue: #315e83;
+      --blue-soft: #eaf0f6;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--wash);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+      letter-spacing: 0;
+    }
+    a { color: var(--teal); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+    .page { width: min(1540px, calc(100% - 32px)); margin: 24px auto 56px; }
+    .hero {
+      background: var(--ink);
+      color: #fff;
+      padding: 42px 48px;
+      border-top: 6px solid #c36b3f;
+    }
+    .eyebrow { margin: 0 0 10px; color: #b9d9d6; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(28px, 4vw, 46px); line-height: 1.18; font-weight: 760; }
+    .subtitle { max-width: 920px; margin: 16px 0 0; color: #d6e0e2; font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 20px 34px; margin-top: 28px; color: #bdc9cb; font-size: 13px; }
+    .meta b { display: block; color: #fff; font-size: 14px; }
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 10px 14px;
+      background: rgba(255,255,255,.96);
+      border: 1px solid var(--line);
+      box-shadow: 0 4px 14px rgba(23,36,43,.08);
+    }
+    nav a { flex: 0 0 auto; padding: 7px 10px; color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 650; }
+    nav a:hover { background: var(--teal-soft); }
+    section { margin-top: 18px; padding: 30px 34px; background: var(--paper); border: 1px solid var(--line); }
+    h2 { margin: 0 0 16px; font-size: 24px; line-height: 1.25; }
+    h3 { margin: 24px 0 10px; font-size: 18px; }
+    p { margin: 8px 0; }
+    .lead { color: #34474f; font-size: 16px; max-width: 1040px; }
+    .callout { margin: 16px 0; padding: 14px 16px; border-left: 4px solid var(--teal); background: var(--teal-soft); }
+    .callout.warn { border-color: var(--rust); background: var(--rust-soft); }
+    .cards { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; }
+    .metric { min-height: 104px; padding: 14px; border: 1px solid var(--line); background: #fbfcfc; }
+    .metric b { display: block; font-size: 22px; color: var(--teal); }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 14px 0; }
+    .flow span { padding: 7px 9px; border: 1px solid var(--line); background: #fff; font-weight: 650; font-size: 13px; }
+    .flow i { color: var(--rust); font-style: normal; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; }
+    .filters button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .filters button[aria-pressed="true"] { color: #fff; background: var(--teal); border-color: var(--teal); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); }
+    table { width: 100%; min-width: 1180px; border-collapse: collapse; table-layout: fixed; background: #fff; }
+    th, td { padding: 13px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid #e8edeb; text-align: left; vertical-align: top; }
+    th:last-child, td:last-child { border-right: 0; }
+    th { position: sticky; top: 50px; z-index: 2; color: #fff; background: #263c44; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #fbfcfc; }
+    .item-col { width: 13%; }
+    .value-col { width: 23%; }
+    .delivery-col { width: 17%; }
+    .accept-col { width: 27%; }
+    .trace-col { width: 20%; }
+    .id { display: inline-block; margin-bottom: 5px; padding: 2px 6px; color: var(--teal); background: var(--teal-soft); font-family: ui-monospace, monospace; font-weight: 800; font-size: 12px; }
+    .title { display: block; font-size: 15px; line-height: 1.35; }
+    .label { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .label:first-child { margin-top: 0; }
+    .badge { display: inline-block; margin: 2px 3px 2px 0; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: 760; }
+    .critical { color: #8e2d19; background: #fde9e3; }
+    .parallel { color: var(--blue); background: var(--blue-soft); }
+    .estimate { color: var(--green); background: var(--green-soft); }
+    .milestone-row td { padding: 10px 12px; color: #fff; background: var(--teal); font-weight: 800; }
+    .ops { word-break: break-word; color: #28465a; }
+    .no-go { color: #713e2f; }
+    .tracking { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); color: #40545c; font-size: 11px; line-height: 1.5; }
+    .tracking b { color: var(--ink); }
+    .status { color: var(--green); background: var(--green-soft); }
+    .req-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 10px; margin-top: 14px; }
+    .req-item { padding: 14px; border: 1px solid var(--line); background: #fbfcfc; }
+    .req-item b { display: block; margin-bottom: 4px; color: var(--teal); }
+    .sprint-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; }
+    .sprint { padding: 16px; border: 1px solid var(--line); border-top: 4px solid var(--blue); }
+    .sprint b { display: block; margin-bottom: 5px; }
+    ul { padding-left: 20px; }
+    li + li { margin-top: 5px; }
+    .footer { padding: 20px 0; color: var(--muted); font-size: 12px; text-align: center; }
+    @media (max-width: 980px) {
+      .page { width: min(100% - 18px, 1540px); margin-top: 9px; }
+      .hero, section { padding: 24px 20px; }
+      .cards { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .req-grid { grid-template-columns: 1fr; }
+      .sprint-grid { grid-template-columns: 1fr; }
+    }
+    @media print {
+      body { background: #fff; font-size: 10px; }
+      .page { width: 100%; margin: 0; }
+      .hero { padding: 22px; }
+      nav, .filters { display: none; }
+      section { margin: 0; padding: 16px 12px; border: 0; page-break-before: auto; }
+      .table-wrap { overflow: visible; border: 0; }
+      table { min-width: 0; }
+      th { position: static; }
+      th, td { padding: 6px; }
+      tr { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">P0 Delivery Package / Development Plan</p>
+      <h1>Discord 陪玩业务 Prototype<br>开发 Backlog</h1>
+      <p class="subtitle">面向 2–4 人小团队的 M0–M5 开发拆分。每个 User Story 都可独立验收，并与唯一上位规格、API operationId、依赖、估时和完成定义建立追踪关系。</p>
+      <div class="meta">
+        <div>基线规格<b>Discord 陪玩业务 Bot 最小原型设计开发文档 v0.7</b></div>
+        <div>范围<b>Prototype P0</b></div>
+        <div>版本日期<b>2026-07-15</b></div>
+        <div>估时单位<b>净人日区间，不等同于承诺日期</b></div>
+      </div>
+    </header>
+
+    <nav aria-label="文档导航">
+      <a href="#baseline">基线</a>
+      <a href="#requirements">需求 ID</a>
+      <a href="#epics">Epic</a>
+      <a href="#path">关键路径</a>
+      <a href="#sprints">Sprint 编排</a>
+      <a href="#dod">DoD</a>
+      <a href="#backlog">完整 Backlog</a>
+      <a href="#non-goals">明确不做</a>
+    </nav>
+
+    <section id="baseline">
+      <h2>1. 交付基线</h2>
+      <p class="lead">本页是 M0–M6 初始排期的历史原型视图；当前 Story、依赖、operationId 与完成定义以同目录 <code>backlog.csv</code>、主规格和 <code>Codex-P0开发TODO.md</code> 为准。</p>
+      <div class="callout warn"><strong>M9 当前 CAT 合同覆盖 M0–M8 的历史资金口径：</strong>内部 CAT 钱包是唯一余额事实；完成近期验证的 L2+ 根据 USD cents receipt 按固定比例登记 CAT 充值，线下渠道退款后登记非负 CAT 扣款；P0 不读取或写入支付渠道 API。下方旧 Story 中的 Provider、绑定、支付 Webhook、canonical USD 与可配置代币文字仅保留为被覆盖的历史计划，不得作为实现依据。</div>
+      <div class="callout warn"><strong>M11 及后续合同覆盖本页的旧匹配与准备口径：</strong>当前使用无自然截止的候选池、陪玩报名和客户原子终选；报名不创建正式参与人。客户不提交 readiness，必须全部当前有效的正式陪玩逐名确认本人就绪后才进入 <code>IN_SERVICE</code>。下方 M0–M6 旧 Story 中的自动派单、唯一接单、倒计时、客户 READY 和双向准备文字均是已被覆盖的历史计划。</div>
+      <div class="callout"><strong>当前统一边界：</strong>Sapphire Bot 和 React Dashboard 只调用统一业务 API；只有 API 访问 PostgreSQL。内部钱包保存客户余额、预留、充值、消费、退款与审计事实，所有非只读操作进入通用只追加审计。</div>
+      <div class="cards">
+        <div class="metric"><b>6</b><span>Epic / M0–M5</span></div>
+        <div class="metric"><b>44</b><span>可独立验收 User Story</span></div>
+        <div class="metric"><b>172–279</b><span>净开发与验证人日，不含风险缓冲</span></div>
+        <div class="metric"><b>20%–25%</b><span>建议团队总体风险缓冲</span></div>
+        <div class="metric"><b>25%–35%</b><span>支付/Discord 集成专项缓冲</span></div>
+        <div class="metric"><b>4</b><span>固定管理级别 L1–L4</span></div>
+      </div>
+      <ul>
+        <li>金额统一使用 minor units + <code>currency</code>；余额响应固定为 <code>ledgerBalanceMinor</code>、<code>reservedMinor</code>、<code>availableMinor</code>、<code>currency</code>、<code>calculatedAt</code>。</li>
+        <li>订单只做即时单；用户和陪玩各最多一个活跃订单；一单一名陪玩。</li>
+        <li><strong>统一权限口径：</strong>权限按 <code>L1&lt;L2&lt;L3&lt;L4</code> 累积继承，高级别自动拥有低级全部执行权限；业务操作采用最低等级直接执行，同一人可发起并执行。</li>
+        <li>L1 不执行扣款、退款、取消已接单订单、封禁、配置修改等资金或破坏性动作；退款 ≤50000 由 L2、50001–499999 由 L3、≥500000 由 L4 执行，礼物 ≤200000 由 L2、200001–499999 由 L3、≥500000 由 L4 执行。一般礼物和退款不强制不同人员复核；高额手动结算批次必须由不同人员复核，角色继承不能绕过自批禁止。操作仍须保留原因、按策略完成 step-up/MFA，并写入不可篡改审计。</li>
+        <li>订单、外部交易、消费、退款、订单事件和审计只追加；收益/返佣冲正仅新增 PlayerEarningAdjustment/CommissionAdjustment，不提供硬删除。</li>
+      </ul>
+    </section>
+
+    <section id="requirements">
+      <h2>2. 稳定需求 ID 与启动优先级</h2>
+      <p class="lead">以下 ID 是排期、OpenAPI、测试和验收证据的稳定追踪键。所有条目当前 <code>delivery_status=PLANNED</code>、<code>target_release=P0</code>；具体 Story 映射显示在 Backlog 行内，并与同目录 CSV 一致。</p>
+      <div class="req-grid">
+        <div class="req-item"><b>PL-01 结构化确认</b>一次显示游戏、服务、区服、时长、标签、备注、价格、可用余额和取消规则。</div>
+        <div class="req-item"><b>PL-02 资金预留</b><code>availableMinor = ledgerBalanceMinor - reservedMinor</code>；订单和礼物并发时不超额。</div>
+        <div class="req-item"><b>PL-03 候选池透明</b>显示招募/选秀阶段、当前报名陪玩和客户下一步；终选后显示正式陪玩摘要。</div>
+        <div class="req-item"><b>PL-04 陪玩工作台</b>客服审核资格、可报名候选池、本人报名、正式订单、需求、倒计时、收益摘要和 API 动作；Presence 与旧 availability 仅供诊断。</div>
+        <div class="req-item"><b>PL-05 逐名陪玩准备</b>客户只读查看进度；全部当前有效的正式陪玩分别确认本人 READY 后才进入 IN_SERVICE。</div>
+        <div class="req-item"><b>PL-06 取消预览</b>执行前显示自动处理能力、释放/退款金额、方式与时间；执行时原子重验。</div>
+      </div>
+      <h3>其余 P0 需求族</h3>
+      <p><code>ARCH-01..02</code> 统一 API 与系统边界；<code>FUND-01..06</code> 预留生命周期与并发；<code>REF-01..07</code> 两种保密一级返佣；<code>GIFT-01..04</code> 礼物客服流；<code>OPS-01..02</code> 自动化与客服接管；<code>ACCESS-01..02</code> 四级权限；<code>DISP-01</code> 唯一接单；<code>LEDGER-01</code> 交易时间线；<code>METRIC-01</code> 八项指标；<code>NAME-01..04</code> 稳定命名与 Adjustment 规则。</p>
+      <div class="callout"><strong>operationId 说明：</strong>本页及 CSV 中的命名均已对齐 <code>openapi.yaml</code> v0.7；Bot 与 Dashboard 直接调用这些统一业务接口，不另建平行接口，也不在客户端补写业务逻辑。</div>
+    </section>
+
+    <section id="epics">
+      <h2>3. Epic 总览</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="item-col">Epic</th><th class="value-col">用户价值与范围</th><th class="delivery-col">交付信息</th><th class="accept-col">验收与 Epic DoD</th><th class="trace-col">追踪与排除</th></tr></thead>
+          <tbody>
+            <tr><td><span class="id">EP-M0</span><strong class="title">工程骨架与统一业务边界</strong></td><td><span class="label">价值</span>获得可复现、可审计且客户端不直连数据库的基础。<span class="label">范围</span>工程、API、Bot、Dashboard、PostgreSQL、Payment Adapter、Outbox、配置和可观测性骨架。</td><td><span class="label">依赖</span>无<span class="label">Owner</span>tech_lead<span class="label">估时</span><span class="badge estimate">16–26 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">foundation</span></td><td><span class="label">验收</span>一条命令启动；Piece 加载；健康检查通过；业务访问均经 API。<span class="label">DoD</span>全部 M0 Story 通过，边界、配置和启动方式经评审。</td><td><span class="label">主规格</span>§1.2、§4、§9–11、§14、§16 M0<span class="label">operationId</span><code class="ops">getHealth; getReadiness; handleSystemWebhook; retryJob</code><span class="label">不做</span><span class="no-go">微服务、Kubernetes、Redis、自建钱包。</span></td></tr>
+            <tr><td><span class="id">EP-M1</span><strong class="title">目录、账户与即时订单入口</strong></td><td><span class="label">价值</span>用户无需命令即可结构化确认并安全提交即时单。<span class="label">范围</span>目录、绑定、个人中心、草稿、私密频道、完整确认、余额与资金预留。</td><td><span class="label">依赖</span>EP-M0<span class="label">Owner</span>product_tech_lead<span class="label">估时</span><span class="badge estimate">28–46 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>确认页一次看全需求/金额/余额/取消规则；提交只预留一次；价格快照稳定。<span class="label">DoD</span>全部 M1 Story 通过并完成 Discord 演示。</td><td><span class="label">主规格</span>§2.1、§3.1–3.2、§6.1–6.2、§7、最新基线 PL-01/02<span class="label">operationId</span><code class="ops">estimateOrder; getCurrentBalance; submitOrder</code><span class="label">不做</span><span class="no-go">预约、用户选/指定陪玩、加时、优惠券。</span></td></tr>
+            <tr><td><span class="id">EP-M2</span><strong class="title">陪玩准入、透明候选池与订单闭环</strong></td><td><span class="label">价值</span>合格陪玩报名，客户原子选择正式阵容，全部正式陪玩就绪后才开始。<span class="label">范围</span>准入/工作台、候选池报名、客户终选、逐名陪玩 readiness、取消预览、客服协助、退款、结案和转派。</td><td><span class="label">依赖</span>EP-M1<span class="label">Owner</span>product_tech_lead<span class="label">估时</span><span class="badge estimate">40–66 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>候选池过程透明；全部正式陪玩 READY 后才开始；取消先预览；客服可协助；争议不自动裁决。<span class="label">DoD</span>并发和异常 E2E 具备可重复证据。</td><td><span class="label">主规格</span>M11 补充合同、§3.3–3.4、§5–6、§8<span class="label">operationId</span><code class="ops">createOrderSelectionPool; applyToOrderSelectionPool; finalizeOrderSelectionPool; setOrderReadiness; previewOrderCancellation; cancelOrder</code><span class="label">不做</span><span class="no-go">预约、候选评分排名、自动选人或自动争议裁决。</span></td></tr>
+            <tr><td><span class="id">EP-M3</span><strong class="title">礼物、消费、收益与保密一级返佣</strong></td><td><span class="label">价值</span>礼物先预留再批准；两种一级返佣可追溯且不泄露给来源用户。<span class="label">范围</span>礼物预留/审批/捕获/播报、收益、PROMOTER_FIRST_PURCHASE、PLAYER_LIFETIME 和 Adjustment。</td><td><span class="label">依赖</span>EP-M2<span class="label">Owner</span>product_tech_lead<span class="label">估时</span><span class="badge estimate">29–47 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">gift_finance</span></td><td><span class="label">验收</span>礼物资金生命周期完整；返佣计划互斥、保密；冲正只新增 Adjustment。<span class="label">DoD</span>并发、支付重试、保密和返佣重放测试通过。</td><td><span class="label">主规格</span>§3.5–3.6、§6.6–6.7、最新基线资金/返佣/礼物<span class="label">operationId</span><code class="ops">createOrderGiftRequest; approveGiftRequest; listCurrentUserCommissions</code><span class="label">不做</span><span class="no-go">礼物动画、多级返佣、自动发放或提现。</span></td></tr>
+            <tr><td><span class="id">EP-M4</span><strong class="title">Dashboard、四级权限与运营控制面</strong></td><td><span class="label">价值</span>L1–L4 在同一后台安全处理订单、客服、审批、配置和异常，并通过 Discord <code>/bot-config</code> 管理 Bot 基础配置。<span class="label">范围</span>统一工作台、四级权限、Role 映射、Discord 配置命令、交易时间线、八项指标、审计和失败 Job。</td><td><span class="label">依赖</span>EP-M0、EP-M2、EP-M3<span class="label">Owner</span>product_tech_lead<span class="label">估时</span><span class="badge estimate">43–67 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">dashboard_security</span></td><td><span class="label">验收</span>L1 无资金/破坏性动作；Role 不越内部等级；<code>/bot-config</code> 按 L3/L4 权限修改并审计；时间线可追溯；八项指标口径固定。<span class="label">DoD</span>页面状态、越权和跨客户端一致性通过。</td><td><span class="label">主规格</span>§3.7–3.9、§5、§13、最新基线 P0 对齐、Bot 配置面板设计 §1–9<span class="label">operationId</span><code class="ops">getCurrentStaffCapabilities; getAdminOrder; getDashboardSummary; getBotConfig; updateBotConfig; validateBotConfigChange; testBotConfigDelivery</code><span class="label">不做</span><span class="no-go">完整 CRM、完整 BI/对账/导出、手机 App、独立配置网页或可点击配置 Demo。</span></td></tr>
+            <tr><td><span class="id">EP-M5</span><strong class="title">验收、真实集成与可恢复部署</strong></td><td><span class="label">价值</span>团队能在测试 Server 与第三方沙箱稳定演练并安全恢复。<span class="label">范围</span>回归、E2E、真实 Adapter、生产样部署、安全、备份恢复、UAT 和门禁。</td><td><span class="label">依赖</span>EP-M1–EP-M4<span class="label">Owner</span>delivery_lead<span class="label">估时</span><span class="badge estimate">16–27 人日</span><span class="badge critical">关键路径</span><span class="badge parallel">qa_devops</span></td><td><span class="label">验收</span>P0 全通过，无阻断缺陷，恢复演练和 Provider 对账成功。<span class="label">DoD</span>发布门禁签署，证据追溯 Story ID。</td><td><span class="label">主规格</span>§12、§14–17、§16 M5<span class="label">operationId</span><code class="ops">getHealth; getReadiness; handleSystemWebhook</code><span class="label">不做</span><span class="no-go">生产 SLA、自动扩容、多区域容灾、24x7 值守。</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="path">
+      <h2>4. 关键路径与并行轨道</h2>
+      <div class="flow"><span>M0 工程/数据/鉴权</span><i>→</i><span>M1 确认/预留</span><i>→</i><span>M2 透明派单/双方准备</span><i>→</i><span>M3 礼物/返佣</span><i>→</i><span>M4 权限/时间线/指标</span><i>→</i><span>M5 E2E/沙箱/恢复</span></div>
+      <ul>
+        <li><strong>API/Data 轨：</strong>M0-US-02/03/04/05 → M1-US-01/02/03/05 → M2 领域用例 → M3 财务域 → M4 安全与审批。</li>
+        <li><strong>Sapphire Bot 轨：</strong>M0-US-01/03 → M1-US-04/06 → M2-US-01/02/03/04 → M3-US-01/03；Bot 只负责 Discord 适配和渲染。</li>
+        <li><strong>Dashboard 轨：</strong>M4-US-01 可在 M0 鉴权契约稳定后用 Mock API 提前启动；业务页面等待相应 M2/M3 读写 API。</li>
+        <li><strong>QA/DevOps 轨：</strong>从 M0 建 smoke/contract tests，每个里程碑加入回归；M5 负责整体验收而不是第一次开始测试。</li>
+        <li><strong>可并行原则：</strong>同一 operationId 的 OpenAPI schema 和错误码先冻结，Bot/Dashboard 再并行开发；状态机、金额和权限规则不得由客户端先行自定义。</li>
+      </ul>
+    </section>
+
+    <section id="sprints">
+      <h2>5. 2–4 人小团队 Sprint 编排</h2>
+      <p class="lead">以下是依赖顺序，不代表固定日期。每个 Sprint 只承诺团队实际可用产能的 75%–80%，其余用于第三方波动、Discord 权限/交互验证、评审返工和线上化准备。</p>
+      <div class="sprint-grid">
+        <div class="sprint"><b>Sprint 0：M0 基线</b>完成工程、Schema、Actor/幂等、Payment Mock、Outbox。退出前必须有一条 Bot→API→DB 的可审计测试调用。</div>
+        <div class="sprint"><b>Sprint 1：M1 下单与预留</b>API/Data 处理目录、绑定、草稿、完整确认和预留并发；Bot 并行完成公共入口、频道和面板。</div>
+        <div class="sprint"><b>Sprint 2：M2 订单闭环（历史排期）</b>本 Sprint 的旧自动派单、唯一接单与双向准备实现路径已被 M11 候选池和 M10/M19 逐名陪玩就绪合同覆盖；当前排期以 <code>backlog.csv</code> 为准。</div>
+        <div class="sprint"><b>Sprint 3：M3 + M4 外壳</b>完成礼物预留/审批/捕获、消费、收益和两种保密返佣；并行完成 OAuth、Dashboard 壳和只读页面 Mock。</div>
+        <div class="sprint"><b>Sprint 4：M4 权限运营面</b>统一工作台、四级权限、审批、Role 同步、交易时间线、八指标、审计和失败任务进入跨角色 E2E。</div>
+        <div class="sprint"><b>Sprint 5：M5 验收与上线化</b>真实 Provider 沙箱、全链路回归、备份恢复、Bot/Worker 重启、权限安全检查、业务 UAT 和发布门禁。</div>
+      </div>
+      <h3>建议分工</h3>
+      <ul>
+        <li><strong>2 人：</strong>每个 10 工作日 Sprint 净产能约 15–16 人日，覆盖 168–273 人日约需 11–19 个 Sprint；一人主 API/Data/Payment，一人主 Sapphire/Dashboard。</li>
+        <li><strong>3 人：</strong>每 Sprint 净产能约 22–24 人日，约需 8–13 个 Sprint；API/Data、Sapphire/Integration、Dashboard/QA 各一主责。</li>
+        <li><strong>4 人：</strong>每 Sprint 净产能约 30–32 人日，约需 6–10 个 Sprint；Platform/Payment、Domain API/Data、Sapphire、Dashboard/QA 四轨。</li>
+      </ul>
+      <div class="callout warn"><strong>风险缓冲：</strong>总体估时上增加 20%–25%；真实 Provider、Webhook 和 Discord 权限/Presence 相关 Story 使用 25%–35% 专项缓冲。缓冲不得预先装入 P1 功能。</div>
+    </section>
+
+    <section id="dod">
+      <h2>6. Definition of Ready 与 Definition of Done</h2>
+      <h3>Story 可进入开发</h3>
+      <ul>
+        <li>依赖 Story 已完成，或团队提供了版本固定的 Mock/契约。</li>
+        <li>涉及的 operationId、请求/响应、错误码、Actor 类型和幂等键规则已经明确。</li>
+        <li>涉及金额时已声明 minor units、currency、上下限和审批阈值。</li>
+        <li>涉及状态时已列出合法迁移、并发冲突和失败后的业务状态。</li>
+        <li>涉及 Discord/Dashboard 时已确认组件、权限、加载、空、错误、无权限和陈旧数据表现。</li>
+      </ul>
+      <h3>所有 Story 的共同 DoD</h3>
+      <ul>
+        <li>本 Story 的验收条件逐项通过，且证据关联 Story ID。</li>
+        <li>API operationId 与 OpenAPI 保持一致；Bot/Dashboard 使用生成或统一 API Client，不复制业务规则。</li>
+        <li>单元、集成和适用的 E2E 测试进入 CI；金额、权限、并发、重复提交和失败分支纳入测试。</li>
+        <li>数据库变更包含可重复迁移、约束测试和种子数据影响；不可变记录没有硬删除路径。</li>
+        <li>写操作接入 Actor Context、幂等、审计和结构化日志；日志不包含 Token、绑定码、第三方密钥或支付敏感数据。</li>
+        <li>配置、运行手册、错误码和可观测指标随实现更新；代码经至少一名非作者评审。</li>
+      </ul>
+    </section>
+
+    <section id="backlog">
+      <h2>7. 完整 User Story Backlog</h2>
+      <p class="lead">“关键”表示影响首条完整业务链路或安全发布门禁；“并行轨”表示建议主责。每行末尾自动展示 Requirement ID、PLANNED/P0、证据引用和测试引用；CSV 使用相同 ID 与字段。</p>
+      <div class="filters" role="group" aria-label="里程碑筛选">
+        <button type="button" data-filter="all" aria-pressed="true">全部</button>
+        <button type="button" data-filter="M0" aria-pressed="false">M0</button>
+        <button type="button" data-filter="M1" aria-pressed="false">M1</button>
+        <button type="button" data-filter="M2" aria-pressed="false">M2</button>
+        <button type="button" data-filter="M3" aria-pressed="false">M3</button>
+        <button type="button" data-filter="M4" aria-pressed="false">M4</button>
+        <button type="button" data-filter="M5" aria-pressed="false">M5</button>
+        <button type="button" data-filter="critical" aria-pressed="false">仅关键路径</button>
+      </div>
+      <div class="table-wrap">
+        <table id="story-table">
+          <thead><tr><th class="item-col">Story</th><th class="value-col">用户价值与范围</th><th class="delivery-col">交付信息</th><th class="accept-col">验收与 DoD</th><th class="trace-col">追踪与排除</th></tr></thead>
+          <tbody data-milestone="M0">
+            <tr class="milestone-row"><td colspan="5">M0 / 工程骨架与统一业务边界</td></tr>
+            <tr data-critical="yes"><td><span class="id">M0-US-01</span><strong class="title">可复现的本地工程与运行骨架</strong></td><td><span class="label">价值</span>无需手工拼装即可启动 API、Bot、Dashboard 和数据库。<span class="label">范围</span>TypeScript workspace、Docker Compose、环境校验、Piece 发现、健康/就绪检查。</td><td><span class="label">依赖</span>无<span class="label">Owner</span>platform_fullstack<span class="label">估时</span><span class="badge estimate">2–4</span><span class="badge critical">关键</span><span class="badge parallel">platform</span></td><td><span class="label">验收</span>一条命令启动；缺配置明确失败；Piece 清单可验证；健康与就绪分离。<span class="label">DoD</span>smoke/config 测试和启动文档通过，无密钥入库。</td><td><span class="label">主规格</span>§4.1–4.5、§14.1–14.2、§16 M0<span class="label">operationId</span><code class="ops">getHealth; getReadiness</code><span class="label">本项不做</span><span class="no-go">Kubernetes、扩缩容、多 Server。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M0-US-02</span><strong class="title">P0 数据库基线与不可变约束</strong></td><td><span class="label">价值</span>状态可事务保存，财务和审计不会被误删。<span class="label">范围</span>§9 表、枚举、外键、唯一/活跃订单约束、minor units、迁移和种子。</td><td><span class="label">依赖</span>M0-US-01<span class="label">Owner</span>backend_data<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>空库迁移；默认角色/阈值/目录可种子；并发和幂等唯一约束生效。<span class="label">DoD</span>迁移、约束集成测试和 ERD/Schema 一致。</td><td><span class="label">主规格</span>§5、§8–9、§14.2、§18<span class="label">operationId</span><code>none</code><span class="label">本项不做</span><span class="no-go">本地余额、财务/审计硬删除。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M0-US-03</span><strong class="title">鉴权、Actor、幂等与审计中间件</strong></td><td><span class="label">价值</span>每次操作可追溯，并由 API 唯一授权。<span class="label">范围</span>Bot Token、Actor Header、request_id、Idempotency-Key、策略入口、拒绝审计。</td><td><span class="label">依赖</span>M0-US-01/02<span class="label">Owner</span>backend_security<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>无服务身份的伪造 Header 返回 401；自报 level 无效；重复写返回首次结果；拒绝可审计。<span class="label">DoD</span>鉴权/幂等/越权/审计测试通过并作为所有写端点中间件。</td><td><span class="label">主规格</span>§5.4、§10.1/10.6、§11.3、§12.1、§17.4–17.5<span class="label">operationId</span><code>none</code><span class="label">本项不做</span><span class="no-go">在 Bot 或前端复制最终 RBAC。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M0-US-04</span><strong class="title">第三方资金适配契约与 Mock</strong></td><td><span class="label">价值</span>外部 Provider 未稳定时仍可开发完整业务链。<span class="label">范围</span>adapter-contract.yaml 的 11 个标准操作、原生 Hold/本地预留双模式、Mock、交易镜像和幂等键。</td><td><span class="label">依赖</span>M0-US-02/03<span class="label">Owner</span>integration_backend<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">payment</span></td><td><span class="label">验收</span>Mock 覆盖双模式、成功、余额不足、超时、UNKNOWN、退款失败和重复 Webhook；UNKNOWN 可通过 getReservation/getWalletEntry 对账恢复；业务不引用供应商字段。<span class="label">DoD</span>11 操作、能力探测、UNKNOWN 恢复、Webhook 验签和重放测试通过，凭证只经 Secret。</td><td><span class="label">主规格</span>§4.3、§10.7、§11.3、§12、§15.1<span class="label">operationId</span><code class="ops">handleSystemWebhook</code><span class="label">本项不做</span><span class="no-go">充值页、银行卡、本地钱包。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M0-US-05</span><strong class="title">Outbox/Job 与结构化可观测性</strong></td><td><span class="label">价值</span>展示或依赖失败可重试而不重复交易。<span class="label">范围</span>领取锁、退避、失败状态、手工重试基础、结构化日志和指标。</td><td><span class="label">依赖</span>M0-US-02/03<span class="label">Owner</span>backend_platform<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">platform</span></td><td><span class="label">验收</span>Job 不被并发重复执行；重试保留错误；展示失败不回滚事务；日志脱敏。<span class="label">DoD</span>并发、退避、失败和恢复测试通过；手工重试留审计。</td><td><span class="label">主规格</span>§4.2–4.3、§9、§11–12、§17.5<span class="label">operationId</span><code class="ops">retryJob</code><span class="label">本项不做</span><span class="no-go">Redis、复杂 SLA、无限重试。</span></td></tr>
+          </tbody>
+
+          <tbody data-milestone="M1">
+            <tr class="milestone-row"><td colspan="5">M1 / 目录、账户与即时订单入口</td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-01</span><strong class="title">版本化服务目录与双价格快照</strong></td><td><span class="label">价值</span>可维护服务，用户只看客户价，历史订单价格稳定。<span class="label">范围</span>启用查询、版本 API、单位、最低数量、客户价、陪玩价、币种和上下架。</td><td><span class="label">依赖</span>M0-US-02/03<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>缺双价格不能上架；用户响应无陪玩价；改价/下架不影响已提交快照。<span class="label">DoD</span>单元、数据库、API 契约测试通过，OpenAPI 命名一致。</td><td><span class="label">主规格</span>§2.1、§4.3、§6.2、§9–10、§15.1、§18<span class="label">operationId</span><code class="ops">listServices; createServiceCatalogVersion; updateServiceCatalogVersion; estimateService</code><span class="label">本项不做</span><span class="no-go">阶梯价、优惠券、动态价。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-02</span><strong class="title">一次性绑定与实时账户摘要</strong></td><td><span class="label">价值</span>绑定一次即可私密查看外部账户和实时可用余额。<span class="label">范围</span>绑定码、账号唯一映射、个人摘要和统一余额响应。</td><td><span class="label">依赖</span>M0-US-03/04<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>冲突绑定拒绝；严格返回 ledgerBalanceMinor/reservedMinor/availableMinor/currency/calculatedAt；他人不可读。<span class="label">DoD</span>Provider、归属和隐私测试通过，绑定码不入日志。</td><td><span class="label">主规格</span>§2.1、§3.1、§6.1、最新基线 NAME-02<span class="label">operationId</span><code class="ops">createBinding; getCurrentUser; getCurrentBalance</code><span class="label">本项不做</span><span class="no-go">保存外部密码、自助解绑、多账号切换。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-03</span><strong class="title">即时订单草稿与服务端估价</strong></td><td><span class="label">价值</span>逐步填写且金额由服务端可靠计算。<span class="label">范围</span>创建/读取/更新草稿、单活跃限制、字段/即时单校验、快照、版本并发。</td><td><span class="label">依赖</span>M1-US-01/02<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>已有活跃单返回原 ID；未来时间拒绝；不完整不可提交；陈旧版本 409。<span class="label">DoD</span>状态机、计价、约束和 API 测试通过；事件只追加。</td><td><span class="label">主规格</span>§2.1、§6.2、§8.1、§9–10、§12、§17.2<span class="label">operationId</span><code class="ops">createOrder; getOrder; updateOrder</code><span class="label">本项不做</span><span class="no-go">预约、多人、多活跃单、客户端自报价格。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-04</span><strong class="title">Sapphire 公共入口、私密频道与面板</strong></td><td><span class="label">价值</span>消息组件完成结构化选择，Modal 只填写少量自由文本，不需要命令学习。<span class="label">范围</span>固定入口、绑定 Modal、订单消息 Select、补充备注 Modal、频道/补偿、权限、面板、custom_id 和错误映射。</td><td><span class="label">依赖</span>M1-US-02/03<span class="label">Owner</span>discord_bot<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">discord_bot</span></td><td><span class="label">验收</span>普通成员看不到他人频道；结构化选择逐次更新原消息；Modal 不超过 5 个顶层组件且无双栏/自定义按钮；频道失败不留可提交单；可重建面板。<span class="label">DoD</span>InteractionHandler、组件约束、权限、错误测试及测试 Server E2E 通过。</td><td><span class="label">主规格</span>§1.1、§3.2、§4.4、§5.5、§7、§11.2、§12<span class="label">operationId</span><code class="ops">createBinding; createOrder; getOrder; updateOrder</code><span class="label">本项不做</span><span class="no-go">在 Sapphire Piece 中计算价格/扣款/RBAC；在打开的 Modal 内级联选择。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-05</span><strong class="title">订单提交与资金预留</strong></td><td><span class="label">价值</span>确认后金额只预留一次，失败不派单。<span class="label">范围</span>提交复核、内部账本余额、FundReservation、交易镜像、UNKNOWN 对账和原子迁移。</td><td><span class="label">依赖</span>M0-US-04/05、M1-US-03<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">payment</span></td><td><span class="label">验收</span>余额不足留 DRAFT；预留成功才 PENDING_DISPATCH；重复提交一条有效预留；UNKNOWN 锁定并对账收敛。<span class="label">DoD</span>Mock、事务、幂等和 API 测试通过，审计关联 reservation/external_ref。</td><td><span class="label">主规格</span>§6.2、§8–12、最新基线 FUND-01/02/05/06<span class="label">operationId</span><code class="ops">submitOrder; handleSystemWebhook</code><span class="label">本项不做</span><span class="no-go">提交即确认消费；手工 pending 字段。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M1-US-06</span><strong class="title">私密个人服务中心</strong></td><td><span class="label">价值</span>私密查看余额、预留金额、当前订单、消费和本人返佣。<span class="label">范围</span>聚合 API、ephemeral 视图、分页和活跃订单跳转。</td><td><span class="label">依赖</span>M1-US-02/03/04<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">2–4</span><span class="badge parallel">discord_bot</span></td><td><span class="label">验收</span>个人数据私密；余额字段严格一致；来源用户脱敏；失败不伪造旧值。<span class="label">DoD</span>契约、归属、空/错/加载和 Discord 验收通过。</td><td><span class="label">主规格</span>§3.1、§6.1、§10.2、最新基线 NAME-02/REF-05<span class="label">operationId</span><code class="ops">getCurrentUser; getCurrentBalance; listCurrentUserConsumptions; listCurrentUserCommissions</code><span class="label">本项不做</span><span class="no-go">公开主页、BI、本地余额缓存。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-07</span><strong class="title">结构化需求与一次完整确认</strong></td><td><span class="label">价值</span>提交前一次看全需求、价格、余额和取消规则。<span class="label">范围</span>game/service/region/duration/tags/notes/price/available balance/cancellation rule。</td><td><span class="label">依赖</span>M1-US-03/06<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>缺必填项不可确认；全部字段一次显示；陈旧版本要求刷新；Bot 不计算金额。<span class="label">DoD</span>schema、渲染、缺失/陈旧/余额失败和 E2E 通过。</td><td><span class="label">主规格</span>最新基线 PL-01、§3.2/6.2/7.2<span class="label">operationId</span><code class="ops">estimateOrder; getCurrentBalance</code><span class="label">本项不做</span><span class="no-go">预约、试音、用户选陪玩。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M1-US-08</span><strong class="title">资金预留模型与并发控制</strong></td><td><span class="label">价值</span>订单和礼物并发时只能使用真实可用余额。<span class="label">范围</span>余额公式、source/idempotency/version/lifecycle、原子 create/capture/release、Provider hold/fallback。</td><td><span class="label">依赖</span>M0-US-02/04、M1-US-05<span class="label">Owner</span>backend_payment_data<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">payment_data</span></td><td><span class="label">验收</span>并发不超额；reservedMinor 为有效 FundReservation 合计；取消释放、完成捕获、争议保留；fallback 原子重读余额。<span class="label">DoD</span>并发、capability、幂等、版本冲突和恢复测试通过。</td><td><span class="label">主规格</span>最新基线 FUND-01/02/05/06、NAME-02<span class="label">operationId</span><code class="ops">getCurrentBalance; submitOrder; cancelOrder</code><span class="label">本项不做</span><span class="no-go">手工预留或客户端算余额。</span></td></tr>
+          </tbody>
+
+          <tbody data-milestone="M2">
+            <tr class="milestone-row"><td colspan="5">历史 M2 / 陪玩准入、自动派单与订单闭环（已被 M11 及后续合同覆盖）</td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-01</span><strong class="title">陪玩准入、标签与 Presence 观测</strong></td><td><span class="label">价值</span>只匹配已审核、能力匹配且实际可接单的人。<span class="label">范围</span>审核、标签、Presence 非授权观测和候选池报名资格。</td><td><span class="label">依赖</span>M0-US-03、M1-US-03<span class="label">Owner</span>backend_bot<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>仅客服审批 ACTIVE、同 Guild 且标签匹配可报名；Presence 与旧 availability 不授权。<span class="label">DoD</span>筛选、Listener 和权限测试通过。</td><td><span class="label">主规格</span>§2.1、§3.3、§5.1、§6.3、§8.2、§10–11、§15.2<span class="label">operationId</span><code class="ops">approvePlayer; syncDiscordPresence; setPlayerOperationalStatus; updatePlayerOperationalTags</code><span class="label">本项不做</span><span class="no-go">排班、技能评分、跨 Server Presence。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-02</span><strong class="title">自动派单候选与集中卡片</strong></td><td><span class="label">价值</span>候选陪玩在集中频道看到清晰即时单。<span class="label">范围</span>OrderSubmitted、候选快照、dispatch_attempt、Outbox 卡片和 5 分钟超时。</td><td><span class="label">依赖</span>M0-US-05、M1-US-05、M2-US-01<span class="label">Owner</span>backend_bot<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>仅 @ 候选；失败可重试；超时 attempt 标记，订单仍待派单并通知运营。<span class="label">DoD</span>候选、Outbox、Job、渲染和事件重放测试通过。</td><td><span class="label">主规格</span>§3.3、§6.3、§9、§11–12、§17.2、§18<span class="label">operationId</span><code class="ops">getOrder; acceptOrder; declineOrderOffer</code><span class="label">本项不做</span><span class="no-go">自动扩圈、候补、复杂排序。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-03</span><strong class="title">并发唯一接单与频道入场</strong></td><td><span class="label">价值</span>第一位合格陪玩唯一获得订单并进入频道。<span class="label">范围</span>条件更新、活跃约束、原子写入、OrderAccepted Outbox、权限和按钮失效。</td><td><span class="label">依赖</span>M2-US-02<span class="label">Owner</span>backend_bot<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>并发仅一人成功；胜者 5 秒内入场；其他人无访问；展示失败可恢复。<span class="label">DoD</span>数据库并发、API 和 Discord E2E 通过。</td><td><span class="label">主规格</span>§1.1、§6.3、§8.1、§9–11、§17.2<span class="label">operationId</span><code class="ops">acceptOrder; getOrder</code><span class="label">本项不做</span><span class="no-go">一单多陪玩或绕过活跃限制。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-04</span><strong class="title">双方准备、申请完成与确认</strong></td><td><span class="label">价值</span>双方按合法顺序完成服务，单方不能开始计费。<span class="label">范围</span>双方 READY、IN_SERVICE、PENDING_CONFIRMATION、COMPLETED、Actor、面板和超时。</td><td><span class="label">依赖</span>M2-US-03、M0-US-05<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>仅双方 READY 才 IN_SERVICE；非当事人拒绝；非法迁移 409；确认超时只建任务。<span class="label">DoD</span>readiness、状态机、Job 和双方 E2E 通过。</td><td><span class="label">主规格</span>§3.3、§6.4、最新基线 PL-05/NAME-03<span class="label">operationId</span><code class="ops">setOrderReadiness; requestOrderCompletion; confirmOrder</code><span class="label">本项不做</span><span class="no-go">单方 start、自动完成、评价、加时。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-05</span><strong class="title">默认自动取消与异常客服任务</strong></td><td><span class="label">价值</span>简单取消自动完成，复杂场景保留人工判断。<span class="label">范围</span>DRAFT 取消、待派单释放预留、CANCELLATION_ASSIST、超时任务和风险事件。</td><td><span class="label">依赖</span>M1-US-05、M2-US-03/04、M0-US-05<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>释放/退款确认前不取消；失败进 EXCEPTION；超时只建任务；重复触发不重复活动任务。<span class="label">DoD</span>取消、预留释放、退款、超时、风险和幂等测试通过。</td><td><span class="label">主规格</span>§3.4、§6.4–6.5、最新基线 FUND-02/OPS-01<span class="label">operationId</span><code class="ops">cancelOrder; createOrderStaffTask; handleSystemWebhook</code><span class="label">本项不做</span><span class="no-go">自动裁决爽约/争议或自动扣罚。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-06</span><strong class="title">人工退款、结案与转派原子用例</strong></td><td><span class="label">价值</span>复杂处理不会出现半完成资金和状态。<span class="label">范围</span>refundOrder/resolveOrder/reassignOrder、原因/证据、金额等级路由、Provider、resolution、收益建议和不可篡改审计。</td><td><span class="label">依赖</span>M0-US-03/04、M2-US-05<span class="label">Owner</span>backend_security<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>L1 只建议；退款≤50000 由 L2、50001–499999 由 L3、≥500000 由 L4 直接执行；同一人可发起并执行；非法金额无部分写入；退款 UNKNOWN 通过 getWalletEntry 对账恢复。<span class="label">DoD</span>等级边界、同人发起并执行、原因、step-up/MFA、Provider 失败和回滚测试通过。</td><td><span class="label">主规格</span>§5.2–5.4、§6.5、§9–10、§12、§15、§17.2–17.4<span class="label">operationId</span><code class="ops">refundOrder; resolveOrder; reassignOrder</code><span class="label">本项不做</span><span class="no-go">硬删除、无原因改状态、自动争议裁决。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-07</span><strong class="title">用户侧匹配进度透明</strong></td><td><span class="label">价值</span>等待时看见阶段、已通知人数和下一步。<span class="label">范围</span>stage、notifiedCandidateCount、timeoutAt、nextStep；接单后陪玩摘要。</td><td><span class="label">依赖</span>M2-US-02/03<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>进度来自 API；超时说明重试/接管；不泄露候选名单；接单后显示下一动作。<span class="label">DoD</span>读模型、隐私、超时和 Bot 渲染测试通过。</td><td><span class="label">主规格</span>最新基线 PL-03<span class="label">operationId</span><code class="ops">getOrder; acceptOrder</code><span class="label">本项不做</span><span class="no-go">候选名单、排序分、推荐理由。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-08</span><strong class="title">完整陪玩工作台</strong></td><td><span class="label">价值</span>陪玩在一个私密面板看清资格、状态、订单、倒计时、收益和动作。<span class="label">范围</span>qualification/selectionPools/applications/currentOrder/requirements/countdown/earnings/actions。</td><td><span class="label">依赖</span>M2-US-01/02/03<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>未准入显示原因；候选池、本人报名和正式订单不混淆；收益仅本人；动作来自 API。<span class="label">DoD</span>聚合、权限、页面状态和 Discord E2E 通过。</td><td><span class="label">主规格</span>最新基线 PL-04<span class="label">operationId</span><code class="ops">getPlayerWorkbench; applyToOrderSelectionPool; withdrawOrderSelectionApplication</code><span class="label">本项不做</span><span class="no-go">公开档案、试音、排班、用户挑选。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-09</span><strong class="title">双向准备与超时转客服</strong></td><td><span class="label">价值</span>双方确认后才开始，超时有人接管。<span class="label">范围</span>双方 readiness、原子迁移、超时 Job、唯一客服任务、拒绝并审计旧 start 调用。</td><td><span class="label">依赖</span>M2-US-03、M0-US-05<span class="label">Owner</span>backend_bot<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">api_bot</span></td><td><span class="label">验收</span>单方 READY 不开始；并发仅迁移一次；超时建一次任务且不计费；客服看到双方状态。<span class="label">DoD</span>并发状态机、超时、Actor、旧调用拒绝和 E2E 通过。</td><td><span class="label">主规格</span>最新基线 PL-05/NAME-03<span class="label">operationId</span><code class="ops">setOrderReadiness; createOrderStaffTask; listCurrentUserStaffTasks</code><span class="label">本项不做</span><span class="no-go">陪玩单方 start 或自动计费。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-10</span><strong class="title">取消影响预览与原子执行</strong></td><td><span class="label">价值</span>取消前看清自动处理能力、金额、方式和时间。<span class="label">范围</span>previewOrderCancellation；执行时原子重验状态、版本、预留和 Provider 交易。</td><td><span class="label">依赖</span>M1-US-08、M2-US-05<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>返回 autoProcessable、releaseAmountMinor、refundAmountMinor、refundMethod、estimatedTiming；数据变化 409；金额由 API 计算。<span class="label">DoD</span>预览一致性、并发、释放、退款 UNKNOWN 和 Bot 面板测试通过。</td><td><span class="label">主规格</span>最新基线 PL-06<span class="label">operationId</span><code class="ops">previewOrderCancellation; cancelOrder</code><span class="label">本项不做</span><span class="no-go">Bot 估算退款、自动裁决争议。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M2-US-11</span><strong class="title">客服暂停、接管与恢复自动化</strong></td><td><span class="label">价值</span>异常时可阻止自动动作，处理后恢复或转派。<span class="label">范围</span>automationState、pause/resume、接管人、原因、范围、Worker 跳过和审批。</td><td><span class="label">依赖</span>M2-US-05/06<span class="label">Owner</span>backend_ops<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">api_dashboard</span></td><td><span class="label">验收</span>L1 仅请求/接管且无资金动作；受权人员暂停恢复；幂等；Worker 尊重版本；全审计。<span class="label">DoD</span>权限、Worker 并发、恢复、转派和跨客户端测试通过。</td><td><span class="label">主规格</span>最新基线 OPS-01/02<span class="label">operationId</span><code class="ops">pauseOrderAutomation; resumeOrderAutomation; createOrderStaffTask; reassignOrder; getStaffTask; resolveStaffTask</code><span class="label">本项不做</span><span class="no-go">任意强改状态。</span></td></tr>
+          </tbody>
+
+          <tbody data-milestone="M3">
+            <tr class="milestone-row"><td colspan="5">M3 / 礼物、消费、陪玩收益与一级返佣</td></tr>
+            <tr data-critical="yes"><td><span class="id">M3-US-01</span><strong class="title">礼物目录与订单内送礼请求</strong></td><td><span class="label">价值</span>从关联订单选礼物，确认后立即预留金额并进入客服核对。<span class="label">范围</span>状态/时间窗口、快照、目标推导、Gift FundReservation、GIFT_REVIEW 和 Bot 面板。</td><td><span class="label">依赖</span>M2-US-03、M0-US-05<span class="label">Owner</span>fullstack_bot_api<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge critical">关键</span><span class="badge parallel">gift_flow</span></td><td><span class="label">验收</span>仅 ACCEPTED/IN_SERVICE/PENDING_CONFIRMATION，或 completed_at 后 24 小时内 COMPLETED 可请求；目标不可伪造；提交后预留并建任务。<span class="label">DoD</span>四状态、24 小时边界、目标防伪、预留、任务和隐私测试通过。</td><td><span class="label">主规格</span>§3.5、§6.6、最新基线 GIFT-01/FUND-03<span class="label">operationId</span><code class="ops">listGifts; createOrderGiftRequest; getCurrentBalance</code><span class="label">本项不做</span><span class="no-go">脱离订单送礼、匿名、动画。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M3-US-02</span><strong class="title">客服核对与分级送礼执行</strong></td><td><span class="label">价值</span>确认真实意愿，L1 不越权，高金额由正确等级执行。<span class="label">范围</span>唯一认领、备注、VERIFIED/待执行、拒绝、金额策略、payload_hash 和过期。</td><td><span class="label">依赖</span>M3-US-01、M0-US-03、M2-US-06<span class="label">Owner</span>backend_security<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">api_data</span></td><td><span class="label">验收</span>仅一人认领；L1 只核对；礼物≤200000 由 L2、200001–499999 由 L3、≥500000 由 L4 直接执行；同一人可发起并执行；数据变化使执行凭据失效。<span class="label">DoD</span>矩阵、等级边界、同人发起并执行、原因、step-up/MFA、并发、陈旧和不可篡改审计测试通过。</td><td><span class="label">主规格</span>§3.5、§5.2–5.6、§6.6、§8.2、§10、§15.2、§17.3–17.4<span class="label">operationId</span><code class="ops">claimStaffTask; verifyStaffTask; approveGiftRequest; rejectGiftRequest</code><span class="label">本项不做</span><span class="no-go">L1 执行资金动作或任何级别绕过核对。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M3-US-03</span><strong class="title">礼物捕获、消费与播报恢复</strong></td><td><span class="label">价值</span>只支付一次，播报失败不影响送礼成功。<span class="label">范围</span>批准捕获现有 reservation、交易/消费原子写、GiftPaid Outbox 和补发。</td><td><span class="label">依赖</span>M3-US-02、M0-US-04/05<span class="label">Owner</span>integration_backend<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">payment</span></td><td><span class="label">验收</span>重复批准最多捕获一次/一条消费；不新建第二预留；播报与交易分离；失败仅补发消息。<span class="label">DoD</span>Provider、reservation capture、数据库幂等、Outbox 和播报 E2E 通过。</td><td><span class="label">主规格</span>§3.5、§6.6、最新基线 GIFT-03/04<span class="label">operationId</span><code class="ops">approveGiftRequest; handleSystemWebhook; retryJob</code><span class="label">本项不做</span><span class="no-go">播报失败重扣/退款；礼物动画。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M3-US-04</span><strong class="title">陪玩收益确认、支付标记与冲正</strong></td><td><span class="label">价值</span>按结算快照管理收益并保留历史。<span class="label">范围</span>创建唯一 PENDING PlayerEarning、L3 确认、人工支付、PlayerEarningAdjustment 和分页。</td><td><span class="label">依赖</span>M2-US-04/06<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge parallel">finance</span></td><td><span class="label">验收</span>每订单一条原始 PlayerEarning；来自快照/结案；确认/支付留人和原因；退款不改原记录，只新增关联的 PlayerEarningAdjustment。<span class="label">DoD</span>金额、唯一性、状态、PlayerEarningAdjustment 和权限测试通过。</td><td><span class="label">主规格</span>§2.1、§3.10、§5.3–5.4、§6.4–6.5、§9–10、§17.3<span class="label">operationId</span><code class="ops">listPlayerEarnings; updatePlayerEarning; listCurrentPlayerEarnings</code><span class="label">本项不做</span><span class="no-go">自动提现、转账、税务、工资单。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M3-US-05</span><strong class="title">统一消费历史与本人返佣视图</strong></td><td><span class="label">价值</span>用户查看订单/礼物消费及自己作为受益人的返佣。<span class="label">范围</span>Consumption 时间线、beneficiary 查询、来源脱敏、CommissionAdjustment。</td><td><span class="label">依赖</span>M3-US-03/04<span class="label">Owner</span>backend_api<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge parallel">finance</span></td><td><span class="label">验收</span>消费不重复；仅看本人消费/受益返佣；来源用户掩码；退款不改原 Commission，只新增 CommissionAdjustment。<span class="label">DoD</span>分页、归属、脱敏、Adjustment 和重放测试通过。</td><td><span class="label">主规格</span>§2.1、§3.6、最新基线 REF-04/05/07<span class="label">operationId</span><code class="ops">updateCommission; listCurrentUserConsumptions; listCurrentUserCommissions</code><span class="label">本项不做</span><span class="no-go">公开来源、自动发放、多级返佣。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M3-US-06</span><strong class="title">礼物资金预留完整生命周期</strong></td><td><span class="label">价值</span>批准、拒绝、过期或撤回均有明确资金结果。<span class="label">范围</span>request reserve、approve capture、reject/expire/withdraw release、余额不足禁用和并发控制。</td><td><span class="label">依赖</span>M1-US-08、M3-US-01/02/03<span class="label">Owner</span>backend_payment_data<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">payment_data</span></td><td><span class="label">验收</span>不足时禁用并显示差额/充值；客服不手算；只捕获/释放一次；审批与撤回并发仅一方成功。<span class="label">DoD</span>生命周期、边界、并发、幂等、hold/fallback 和 UI 测试通过。</td><td><span class="label">主规格</span>最新基线 FUND-03/04/05/06、GIFT-01/03<span class="label">operationId</span><code class="ops">createOrderGiftRequest; approveGiftRequest; rejectGiftRequest; cancelGiftRequest</code><span class="label">本项不做</span><span class="no-go">客服改预留、批准时新建预留。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M3-US-07</span><strong class="title">保密的两种一级返佣计划</strong></td><td><span class="label">价值</span>运营管理老板带新和陪玩长期带客，来源用户看不到受益信息。<span class="label">范围</span>PROMOTER_FIRST_PURCHASE、PLAYER_LIFETIME、互斥来源、审计、净消费和脱敏。</td><td><span class="label">依赖</span>M3-US-04/05<span class="label">Owner</span>backend_finance_security<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">finance_security</span></td><td><span class="label">验收</span>PROMOTER 结算一次；PLAYER_LIFETIME 持续；用户不可改来源；所有用户渠道不泄露受益人/计划/比例/金额/状态；L1 不见受益人/金额。<span class="label">DoD</span>两计划、唯一互斥、退款 Adjustment、scope、隐私和重放测试通过。</td><td><span class="label">主规格</span>最新基线 REF-01..07、NAME-01/04<span class="label">operationId</span><code class="ops">listCurrentUserCommissions; listCommissions; updateCommission; createReferralAttribution; correctReferralAttribution; getReferralAttributionConfidential; listReferralAttributions; getCommissionConfidential</code><span class="label">本项不做</span><span class="no-go">多级、用户改绑、自动发放、代理。</span></td></tr>
+          </tbody>
+
+          <tbody data-milestone="M4">
+            <tr class="milestone-row"><td colspan="5">M4 / Dashboard、四级 RBAC 与运营控制面</td></tr>
+            <tr data-critical="yes"><td><span class="id">M4-US-01</span><strong class="title">OAuth2、会话与 Capabilities 外壳</strong></td><td><span class="label">价值</span>安全登录且只看到实际生效能力。<span class="label">范围</span>OAuth2、staff 校验、Cookie、CSRF、permissions_version、Capabilities、导航和 401/403。</td><td><span class="label">依赖</span>M0-US-03<span class="label">Owner</span>frontend_backend_security<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">dashboard</span></td><td><span class="label">验收</span>无 staff 不登录；自报 Role 无效；角色变化旧会话失效；直达 URL 仍受 API 控制。<span class="label">DoD</span>认证、CSRF、撤销和 UI/API 测试通过，无 Token 入 localStorage。</td><td><span class="label">主规格</span>§5.7、§10.1/10.5/10.6、§13.1/13.5、§14.3、§17.4<span class="label">operationId</span><code class="ops">getCurrentStaffCapabilities; getDashboardSummary</code><span class="label">本项不做</span><span class="no-go">Role 单独授权、密码登录。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M4-US-02</span><strong class="title">L1 统一订单与客服工作台</strong></td><td><span class="label">价值</span>L1 快速联系、核对和提交建议但无法执行资金或破坏性动作。<span class="label">范围</span>摘要、任务、订单、匹配/readiness/automation、时间线、频道/语音链接、备注和升级。</td><td><span class="label">依赖</span>M4-US-01、M2-US-05、M3-US-02<span class="label">Owner</span>frontend_dashboard<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge parallel">dashboard</span></td><td><span class="label">验收</span>L1 仅个人 scope/脱敏；可认领联系核对备注；资金、礼物批准、取消已接单、封禁、配置不可执行。<span class="label">DoD</span>组件、scope、状态一致性和 L1 E2E 通过。</td><td><span class="label">主规格</span>§3.7–3.8、§5、§13、最新基线 OPS-02<span class="label">operationId</span><code class="ops">getDashboardSummary; listStaffTasks; claimStaffTask; verifyStaffTask; getAdminOrder; getApprovalRequest; listApprovalRequests; approveApprovalRequest; rejectApprovalRequest</code><span class="label">本项不做</span><span class="no-go">独立工单、聊天归档、复杂 SLA。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M4-US-03</span><strong class="title">业务对象与配置管理页面</strong></td><td><span class="label">价值</span>L2–L4 按职责查询和维护 P0 对象。<span class="label">范围</span>搜索、订单/用户/陪玩、服务、礼物、返佣、收益页面与读写 API。</td><td><span class="label">依赖</span>M4-US-01、M2-US-06、M3-US-05<span class="label">Owner</span>frontend_dashboard<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge parallel">dashboard</span></td><td><span class="label">验收</span>多标识检索且脱敏；L2 价格只读；L3 版本化配置；收益操作有原因且无删除。<span class="label">DoD</span>页面、分页、权限、金额和写用例 E2E 通过。</td><td><span class="label">主规格</span>§5.3、§9、§10.4、§13、§17.4<span class="label">operationId</span><code class="ops">listAdminOrders; getAdminOrder; listAdminUsers; getAdminUser; listAdminPlayers; getAdminPlayer; listServiceCatalogVersions; createGiftCatalogItem; updateGiftCatalogItem; listCommissions; createUserRiskFlag; setUserOperationalStatus; listAdminUserConsumptions; getAdminGiftRequest; listAdminGiftRequests</code><span class="label">本项不做</span><span class="no-go">营销画像、完整财务报表、数据仓库。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M4-US-04</span><strong class="title">金额策略、MFA 与 step-up</strong></td><td><span class="label">价值</span>业务操作由满足最低等级、金额权限和近期验证的人直接执行。<span class="label">范围</span>执行影响预览、payload_hash、过期、金额阈值、最低等级直执、同人发起执行、MFA 和 15 分钟 step-up。</td><td><span class="label">依赖</span>M4-US-01、M2-US-06、M3-US-02<span class="label">Owner</span>backend_security<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">security</span></td><td><span class="label">验收</span>L2 礼物≤200000/退款≤50000；中间区间由 L3；≥500000 必须 L4 且不强制不同人员复核；同一人可发起并执行；陈旧失效；无 step-up 返回 428。<span class="label">DoD</span>等级边界、同人发起执行、原因、过期、MFA、不可篡改审计和幂等重放测试通过。</td><td><span class="label">主规格</span>§5.3–5.4、§10.5–10.6、§13.4–13.6、§14–15、§17.4<span class="label">operationId</span><code class="ops">getCurrentStaffCapabilities; beginStepUp; completeStepUp; enrollMfa; verifyMfaEnrollment</code><span class="label">本项不做</span><span class="no-go">企业 IAM、强制硬件密钥、自定义权限级别。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M4-US-05</span><strong class="title">Role 映射、高级授权与即时撤权</strong></td><td><span class="label">价值</span>Role 同步受控且可恢复，首次 L3/L4 需确认，降级立即失效。<span class="label">范围</span>事件持久化入队、默认 5 分钟全量对账、逐员工立即对账、同步状态、映射版本、L1/L2 自动、L3/L4 待确认、bootstrap、降级和撤销。</td><td><span class="label">依赖</span>M4-US-01/04<span class="label">Owner</span>backend_bot_security<span class="label">估时</span><span class="badge estimate">5–8</span><span class="badge critical">关键</span><span class="badge parallel">security_bot</span></td><td><span class="label">验收</span>观测先持久化并最多尝试 8 次；内部 level 才授权；首次高级 Role 未批不生效；移除后版本增加/会话撤销并提示重新登录；bootstrap 一次。<span class="label">DoD</span>入队、周期/逐员工对账、状态、重放、升降级、撤销和审计 E2E 通过。</td><td><span class="label">主规格</span>§5.7、§9–12、§14、§17.4、§18<span class="label">operationId</span><code class="ops">listDiscordRoleMappings; updateDiscordRoleMapping; queueDiscordRoleSync; syncDiscordRoles; reconcileStaffDiscordRole; updateStaffRole; approveStaffRoleElevation; revokeStaffSessions</code><span class="label">本项不做</span><span class="no-go">客户端 Role 临时授权、L3 授予 L4。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M4-US-06</span><strong class="title">审计、失败 Job 与最小设置</strong></td><td><span class="label">价值</span>不直改数据库即可追查、恢复展示和维护配置。<span class="label">范围</span>审计 scope、失败 Job、重试、政策/频道/超时版本化设置、环境和 request_id。</td><td><span class="label">依赖</span>M4-US-01、M0-US-05<span class="label">Owner</span>frontend_backend_ops<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge parallel">dashboard_ops</span></td><td><span class="label">验收</span>L1 自己/L2 团队/L3 业务/L4 全部；重试不重复交易；配置留版本/原因/审计；无删除。<span class="label">DoD</span>scope、并发、重试和审计完整性测试通过。</td><td><span class="label">主规格</span>§5.3–5.4、§9–10、§12.1、§13–14、§17.4–17.5<span class="label">operationId</span><code class="ops">listAuditLogs; listFailedJobs; retryJob; getPolicySettings; updatePolicySetting</code><span class="label">本项不做</span><span class="no-go">复杂报表、日志平台、任意 SQL。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M4-US-07</span><strong class="title">累积权限解析器与跨渠道一致授权</strong></td><td><span class="label">价值</span>L1_SUPPORT 至 L4_ADMIN_OWNER 在 Bot/Dashboard 按累积继承获得一致权限。<span class="label">范围</span>实现累积权限解析器，按 L1&lt;L2&lt;L3&lt;L4 合并低级全部执行权限，并统一 resource/action/scope、金额阈值、破坏性动作、返佣隐私和 Role 上限。</td><td><span class="label">依赖</span>M4-US-01/04/05<span class="label">Owner</span>backend_security_qa<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">security_qa</span></td><td><span class="label">验收</span>高级别自动拥有低级全部执行权限；业务操作按最低等级直接执行且同一人可发起并执行；≥500000 必须 L4 但不强制不同人员复核；保留原因、step-up/MFA 和不可篡改审计；Discord 映射不越内部等级。<span class="label">DoD</span>累积解析、金额边界、四角色两客户端 E2E、拒绝审计及 <code>AT-RBAC-010/011</code> 通过。</td><td><span class="label">主规格</span>最新基线 ACCESS-01/02、REF-06<span class="label">operationId</span><code class="ops">getCurrentStaffCapabilities; syncDiscordRoles</code><span class="label">本项不做</span><span class="no-go">第五级、自定义角色、客户端授权。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M4-US-08</span><strong class="title">统一业务交易时间线</strong></td><td><span class="label">价值</span>按订单追溯余额快照、预留、消费、退款、收益、返佣和调整。<span class="label">范围</span>只读 projection、稳定排序、金额方向、引用和按权限脱敏。</td><td><span class="label">依赖</span>M1-US-08、M2-US-06、M3-US-03/04/05<span class="label">Owner</span>backend_dashboard<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge parallel">dashboard_data</span></td><td><span class="label">验收</span>事件稳定排序；原记录与 Adjustment 分离；L1 不见受限返佣；无删除/编辑。<span class="label">DoD</span>projection、金额方向、分页、脱敏和 Dashboard E2E 通过。</td><td><span class="label">主规格</span>最新基线 LEDGER-01/OPS-02<span class="label">operationId</span><code class="ops">getAdminOrder</code><span class="label">本项不做</span><span class="no-go">总账、完整对账、导出、会计科目。</span></td></tr>
+            <tr data-critical="no"><td><span class="id">M4-US-09</span><strong class="title">八项启动运营指标</strong></td><td><span class="label">价值</span>首页快速看清订单、任务、预留、派单和异常健康度。<span class="label">范围</span>今日订单、进行中、待任务、净订单/礼物消费、预留总额、派单成功率、异常数。</td><td><span class="label">依赖</span>M4-US-02/08<span class="label">Owner</span>backend_dashboard<span class="label">估时</span><span class="badge estimate">3–5</span><span class="badge parallel">dashboard_data</span></td><td><span class="label">验收</span>八项同屏；时区/状态口径可追溯；金额按 currency 分组；成功率分母为有效派单轮次；权限不泄露。<span class="label">DoD</span>聚合、边界时间、退款/Adjustment、空数据、权限和快照测试通过。</td><td><span class="label">主规格</span>最新基线 METRIC-01<span class="label">operationId</span><code class="ops">getDashboardSummary</code><span class="label">本项不做</span><span class="no-go">下钻 BI、趋势、导出、完整对账。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M4-US-10</span><strong class="title"><code>/bot-config</code> 精简程序设计与实现</strong></td><td><span class="label">价值</span>L3/L4 在 Discord 内安全维护 Bot 日常配置，无需手工输入频道或 Role ID。<span class="label">范围</span>Guild-only Slash Command、Sapphire handlers、ephemeral presenter、统一 API client、Channel/Role Select、短期预览 Token、确认后立即刷新、版本冲突、追加审计和重启重载。</td><td><span class="label">依赖</span>M0-US-03/05、M4-US-05/07<span class="label">Owner</span>backend_bot_api<span class="label">估时</span><span class="badge estimate">4–6</span><span class="badge critical">关键</span><span class="badge parallel">security_bot</span></td><td><span class="label">验收</span>L3 以 <code>bot_config.read</code>、<code>bot_config.operational.manage</code> 修改运营字段；L4 累积继承并以 <code>bot_config.security.manage</code> 修改 Role；API 最终授权，拒绝无有效 <code>validationToken</code> 的 PATCH，成功后下一次业务动作使用新配置，响应仅操作者可见。<span class="label">DoD</span><code>AT-CFG-001..010</code> 通过，operationId、预览防绕过、拒绝、立即生效、审计和重载证据完整。</td><td><span class="label">主规格</span>Bot 配置面板设计 §1–9、ACCESS-01/02、OPS-02<span class="label">operationId</span><code class="ops">getBotConfig; updateBotConfig; validateBotConfigChange; testBotConfigDelivery</code><span class="label">本项不做</span><span class="no-go">独立配置网页、Dashboard 配置页、可点击 Demo、可运行 UI Prototype、Secrets/目录/价格/礼物/返佣配置。</span></td></tr>
+          </tbody>
+
+          <tbody data-milestone="M5">
+            <tr class="milestone-row"><td colspan="5">M5 / 验收、真实集成与可恢复部署</td></tr>
+            <tr data-critical="yes"><td><span class="id">M5-US-01</span><strong class="title">P0 回归与跨客户端 E2E</strong></td><td><span class="label">价值</span>发布有可重复证据，Bot/Dashboard 结果一致。<span class="label">范围</span>单元、数据库、Provider、API、RBAC、Sapphire、E2E 和追踪矩阵。</td><td><span class="label">依赖</span>EP-M1–EP-M4<span class="label">Owner</span>qa_automation<span class="label">估时</span><span class="badge estimate">6–10</span><span class="badge critical">关键</span><span class="badge parallel">qa</span></td><td><span class="label">验收</span>§15.2 全覆盖；金额边界、并发、重扣、越权、PlayerEarningAdjustment/CommissionAdjustment 冲正和面板重建通过。<span class="label">DoD</span>CI 全绿，证据含环境、构建、Story ID 和结果。</td><td><span class="label">主规格</span>§15、§17<span class="label">operationId</span><code>none</code><span class="label">本项不做</span><span class="no-go">P1 设备矩阵、性能平台。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M5-US-02</span><strong class="title">真实 Provider 与生产样恢复</strong></td><td><span class="label">价值</span>可安全连接外部服务并从常见故障恢复。<span class="label">范围</span>真实 Adapter、回调/对账、隔离、Compose、Secret、迁移、备份恢复和重启。</td><td><span class="label">依赖</span>M5-US-01、M0-US-04<span class="label">Owner</span>integration_devops<span class="label">估时</span><span class="badge estimate">6–10</span><span class="badge critical">关键</span><span class="badge parallel">payment_devops</span></td><td><span class="label">验收</span>环境隔离；沙箱扣款/退款/重复回调/未知可收敛；空环境部署；恢复后幂等和 Outbox 完整。<span class="label">DoD</span>另一成员按 Runbook 成功部署/恢复，凭证扫描和告警通过。</td><td><span class="label">主规格</span>§10.7、§11–12、§14–15、§17.5<span class="label">operationId</span><code class="ops">getHealth; getReadiness; handleSystemWebhook</code><span class="label">本项不做</span><span class="no-go">Kubernetes、多区域、自动扩容、自研支付。</span></td></tr>
+            <tr data-critical="yes"><td><span class="id">M5-US-03</span><strong class="title">安全审查、业务 UAT 与发布门禁</strong></td><td><span class="label">价值</span>各方对 P0 行为一致，已知风险不被误当上线能力。<span class="label">范围</span>权限/隐私/日志、四级角色 UAT、配置核对、缺陷门禁、回滚和非目标。</td><td><span class="label">依赖</span>M5-US-01/02<span class="label">Owner</span>delivery_lead<span class="label">估时</span><span class="badge estimate">4–7</span><span class="badge critical">关键</span><span class="badge parallel">release</span></td><td><span class="label">验收</span>L1–L4 各一账号 UAT；配置全核对；无阻断核心链路/隔离缺陷；非目标公开。<span class="label">DoD</span>UAT、风险接受、配置快照、回滚和发布表完成签署。</td><td><span class="label">主规格</span>§2.2–2.3、§14.3、§16 M5、§17–18<span class="label">operationId</span><code>none</code><span class="label">本项不做</span><span class="no-go">把 P1、SLA、自动提现、复杂报表纳入门禁。</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="non-goals">
+      <h2>8. P0 明确不做项与路线图</h2>
+      <ul>
+        <li>不连接第三方充值、支付或退款 API；不存银行卡和第三方密码。固定猫条/CAT 钱包及其只追加账本属于 M9 当前 P0 范围。</li>
+        <li><code>RM-01</code> 陪玩档案展示、试音/审核材料、用户选陪玩或指定陪玩；<code>RM-02</code> 预约、排班和服务时间，均进入下一阶段路线图。</li>
+        <li><code>RM-03..05</code> 完整分析/对账/导出、更多 Discord Server/其他渠道、移动端运营与成熟通知，均不进入本次 Story。</li>
+        <li><code>RM-06..09</code> 微信/邮箱登录、白标组件、多租户/代理/跨区、连接器/营销/VIP/优惠券，作为近期不做项记录。</li>
+        <li>本次不做加时、候补、智能推荐、多人订单或跨 Server 派单。</li>
+        <li>不做多级返佣、邀请码自助绑定、自动返佣发放、自动提现、税务或代理层级。</li>
+        <li>不做优惠券、VIP、评价体系、复杂客服 SLA、完整 CRM、BI/财务报表或数据仓库。</li>
+        <li>不做礼物动画、匿名礼物或脱离订单向任意陪玩送礼。</li>
+        <li>不做微服务拆分、Redis 队列、Kubernetes、多区域容灾、自动扩容或生产级 24x7 SLA。</li>
+        <li>任何级别都不提供财务、订单事件或审计记录的硬删除 API、按钮或数据库运维捷径。</li>
+      </ul>
+      <div class="callout"><strong>范围控制规则：</strong>开发中发现的好点子先记录为 P1 候选，不占用本 Backlog 的风险缓冲。只有修复 P0 验收缺口、安全缺陷或外部契约阻断时才能调整当前范围。</div>
+    </section>
+
+    <p class="footer">此文档与同目录 backlog.csv 使用相同 Story ID。Epic 汇总估时已包含子 Story，统计团队总量时不要重复相加。</p>
+  </main>
+
+  <script>
+    const tracking = {
+      "EP-M0": ["ARCH-01; ARCH-02; OPS-01", "ARCH:unified-api-boundary; RUN:local-smoke", "AT-AUD-004; AT-CHN-001"],
+      "M0-US-01": ["ARCH-01", "RUN:compose-smoke; BOT:piece-discovery", "AT-CHN-001; AT-CHN-002"],
+      "M0-US-02": ["ARCH-02; FUND-01; FUND-05; REF-07; NAME-04", "DB:p0-schema; DB:immutable-record-constraints", "AT-AUD-003; AT-REC-001; AT-AUD-001"],
+      "M0-US-03": ["ARCH-01; ACCESS-01; ACCESS-02", "API:actor-context; DB:audit-log", "AT-AUTH-001; AT-RBAC-001; AT-AUD-001"],
+      "M0-US-04": ["ARCH-02; FUND-06", "ADAPTER:PaymentProvider-v1; MOCK:provider-scenarios", "AT-WHK-001; AT-REC-001; AT-REC-003"],
+      "M0-US-05": ["ARCH-01; GIFT-04", "DB:outbox-jobs; OBS:structured-events", "AT-CHN-003; AT-AUD-003"],
+      "EP-M1": ["PL-01; PL-02; FUND-01; FUND-02; FUND-05; FUND-06", "FLOW:order-entry; DB:FundReservation", "AT-PL-001; AT-RES-001"],
+      "M1-US-01": ["ARCH-01", "API:listServices; DB:service-catalog-version", "AT-CAT-001; AT-CAT-002"],
+      "M1-US-02": ["ARCH-02; NAME-02", "API:getCurrentBalance; DB:user-provider-mapping", "AT-ACC-001; AT-ACC-002; AT-RES-002"],
+      "M1-US-03": ["PL-01", "API:estimateOrder; DB:order-draft-version", "AT-ORD-001; AT-ORD-002"],
+      "M1-US-04": ["ARCH-01; PL-01", "BOT:public-entry; BOT:private-order-panel", "AT-CHN-001; AT-ORD-003"],
+      "M1-US-05": ["PL-02; FUND-01; FUND-02; FUND-05; FUND-06", "API:submitOrder; DB:FundReservation", "AT-RES-001; AT-REC-002; AT-ORD-004"],
+      "M1-US-06": ["NAME-02; REF-05", "BOT:service-center; API:getCurrentBalance", "AT-ACC-003; AT-HIS-001; AT-REF-005"],
+      "M1-US-07": ["PL-01; ARCH-01", "API:estimateOrder; UI:order-confirmation-panel", "AT-PL-001; AT-ORD-002"],
+      "M1-US-08": ["PL-02; FUND-01; FUND-02; FUND-05; FUND-06; NAME-02", "DB:FundReservation; API:fund-reservation-service", "AT-RES-001; AT-RES-002; AT-RES-003"],
+      "EP-M2": ["PL-03; PL-04; PL-05; PL-06; OPS-01; DISP-01; NAME-03", "FLOW:dispatch-service-lifecycle; UI:player-workbench", "AT-DSP-001; AT-RDY-001; AT-CXL-001"],
+      "M2-US-01": ["PL-04; DISP-01", "DB:player-profile; BOT:presence-sync", "AT-DSP-001; AT-ROL-001"],
+      "M2-US-02": ["PL-03; DISP-01", "API:dispatchOrder; BOT:dispatch-card; DB:dispatch-attempt", "AT-DSP-001; AT-DSP-002"],
+      "M2-US-03": ["DISP-01; PL-03", "API:acceptOrder; BOT:order-channel-permission", "AT-DSP-003; AT-DSP-004"],
+      "M2-US-04": ["PL-05; NAME-03", "API:setOrderReadiness; BOT:readiness-panel", "AT-RDY-001; AT-SVC-001; AT-SVC-002"],
+      "M2-US-05": ["OPS-01; FUND-02; PL-06", "API:cancelOrder; DB:staff-task", "AT-CAN-001; AT-CAN-004; AT-SUP-001"],
+      "M2-US-06": ["OPS-01; ACCESS-01; REF-07; NAME-04", "API:resolveOrder; API:refundOrder; DB:order-resolution", "AT-CAN-006; AT-CAN-009; AT-RBAC-004"],
+      "M2-US-07": ["PL-03; ARCH-01", "OPENAPI:getOrder; BOT:matching-status", "AT-MAT-001; AT-DSP-004"],
+      "M2-US-08": ["PL-04; ARCH-01; REF-05", "OPENAPI:getPlayerWorkbench; BOT:player-workbench", "AT-WRK-001; AT-EAR-001"],
+      "M2-US-09": ["PL-05; NAME-03; OPS-01", "API:setOrderReadiness; JOB:readiness-timeout", "AT-RDY-001; AT-RDY-002"],
+      "M2-US-10": ["PL-06; FUND-02; ARCH-01", "API:previewOrderCancellation; UI:cancellation-preview", "AT-CXL-001; AT-CAN-003; AT-CAN-008"],
+      "M2-US-11": ["OPS-01; OPS-02; ACCESS-02", "OPENAPI:pauseOrderAutomation; OPENAPI:resumeOrderAutomation", "AT-SUP-005; AT-SUP-002"],
+      "EP-M3": ["FUND-03; FUND-04; GIFT-01..04; REF-01..07", "FLOW:gift-reservation-capture; MODEL:referral-programs", "AT-RES-008; AT-RFP-005"],
+      "M3-US-01": ["GIFT-01; FUND-03", "API:createOrderGiftRequest; DB:gift-reservation", "AT-GFT-001; AT-GFT-003; AT-RES-008"],
+      "M3-US-02": ["GIFT-02; GIFT-03; ACCESS-01; REF-06", "UI:support-gift-card; API:approveGiftRequest", "AT-GFT-004; AT-GFT-005; AT-RBAC-003"],
+      "M3-US-03": ["FUND-03; GIFT-03; GIFT-04", "DB:gift-reservation-capture; OUTBOX:gift-broadcast", "AT-GFT-006; AT-GFT-007; AT-WHK-002"],
+      "M3-US-04": ["REF-07; NAME-04", "DB:PlayerEarningAdjustment; API:updatePlayerEarning", "AT-EAR-001; AT-EAR-002; AT-EAR-003"],
+      "M3-US-05": ["REF-04; REF-05; REF-07; NAME-04", "API:listCurrentUserCommissions; DB:CommissionAdjustment", "AT-HIS-001; AT-REF-004; AT-RFP-005"],
+      "M3-US-06": ["FUND-03; FUND-04; FUND-05; FUND-06; GIFT-01; GIFT-03", "OPENAPI:cancelGiftRequest; DB:gift-reservation-lifecycle", "AT-RES-008; AT-RES-009"],
+      "M3-US-07": ["REF-01..07; NAME-01; NAME-04", "MODEL:PROMOTER_FIRST_PURCHASE; MODEL:PLAYER_LIFETIME; POLICY:referral-confidentiality", "AT-RFP-001; AT-RFP-003; AT-RFP-005"],
+      "EP-M4": ["OPS-02; ACCESS-01; ACCESS-02; LEDGER-01; METRIC-01", "UI:operations-dashboard; POLICY:four-level-access", "AT-RBAC-001; AT-TML-001; AT-MET-001"],
+      "M4-US-01": ["ACCESS-01; ARCH-01", "API:getCurrentStaffCapabilities; UI:dashboard-shell", "AT-AUTH-002; AT-RBAC-001"],
+      "M4-US-02": ["OPS-02; ACCESS-01; REF-06", "UI:order-support-workbench; API:listStaffTasks", "AT-SUP-001; AT-RBAC-002; AT-RFP-005"],
+      "M4-US-03": ["ARCH-01; OPS-02; REF-06", "UI:business-object-pages; API:admin-resource-operations", "AT-RBAC-003; AT-CAT-003; AT-EAR-002"],
+      "M4-US-04": ["ACCESS-01; ACCESS-02; GIFT-03", "POLICY:minimum-level-execution; UI:operation-impact-preview", "AT-RBAC-004; AT-RBAC-005; AT-GFT-005"],
+      "M4-US-05": ["ACCESS-01; ACCESS-02", "BOT:role-sync; POLICY:effective-access-cap", "AT-ROL-001; AT-ROL-004; AT-RBAC-006"],
+      "M4-US-06": ["ACCESS-02; GIFT-04", "UI:audit-jobs-settings; API:listAuditLogs", "AT-AUD-001; AT-AUD-004; AT-CHN-003"],
+      "M4-US-07": ["ACCESS-01; ACCESS-02; REF-06", "POLICY:cumulative-permission-resolver; E2E:bot-dashboard-rbac", "AT-RBAC-001; AT-RBAC-009; AT-RBAC-010; AT-RBAC-011"],
+      "M4-US-08": ["LEDGER-01; OPS-02; REF-04; REF-06; NAME-04", "OPENAPI:getAdminOrder; UI:transaction-timeline", "AT-TML-001; AT-HIS-002; AT-RFP-005"],
+      "M4-US-09": ["METRIC-01; LEDGER-01; ACCESS-02", "OPENAPI:getDashboardSummary; UI:eight-metric-summary", "AT-MET-001; AT-MET-002"],
+      "EP-M5": ["ARCH-01; PL-01..06", "TRACE:p0-requirements-tests; RUN:release-gate", "AT-AUD-004; AT-REC-005"],
+      "M5-US-01": ["PL-01..06; FUND-01..06; REF-01..07; ACCESS-01..02; LEDGER-01; METRIC-01", "TRACE:requirements-test-matrix; CI:p0-regression", "AT-AUD-004; AT-RBAC-001; AT-MET-001"],
+      "M5-US-02": ["ARCH-02; FUND-06", "RUN:provider-sandbox; RUN:backup-restore", "AT-WHK-003; AT-REC-003; AT-REC-005"],
+      "M5-US-03": ["RM-01..09", "UAT:p0-role-flows; DOC:p0-roadmap-exclusions", "AT-AUD-004; AT-RBAC-009; AT-RFP-005"]
+    };
+    document.querySelectorAll('tr .id').forEach((idNode) => {
+      const item = tracking[idNode.textContent.trim()];
+      if (!item) return;
+      const cell = idNode.closest('tr').lastElementChild;
+      const block = document.createElement('div');
+      block.className = 'tracking';
+      block.innerHTML = `<b>Requirement</b> ${item[0]}<br><span class="badge status">PLANNED</span><span class="badge parallel">P0</span><br><b>Evidence</b> ${item[1]}<br><b>Tests</b> ${item[2]}`;
+      cell.appendChild(block);
+    });
+
+    const buttons = document.querySelectorAll('[data-filter]');
+    const groups = document.querySelectorAll('#story-table tbody[data-milestone]');
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        buttons.forEach((item) => item.setAttribute('aria-pressed', 'false'));
+        button.setAttribute('aria-pressed', 'true');
+        const filter = button.dataset.filter;
+        groups.forEach((group) => {
+          const milestoneMatch = filter === 'all' || group.dataset.milestone === filter;
+          group.hidden = filter !== 'critical' && !milestoneMatch;
+          group.querySelectorAll('tr:not(.milestone-row)').forEach((row) => {
+            row.hidden = filter === 'critical' && row.dataset.critical !== 'yes';
+          });
+          if (filter === 'critical') {
+            group.hidden = !group.querySelector('tr[data-critical="yes"]');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

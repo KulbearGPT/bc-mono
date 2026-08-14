@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Discord 与 Dashboard 交互原型｜P0 v1.0</title>
+  <style>
+    :root {
+      --ink: #1f252b;
+      --muted: #66717c;
+      --line: #d7dde2;
+      --soft: #f5f7f8;
+      --surface: #ffffff;
+      --nav: #25292e;
+      --nav-soft: #343a40;
+      --blue: #2563a6;
+      --blue-soft: #eaf2fb;
+      --green: #16734b;
+      --green-soft: #e8f5ee;
+      --amber: #9a5b08;
+      --amber-soft: #fff4dc;
+      --red: #b4232f;
+      --red-soft: #fdecef;
+      --violet: #6750a4;
+      --shadow: 0 6px 20px rgba(22, 29, 37, .08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--soft);
+      letter-spacing: 0;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; }
+    button, select, input, textarea { font: inherit; letter-spacing: 0; }
+    button, select, input, textarea, a { outline-offset: 2px; }
+    button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 3px solid rgba(37, 99, 166, .28); }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em; }
+    .topbar {
+      position: sticky; top: 0; z-index: 30; min-height: 60px; padding: 9px 16px;
+      display: flex; align-items: center; gap: 16px; color: #fff; background: var(--nav);
+      border-bottom: 1px solid #11161a;
+    }
+    .brand { min-width: 240px; font-weight: 750; }
+    .brand small { display: block; color: #bec6ce; font-weight: 500; font-size: 11px; margin-top: 2px; }
+    .top-controls { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .control { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #dce2e7; }
+    .control select { min-height: 34px; border: 1px solid #5b646c; border-radius: 6px; background: #fff; color: var(--ink); padding: 0 30px 0 10px; }
+    .env { padding: 5px 8px; border-radius: 4px; background: #0e7048; font-size: 11px; font-weight: 700; }
+    .icon-button { min-width: 34px; min-height: 34px; border: 1px solid #66717a; border-radius: 6px; background: transparent; color: #fff; }
+    .app { min-height: calc(100vh - 60px); display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+    .sidebar { position: sticky; top: 60px; height: calc(100vh - 60px); overflow: auto; padding: 14px 10px 24px; background: #2d3237; color: #dce2e7; }
+    .nav-group { margin: 12px 8px 6px; color: #99a5ae; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .nav-item { width: 100%; min-height: 37px; display: flex; align-items: center; gap: 9px; margin: 2px 0; padding: 7px 9px; border: 0; border-radius: 6px; color: #dce2e7; background: transparent; text-align: left; font-size: 13px; }
+    .nav-item:hover { background: var(--nav-soft); }
+    .nav-item.active { color: #fff; background: #3e464d; box-shadow: inset 3px 0 0 #61a7e5; }
+    .nav-index { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid #66717a; border-radius: 5px; color: #cbd3da; font-size: 10px; }
+    .main { min-width: 0; padding: 22px 26px 48px; }
+    .screen { display: none; max-width: 1380px; margin: 0 auto; }
+    .screen.active { display: block; }
+    body.demo-state-active .screen.active { display: none; }
+    .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 23px; line-height: 1.25; }
+    h2 { margin: 0 0 12px; font-size: 17px; }
+    h3 { margin: 0 0 8px; font-size: 14px; }
+    p { margin: 0 0 10px; line-height: 1.65; }
+    .lede { margin-top: 5px; color: var(--muted); font-size: 13px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip, .status { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .chip { color: #4b5660; background: #edf0f2; }
+    .status.blue { color: var(--blue); background: var(--blue-soft); }
+    .status.green { color: var(--green); background: var(--green-soft); }
+    .status.amber { color: var(--amber); background: var(--amber-soft); }
+    .status.red { color: var(--red); background: var(--red-soft); }
+    .layout-2 { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); gap: 16px; align-items: start; }
+    .layout-even { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .layout-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 1px 2px rgba(22, 29, 37, .03); }
+    .panel-head { min-height: 47px; padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+    .panel-body { padding: 14px; }
+    .callout { padding: 10px 12px; border-left: 3px solid var(--blue); background: var(--blue-soft); color: #25445f; font-size: 12px; line-height: 1.55; }
+    .callout.warning { border-color: #dc8d1b; background: var(--amber-soft); color: #73470c; }
+    .callout.danger { border-color: var(--red); background: var(--red-soft); color: #7e1d26; }
+    .api-tag { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 6px; border: 1px solid #c8d6e5; border-radius: 4px; color: #335777; background: #f2f7fc; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; white-space: nowrap; }
+    .trace-tag { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 6px; border: 1px solid #c9d8cd; border-radius: 4px; color: #31573d; background: #f0f7f2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; white-space: nowrap; }
+    .button-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .btn { min-height: 34px; padding: 7px 11px; border: 1px solid #bdc6ce; border-radius: 6px; color: #26313a; background: #fff; font-size: 12px; font-weight: 700; }
+    .btn:hover:not(:disabled) { background: #f3f5f6; }
+    .btn.primary { border-color: var(--blue); color: #fff; background: var(--blue); }
+    .btn.success { border-color: var(--green); color: #fff; background: var(--green); }
+    .btn.danger { border-color: var(--red); color: var(--red); background: #fff; }
+    .btn.warning { border-color: #c37810; color: #71450a; background: #fff8e9; }
+    .btn.compact { min-height: 28px; padding: 4px 8px; }
+    .permission-note { display: none; margin-top: 6px; color: var(--amber); font-size: 11px; }
+    .kv { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 7px 12px; font-size: 12px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+    .metric-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); background: #fff; }
+    .metric-row.eight { grid-template-columns: repeat(8, minmax(112px, 1fr)); overflow-x: auto; }
+    .metric { padding: 14px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric span { display: block; color: var(--muted); font-size: 11px; }
+    .metric strong { display: block; margin-top: 3px; font-size: 21px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { padding: 8px 10px; color: #52606c; background: #f4f6f7; border-bottom: 1px solid var(--line); text-align: left; font-weight: 750; }
+    td { padding: 9px 10px; border-bottom: 1px solid #e8ecef; vertical-align: middle; }
+    tr:last-child td { border-bottom: 0; }
+    .row-selected td { background: #eef5fc; }
+    .muted { color: var(--muted); }
+    .fine { font-size: 11px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .divider { height: 1px; margin: 14px 0; background: var(--line); }
+    .timeline { margin: 0; padding: 0; list-style: none; }
+    .timeline li { position: relative; margin-left: 7px; padding: 0 0 14px 23px; border-left: 1px solid #cbd3d9; font-size: 12px; }
+    .timeline li:last-child { border-left-color: transparent; }
+    .timeline li::before { content: ""; position: absolute; left: -5px; top: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+    .timeline time { display: block; color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+    .field { display: grid; gap: 5px; margin-bottom: 11px; }
+    .field label { color: #4f5a64; font-size: 11px; font-weight: 750; }
+    .field input, .field select, .field textarea { width: 100%; min-height: 36px; border: 1px solid #bcc6ce; border-radius: 6px; padding: 7px 9px; color: var(--ink); background: #fff; }
+    .field textarea { min-height: 72px; resize: vertical; }
+    .field small { color: var(--muted); font-size: 10px; }
+    .tag-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+    .request-tag { display: inline-flex; align-items: center; min-height: 28px; padding: 5px 9px; border: 1px solid #c9d1d8; border-radius: 5px; color: #384650; background: #f7f9fa; font-size: 11px; font-weight: 700; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .summary-item { min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fafbfc; }
+    .summary-item span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 10px; }
+    .summary-item strong { display: block; overflow-wrap: anywhere; font-size: 12px; }
+    .readiness { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .ready-party { padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: #fafbfc; font-size: 12px; }
+    .ready-party strong { display: block; margin-bottom: 4px; }
+    .toggle-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+    .toggle { position: relative; width: 44px; height: 24px; flex: 0 0 44px; }
+    .toggle input { position: absolute; opacity: 0; }
+    .toggle span { position: absolute; inset: 0; border-radius: 999px; background: #8d98a1; transition: .18s ease; }
+    .toggle span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .18s ease; }
+    .toggle input:checked + span { background: var(--green); }
+    .toggle input:checked + span::after { transform: translateX(20px); }
+    .role-visibility { display: none; }
+    .role-visibility.active { display: block; }
+    .discord-window { min-height: 620px; display: grid; grid-template-columns: 58px 180px minmax(0, 1fr); overflow: hidden; border: 1px solid #252a2f; border-radius: 7px; background: #313338; color: #dbdee1; box-shadow: var(--shadow); }
+    .server-rail { padding: 10px 8px; display: grid; align-content: start; gap: 9px; background: #1e1f22; }
+    .server { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: #3d444b; color: #fff; font-size: 11px; font-weight: 800; }
+    .server.active { border-radius: 9px; background: #3f7bb8; }
+    .channel-rail { background: #2b2d31; border-right: 1px solid #202225; }
+    .guild-name { height: 48px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid #1f2023; color: #fff; font-size: 13px; font-weight: 750; }
+    .channel-list { padding: 12px 7px; }
+    .channel-label { margin: 12px 5px 4px; color: #989aa2; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .channel { padding: 6px 8px; border-radius: 4px; color: #9ca1a8; font-size: 12px; }
+    .channel.active { color: #fff; background: #404249; }
+    .chat { min-width: 0; display: grid; grid-template-rows: 48px minmax(0, 1fr) 58px; }
+    .chat-head { display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid #282a2e; }
+    .chat-head strong { color: #f2f3f5; font-size: 13px; }
+    .chat-body { padding: 18px; overflow: auto; }
+    .chat-input { margin: 8px 15px 12px; padding: 10px 12px; border-radius: 7px; color: #949ba4; background: #383a40; font-size: 12px; }
+    .message { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 10px; margin-bottom: 18px; }
+    .avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: #486c91; font-size: 10px; font-weight: 800; }
+    .message-meta { margin-bottom: 5px; color: #f2f3f5; font-size: 12px; font-weight: 750; }
+    .message-meta time { margin-left: 5px; color: #949ba4; font-size: 9px; font-weight: 500; }
+    .discord-embed { max-width: 650px; border-left: 4px solid #3b82c4; border-radius: 4px; overflow: hidden; color: #dbdee1; background: #2b2d31; }
+    .discord-embed .embed-body { padding: 13px 14px; }
+    .discord-embed h3 { color: #f2f3f5; font-size: 14px; }
+    .discord-embed p { color: #b5bac1; font-size: 12px; line-height: 1.5; }
+    .discord-embed .kv { grid-template-columns: 96px minmax(0, 1fr); }
+    .discord-embed .kv dt { color: #949ba4; }
+    .discord-embed .kv dd { color: #f2f3f5; }
+    .discord-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 14px 13px; }
+    .dc-btn { min-height: 32px; padding: 6px 11px; border: 0; border-radius: 4px; color: #fff; background: #4e5058; font-size: 11px; font-weight: 650; }
+    .dc-btn.primary { background: #5865f2; }
+    .dc-btn.green { background: #248046; }
+    .dc-btn.red { background: #da373c; }
+    .dc-btn:disabled { opacity: .42; }
+    .modal-backdrop { min-height: 520px; padding: 30px; display: grid; place-items: center; background: rgba(10, 12, 14, .6); border-radius: 7px; }
+    .modal { width: min(100%, 520px); overflow: hidden; border-radius: 8px; color: #dbdee1; background: #313338; box-shadow: 0 18px 50px rgba(0,0,0,.35); }
+    .modal .modal-head { padding: 16px 18px 8px; }
+    .modal .modal-body { padding: 10px 18px 16px; }
+    .modal .field label { color: #b5bac1; }
+    .modal .field input, .modal .field select, .modal .field textarea { color: #dbdee1; background: #1e1f22; border-color: #1a1b1e; }
+    .modal .modal-foot { padding: 12px 18px; display: flex; justify-content: flex-end; gap: 8px; background: #2b2d31; }
+    .role-banner { margin-bottom: 14px; padding: 10px 12px; display: flex; justify-content: space-between; gap: 12px; border: 1px solid #cfd9e2; border-radius: 6px; background: #f7fafc; font-size: 12px; }
+    .role-banner strong { color: var(--blue); }
+    .state-demo { display: none; min-height: 360px; place-items: center; padding: 40px; background: #fff; border: 1px solid var(--line); border-radius: 7px; text-align: center; }
+    .state-demo.show { display: grid; }
+    .state-demo-inner { max-width: 440px; }
+    .state-icon { width: 44px; height: 44px; margin: 0 auto 12px; display: grid; place-items: center; border-radius: 50%; color: var(--blue); background: var(--blue-soft); font-weight: 800; }
+    .skeleton { width: min(500px, 80vw); }
+    .skeleton i { display: block; height: 12px; margin: 9px 0; border-radius: 4px; background: linear-gradient(90deg, #eef1f3, #dfe5e9, #eef1f3); }
+    .skeleton i:nth-child(2) { width: 72%; }
+    .skeleton i:nth-child(3) { width: 88%; }
+    .toast { position: fixed; right: 18px; bottom: 18px; z-index: 60; max-width: 420px; padding: 11px 13px; border-radius: 6px; color: #fff; background: #20262b; box-shadow: var(--shadow); font-size: 12px; transform: translateY(120px); opacity: 0; transition: .2s ease; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .doc-note { margin-top: 16px; padding: 12px 14px; border: 1px dashed #b8c2ca; border-radius: 6px; color: #56616b; background: #fff; font-size: 11px; line-height: 1.65; }
+    .matrix td:first-child { font-weight: 750; }
+    .yes { color: var(--green); font-weight: 750; }
+    .no { color: var(--red); font-weight: 750; }
+    .limited { color: var(--amber); font-weight: 750; }
+    .hidden-by-role { display: none !important; }
+    .op-caption { margin-top: 6px; color: #74808a; font-size: 10px; }
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 68px minmax(0, 1fr); }
+      .sidebar { padding-inline: 7px; }
+      .nav-group, .nav-item span:not(.nav-index) { display: none; }
+      .nav-item { justify-content: center; padding-inline: 4px; }
+      .layout-2, .layout-even { grid-template-columns: 1fr; }
+      .discord-window { grid-template-columns: 48px 142px minmax(0, 1fr); }
+      .main { padding-inline: 16px; }
+    }
+    @media (max-width: 700px) {
+      .topbar { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px 10px; padding: 8px 10px; }
+      .brand { min-width: 0; white-space: nowrap; font-size: 13px; }
+      .brand small { display: none; }
+      .top-controls { grid-column: 1 / -1; width: 100%; margin-left: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr) 34px; gap: 6px; }
+      .control label { display: none; }
+      .control, .control select { min-width: 0; width: 100%; }
+      .app { display: block; }
+      .sidebar { position: relative; top: auto; z-index: 20; width: 100%; height: auto; display: flex; overflow-x: auto; padding: 6px; }
+      .nav-group { display: none; }
+      .nav-item { flex: 0 0 38px; margin: 0 2px; }
+      .main { padding: 15px 10px 40px; }
+      .page-head { display: block; }
+      .page-head .chips { margin-top: 10px; }
+      .layout-3, .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric:nth-child(2) { border-right: 0; }
+      .discord-window { min-height: 580px; grid-template-columns: 1fr; }
+      .server-rail, .channel-rail { display: none; }
+      .chat-body { padding: 12px 9px; }
+      .discord-actions { gap: 5px; }
+      .dc-btn { flex: 1 1 120px; }
+      .kv { grid-template-columns: 88px minmax(0, 1fr); }
+      table { min-width: 700px; }
+      .table-scroll { overflow-x: auto; }
+      .readiness { grid-template-columns: 1fr; }
+    }
+    @media print {
+      :root { background: #fff; }
+      body { background: #fff; }
+      .topbar, .sidebar, .toast, .no-print { display: none !important; }
+      .app { display: block; }
+      .main { padding: 0; }
+      .screen { display: block !important; max-width: none; page-break-before: always; }
+      .screen:first-child { page-break-before: auto; }
+      .panel, .discord-window { box-shadow: none; break-inside: avoid; }
+      .discord-window { min-height: 560px; }
+      .state-demo { display: none !important; }
+      .stateful { display: block !important; }
+      .page-head { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">PlayOps 交互原型<small>Discord + Dashboard｜本地原型｜v1.0</small></div>
+    <span class="env">PROTOTYPE</span>
+    <div class="top-controls">
+      <div class="control"><label for="roleSelect">演示角色</label><select id="roleSelect">
+        <option value="1">L1 基础客服</option><option value="2">L2 客服主管</option><option value="3">L3 运营负责人</option><option value="4">L4 管理员 / 所有者</option>
+      </select></div>
+      <div class="control"><label for="uiStateSelect">页面状态</label><select id="uiStateSelect">
+        <option value="normal">正常</option><option value="loading">加载</option><option value="empty">空数据</option><option value="error">错误</option><option value="forbidden">无权限</option>
+      </select></div>
+      <button class="icon-button" id="printButton" title="打印原型" aria-label="打印原型">▣</button>
+    </div>
+  </header>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="原型导航">
+      <div class="nav-group">Discord 用户与陪玩</div>
+      <button class="nav-item active" data-screen="discord-entry"><b class="nav-index">D1</b><span>公共入口</span></button>
+      <button class="nav-item" data-screen="discord-topup"><b class="nav-index">D2</b><span>联系客服充值</span></button>
+      <button class="nav-item" data-screen="discord-order"><b class="nav-index">D3</b><span>私密订单</span></button>
+      <button class="nav-item" data-screen="discord-order-modal"><b class="nav-index">D4</b><span>订单配置与确认</span></button>
+      <button class="nav-item" data-screen="discord-player-workbench"><b class="nav-index">D5</b><span>陪玩工作台</span></button>
+      <button class="nav-item" data-screen="discord-dispatch"><b class="nav-index">D6</b><span>匹配订单</span></button>
+      <button class="nav-item" data-screen="discord-player-order"><b class="nav-index">D7</b><span>陪玩当前订单</span></button>
+      <button class="nav-item" data-screen="discord-gift"><b class="nav-index">D8</b><span>送礼与审核</span></button>
+      <button class="nav-item" data-screen="discord-center"><b class="nav-index">D9</b><span>服务中心与我的收益</span></button>
+      <button class="nav-item" data-screen="discord-profile"><b class="nav-index">D10</b><span>我的 Profile / 周报</span></button>
+      <div class="nav-group">Dashboard</div>
+      <button class="nav-item" data-screen="dash-workbench"><b class="nav-index">A1</b><span>L1 工作台</span></button>
+      <button class="nav-item" data-screen="dash-task"><b class="nav-index">A2</b><span>任务详情</span></button>
+      <button class="nav-item" data-screen="dash-order"><b class="nav-index">A3</b><span>订单详情</span></button>
+      <button class="nav-item" data-screen="dash-people"><b class="nav-index">A4</b><span>用户与陪玩</span></button>
+      <button class="nav-item" data-screen="dash-catalog" data-nav-min="2"><b class="nav-index">A5</b><span>服务目录</span></button>
+      <button class="nav-item" data-screen="dash-gifts"><b class="nav-index">A6</b><span>礼物审批</span></button>
+      <button class="nav-item" data-screen="dash-referrals" data-nav-min="2"><b class="nav-index">A7</b><span>收益计划</span></button>
+      <button class="nav-item" data-screen="dash-approvals" data-nav-min="2"><b class="nav-index">A8</b><span>审批队列</span></button>
+      <button class="nav-item" data-screen="dash-access" data-nav-min="4"><b class="nav-index">A9</b><span>权限管理</span></button>
+      <button class="nav-item" data-screen="dash-customer-profile" data-nav-min="2"><b class="nav-index">A10</b><span>客户 Profile</span></button>
+      <button class="nav-item" data-screen="dash-settlements" data-nav-min="2"><b class="nav-index">A11</b><span>周期结算</span></button>
+      <button class="nav-item" data-screen="dash-weekly-reports" data-nav-min="2"><b class="nav-index">A12</b><span>周期周报</span></button>
+      <div class="nav-group">设计说明</div>
+      <button class="nav-item" data-screen="reference-states"><b class="nav-index">R1</b><span>状态与权限</span></button>
+    </aside>
+
+    <main class="main">
+      <div id="stateDemo" class="state-demo" aria-live="polite"></div>
+
+      <section class="screen active stateful" id="discord-entry">
+        <div class="page-head"><div><h1>D1. Discord 公共入口</h1><p class="lede">普通用户只需要两个入口，不展示斜杠命令列表。</p></div><div class="chips"><span class="chip">固定消息</span><span class="chip">公开频道</span><span class="api-tag">getMyServiceCenter</span><span class="trace-tag">REQ-P0-PRIVACY-01</span></div></div>
+        <div class="discord-window">
+          <div class="server-rail"><div class="server active">PLAY</div><div class="server">＋</div></div>
+          <div class="channel-rail"><div class="guild-name">陪玩俱乐部</div><div class="channel-list"><div class="channel-label">开始使用</div><div class="channel active"># 陪玩服务中心</div><div class="channel"># 礼物播报</div><div class="channel-label">公开交流</div><div class="channel"># 大厅</div><div class="channel"># 活动</div></div></div>
+          <div class="chat"><div class="chat-head"><strong># 陪玩服务中心</strong><span class="muted fine">Bot 固定入口</span></div><div class="chat-body">
+            <div class="message"><div class="avatar">BOT</div><div><div class="message-meta">陪玩服务 Bot <span class="status blue">应用</span><time>今天 10:30</time></div>
+              <div class="discord-embed"><div class="embed-body"><h3>陪玩服务中心</h3><p>创建一个私密订单，或查看你的余额、消费记录与“我的收益”。“我的收益”只表示你是受益人的记录，所有个人信息只会向你显示。</p><div class="callout">每位用户同时只能有一个进行中订单；已有订单时会直接带你返回原频道。</div></div>
+                <div class="discord-actions"><button class="dc-btn primary action" data-op="createOrder">创建订单</button><button class="dc-btn action" data-op="getMyServiceCenter">我的服务中心</button></div>
+              </div><div class="op-caption">创建订单：<code>createOrder</code>｜个人中心：<code>getMyServiceCenter</code></div>
+            </div></div>
+          </div><div class="chat-input">你没有在这个频道发消息的权限。</div></div>
+        </div>
+        <div class="doc-note"><strong>设计行为：</strong>点击任一按钮后由 API 从可信 Discord Actor Context 解析客户。余额不足时进入 D2 联系客服；存在活跃订单时，“创建订单”返回“进入现有订单”，不会重复建单或重复建频道。</div>
+      </section>
+
+      <section class="screen stateful" id="discord-topup">
+        <div class="page-head"><div><h1>D2. 联系客服充值</h1><p class="lede">付款后向客服提供渠道、交易号、付款时间、金额和备注；图片/PDF 凭证可选。</p></div><div class="chips"><span class="api-tag">getMyServiceCenter</span><span class="status amber">人工核对</span><span class="trace-tag">REQ-P0-FUNDS-01</span></div></div>
+        <div class="modal-backdrop"><div class="modal"><div class="modal-head"><h2>猫条充值指引</h2><p class="muted fine">系统不读取支付渠道；付款完成后由客服根据 receipt 即时登记。</p></div><div class="modal-body">
+          <div class="callout"><strong>必填信息：</strong>客户、付款金额、支付渠道、外部交易号、付款时间和备注。图片/PDF 凭证可选。</div>
+          <div class="callout warning">Discord：<strong>@用户A</strong>｜服务器：陪玩俱乐部。请仅向授权客服提供付款参考；不要发送完整卡号、密码或支付密钥。</div>
+          <p class="muted fine">客服入账后点击“刷新余额”；联系支持或刷新动作本身不会被当作充值成功。</p>
+        </div><div class="modal-foot"><button class="dc-btn">返回</button><button class="dc-btn primary action" data-op="contactSupport">联系客服</button></div></div></div>
+        <div class="layout-3" style="margin-top:12px"><div class="callout"><strong>充值完成</strong><br>猫条可用余额 3,680.0 CAT。继续创建订单。</div><div class="callout warning"><strong>等待客服</strong><br>尚未发现新钱包条目，请确认交易号与付款时间后联系支持。</div><div class="callout danger"><strong>服务错误</strong><br>猫条钱包暂时不可用。请求编号 req_01J4B。</div></div>
+      </section>
+
+      <section class="screen stateful" id="discord-order">
+        <div class="page-head"><div><h1>D3. 私密订单频道与常驻面板</h1><p class="lede">面板始终编辑同一条消息；订单提交即预留，完成才捕获，所有当前有效陪玩都就绪后才进入服务中。</p><div class="chips"><span class="trace-tag">REQ-P0-FUNDS-01 · GATE-P0-02</span><span class="trace-tag">REQ-P0-MATCH-01 · GATE-P0-03</span><span class="trace-tag">REQ-P0-READY-01 · GATE-P0-05</span></div></div><div class="control no-print" style="color:var(--ink)"><label for="orderStateSelect">订单状态</label><select id="orderStateSelect"><option value="DRAFT">草稿</option><option value="SUBMITTING">提交中</option><option value="PENDING_DISPATCH">待招募 / 招募中</option><option value="ACCEPTED">已终选 / 待陪玩准备</option><option value="IN_SERVICE">服务中</option><option value="PENDING_CONFIRMATION">待确认</option><option value="COMPLETED">已完成</option><option value="CANCELLED">已取消</option><option value="EXCEPTION">异常处理中</option></select></div></div>
+        <div class="discord-window">
+          <div class="server-rail"><div class="server active">PLAY</div></div><div class="channel-rail"><div class="guild-name">陪玩俱乐部</div><div class="channel-list"><div class="channel-label">你的订单</div><div class="channel active"># order-p-1042</div><div class="channel-label">订单语音</div><div class="channel">◉ 订单语音-1042</div></div></div>
+          <div class="chat"><div class="chat-head"><strong># order-p-1042</strong><span class="status green">仅相关人员可见</span></div><div class="chat-body"><div class="message"><div class="avatar">BOT</div><div><div class="message-meta">陪玩服务 Bot <span class="status blue">应用</span><time>今天 10:42</time></div>
+            <div class="discord-embed"><div class="embed-body"><div class="button-row" style="justify-content:space-between"><h3>订单 #P-1042</h3><span id="orderStateBadge" class="status amber">草稿</span></div><p id="orderStateHint">请选择服务并填写即时单需求。提交前不会扣款。</p>
+              <dl class="kv"><dt>游戏 / 服务</dt><dd id="orderService">无畏契约 / 娱乐陪玩</dd><dt>区服 / 时长</dt><dd>北美 / 2 小时</dd><dt>开始方式</dt><dd>尽快开始（即时单）</dd><dt>结构化标签</dt><dd><div class="tag-grid"><span class="request-tag">中文交流</span><span class="request-tag">轻松娱乐</span><span class="request-tag">当前白银</span></div></dd><dt>正式陪玩</dt><dd id="orderPlayer">尚未终选</dd><dt>候选池阶段</dt><dd id="orderMatchStage">尚未提交</dd><dt>有效报名</dt><dd><span id="orderCandidateCount">0</span> 人</dd><dt>订单金额</dt><dd>1,200.0 CAT</dd><dt>猫条账本余额</dt><dd>3,680.0 CAT</dd><dt>预留金额</dt><dd id="orderReservedAmount">0.0 CAT</dd><dt>可用余额</dt><dd id="orderAvailableAmount">3,680.0 CAT</dd><dt>预留后可用</dt><dd id="orderPostReserveAmount">2,480.0 CAT</dd><dt>下一步</dt><dd id="orderNextAction">检查完整确认摘要并提交</dd></dl>
+            </div><div id="orderActions" class="discord-actions"></div></div><div id="orderOps" class="op-caption"></div>
+          </div></div></div><div class="chat-input">发送消息到 #order-p-1042</div></div>
+        </div>
+        <div class="layout-even" style="margin-top:14px">
+          <div class="panel"><div class="panel-head"><h2>正式陪玩准备进度</h2><span class="status amber">全体有效陪玩都准备好才开始</span></div><div class="panel-body"><dl class="kv"><dt>陪玩摘要</dt><dd id="acceptedPlayerSummary">待匹配 · 终选后逐名显示昵称、认证标签和沟通语言</dd><dt>服务计时</dt><dd id="readinessTimer">尚未开始</dd></dl><div class="readiness" style="margin:12px 0"><div class="ready-party"><strong>陪玩B</strong><span id="playerReadyState" class="status amber">未就绪</span></div></div><div class="button-row"><button class="btn action" data-op="getOrder">刷新准备进度</button></div><p class="op-caption">客户只读 <code>getOrder</code>；<code>setOrderReadiness</code> 仅供当前有效陪玩本人使用。</p></div></div>
+          <div class="panel"><div class="panel-head"><h2>取消影响预览</h2><span class="trace-tag">REQ-P0-CANCEL-01 · GATE-P0-06</span></div><div class="panel-body"><dl class="kv"><dt>可自动处理</dt><dd>是（尚未完成客户终选）</dd><dt>预计释放</dt><dd>1,200.0 CAT 预留</dd><dt>预计退款</dt><dd>0.0 CAT（尚未捕获）</dd><dt>处理方式</dt><dd>立即释放预留并关闭活动候选池</dd><dt>预计时效</dt><dd>通常即时；最终结果由 API 原子校验</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn action" data-op="previewOrderCancellation">刷新影响</button><button class="btn danger action" data-op="cancelOrder">确认取消</button><button class="btn warning action" data-op="createOrderStaffTask">申请客服处理</button></div></div></div>
+        </div>
+        <div class="table-scroll panel" style="margin-top:14px"><table><thead><tr><th>状态</th><th>用户操作</th><th>陪玩操作</th><th>客服空间</th></tr></thead><tbody>
+          <tr><td>DRAFT</td><td>编辑、查看完整确认、提交预留、取消</td><td>无</td><td>自动失败或主动求助才建任务</td></tr>
+          <tr><td>PENDING_DISPATCH</td><td>开始/终止招募、查看报名 mention、终选/重招募、预览取消影响</td><td>在工作台按需求报名或撤回；无自然截止</td><td>仅异常或主动求助时接管；时间流逝不关闭候选池</td></tr>
+          <tr><td>ACCEPTED</td><td>查看陪玩摘要与逐名准备进度、送礼</td><td>加入频道、确认本人就绪</td><td>任一有效陪玩超时转客服；不可部分就绪开始</td></tr>
+          <tr><td>IN_SERVICE</td><td>送礼、报告问题</td><td>申请完成、报告问题</td><td>中断/争议进入人工结案</td></tr>
+          <tr><td>PENDING_CONFIRMATION</td><td>确认完成、送礼、报告问题</td><td>等待</td><td>30 分钟超时后人工复核</td></tr>
+          <tr><td>COMPLETED / CANCELLED</td><td>查明细；完成后 24 小时内送礼</td><td>查结果</td><td>只追加更正或冲正，不硬删除</td></tr>
+          <tr><td>EXCEPTION</td><td>查看处理进度、联系客服</td><td>查看处理进度</td><td>L1 核对，L2+ 结案或提交审批</td></tr>
+        </tbody></table></div>
+      </section>
+
+      <section class="screen stateful" id="discord-order-modal">
+        <div class="page-head"><div><h1>D4. 订单配置与完整确认</h1><p class="lede">结构化选项使用消息组件逐步完成；Modal 只收集补充备注。P0 为即时单，不采集预约时间。</p></div><div class="chips"><span class="api-tag">listServiceCatalog</span><span class="api-tag">updateOrderDraft</span><span class="api-tag">estimateOrder</span><span class="api-tag">submitOrder</span><span class="trace-tag">REQ-P0-ORDER-01 · GATE-P0-01</span></div></div>
+        <div class="layout-2">
+          <div class="panel"><div class="panel-head"><h2>私密订单消息面板</h2><span class="status blue">订单 #P-1042 · 草稿</span></div><div class="panel-body">
+            <p class="muted fine">每次选择后，Bot 调用统一 API 并编辑同一条消息；服务选项根据已提交的游戏重新加载。</p>
+            <div class="field"><label>1. 游戏 · String Select</label><select><option>无畏契约</option><option>英雄联盟</option></select></div>
+            <div class="field"><label>2. 服务 · String Select</label><select><option>娱乐陪玩</option><option>上分陪玩</option></select></div>
+            <div class="field"><label>3. 区服 · String Select</label><select><option>北美</option><option>亚太</option></select></div>
+            <div class="field"><label>4. 时长 · String Select</label><select><option>2 小时 · 1,200.0 CAT</option><option>3 小时 · 1,800.0 CAT</option></select></div>
+            <div class="field"><label>5. 需求标签 · String Select</label><select><option>中文交流 · 轻松娱乐 · 当前白银</option></select></div>
+            <div class="button-row"><button class="dc-btn action" data-op="updateOrderDraft">填写补充备注</button><button class="dc-btn action" data-op="estimateOrder">查看完整确认</button></div>
+          </div></div>
+          <div>
+            <div class="modal-backdrop" style="min-height:280px"><div class="modal"><div class="modal-head"><h2>补充订单备注</h2><p class="muted fine">Discord Modal（仅补充备注）</p></div><div class="modal-body"><div class="field"><label>补充备注（可选）</label><textarea>希望语音沟通清晰，按当前段位轻松娱乐。</textarea><small>单字段、纵向布局；提交后返回订单消息，不在 Modal 内动态联动。</small></div></div><div class="modal-foot"><button class="dc-btn">取消</button><button class="dc-btn primary action" data-op="updateOrderDraft">提交</button></div></div></div>
+            <div class="callout" style="margin-top:12px"><strong>原生约束：</strong>Modal 最多 5 个顶层组件；不支持双栏或自定义按钮。游戏、服务、区服、时长和标签不放入此 Modal。</div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>提交前完整确认 · 私密消息</h2><span class="status green">字段完整</span></div><div class="panel-body"><div class="summary-grid"><div class="summary-item"><span>游戏 / 服务</span><strong>无畏契约 / 娱乐陪玩</strong></div><div class="summary-item"><span>区服 / 时长</span><strong>北美 / 2 小时</strong></div><div class="summary-item"><span>价格</span><strong>1,200 CAT</strong></div><div class="summary-item"><span>猫条账本余额</span><strong>3,680 CAT</strong></div><div class="summary-item"><span>已有预留金额</span><strong>0 CAT</strong></div><div class="summary-item"><span>当前可用余额</span><strong>3,680 CAT</strong></div><div class="summary-item"><span>提交后预留金额</span><strong>1,200 CAT</strong></div><div class="summary-item"><span>提交后可用余额</span><strong>2,480 CAT</strong></div><div class="summary-item"><span>取消规则</span><strong>待招募、招募中或选秀中由客户取消并释放预留；终选后先预览</strong></div></div><div class="callout" style="margin-top:12px"><strong>确认提交将预留 1,200 CAT</strong>｜订单完成时捕获；候选池无自然截止，只有客户取消或明确失败才释放订单预留。</div><div class="button-row" style="margin-top:12px"><button class="dc-btn action" data-op="getOrder">返回修改</button><button class="dc-btn primary action" data-op="submitOrder">确认提交并预留</button></div></div></div>
+        <div class="doc-note"><strong>交互原则：</strong>结构化选项使用消息组件；补充备注使用单字段 Modal；完整确认和取消确认使用私密消息按钮。三种界面分别承担不同任务。</div>
+      </section>
+
+      <section class="screen stateful" id="discord-player-workbench">
+        <div class="page-head"><div><h1>D5. 陪玩工作台</h1><p class="lede">独立 Discord 私密界面；集中展示客服审核资格、可报名候选池、本人报名、正式订单、支持和收益摘要。</p></div><div class="chips"><span class="api-tag">getPlayerWorkbench</span><span class="api-tag">applyToOrderSelectionPool</span><span class="trace-tag">REQ-P0-PLAYER-01 · SEL-01</span></div></div>
+        <div class="layout-2">
+          <div class="discord-window" style="min-height:570px"><div class="server-rail"><div class="server active">PLAY</div></div><div class="channel-rail"><div class="guild-name">陪玩俱乐部</div><div class="channel-list"><div class="channel-label">陪玩私密工具</div><div class="channel active"># 我的工作台</div><div class="channel"># 候选池</div><div class="channel"># 正式订单</div></div></div><div class="chat"><div class="chat-head"><strong># 我的工作台</strong><span class="status green">仅陪玩B可见</span></div><div class="chat-body"><div class="message"><div class="avatar">BOT</div><div><div class="message-meta">陪玩工作台 Bot <span class="status blue">应用</span><time>今天 10:44</time></div><div class="discord-embed"><div class="embed-body"><div class="button-row" style="justify-content:space-between"><h3>陪玩B · 工作摘要</h3><span class="status green">审核 ACTIVE</span></div><dl class="kv"><dt>客服审核状态</dt><dd>ACTIVE</dd><dt>运营标签</dt><dd>无畏契约 · 中文</dd><dt>可报名候选池</dt><dd>2 个</dd><dt>本人报名</dt><dd>1 个</dd><dt>正式订单</dt><dd>无</dd><dt>最近计时</dt><dd>无进行中计时</dd><dt>待确认收益</dt><dd>2,520 CAT</dd><dt>本月已确认</dt><dd>14,280 CAT</dd></dl></div><div class="discord-actions"><button class="dc-btn primary action" data-op="getPlayerWorkbench">查看可报名候选池</button><button class="dc-btn action" data-op="getPlayerWorkbench">查看正式订单</button><button class="dc-btn action" data-op="listCurrentPlayerEarnings">收益明细</button></div></div></div></div></div><div class="chat-input">陪玩私密工作台由 Bot 更新</div></div></div>
+          <div class="panel"><div class="panel-head"><h2>资格与候选池报名</h2><span class="status green">当前可报名</span></div><div class="panel-body"><dl class="kv"><dt>客服审核状态</dt><dd><span class="status green">ACTIVE</span></dd><dt>运营标签</dt><dd>无畏契约 · 北美 · 中文</dd><dt>可报名候选池</dt><dd>2 个</dd><dt>本人报名</dt><dd>1 个</dd><dt>正式订单</dt><dd>无</dd><dt>不符合原因</dt><dd>无；若失去资格，这里显示客服审核状态和下一步</dd></dl><div class="divider"></div><p class="muted fine">陪玩端没有在线或接单开关。报名资格由 API 按客服审核状态、Guild 和运营标签判断。</p><div class="button-row"><button class="btn primary action" data-op="applyToOrderSelectionPool">查看可报名候选池</button><button class="btn action" data-op="withdrawOrderSelectionApplication">查看本人报名</button></div><div class="divider"></div><h3>需要帮助</h3><p class="muted fine">资格变化、计时异常或订单问题都会创建可追踪的客服任务。</p><div class="button-row"><button class="btn action" data-op="createOrderStaffTask">联系陪玩支持</button><button class="btn action" data-op="listCurrentUserStaffTasks">查看处理进度</button></div></div></div>
+        </div>
+      </section>
+
+      <section class="screen stateful" id="discord-dispatch">
+        <div class="page-head"><div><h1>D6. 候选池报名与客户终选</h1><p class="lede">ACTIVE、同 Guild 且标签匹配的陪玩可报名；Presence、旧 availability 和其他活跃订单不构成报名门禁。</p></div><div class="chips"><span class="api-tag">getPlayerWorkbench</span><span class="api-tag">applyToOrderSelectionPool</span><span class="api-tag">withdrawOrderSelectionApplication</span><span class="trace-tag">SEL-01 · GATE-P0-04</span></div></div>
+        <div class="layout-2">
+          <div class="discord-window" style="min-height:540px"><div class="server-rail"><div class="server active">PLAY</div></div><div class="channel-rail"><div class="guild-name">陪玩俱乐部</div><div class="channel-list"><div class="channel-label">陪玩私密工具</div><div class="channel"># 我的工作台</div><div class="channel active"># 候选池</div><div class="channel"># 当前订单</div></div></div><div class="chat"><div class="chat-head"><strong># 候选池</strong><span class="status green">2 个可报名</span></div><div class="chat-body"><div class="message"><div class="avatar">BOT</div><div><div class="message-meta">招募 Bot <span class="status blue">应用</span></div><div class="discord-embed"><div class="embed-body"><div class="button-row" style="justify-content:space-between"><h3>招募订单 #P-1042</h3><span class="status amber">COLLECTING · 无截止</span></div><dl class="kv"><dt>游戏 / 服务</dt><dd>无畏契约 / 娱乐陪玩</dd><dt>区服 / 时长</dt><dd>北美 / 2 小时</dd><dt>结构化要求</dt><dd>中文交流 · 轻松娱乐 · 当前白银</dd><dt>补充备注</dt><dd>希望语音沟通清晰</dd><dt>开始方式</dt><dd>尽快开始（即时单）</dd></dl></div><div class="discord-actions"><button class="dc-btn primary action" data-op="getPlayerWorkbench">查看完整要求</button><button class="dc-btn action" data-op="withdrawOrderSelectionApplication">撤回报名</button></div></div></div></div></div><div class="chat-input">有效陪玩可报名，客户手动终止招募</div></div></div>
+          <div class="panel"><div class="panel-head"><h2>报名确认</h2><span class="status amber">不会显示客户敏感信息</span></div><div class="panel-body"><div class="callout warning">报名不会直接成为正式参与人，也不会开始计时。客户终止招募并原子终选后，入选陪玩才获得私密频道权限并分别确认本人就绪。</div><dl class="kv" style="margin-top:12px"><dt>资格校验</dt><dd>通过 · 版本 v18</dd><dt>要求匹配</dt><dd>游戏、区服、语言标签均匹配</dd><dt>招募状态</dt><dd style="color:var(--amber)">COLLECTING · 由客户手动终止</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn success action" data-op="applyToOrderSelectionPool">报名候选池</button><button class="btn action" data-op="getPlayerWorkbench">返回列表</button></div><div class="divider"></div><h3>结果状态</h3><div class="callout"><strong>报名成功：</strong>已进入 #P-1042 候选池；等待客户终选。</div><div class="callout warning" style="margin-top:8px"><strong>并发失败：</strong>候选池或订单版本已变化，列表自动刷新。</div><div class="callout danger" style="margin-top:8px"><strong>资格失败：</strong>显示当前资格原因与支持入口，不泄露审核材料。</div></div></div>
+        </div>
+      </section>
+
+      <section class="screen stateful" id="discord-player-order">
+        <div class="page-head"><div><h1>D7. 陪玩当前订单</h1><p class="lede">终选后的完整执行面板；要求、频道、逐名陪玩就绪、计时、完成申请、支持与收益均在同一私密界面。</p></div><div class="chips"><span class="api-tag">getPlayerWorkbench</span><span class="api-tag">getOrder</span><span class="api-tag">setOrderReadiness</span><span class="api-tag">requestOrderCompletion</span><span class="trace-tag">REQ-P0-READY-01 · GATE-P0-05</span></div></div>
+        <div class="layout-2">
+          <div class="discord-window" style="min-height:590px"><div class="server-rail"><div class="server active">PLAY</div></div><div class="channel-rail"><div class="guild-name">陪玩俱乐部</div><div class="channel-list"><div class="channel-label">陪玩私密工具</div><div class="channel"># 我的工作台</div><div class="channel"># 匹配订单</div><div class="channel active"># 当前订单</div><div class="channel-label">已授权</div><div class="channel"># order-p-1042</div><div class="channel">◉ 订单语音-1042</div></div></div><div class="chat"><div class="chat-head"><strong># 当前订单</strong><span class="status amber">ACCEPTED · 待全体陪玩准备</span></div><div class="chat-body"><div class="message"><div class="avatar">BOT</div><div><div class="message-meta">陪玩工作台 Bot <span class="status blue">应用</span></div><div class="discord-embed"><div class="embed-body"><h3>#P-1042 · 当前订单</h3><dl class="kv"><dt>完整要求</dt><dd>无畏契约 / 娱乐陪玩 / 北美 / 2 小时</dd><dt>需求标签</dt><dd>中文交流 · 轻松娱乐 · 当前白银</dd><dt>补充备注</dt><dd>希望语音沟通清晰</dd><dt>陪玩B</dt><dd><span class="status green">已就绪</span></dd><dt>陪玩C</dt><dd><span class="status amber">待确认</span></dd><dt>就绪倒计时</dt><dd>08:42；超时自动转客服</dd><dt>服务计时</dt><dd>等待全体有效陪玩就绪后由系统开始</dd><dt>预计收益</dt><dd>840 CAT</dd></dl></div><div class="discord-actions"><button class="dc-btn primary action" data-op="getOrder">加入订单频道</button><button class="dc-btn green action" data-op="setOrderReadiness">更新本人为已就绪</button><button class="dc-btn action" data-op="getOrder">刷新状态</button></div></div></div></div></div><div class="chat-input">仅订单参与者可见</div></div></div>
+          <div class="panel"><div class="panel-head"><h2>执行与下一步</h2><span class="status blue">系统控制计时</span></div><div class="panel-body"><dl class="kv"><dt>当前阶段</dt><dd>等待全体有效陪玩就绪</dd><dt>下一步</dt><dd>加入频道；每名陪玩确认本人设备和沟通准备</dd><dt>服务计时器</dt><dd>00:00:00（未开始）</dd><dt>完成申请窗口</dt><dd>进入 IN_SERVICE 后开放</dd><dt>本单预计收益</dt><dd>840 CAT · 完成结案后入账</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn success action" data-op="requestOrderCompletion">申请完成</button><button class="btn warning action" data-op="createOrderStaffTask">报告订单问题</button><button class="btn action" data-op="getPlayerWorkbench">刷新收益摘要</button></div><div class="callout warning" style="margin-top:12px">“申请完成”只请求用户确认；订单完成后才捕获订单预留并生成陪玩收益。全体有效陪玩就绪前按钮禁用。</div><div class="divider"></div><h3>陪玩支持任务</h3><ul class="timeline"><li><time>10:47:10 · SYSTEM</time>终选成功并授权订单频道</li><li><time>10:51:20 · 陪玩B</time>已确认本人就绪</li><li><time>剩余 08:42</time>等待陪玩C确认；超时将自动创建客服任务</li></ul><button class="btn action" data-op="listCurrentUserStaffTasks">查看支持进度</button></div></div>
+        </div>
+      </section>
+
+      <section class="screen stateful" id="discord-gift">
+        <div class="page-head"><div><h1>D8. 送礼预留、客服核对与批准</h1><p class="lede">礼物在请求时立即预留，批准时捕获；拒绝、过期或撤回后释放，捕获成功才播报。</p></div><div class="chips"><span class="api-tag">createGiftRequest</span><span class="api-tag">cancelGiftRequest</span><span class="api-tag">verifyStaffTask</span><span class="api-tag">approveGiftRequest</span><span class="trace-tag">REQ-P0-GIFT-01</span></div></div>
+        <div class="layout-even">
+          <div class="panel"><div class="panel-head"><h2>用户送礼申请</h2><span class="status blue">订单 #P-1042</span></div><div class="panel-body"><div class="field"><label>礼物</label><select><option>星光礼盒 · 5,200.0 CAT</option><option>庆祝花束 · 880.0 CAT</option><option>冠军奖杯 · 28,880.0 CAT</option></select></div><dl class="kv"><dt>接收陪玩</dt><dd>@陪玩B（由订单固定）</dd><dt>猫条账本余额</dt><dd>7,680.0 CAT</dd><dt>已有预留金额</dt><dd>1,200.0 CAT</dd><dt>当前可用余额</dt><dd>6,480.0 CAT</dd><dt>礼物预留后可用</dt><dd>1,280.0 CAT</dd><dt>预留有效期</dt><dd>请求创建后 30 分钟</dd><dt>当前阶段</dt><dd>服务中</dd></dl><div class="callout warning" style="margin:12px 0">确认请求会立即预留 5,200.0 CAT，客服只核对礼物、目标和沟通结果。批准时捕获；拒绝、过期或撤回后释放。</div><div class="button-row"><button class="btn primary action" data-op="createGiftRequest">确认请求并预留</button><button class="btn danger action" data-op="cancelGiftRequest">撤回并释放预留</button></div><div class="callout danger" style="margin-top:10px"><strong>余额不足示例：</strong>冠军奖杯还差 22,400.0 CAT，确认按钮禁用。<button class="btn compact action" style="margin-left:6px" data-op="getCurrentBalance">前往充值</button></div></div></div>
+          <div class="panel"><div class="panel-head"><h2>Discord 客服处理卡片</h2><span class="status amber">等待核对</span></div><div class="panel-body"><dl class="kv"><dt>请求</dt><dd>#G-2088</dd><dt>用户 / 联系</dt><dd>@用户A · 私聊可用</dd><dt>目标陪玩</dt><dd>@陪玩B</dd><dt>礼物 / 金额</dt><dd>星光礼盒 / 5,200 CAT</dd><dt>关联订单</dt><dd>#P-1042</dd><dt>语音频道</dt><dd>订单语音-1042 · 可加入</dd><dt>预留状态</dt><dd><span class="status green">RESERVED</span> · rsv_81K</dd><dt>预留到期</dt><dd style="color:var(--amber)">剩余 24:18</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn action" data-op="claimStaffTask">认领任务</button><button class="btn action" data-op="getStaffTask">加入语音</button><button class="btn action" data-op="getStaffTask">私聊用户</button><button class="btn primary action" data-op="verifyStaffTask">已核对，提交审批</button><button class="btn warning action" data-op="verifyStaffTask">升级处理</button></div></div></div>
+        </div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>审批人视图：#G-2088 · 5,200 CAT</h2><span id="giftRoleHint" class="status amber">L1 只能提交审批</span></div><div class="panel-body"><div class="callout">批准时 API 再读内部账本余额并原子捕获已有预留；不由客服计算余额。播报失败只重试消息，不重复捕获。</div><div class="button-row" style="margin-top:12px"><button class="btn success role-action action" data-min="2" data-fallback="approval" data-op="approveGiftRequest">批准并捕获预留</button><button class="btn danger role-action action" data-min="2" data-fallback="disable" data-op="rejectGiftRequest">拒绝并释放预留</button></div><div class="permission-note">当前角色不能执行最终捕获；可创建审批请求。</div></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>高额规则演示：#G-2091 · 52,000 CAT</h2><span class="status red">最低需要 L4</span></div><div class="panel-body"><p class="fine muted">L1–L3：提交 L4 处理；L4：可直接执行，即使由自己发起也无需另一人复核。原因、step-up 和审计仍为必填。</p><button class="btn warning high-value-action action" data-op="approveGiftRequest">提交 L4 处理</button></div></div>
+      </section>
+
+      <section class="screen stateful" id="discord-center">
+        <div class="page-head"><div><h1>D9. 我的服务中心、消费与我的收益</h1><p class="lede">全部以 ephemeral 私密响应展示；“我的收益”只展示当前用户作为受益人的记录，不显示任何对外推荐关系。</p></div><div class="chips"><span class="api-tag">getMyServiceCenter</span><span class="api-tag">getMyBalance</span><span class="api-tag">listMyConsumptions</span><span class="api-tag">listMyCommissions</span><span class="trace-tag">REQ-P0-PRIVACY-01</span></div></div>
+        <div class="layout-2"><div class="panel"><div class="panel-head"><h2>我的猫条钱包</h2><span class="status blue">仅你可见</span></div><div class="metric-row"><div class="metric"><span>猫条账本余额</span><strong>3,680.0 CAT</strong></div><div class="metric"><span>预留金额</span><strong>1,200.0 CAT</strong></div><div class="metric"><span>可用余额</span><strong>2,480.0 CAT</strong></div><div class="metric"><span>进行中订单</span><strong>1</strong></div></div><div class="panel-body"><p class="op-caption"><code>ledgerBalanceMinor</code> / <code>reservedMinor</code> / <code>availableMinor</code> / <code>currency</code> / <code>calculatedAt</code></p><div class="button-row"><button class="btn primary action" data-op="listMyConsumptions">消费记录</button><button class="btn action" data-op="listMyCommissions">我的收益</button><button class="btn action" data-op="getOrder">进入订单 #P-1042</button><button class="btn action" data-op="getMyBalance">刷新余额</button></div></div></div>
+          <div class="panel"><div class="panel-head"><h2>我的收益摘要</h2><span class="status green">当前用户是受益人</span></div><div class="panel-body"><dl class="kv"><dt>待确认</dt><dd>528 CAT</dd><dt>已确认</dt><dd>1,284 CAT</dd><dt>已发放</dt><dd>800 CAT</dd><dt>来源用户</dt><dd>默认脱敏，仅显示“用户 9***2”</dd><dt>计划</dt><dd>PROMOTER_FIRST_PURCHASE 或 PLAYER_LIFETIME（按本人受益资格）</dd></dl><div class="callout warning" style="margin-top:12px">这里只显示你是受益人的收益事实；不会显示你推荐了谁，也不会向被推荐用户泄露受益人、计划、比例、金额或状态。</div></div></div></div>
+        <div class="layout-even" style="margin-top:14px"><div class="panel"><div class="panel-head"><h2>客服任务进度</h2><span class="status blue">#T-4108 · 处理中</span></div><div class="panel-body"><ul class="timeline"><li><time>11:02 · 用户A</time>提交取消协助</li><li><time>11:03 · SYSTEM</time>任务创建并返回幂等结果</li><li><time>11:05 · 客服01</time>已认领，正在核对取消影响</li></ul><div class="button-row"><button class="btn action" data-op="listCurrentUserStaffTasks">刷新处理进度</button><button class="btn action" data-op="local">安全重试原请求</button></div></div></div><div class="panel"><div class="panel-head"><h2>安全重试</h2><span class="status amber">未知结果保护</span></div><div class="panel-body"><p class="fine">出现超时或网络错误时保留原幂等键。资金结果未知时先查询业务结果，不允许新建第二笔预留或重复捕获。</p><div class="callout warning">请求 <code>req_01J4B6J7T</code> 未返回。安全重试会复用 <code>idem_order_P1042_submit_v7</code>。</div><button class="btn primary action" style="margin-top:12px" data-op="local">安全重试</button></div></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>最近消费</h2><span class="muted fine">客户金额仅按猫条展示</span></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>类型</th><th>来源</th><th>对象</th><th>金额</th><th>状态</th></tr></thead><tbody><tr><td>今天 11:32</td><td>订单</td><td>#P-1038</td><td>@陪玩C</td><td>1,200.0 CAT</td><td><span class="status green">已完成</span></td></tr><tr><td>昨天 22:18</td><td>礼物</td><td>#G-2071</td><td>@陪玩B</td><td>880.0 CAT</td><td><span class="status green">已送出</span></td></tr><tr><td>07-13 19:10</td><td>订单冲正</td><td>#P-1019</td><td>@陪玩D</td><td>-600.0 CAT</td><td><span class="status amber">已冲正</span></td></tr></tbody></table></div></div>
+      </section>
+
+      <section class="screen stateful" id="discord-profile">
+        <div class="page-head"><div><h1>D10. 我的 Profile 与陪玩周报</h1><p class="lede">用户和陪玩通过 ephemeral 私密入口查看本人事实；服务端从当前 Discord Actor 推导身份。</p></div><div class="chips"><span class="api-tag">getCurrentUserProfileSummary</span><span class="api-tag">listCurrentPlayerWeeklyReports</span></div></div>
+        <div class="layout-2"><div class="panel"><div class="panel-head"><h2>用户 Profile</h2><span class="status green">余额刚刚刷新</span></div><div class="metric-row"><div class="metric"><span>猫条账本余额</span><strong>3,680.0 CAT</strong></div><div class="metric"><span>有效预留</span><strong>1,200.0 CAT</strong></div><div class="metric"><span>当前可用</span><strong>2,480.0 CAT</strong></div><div class="metric"><span>近 30 天订单</span><strong>6</strong></div></div><div class="panel-body"><div class="button-row"><button class="btn primary action" data-op="listCurrentUserOrders">我的订单</button><button class="btn action" data-op="listCurrentUserConsumptions">消费记录</button><button class="btn action" data-op="refreshCurrentUserProfile">刷新余额</button></div><div class="callout warning" style="margin-top:12px">余额陈旧时明确标注且只读；用户 Profile 不返回推荐受益人。</div></div></div>
+          <div class="panel"><div class="panel-head"><h2>陪玩阿岚 · 2026-W29</h2><span class="status blue">仅本人可见</span></div><div class="panel-body"><dl class="kv"><dt>完成订单</dt><dd>18 单</dd><dt>服务时长</dt><dd>32 小时</dd><dt>待确认收益</dt><dd>1,680 CAT</dd><dt>可结算收益</dt><dd>12,460 CAT</dd><dt>已归入批次</dt><dd>9,800 CAT</dd><dt>转账入口</dt><dd>无；系统不接受主动提现</dd></dl><div class="button-row"><button class="btn primary action" data-op="getCurrentPlayerWeeklyReport">查看明细</button><button class="btn action" data-op="listCurrentPlayerWeeklyReports">上一期</button></div></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-workbench">
+        <div class="page-head"><div><h1>A1. Dashboard 运营工作台</h1><p class="lede">八项 P0 运营指标来自统一 API；L1–L4 在同一页面呈现不同范围与敏感信息可见性。</p></div><div class="chips"><span class="api-tag">getDashboardSummary</span><span class="api-tag">listStaffTasks</span><span class="trace-tag">REQ-P0-DASH-01</span><span class="trace-tag">REQ-P0-RBAC-01</span></div></div>
+        <div class="role-banner"><span>当前演示：<strong class="current-role-label">L1 基础客服</strong>｜数据范围：<b id="scopeLabel">我的任务</b></span><span>Discord Role 已同步 · 权限版本 42</span></div>
+        <div class="panel"><div class="metric-row eight"><div class="metric"><span>今日订单</span><strong>42</strong></div><div class="metric"><span>进行中订单</span><strong>11</strong></div><div class="metric"><span>待处理任务</span><strong>8</strong></div><div class="metric"><span>已完成净消费</span><strong>84,200 CAT</strong></div><div class="metric"><span>礼物净消费</span><strong>19,360 CAT</strong></div><div class="metric"><span>预留总额</span><strong>21,640 CAT</strong></div><div class="metric"><span>终选完成率</span><strong>91.7%</strong></div><div class="metric"><span>异常数</span><strong style="color:var(--red)">3</strong></div></div><div class="panel-head"><h2>任务队列</h2><div class="button-row"><button class="btn compact action" data-op="listStaffTasks">仅看未认领</button><button class="btn compact action" data-op="listStaffTasks">刷新</button></div></div><div class="table-scroll"><table><thead><tr><th>等待</th><th>任务</th><th>关联对象</th><th>用户</th><th>自动化</th><th>状态</th><th>认领人</th><th></th></tr></thead><tbody><tr class="row-selected"><td><b style="color:var(--red)">09:42</b></td><td>送礼核对</td><td>#G-2088 / #P-1042</td><td>用户A</td><td><span class="status green">运行中</span></td><td><span class="status amber">待认领</span></td><td>—</td><td><button class="btn compact primary action" data-op="claimStaffTask">认领</button></td></tr><tr><td>04:18</td><td>取消协助</td><td>#P-1045</td><td>用户D</td><td><span class="status amber">已暂停</span></td><td><span class="status blue">处理中</span></td><td>我</td><td><button class="btn compact action" data-op="getStaffTask">查看</button></td></tr><tr><td>02:03</td><td>完成超时</td><td>#P-1039</td><td>用户F</td><td><span class="status amber">已暂停</span></td><td><span class="status amber">等待核对</span></td><td>客服02</td><td><button class="btn compact action" data-op="getStaffTask">查看</button></td></tr></tbody></table></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>L1–L4 当前可见状态</h2><span class="trace-tag">REQ-P0-RBAC-01</span></div><div class="panel-body"><div class="callout success" style="margin-bottom:12px"><strong>权限继承：</strong>高级别自动拥有低级别的全部执行权限；界面和 API 都按最低级别判断。</div><div class="role-visibility active" data-role-visible="1"><div class="callout"><strong>L1_SUPPORT：</strong>仅我的任务与本人操作审计；参与者脱敏；受益人和收益金额隐藏；可认领、联系、核对、暂停并提交审批。</div></div><div class="role-visibility" data-role-visible="2"><div class="callout"><strong>L2_SUPERVISOR：</strong>继承 L1；团队任务、限额内审批；仅在关联任务中有限查看收益上下文。</div></div><div class="role-visibility" data-role-visible="3"><div class="callout"><strong>L3_OPERATIONS：</strong>继承 L1–L2；全业务订单、资金、两类收益计划、绑定纠错和审计；≥ 500,000 CAT subunits 提交 L4。</div></div><div class="role-visibility" data-role-visible="4"><div class="callout"><strong>L4_ADMIN_OWNER：</strong>继承 L1–L3；全系统、Role 映射、任何金额直接执行和 step-up；仍不能硬删除资金、收益或审计事实。</div></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-task">
+        <div class="page-head"><div><h1>A2. 客服任务详情</h1><p class="lede">任务状态与订单状态分开保存；关键阶段可暂停自动化、由员工接管，再安全恢复或提交审批。</p></div><div class="chips"><span class="status amber">GIFT_REVIEW</span><span class="api-tag">claimStaffTask</span><span class="api-tag">pauseOrderAutomation</span><span class="api-tag">resumeOrderAutomation</span><span class="trace-tag">REQ-P0-AUTOMATION-01</span></div></div>
+        <div class="layout-2"><div class="panel"><div class="panel-head"><h2>#T-4092 · 送礼核对</h2><span class="status blue">我处理中</span></div><div class="panel-body"><dl class="kv"><dt>用户 / 陪玩</dt><dd>用户A / 陪玩B</dd><dt>礼物 / 金额</dt><dd>星光礼盒 / 5,200 CAT</dd><dt>关联订单</dt><dd>#P-1042 · 服务中</dd><dt>预留状态</dt><dd>RESERVED · 5,200 CAT · 剩余 24:18</dd><dt>余额摘要</dt><dd>账面 7,680 CAT / 预留 6,400 CAT / 可用 1,280 CAT</dd><dt>语音频道</dt><dd>订单语音-1042</dd><dt>自动化状态</dt><dd><span class="status amber">已暂停 · 客服01 接管</span></dd><dt>等待时间</dt><dd style="color:var(--amber)">09:42</dd></dl><div class="button-row" style="margin-top:14px"><button class="btn action" data-op="getAdminOrder">进入订单频道</button><button class="btn action" data-op="getStaffTask">加入语音</button><button class="btn action" data-op="getStaffTask">私聊用户</button></div><div class="divider"></div><div class="field"><label>内部核对记录</label><textarea>已通过订单语音确认：用户选择星光礼盒，接收人为当前陪玩B，金额 5,200 CAT。</textarea><small>内部备注不会发送给用户。</small></div><div class="button-row"><button class="btn warning action" data-op="pauseOrderAutomation">暂停自动流程</button><button class="btn success action" data-op="resumeOrderAutomation">恢复自动流程</button><button class="btn primary action" data-op="claimStaffTask">接管处理</button><button class="btn primary action" data-op="verifyStaffTask">已核对，提交审批</button><button class="btn warning action" data-op="verifyStaffTask">升级异常</button></div></div></div>
+          <div class="panel"><div class="panel-head"><h2>任务时间线</h2><span class="muted fine">不可删除</span></div><div class="panel-body"><ul class="timeline"><li><time>10:52:08 · SYSTEM</time>创建礼物请求与客服任务</li><li><time>10:52:09 · BOT</time>客服频道卡片发送成功</li><li><time>10:55:18 · L1 客服01</time>认领任务</li><li><time>10:58:33 · L1 客服01</time>打开订单语音频道</li></ul></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-order">
+        <div class="page-head"><div><h1>A3. 订单详情、资金时间线与人工接管</h1><p class="lede">默认自动化；员工可暂停、接管、恢复或提交审批，订单资金以预留生命周期呈现。</p></div><div class="chips"><span class="status green">IN_SERVICE</span><span class="api-tag">getAdminOrder</span><span class="api-tag">pauseOrderAutomation</span><span class="api-tag">resumeOrderAutomation</span><span class="api-tag">resolveOrder</span><span class="trace-tag">REQ-P0-FUNDS-01 · GATE-P0-02</span></div></div>
+        <div class="layout-2"><div class="panel"><div class="panel-head"><h2>#P-1042</h2><div class="button-row"><button class="btn compact action" data-op="getAdminOrder">打开 Discord</button><button class="btn compact action" data-op="getAdminOrder">刷新</button></div></div><div class="panel-body"><dl class="kv"><dt>用户</dt><dd>用户A · usr_9F2</dd><dt>陪玩</dt><dd>陪玩B · ACTIVE</dd><dt>服务</dt><dd>无畏契约 / 娱乐陪玩 / 北美</dd><dt>客户价快照</dt><dd>1,200 CAT</dd><dt>陪玩收益快照</dt><dd>840 CAT</dd><dt>订单预留</dt><dd>rsv_71A · CAPTURED · 1,200 CAT</dd><dt>余额摘要</dt><dd>账面 7,680 CAT / 预留 5,200 CAT / 可用 2,480 CAT</dd><dt>陪玩就绪</dt><dd>陪玩B 10:47:41 · 陪玩C 10:47:52</dd><dt>自动化</dt><dd><span class="status green">运行中</span></dd><dt>版本</dt><dd>v9</dd></dl><div class="divider"></div><div class="button-row"><button class="btn warning action" data-op="pauseOrderAutomation">暂停自动流程</button><button class="btn success action" data-op="resumeOrderAutomation">恢复自动流程</button><button class="btn primary action" data-op="pauseOrderAutomation">客服接管</button><button class="btn warning role-action action" data-min="2" data-fallback="approval" data-op="reassignOrder">人工转派</button><button class="btn danger role-action action" data-min="2" data-fallback="approval" data-op="resolveOrder">异常结案</button><button class="btn danger role-action action" data-min="2" data-fallback="approval" data-op="refundOrder">退款</button><button class="btn action" data-op="createOrderStaffTask">创建客服任务</button></div><div class="permission-note">L1 可暂停并提交处理建议，但不能直接执行退款、转派或结案。</div></div></div>
+          <div class="panel"><div class="panel-head"><h2>完整业务时间线</h2><span class="muted fine">订单、资金、逐名陪玩就绪、频道与人工动作</span></div><div class="panel-body"><ul class="timeline"><li><time>10:42:11 · 用户A</time>创建并保存草稿，需求版本 v7</li><li><time>10:44:20 · 用户A</time>确认提交；创建订单预留 rsv_71A 1,200 CAT</li><li><time>10:44:21 · SYSTEM</time>进入待派单；客户开启无时限招募</li><li><time>10:45:08 · 用户A</time>终选陪玩B与陪玩C并授权私密频道</li><li><time>10:47:41 · 陪玩B</time>确认本人就绪</li><li><time>10:47:52 · 陪玩C</time>确认本人就绪；全体有效陪玩就绪，自动进入 IN_SERVICE</li><li><time>12:48:08 · 陪玩B</time>提交完成申请</li><li><time>12:50:12 · 用户A</time>确认完成；捕获 rsv_71A 并生成消费与陪玩收益</li></ul></div></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>交易与预留时间线</h2><span class="trace-tag">REQ-P0-AUDIT-01</span></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>来源</th><th>业务对象</th><th>资金事件</th><th>预留变化</th><th>可用余额变化</th><th>内部账本事实 / 结果</th></tr></thead><tbody><tr><td>10:44:20</td><td>订单提交</td><td>#P-1042 / rsv_71A</td><td>RESERVE</td><td>+1,200 CAT</td><td>-1,200 CAT</td><td>本地预留创建成功</td></tr><tr><td>10:52:08</td><td>礼物请求</td><td>#G-2088 / rsv_81K</td><td>RESERVE</td><td>+5,200 CAT</td><td>-5,200 CAT</td><td>本地预留创建成功</td></tr><tr><td>11:06:22</td><td>礼物批准</td><td>#G-2088 / rsv_81K</td><td>CAPTURE</td><td>-5,200 CAT</td><td>0 CAT</td><td>CAT DEBIT 与消费原子追加</td></tr><tr><td>12:50:12</td><td>订单完成</td><td>#P-1042 / rsv_71A</td><td>CAPTURE</td><td>-1,200 CAT</td><td>0 CAT</td><td>CAT DEBIT、消费与收益原子追加</td></tr><tr><td>13:03:20</td><td>部分结案示例</td><td>#P-1045 / rsv_72B</td><td>CAPTURE + RELEASE</td><td>-1,200 CAT</td><td>+600 CAT</td><td>捕获 600 CAT / 释放 600 CAT</td></tr></tbody></table></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>人工结案预览</h2><span class="status red">高风险操作</span></div><div class="panel-body"><div class="layout-3"><div class="field"><label>原因码</label><select><option>SERVICE_INTERRUPTED</option><option>CUSTOMER_NO_SHOW</option><option>PLAYER_NO_SHOW</option></select></div><div class="field"><label>退款金额</label><input value="600 CAT"></div><div class="field"><label>陪玩收益</label><input value="420 CAT"></div></div><div class="field"><label>处理说明</label><textarea>双方确认服务提前结束，按实际一小时结算。</textarea></div><div class="callout warning">当前操作不会删除原扣款或收益记录；API 将追加退款、收益更正和审计记录。</div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-people">
+        <div class="page-head"><div><h1>A4. 用户与陪玩</h1><p class="lede">L1 只读脱敏信息；L2 可标记风险和编辑陪玩标签；L3 可暂停或恢复。推荐来源永不进入普通用户详情。</p></div><div class="chips"><span class="api-tag">listAdminUsers</span><span class="api-tag">listAdminPlayers</span><span class="trace-tag">REQ-P0-PRIVACY-01</span></div></div>
+        <div class="layout-even"><div class="panel"><div class="panel-head"><h2>用户详情</h2><span class="status green">正常</span></div><div class="panel-body"><dl class="kv"><dt>业务用户</dt><dd>usr_9F2</dd><dt>Discord</dt><dd>用户A · 12****90</dd><dt>内部钱包</dt><dd>CAT · ACTIVE</dd><dt>余额摘要</dt><dd>账面 7,680 CAT / 预留 5,200 CAT / 可用 2,480 CAT</dd><dt>累计净消费</dt><dd>26,400 CAT</dd><dt>进行中订单</dt><dd>#P-1042</dd><dt>推荐来源</dt><dd>机密字段不在此视图返回</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn action" data-op="listAdminUserConsumptions">查看消费</button><button class="btn role-action action" data-min="2" data-fallback="disable" data-op="createUserRiskFlag">添加风险标记</button><button class="btn danger role-action action" data-min="3" data-fallback="approval" data-op="setUserOperationalStatus">暂停账户</button></div></div></div>
+          <div class="panel"><div class="panel-head"><h2>陪玩详情</h2><span class="status green">ACTIVE</span></div><div class="panel-body"><dl class="kv"><dt>陪玩</dt><dd>陪玩B · ply_2C7</dd><dt>报名资格</dt><dd>有效；由目录、Guild 与运营状态共同决定</dd><dt>标签</dt><dd>无畏契约、北美、中文</dd><dt>当前订单</dt><dd>#P-1042</dd><dt>待确认收益</dt><dd>2,520 CAT</dd><dt>风险事件</dt><dd>0</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn role-action action" data-min="2" data-fallback="disable" data-op="updatePlayerOperationalTags">编辑运营标签</button><button class="btn warning role-action action" data-min="3" data-fallback="approval" data-op="setPlayerOperationalStatus">暂停业务资格</button><button class="btn success role-action action" data-min="3" data-fallback="approval" data-op="approvePlayer">审核通过</button></div></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-catalog" data-page-min="2">
+        <div class="page-head"><div><h1>A5. 服务目录</h1><p class="lede">L2 只读；L3/L4 创建新版本并上下架。启用项必须同时有客户价和陪玩结算价。</p></div><div class="chips"><span class="api-tag">listAdminServiceCatalog</span><span class="api-tag">createServiceCatalogVersion</span></div></div>
+        <div class="panel"><div class="panel-head"><h2>服务版本</h2><button class="btn primary role-action action" data-min="3" data-fallback="disable" data-op="createServiceCatalogVersion">新建服务版本</button></div><div class="table-scroll"><table><thead><tr><th>游戏 / 服务</th><th>区服</th><th>计价单位</th><th>最低数量</th><th>客户单价</th><th>陪玩单价</th><th>版本</th><th>状态</th><th></th></tr></thead><tbody><tr><td>无畏契约 / 娱乐陪玩</td><td>北美</td><td>小时</td><td>1</td><td>600 CAT</td><td>420 CAT</td><td>v3</td><td><span class="status green">已上架</span></td><td><button class="btn compact role-action action" data-min="3" data-fallback="disable" data-op="updateServiceCatalogVersion">创建新版本</button></td></tr><tr><td>英雄联盟 / 上分陪玩</td><td>北美</td><td>局</td><td>2</td><td>450 CAT</td><td>300 CAT</td><td>v2</td><td><span class="status amber">已下架</span></td><td><button class="btn compact role-action action" data-min="3" data-fallback="disable" data-op="updateServiceCatalogVersion">重新上架</button></td></tr></tbody></table></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-gifts">
+        <div class="page-head"><div><h1>A6. 礼物预留与审批</h1><p class="lede">请求时已预留；审批只核对并捕获已有预留，过期、拒绝或撤回释放。金额以 minor units + currency 为准。</p></div><div class="chips"><span class="api-tag">listAdminGiftRequests</span><span class="api-tag">approveGiftRequest</span><span class="api-tag">retryOutboxJob</span><span class="trace-tag">REQ-P0-GIFT-01</span></div></div>
+        <div class="panel"><div class="panel-head"><h2>待处理礼物</h2><span class="muted fine">3 项</span></div><div class="table-scroll"><table><thead><tr><th>等待</th><th>请求</th><th>用户 → 陪玩</th><th>礼物</th><th>预留状态</th><th>到期</th><th>核对</th><th>最低级别</th><th>操作</th></tr></thead><tbody><tr><td>09:42</td><td>#G-2088</td><td>用户A → 陪玩B</td><td>星光礼盒 · 5,200 CAT</td><td><span class="status green">RESERVED</span></td><td>24:18</td><td><span class="status green">已核对</span></td><td>L2</td><td><button class="btn compact success role-action action" data-min="2" data-fallback="approval" data-op="approveGiftRequest">批准并捕获</button></td></tr><tr><td>06:10</td><td>#G-2090</td><td>用户D → 陪玩E</td><td>冠军奖杯 · 28,880 CAT</td><td><span class="status green">RESERVED</span></td><td>18:02</td><td><span class="status green">已核对</span></td><td>L3</td><td><button class="btn compact warning role-action action" data-min="3" data-fallback="approval" data-op="approveGiftRequest">批准并捕获</button></td></tr><tr><td>02:31</td><td>#G-2091</td><td>用户F → 陪玩G</td><td>星河冠名 · 52,000 CAT</td><td><span class="status amber">RESERVED</span></td><td>11:46</td><td><span class="status green">已核对</span></td><td>L4</td><td><button class="btn compact warning high-value-action action" data-op="approveGiftRequest">提交 L4 处理</button></td></tr></tbody></table></div></div>
+        <div class="layout-even" style="margin-top:14px"><div class="callout"><strong>捕获成功、播报成功</strong><br>状态 ANNOUNCED；消费事实与符合条件的受益收益均已创建。</div><div class="callout warning"><strong>捕获成功、播报失败</strong><br>状态 CAPTURED；仅重试消息，不重复捕获。<button class="btn compact action" style="margin-left:6px" data-op="retryOutboxJob">重试播报</button></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-referrals" data-page-min="2">
+        <div class="page-head"><div><h1>A7. 机密推荐规则与两类收益计划</h1><p class="lede">两个计划互斥且分别管理；被推荐用户永远不可获知受益人、关系类型、比例、金额或状态。</p></div><div class="chips"><span class="api-tag">listAdminCommissions</span><span class="api-tag">getReferralPrograms</span><span class="api-tag">createReferralAttribution</span><span class="api-tag">updateCommission</span><span class="trace-tag">REQ-P0-REFERRAL-01</span><span class="trace-tag">REQ-P0-PRIVACY-01</span></div></div>
+        <div class="callout danger"><strong>机密规则：</strong>一个被推荐用户只允许一个有效来源，PROMOTER_FIRST_PURCHASE 与 PLAYER_LIFETIME 互斥。用户 API、Discord、错误、导出和通知不得暴露任何出向推荐信息。L1 默认不见受益人或金额；L2 仅按任务有限查看；L3/L4 才能绑定、纠错、确认和审计。</div>
+        <div class="role-visibility" data-role-visible="2" style="margin-top:14px"><div class="panel"><div class="panel-head"><h2>L2_SUPERVISOR 有限视图</h2><span class="status amber">任务上下文内</span></div><div class="panel-body"><p class="fine">仅显示关联任务是否存在收益影响和是否需要上报；不返回受益人、比例、金额，不提供绑定、改绑、确认或冲正动作。</p></div></div></div>
+        <div data-role-min-view="3">
+          <div class="layout-even" style="margin-top:14px"><div class="panel"><div class="panel-head"><h2>PROMOTER_FIRST_PURCHASE</h2><span class="status green">老板带新 · 已启用</span></div><div class="panel-body"><dl class="kv"><dt>受益人类型</dt><dd>PROMOTER</dd><dt>绑定方式</dt><dd>邀请码或管理员手工绑定</dd><dt>计算</dt><dd>首笔符合条件净消费的 5%，上限 880 CAT</dd><dt>生命周期</dt><dd>结算一次后永久结束</dd><dt>冲正</dt><dd>追加 CommissionAdjustment，不覆盖原记录</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn primary action" data-op="createReferralAttribution">绑定老板带新</button><button class="btn action" data-op="updatePolicySetting">管理计划</button></div></div></div>
+            <div class="panel"><div class="panel-head"><h2>PLAYER_LIFETIME</h2><span class="status green">陪玩长期收益 · 已启用</span></div><div class="panel-body"><dl class="kv"><dt>受益人类型</dt><dd>PLAYER</dd><dt>绑定方式</dt><dd>管理员确认陪玩来源</dd><dt>计算</dt><dd>长期符合条件净订单与净礼物消费的 2%</dd><dt>生命周期</dt><dd>绑定有效期内持续结算</dd><dt>冲正</dt><dd>追加 CommissionAdjustment，不覆盖原记录</dd></dl><div class="button-row" style="margin-top:12px"><button class="btn primary action" data-op="createReferralAttribution">绑定陪玩来源</button><button class="btn action" data-op="updatePolicySetting">管理计划</button></div></div></div></div>
+          <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>收益事实与调整</h2><button class="btn action" data-op="listAdminCommissions">刷新明细</button></div><div class="table-scroll"><table><thead><tr><th>收益</th><th>计划</th><th>受益人</th><th>来源用户</th><th>业务来源</th><th>净基数</th><th>金额</th><th>状态</th><th>动作</th></tr></thead><tbody><tr><td>#C-8801</td><td>PLAYER_LIFETIME</td><td>陪玩C</td><td>用户 9***2</td><td>订单 #P-1038</td><td>1,200 CAT</td><td>24 CAT</td><td><span class="status amber">待确认</span></td><td><button class="btn compact action" data-op="updateCommission">确认</button></td></tr><tr><td>#C-8792</td><td>PROMOTER_FIRST_PURCHASE</td><td>老板H</td><td>用户 4***8</td><td>礼物 #G-2071</td><td>880 CAT</td><td>44 CAT</td><td><span class="status green">已确认</span></td><td><button class="btn compact action" data-op="updateCommission">标记发放</button></td></tr><tr><td>#C-8710-A</td><td>PLAYER_LIFETIME</td><td>陪玩J</td><td>用户 7***1</td><td>订单退款 #P-1019</td><td>600 CAT</td><td>12 CAT</td><td><span class="status red">调整冲减</span></td><td><button class="btn compact action" data-op="getCommissionConfidential">查看调整</button></td></tr></tbody></table></div></div>
+        </div>
+      </section>
+
+      <section class="screen stateful" id="dash-approvals" data-page-min="2">
+        <div class="page-head"><div><h1>A8. 待处理队列</h1><p class="lede">一般业务达到最低等级即可执行；高额手动结算批次另行执行创建人与复核人分离规则。</p></div><div class="chips"><span class="api-tag">listApprovalRequests</span><span class="api-tag">approveApprovalRequest</span></div></div>
+        <div class="panel"><div class="panel-head"><h2>等待我的审批</h2><span class="status amber">2 项</span></div><div class="table-scroll"><table><thead><tr><th>申请</th><th>动作</th><th>对象</th><th>金额</th><th>发起人</th><th>最低级别</th><th>到期</th><th>操作</th></tr></thead><tbody><tr><td>#AP-302</td><td>礼物预留捕获</td><td>#G-2090</td><td>28,880 CAT</td><td>L2 主管03</td><td>L3</td><td>24 分钟</td><td><div class="button-row"><button class="btn compact success role-action action" data-min="3" data-fallback="disable" data-op="approveApprovalRequest">批准</button><button class="btn compact danger role-action action" data-min="3" data-fallback="disable" data-op="rejectApprovalRequest">拒绝</button></div></td></tr><tr><td>#AP-305</td><td>部分捕获并释放</td><td>#P-1002</td><td>52,000 CAT</td><td>L4 管理员本人</td><td>L4</td><td>51 分钟</td><td><div class="button-row"><button class="btn compact success role-action action" data-min="4" data-fallback="disable" data-op="approveApprovalRequest">直接批准并执行</button><button class="btn compact danger role-action action" data-min="4" data-fallback="disable" data-op="rejectApprovalRequest">拒绝</button></div></td></tr></tbody></table></div></div>
+        <div class="callout warning" style="margin-top:14px"><strong>数据变化保护：</strong>打开审批时重新读取对象、余额和版本。如果金额、状态或交易已变化，原审批失效并返回 <code>409 CONFLICT</code>，需重新提交。</div>
+      </section>
+
+      <section class="screen stateful" id="dash-access" data-page-min="4">
+        <div class="page-head"><div><h1>A9. 权限管理</h1><p class="lede">仅 L4 可见。Discord Role 提出级别请求，内部 staff_account 才是 API 授权事实来源。</p></div><div class="chips"><span class="status red">L4 + 二次验证</span><span class="api-tag">updateDiscordRoleMapping</span></div></div>
+        <div class="layout-even"><div class="panel"><div class="panel-head"><h2>Discord Role 映射</h2><span class="muted fine">版本 12</span></div><div class="table-scroll"><table><thead><tr><th>内部级别</th><th>Discord Role</th><th>同步规则</th><th></th></tr></thead><tbody><tr><td>L1_SUPPORT</td><td>role_***110</td><td>自动生效</td><td><button class="btn compact action" data-op="updateDiscordRoleMapping">修改</button></td></tr><tr><td>L2_SUPERVISOR</td><td>role_***220</td><td>自动生效</td><td><button class="btn compact action" data-op="updateDiscordRoleMapping">修改</button></td></tr><tr><td>L3_OPERATIONS</td><td>role_***330</td><td>首次需 L4 确认</td><td><button class="btn compact action" data-op="updateDiscordRoleMapping">修改</button></td></tr><tr><td>L4_ADMIN_OWNER</td><td>role_***440</td><td>另一名 L4 确认</td><td><button class="btn compact action" data-op="updateDiscordRoleMapping">修改</button></td></tr></tbody></table></div></div>
+          <div class="panel"><div class="panel-head"><h2>待确认升级</h2><span class="status amber">1 项</span></div><div class="panel-body"><dl class="kv"><dt>员工</dt><dd>运营04 · staff_041</dd><dt>当前级别</dt><dd>L2_SUPERVISOR</dd><dt>请求级别</dt><dd>L3_OPERATIONS</dd><dt>来源 Role</dt><dd>role_***330</dd><dt>检测时间</dt><dd>今天 10:17</dd></dl><div class="button-row" style="margin-top:14px"><button class="btn success action" data-op="approveStaffRoleElevation">确认升级</button><button class="btn danger action" data-op="rejectApprovalRequest">拒绝</button></div></div></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>后台账号与会话</h2><span class="muted fine">所有操作写入审计</span></div><div class="table-scroll"><table><thead><tr><th>员工</th><th>有效级别</th><th>Role 请求级别</th><th>MFA</th><th>最近登录</th><th>会话</th><th>操作</th></tr></thead><tbody><tr><td>客服01</td><td>L1</td><td>L1</td><td>—</td><td>2 分钟前</td><td>1</td><td><button class="btn compact danger action" data-op="revokeStaffSessions">撤销会话</button></td></tr><tr><td>运营01</td><td>L3</td><td>L3</td><td><span class="status green">已启用</span></td><td>18 分钟前</td><td>2</td><td><button class="btn compact action" data-op="updateStaffRole">调整级别</button></td></tr></tbody></table></div></div>
+        <div class="callout danger" style="margin-top:14px"><strong>永久限制：</strong>即使是 L4，界面也不提供硬删除订单、交易、退款、礼物、返佣、陪玩收益或审计记录的入口。</div>
+      </section>
+
+      <section class="screen stateful" id="dash-customer-profile" data-page-min="2">
+        <div class="page-head"><div><h1>A10. 客户 Profile</h1><p class="lede">店长按工作区查看客户订单、消费、礼物、预留和偏好；模块独立加载，敏感推荐受益关系不返回。</p></div><div class="chips"><span class="api-tag">getAdminCustomerProfileSummary</span><span class="api-tag">listAdminCustomerOrders</span><span class="api-tag">listAdminUserConsumptions</span></div></div>
+        <div class="metric-row"><div class="metric"><span>当前可用</span><strong>2,480 CAT</strong></div><div class="metric"><span>近 90 天净消费</span><strong>28,400 CAT</strong></div><div class="metric"><span>完成订单</span><strong>22</strong></div><div class="metric"><span>礼物消费</span><strong>6,080 CAT</strong></div></div>
+        <div class="callout" style="margin-top:14px"><strong>员工资金口径：</strong>除充值付款证据外，钱包、退款、目录、审批、收益和结算应付均录入并显示 CAT；结算可另显示线下实际支付 USD。</div>
+        <div class="layout-even" style="margin-top:14px"><div class="panel"><div class="panel-head"><h2>最近订单</h2><button class="btn compact action" data-op="listAdminCustomerOrders">查看全部</button></div><div class="table-scroll"><table><thead><tr><th>订单</th><th>服务</th><th>陪玩</th><th>金额</th><th>状态</th></tr></thead><tbody><tr><td>#P-1042</td><td>无畏契约 · 2h</td><td>阿岚</td><td>1,200 CAT</td><td><span class="status green">服务中</span></td></tr><tr><td>#P-1028</td><td>英雄联盟 · 1h</td><td>小北</td><td>680 CAT</td><td>已完成</td></tr></tbody></table></div></div><div class="panel"><div class="panel-head"><h2>模块与隐私</h2><span class="status blue">L2 脱敏</span></div><div class="panel-body"><dl class="kv"><dt>余额模块失败</dt><dd>显示 request_id；订单与统计仍可用</dd><dt>内部备注</dt><dd>按工作区隔离</dd><dt>联系方式</dt><dd>脱敏</dd><dt>推荐受益人</dt><dd>永不展示</dd></dl></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-settlements" data-page-min="2">
+        <div class="page-head"><div><h1>A11. 周期结算批次</h1><p class="lede">预览或生成、复核、导出和登记外部结果；系统不连接银行，也不代替店长在第三方平台转账。</p></div><div class="chips"><span class="api-tag">createSettlementBatch</span><span class="api-tag">approveSettlementBatch</span><span class="api-tag">exportSettlementBatch</span><span class="api-tag">recordSettlementPaymentResults</span></div></div>
+        <div class="panel"><div class="panel-head"><h2>#SET-2026-W29</h2><span class="status amber">待复核</span></div><div class="metric-row"><div class="metric"><span>陪玩人数</span><strong>24</strong></div><div class="metric"><span>净应付</span><strong>184,620 CAT</strong></div><div class="metric"><span>异常项目</span><strong>1</strong></div><div class="metric"><span>币种</span><strong>CAT</strong></div></div><div class="panel-body"><div class="callout warning">高额手动批次禁止创建人自批；作废已批准或已导出批次时必须关联同工作区、同币种且不形成循环的替代批次。</div><div class="button-row" style="margin-top:12px"><button class="btn primary role-action action" data-min="3" data-fallback="disable" data-op="submitSettlementBatch">提交复核</button><button class="btn role-action action" data-min="3" data-fallback="disable" data-op="exportSettlementBatch">导出清单</button><button class="btn role-action action" data-min="3" data-fallback="disable" data-op="recordSettlementPaymentResults">登记结果</button><button class="btn danger role-action action" data-min="4" data-fallback="disable" data-op="voidSettlementBatch">作废并替代</button></div></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>逐条付款结果</h2><span class="muted fine">只提交明确选择的条目</span></div><div class="table-scroll"><table><thead><tr><th>陪玩</th><th>应付 CAT</th><th>线下实付 USD</th><th>结果</th><th>外部转账凭证</th><th>说明</th></tr></thead><tbody><tr><td>阿岚</td><td>12,180 CAT</td><td><input value="1218.00"></td><td><select><option>已支付</option></select></td><td><input value="EXT-8821"></td><td><input value=""></td></tr><tr><td>小北</td><td>9,860 CAT</td><td><input value="986.00"></td><td><select><option>请选择结果</option><option>已支付</option><option>支付失败</option></select></td><td><input value=""></td><td><input value=""></td></tr><tr><td>可可</td><td>7,200 CAT</td><td><input value="720.00"></td><td><select><option>支付失败</option></select></td><td><input value=""></td><td><input value="外部渠道拒绝"></td></tr></tbody></table></div><div class="panel-body"><button class="btn primary action" data-op="recordSettlementPaymentResults">确认登记</button><div class="callout" style="margin-top:12px">未选择条目保持未登记；系统禁止把全部未处理条目自动写成失败。USD 仅记录线下实际支付结果，不形成第二账本。</div></div></div>
+      </section>
+
+      <section class="screen stateful" id="dash-weekly-reports" data-page-min="2">
+        <div class="page-head"><div><h1>A12. 周报与汇总</h1><p class="lede">每个周期生成店铺汇总和陪玩个人报告；纠错追加修订，旧快照保持只读。</p></div><div class="chips"><span class="api-tag">listAdminWeeklyReports</span><span class="api-tag">exportWeeklyReport</span><span class="api-tag">createWeeklyReportRevision</span></div></div>
+        <div class="layout-even"><div class="panel"><div class="panel-head"><h2>店铺汇总 · 2026-W29</h2><span class="status green">已生成</span></div><div class="panel-body"><dl class="kv"><dt>完成订单</dt><dd>286 单</dd><dt>服务时长</dt><dd>514 小时</dd><dt>待确认收益</dt><dd>21,840 CAT</dd><dt>可结算收益</dt><dd>184,620 CAT</dd><dt>已归批</dt><dd>152,200 CAT</dd><dt>待复核</dt><dd>1 项</dd></dl><button class="btn primary action" data-op="exportWeeklyReport">导出当前修订</button></div></div><div class="panel"><div class="panel-head"><h2>修订与通知</h2><span class="status blue">当前 v2</span></div><div class="panel-body"><dl class="kv"><dt>v2</dt><dd>追加跨期 Adjustment</dd><dt>v1</dt><dd>系统周期生成 · 只读</dd><dt>通知失败</dt><dd>只重试 Discord 通知</dd><dt>重复生成</dt><dd>禁止</dd></dl><button class="btn role-action action" data-min="3" data-fallback="disable" data-op="createWeeklyReportRevision">创建修订</button></div></div></div>
+      </section>
+
+      <section class="screen stateful" id="reference-states">
+        <div class="page-head"><div><h1>R1. 状态、权限与 v1.0 追踪约定</h1><p class="lede">本页用于设计评审和本地原型对照；正式上线仍需 Discord、Dashboard、Railway、恢复演练与人工 UAT。</p></div><div class="chips"><span class="chip">P0 v1.0</span><span class="chip">统一业务 API</span><span class="chip">无硬删除</span><span class="trace-tag">REQ-P0-SCOPE-01</span></div></div>
+        <div class="panel"><div class="panel-head"><h2>界面权限表现</h2></div><div class="table-scroll"><table class="matrix"><thead><tr><th>行为</th><th>L1_SUPPORT</th><th>L2_SUPERVISOR</th><th>L3_OPERATIONS</th><th>L4_ADMIN_OWNER</th></tr></thead><tbody><tr><td>任务、订单、用户范围</td><td class="yes">我的任务；脱敏</td><td class="yes">团队；脱敏</td><td class="yes">全业务</td><td class="yes">全系统</td></tr><tr><td>暂停 / 接管 / 恢复自动流程</td><td class="limited">认领后暂停与建议</td><td class="yes">团队内处理</td><td class="yes">包含 L2，全业务处理</td><td class="yes">包含 L1–L3，全系统处理</td></tr><tr><td>礼物 5,200 CAT</td><td class="limited">核对并提交审批</td><td class="yes">批准捕获</td><td class="yes">继承 L2，可批准</td><td class="yes">继承 L2，可批准</td></tr><tr><td>礼物 28,880 CAT</td><td class="limited">提交审批</td><td class="limited">提交 L3</td><td class="yes">批准捕获</td><td class="yes">继承 L3，可批准</td></tr><tr><td>礼物/结案 52,000 CAT</td><td class="limited">提交 L4</td><td class="limited">提交 L4</td><td class="limited">提交 L4</td><td class="yes">可由同一人直接执行</td></tr><tr><td>服务目录</td><td class="no">隐藏</td><td class="limited">只读</td><td class="yes">管理版本</td><td class="yes">继承 L3，可管理</td></tr><tr><td>受益人和收益金额</td><td class="no">默认隐藏</td><td class="limited">按任务有限查看</td><td class="yes">管理与审计</td><td class="yes">管理与审计</td></tr><tr><td>推荐绑定 / 改绑 / 冲正</td><td class="no">禁止</td><td class="no">禁止</td><td class="yes">允许并审计</td><td class="yes">继承 L3，允许</td></tr><tr><td>权限管理</td><td class="no">隐藏</td><td class="no">隐藏</td><td class="no">隐藏</td><td class="yes">L4 + step-up</td></tr><tr><td>硬删除财务/审计</td><td class="no">永久禁止</td><td class="no">永久禁止</td><td class="no">永久禁止</td><td class="no">永久禁止</td></tr></tbody></table></div></div>
+        <div class="panel" style="margin-top:14px"><div class="panel-head"><h2>启动门禁追踪</h2><span class="muted fine">HTML 与两份 CSV 使用相同 ID</span></div><div class="table-scroll"><table><thead><tr><th>门禁</th><th>需求</th><th>原型证据</th><th>验收焦点</th></tr></thead><tbody><tr><td>GATE-P0-01</td><td>REQ-P0-ORDER-01</td><td>D4 结构化需求与完整确认</td><td>游戏、服务、区服、时长、标签、备注、价格、余额、取消规则一次展示</td></tr><tr><td>GATE-P0-02</td><td>REQ-P0-FUNDS-01</td><td>D3/D4/D9/A3 余额与预留生命周期</td><td>订单提交预留、完成捕获；三项余额公式一致</td></tr><tr><td>GATE-P0-03</td><td>REQ-P0-MATCH-01</td><td>D3 匹配阶段、候选数、终选摘要</td><td>无时限招募由客户手动终止，不按先后自动获胜</td></tr><tr><td>GATE-P0-04</td><td>REQ-P0-PLAYER-01/02</td><td>D5–D7 陪玩工作台</td><td>资格、状态、匹配、当前单、计时、支持、收益完整</td></tr><tr><td>GATE-P0-05</td><td>REQ-P0-READY-01</td><td>D3/D7 逐名陪玩就绪</td><td>客户只读；全体当前有效陪玩确认后才自动进入 IN_SERVICE</td></tr><tr><td>GATE-P0-06</td><td>REQ-P0-CANCEL-01</td><td>D3 取消影响预览</td><td>自动可处理性、预计释放/退款、方式和时效先展示</td></tr></tbody></table></div></div>
+        <div class="layout-even" style="margin-top:14px"><div class="panel"><div class="panel-head"><h2>通用页面状态</h2></div><div class="panel-body"><dl class="kv"><dt>Loading</dt><dd>保留稳定尺寸，显示骨架</dd><dt>Empty</dt><dd>说明筛选无结果，可清除筛选</dd><dt>Error</dt><dd>显示 request_id 与安全重试</dd><dt>No Permission</dt><dd>不泄露对象，只说明所需权限</dd><dt>Approval Pending</dt><dd>显示审批编号、级别、到期时间</dd><dt>Stale Data</dt><dd>禁用原动作，刷新后重新确认</dd></dl></div></div><div class="panel"><div class="panel-head"><h2>operationId 约定</h2></div><div class="panel-body"><p class="fine">使用稳定英文 camelCase。Discord Bot 与 Dashboard 对同一业务动作必须使用同一个 operationId；前端不得自行计算价格、状态、权限、返佣或资金结果。</p><div class="callout"><strong>示例：</strong><br><code>approveGiftRequest</code> 同时用于 Discord 员工卡片和 Dashboard 礼物审批按钮，API 根据真实操作者、金额和状态决定执行或返回 <code>APPROVAL_PENDING</code>。</div></div></div></div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      const roles = {
+        1: { label: 'L1 基础客服', scope: '我的任务' },
+        2: { label: 'L2 客服主管', scope: '团队任务' },
+        3: { label: 'L3 运营负责人', scope: '全部业务' },
+        4: { label: 'L4 管理员 / 所有者', scope: '全系统' }
+      };
+      const orderStates = {
+        DRAFT: { label:'草稿', cls:'amber', hint:'请选择服务并填写即时单需求。确认提交前不会创建预留。', player:'尚未终选', match:'尚未提交', candidates:'0', reserved:'0.0 CAT', available:'3,680.0 CAT', postReserve:'2,480.0 CAT', next:'检查完整确认摘要并提交', accepted:'待终选 · 终选后逐名显示昵称、认证标签和沟通语言', playerReady:'未开始', timer:'尚未开始', actions:[['选择服务','listServiceCatalog',''],['填写详情','updateOrderDraft',''],['查看完整确认','estimateOrder',''],['确认提交并预留','submitOrder','primary'],['预览取消影响','previewOrderCancellation','']] },
+        SUBMITTING: { label:'正在提交', cls:'blue', hint:'正在原子校验价格和余额并创建订单预留，请勿重复点击。', player:'尚未终选', match:'预留创建中', candidates:'0', reserved:'处理中', available:'查询中', postReserve:'查询中', next:'等待幂等提交结果', accepted:'尚未开始招募', playerReady:'未开始', timer:'尚未开始', actions:[['处理中…','submitOrder','',true],['查询提交结果','getOrder','']] },
+        PENDING_DISPATCH: { label:'待招募 / 招募中', cls:'amber', hint:'订单已预留 1,200.0 CAT；候选池由客户手动开始和终止，符合 ACTIVE、同 Guild 与需求标签的陪玩可报名。', player:'尚未终选', match:'COLLECTING · 无自然截止', candidates:'4', reserved:'1,200.0 CAT', available:'2,480.0 CAT', postReserve:'已预留', next:'查看报名名单并手动终止招募、终选、重招募或取消', accepted:'待终选 · 当前 4 名已报名', playerReady:'未开始', timer:'招募无自然截止', actions:[['终止招募并进入选秀','closeOrderSelectionPool','primary'],['查看取消影响','previewOrderCancellation','red'],['联系客服','createOrderStaffTask','']] },
+        ACCEPTED: { label:'已终选 / 待陪玩准备', cls:'green', hint:'正式陪玩已确认。客户只读查看逐名进度；所有当前有效陪玩都就绪后系统才开始计时。', player:'陪玩B、陪玩C', match:'ACCEPTED · 终选完成', candidates:'4', reserved:'1,200.0 CAT', available:'2,480.0 CAT', postReserve:'已预留', next:'进入频道并查看陪玩准备进度', accepted:'陪玩B、陪玩C · ACTIVE · 无畏契约 / 北美 / 中文', playerReady:'部分就绪', timer:'就绪剩余 08:42', actions:[['刷新准备进度','getOrder',''],['进入订单频道','getOrder',''],['赠送礼物','listGiftCatalog','primary'],['预览取消影响','previewOrderCancellation','red']] },
+        IN_SERVICE: { label:'服务中', cls:'green', hint:'全体有效陪玩已就绪，系统已开始计时。订单预留将在完成时捕获；礼物请求会单独预留。', player:'陪玩B、陪玩C', match:'IN_SERVICE · 全员已就绪', candidates:'4', reserved:'1,200.0 CAT', available:'2,480.0 CAT', postReserve:'已预留', next:'继续服务；问题可转客服', accepted:'陪玩B、陪玩C · ACTIVE · 无畏契约 / 北美 / 中文', playerReady:'全部就绪', timer:'服务已进行 01:14:22', actions:[['赠送礼物','listGiftCatalog','primary'],['报告问题','createOrderStaffTask','red'],['刷新订单','getOrder','']] },
+        PENDING_CONFIRMATION: { label:'待确认', cls:'blue', hint:'陪玩已申请完成，请核对服务后确认；确认后捕获订单预留，30 分钟未处理将转客服。', player:'陪玩B', match:'PENDING_CONFIRMATION', candidates:'4', reserved:'1,200.0 CAT', available:'2,480.0 CAT', postReserve:'已预留', next:'确认完成或报告问题', accepted:'陪玩B · ACTIVE · 无畏契约 / 北美 / 中文', playerReady:'全部就绪', timer:'确认剩余 24:36', actions:[['确认完成并捕获','confirmOrderCompletion','green'],['赠送礼物','listGiftCatalog','primary'],['报告问题','createOrderStaffTask','red']] },
+        COMPLETED: { label:'已完成', cls:'green', hint:'订单预留已捕获，消费、陪玩收益和符合条件的受益收益已记录。', player:'陪玩B', match:'COMPLETED', candidates:'4', reserved:'0.0 CAT', available:'2,480.0 CAT', postReserve:'不适用', next:'查看消费明细或联系客服', accepted:'陪玩B · 服务已完成', playerReady:'全部就绪', timer:'服务时长 02:00:00', actions:[['查看消费明细','listMyConsumptions',''],['赠送礼物','listGiftCatalog','primary'],['联系客服','createOrderStaffTask','']] },
+        CANCELLED: { label:'已取消', cls:'red', hint:'订单已取消，预留已释放。原资金事实不会删除，结果保留在时间线。', player:'—', match:'CANCELLED', candidates:'4', reserved:'0.0 CAT', available:'3,680.0 CAT', postReserve:'不适用', next:'查看释放结果', accepted:'无正式陪玩或已解除分配', playerReady:'不适用', timer:'已结束', actions:[['查看释放明细','listMyConsumptions',''],['联系客服','createOrderStaffTask','']] },
+        EXCEPTION: { label:'异常处理中', cls:'red', hint:'自动流程已暂停，客服正在核对；有效预留保持，不要重复提交或创建第二笔预留。', player:'陪玩B', match:'PAUSED · 客服接管', candidates:'4', reserved:'1,200.0 CAT', available:'2,480.0 CAT', postReserve:'已预留', next:'查看客服任务进度', accepted:'陪玩B · 当前分配保持', playerReady:'按逐名事实显示', timer:'计时已暂停 00:03:18', actions:[['查看处理进度','listCurrentUserStaffTasks',''],['安全重试','local',''],['补充信息','createOrderStaffTask','']] }
+      };
+      const navItems = [...document.querySelectorAll('.nav-item')];
+      const screens = [...document.querySelectorAll('.screen')];
+      const roleSelect = document.getElementById('roleSelect');
+      const stateSelect = document.getElementById('uiStateSelect');
+      const stateDemo = document.getElementById('stateDemo');
+      const toast = document.getElementById('toast');
+      let toastTimer;
+
+      function showToast(message) {
+        clearTimeout(toastTimer); toast.textContent = message; toast.classList.add('show');
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+      }
+      function showScreen(id) {
+        const level = Number(roleSelect.value);
+        const target = document.getElementById(id);
+        const min = Number(target?.dataset.pageMin || 1);
+        screens.forEach(s => s.classList.toggle('active', s.id === id));
+        navItems.forEach(n => n.classList.toggle('active', n.dataset.screen === id));
+        if (level < min) { stateSelect.value = 'forbidden'; renderUiState(); }
+        else if (stateSelect.value === 'forbidden') { stateSelect.value = 'normal'; renderUiState(); }
+        location.hash = id;
+      }
+      function renderRole() {
+        const level = Number(roleSelect.value);
+        document.querySelectorAll('.current-role-label').forEach(el => el.textContent = roles[level].label);
+        const scope = document.getElementById('scopeLabel'); if (scope) scope.textContent = roles[level].scope;
+        document.querySelectorAll('[data-nav-min]').forEach(el => el.classList.toggle('hidden-by-role', level < Number(el.dataset.navMin)));
+        document.querySelectorAll('.role-action').forEach(btn => {
+          const min = Number(btn.dataset.min || 1); const unauthorized = level < min;
+          if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+          if (!btn.dataset.originalOp) btn.dataset.originalOp = btn.dataset.op || '';
+          btn.disabled = false; btn.classList.remove('hidden-by-role');
+          btn.dataset.op = btn.dataset.originalOp; btn.textContent = btn.dataset.originalText;
+          if (unauthorized && btn.dataset.fallback === 'hide') btn.classList.add('hidden-by-role');
+          if (unauthorized && btn.dataset.fallback === 'disable') { btn.disabled = true; btn.title = `需要 L${min}`; }
+          if (unauthorized && btn.dataset.fallback === 'approval') {
+            if (level < 2) { btn.textContent = '等待 L2 接手'; btn.disabled = true; btn.title = 'L1 只通过客服任务提交核对和建议'; }
+            else { btn.textContent = '提交审批'; btn.dataset.op = 'approveGiftRequest'; btn.title = `执行需要 L${min}`; }
+          }
+        });
+        document.querySelectorAll('.permission-note').forEach(note => note.style.display = level === 1 ? 'block' : 'none');
+        document.querySelectorAll('[data-role-visible]').forEach(el => el.classList.toggle('active', Number(el.dataset.roleVisible) === level));
+        document.querySelectorAll('[data-role-min-view]').forEach(el => el.classList.toggle('hidden-by-role', level < Number(el.dataset.roleMinView)));
+        const hint = document.getElementById('giftRoleHint');
+        if (hint) hint.textContent = level === 1 ? 'L1 只通过客服任务提交核对和建议' : level === 2 ? 'L2 可批准 ≤ 200,000 CAT subunits' : level === 3 ? 'L3 可批准；≥ 500,000 CAT subunits 转 L4' : 'L4 可直接执行高额请求';
+        document.querySelectorAll('.high-value-action').forEach(btn => {
+          if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+          if (level < 2) { btn.textContent = '等待 L2 接手'; btn.disabled = true; }
+          else if (level < 3) { btn.textContent = '提交 L3 审批'; btn.dataset.op = 'approveGiftRequest'; btn.disabled = false; }
+          else if (level === 3) { btn.textContent = '提交 L4 处理'; btn.dataset.op = 'approveGiftRequest'; btn.disabled = false; }
+          else { btn.textContent = 'L4 直接执行'; btn.dataset.op = 'approveGiftRequest'; btn.disabled = false; }
+        });
+        const active = document.querySelector('.screen.active');
+        if (active && level < Number(active.dataset.pageMin || 1)) { stateSelect.value = 'forbidden'; }
+        renderUiState();
+      }
+      function renderUiState() {
+        const state = stateSelect.value;
+        document.querySelectorAll('.stateful').forEach(el => el.style.display = '');
+        document.body.classList.toggle('demo-state-active', state !== 'normal');
+        if (state === 'normal') { stateDemo.classList.remove('show'); return; }
+        const content = {
+          loading: '<div class="state-demo-inner"><div class="state-icon">…</div><h2>正在加载</h2><p class="muted">保留列表和操作区尺寸，避免内容跳动。</p><div class="skeleton"><i></i><i></i><i></i><i></i></div></div>',
+          empty: '<div class="state-demo-inner"><div class="state-icon">0</div><h2>当前筛选下没有结果</h2><p class="muted">可以清除筛选或刷新。这里不使用营销型空状态。</p><button class="btn" data-state-action="reset">清除筛选</button></div>',
+          error: '<div class="state-demo-inner"><div class="state-icon" style="color:var(--red);background:var(--red-soft)">!</div><h2>暂时无法加载</h2><p class="muted">请求编号 <code>req_01J4B6J7T</code>。未知资金结果时不允许重复执行；安全重试复用原幂等键。</p><button class="btn primary action" data-op="local" data-state-action="reset">安全重试</button></div>',
+          forbidden: '<div class="state-demo-inner"><div class="state-icon" style="color:var(--amber);background:var(--amber-soft)">×</div><h2>无权访问此内容</h2><p class="muted">需要更高管理级别或对应权限码。本次访问已记录，但不会返回目标数据。</p><button class="btn" data-state-action="workbench">返回工作台</button></div>'
+        };
+        stateDemo.innerHTML = content[state]; stateDemo.classList.add('show');
+      }
+      function renderOrderState() {
+        const state = orderStates[document.getElementById('orderStateSelect').value];
+        const badge = document.getElementById('orderStateBadge'); badge.textContent = state.label; badge.className = `status ${state.cls}`;
+        document.getElementById('orderStateHint').textContent = state.hint;
+        document.getElementById('orderPlayer').textContent = state.player;
+        document.getElementById('orderMatchStage').textContent = state.match;
+        document.getElementById('orderCandidateCount').textContent = state.candidates;
+        document.getElementById('orderReservedAmount').textContent = state.reserved;
+        document.getElementById('orderAvailableAmount').textContent = state.available;
+        document.getElementById('orderPostReserveAmount').textContent = state.postReserve;
+        document.getElementById('orderNextAction').textContent = state.next;
+        document.getElementById('acceptedPlayerSummary').textContent = state.accepted;
+        document.getElementById('playerReadyState').textContent = state.playerReady;
+        document.getElementById('playerReadyState').className = `status ${state.playerReady === '全部就绪' ? 'green' : 'amber'}`;
+        document.getElementById('readinessTimer').textContent = state.timer;
+        const actions = document.getElementById('orderActions'); actions.innerHTML = '';
+        state.actions.forEach(([label, op, style, disabled]) => { const b=document.createElement('button'); b.className=`dc-btn action ${style || ''}`; b.textContent=label; b.dataset.op=op; b.title=`API operationId: ${op}`; b.disabled=!!disabled; actions.appendChild(b); });
+        document.getElementById('orderOps').innerHTML = state.actions.map(a => `<code>${a[1]}</code>`).join(' · ');
+      }
+      navItems.forEach(item => item.addEventListener('click', () => showScreen(item.dataset.screen)));
+      roleSelect.addEventListener('change', renderRole);
+      stateSelect.addEventListener('change', renderUiState);
+      document.getElementById('orderStateSelect').addEventListener('change', renderOrderState);
+      document.getElementById('printButton').addEventListener('click', () => window.print());
+      document.addEventListener('click', e => {
+        const stateAction = e.target.closest('[data-state-action]');
+        if (stateAction) {
+          stateSelect.value = 'normal'; renderUiState();
+          if (stateAction.dataset.stateAction === 'workbench') showScreen('dash-workbench');
+          return;
+        }
+        const action = e.target.closest('.action');
+        if (action && !action.disabled) showToast(`原型动作：${action.textContent.trim()} · operationId: ${action.dataset.op}`);
+      });
+      document.querySelectorAll('.action[data-op]').forEach(action => {
+        action.title = `API operationId: ${action.dataset.op}`;
+      });
+      const initial = location.hash.slice(1); if (initial && document.getElementById(initial)) showScreen(initial);
+      renderOrderState(); renderRole();
+    })();
+  </script>
+</body>
+</html>
